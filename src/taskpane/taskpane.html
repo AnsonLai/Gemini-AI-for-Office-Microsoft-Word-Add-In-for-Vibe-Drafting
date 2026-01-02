@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Contract Reviewer</title>
+  <!-- Office JavaScript API -->
+  <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Your Add-in's CSS -->
+  <link rel="stylesheet" href="taskpane.css" type="text/css" />
+</head>
+
+<body class="ms-font-m ms-welcome">
+
+  <!-- Refresh Button -->
+  <button id="refresh-chat-button" title="Clear chat and start new">&#8635;</button> <!-- Refresh icon -->
+
+  <!-- Settings Icon -->
+  <button id="settings-button" title="Settings">&#9881;</button> <!-- Gear icon -->
+
+  <!-- Main App View -->
+  <div id="main-view" class="view-container">
+
+    <div id="app-body">
+      <div id="chat-container" class="ms-Grid-col ms-sm12">
+        <div id="chat-messages">
+          <div class="chat-message system">Welcome! Ask me to assist you in editing this document.</div>
+        </div>
+        <div id="chat-input-area">
+          <textarea id="chat-input" placeholder="Ask Gemini..."></textarea>
+          <div id="button-container">
+            <button id="send-button" class="ms-Button" title="Send (Fast)">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+            </button>
+            <button id="think-button" class="ms-Button" title="Think (Slow)">THINK</button>
+          </div>
+        </div>
+        <button id="scroll-to-bottom" title="Scroll to bottom">&#8595;</button>
+      </div>
+
+
+      <hr class="ms-Grid-col ms-sm12">
+
+      <div id="glance-container" class="ms-Grid-col ms-sm12">
+        <div class="section-header">
+          <h3>Glance</h3>
+          <button id="refresh-glance-button" title="Refresh Checks">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M23 4v6h-6"></path>
+              <path d="M1 20v-6h6"></path>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+          </button>
+        </div>
+        <div id="glance-list">
+          <!-- Dynamic Glance Items will be injected here -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings View (Hidden by default) -->
+  <div id="settings-view" class="view-container" style="display: none;">
+
+    <h3>Settings</h3>
+    <label for="api-key-input">Google Gemini <a href="https://aistudio.google.com/app/api-keys" target="_blank">API
+        Key</a>:</label>
+    <input type="password" id="api-key-input" class="ms-TextField-field">
+    <br />
+    <label for="system-message-input">System Message:</label>
+    <textarea id="system-message-input" class="ms-TextField-field" rows="6"
+      placeholder="Enter system instructions."></textarea>
+    <br />
+    <label for="model-select-fast">Fast Model:</label>
+    <select id="model-select-fast" class="ms-TextField-field">
+      <option value="gemini-flash-lite-latest">Gemini 2.5 Flash Lite</option>
+      <option value="gemini-flash-latest" selected>Gemini 2.5 Flash</option>
+      <option value="gemini-3-flash-preview" selected>Gemini 3 Flash Preview (Default)</option>
+      <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+      <option value="gemini-3-pro-preview">Gemini 3 Pro Preview</option>
+    </select>
+    <br />
+    <label for="model-select-slow">Slow Model:</label>
+    <select id="model-select-slow" class="ms-TextField-field">
+      <option value="gemini-flash-lite-latest">Gemini 2.5 Flash Lite</option>
+      <option value="gemini-flash-latest">Gemini 2.5 Flash</option>
+      <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
+      <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+      <option value="gemini-3-pro-preview" selected>Gemini 3 Pro Preview (Default)</option>
+    </select>
+    <br />
+    <br />
+
+    <!-- Glance Settings Accordion -->
+    <div class="accordion-header" id="glance-settings-header">
+      <h3>Glance Settings</h3>
+      <span class="accordion-icon">&#9654;</span>
+    </div>
+    <div id="glance-settings-content" class="accordion-content" style="display: none;">
+      <p class="settings-hint">Drag to reorder. Edit labels and questions.</p>
+      <div id="glance-settings-list">
+        <!-- Dynamic Settings Cards will be injected here -->
+      </div>
+      <button id="add-glance-card-button" class="ms-Button"
+        style="margin-top: 10px; width: 100%; background-color: #f3f2f1; color: #333; border: 1px dashed #ccc;">+
+        Add
+        Question</button>
+    </div>
+
+    <br />
+
+    <!-- Advanced Settings Accordion -->
+    <div class="accordion-header" id="advanced-settings-header">
+      <h3>Advanced Settings</h3>
+      <span class="accordion-icon">&#9654;</span>
+    </div>
+    <div id="advanced-settings-content" class="accordion-content" style="display: none;">
+      <div class="advanced-settings-section">
+        <label class="toggle-switch-label">
+          <span>Enable Redlines (Track Changes)</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="redline-toggle" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </label>
+        <p class="settings-hint">When disabled, edits will be applied directly to the document without showing as
+          tracked
+          changes.</p>
+      </div>
+    </div>
+    <br />
+    <button id="save-api-key" class="ms-Button ms-Button--primary">Save</button>
+    <button id="back-to-main" class="ms-Button">Back</button>
+  </div>
+
+  <div id="sideload-msg" style="display:none">
+    <h1 class="ms-font-xl">Please sideload your add-in...</h1>
+  </div>
+</body>
+
+</html>

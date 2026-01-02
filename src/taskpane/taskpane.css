@@ -1,0 +1,1103 @@
+/* Variables & Reset */
+:root {
+    --primary-color: #26A69A;
+    /* Pastel Teal 400 */
+    --primary-hover: #00897B;
+    /* Teal 600 */
+    --bg-color: #F5F7FA;
+    --surface-color: #FFFFFF;
+    --text-color: #374151;
+    --text-secondary: #6B7280;
+    --border-color: #E5E7EB;
+    --error-bg: #FEF2F2;
+    --error-text: #EF4444;
+    --font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --radius: 8px;
+    --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+    --shadow-hover: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --transition-speed: 0.25s;
+    --ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Animations */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translate3d(0, 10px, 0);
+    }
+
+    to {
+        opacity: 1;
+        transform: translate3d(0, 0, 0);
+    }
+}
+
+@keyframes scaleIn {
+    from {
+        transform: scale(0.95);
+        opacity: 0;
+    }
+
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* Typing indicator - bouncing dots */
+@keyframes bounce {
+
+    0%,
+    60%,
+    100% {
+        transform: translateY(0);
+    }
+
+    30% {
+        transform: translateY(-4px);
+    }
+}
+
+/* Shake animation for error feedback */
+@keyframes shake {
+
+    0%,
+    100% {
+        transform: translateX(0);
+    }
+
+    20%,
+    60% {
+        transform: translateX(-5px);
+    }
+
+    40%,
+    80% {
+        transform: translateX(5px);
+    }
+}
+
+/* Pulse animation for status changes */
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 currentColor;
+    }
+
+    50% {
+        transform: scale(1.3);
+    }
+
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 4px transparent;
+    }
+}
+
+/* Checkmark pop-in */
+@keyframes checkPop {
+    0% {
+        transform: scale(0);
+        opacity: 0;
+    }
+
+    50% {
+        transform: scale(1.2);
+    }
+
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* Spin animation for refresh */
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Gear wiggle */
+@keyframes wiggle {
+
+    0%,
+    100% {
+        transform: rotate(0deg);
+    }
+
+    25% {
+        transform: rotate(-10deg);
+    }
+
+    75% {
+        transform: rotate(10deg);
+    }
+}
+
+
+
+/* View Transitions */
+.view-container {
+    opacity: 1;
+    transition: opacity 0.2s ease-in-out;
+}
+
+.view-hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+
+body {
+    font-family: var(--font-family);
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    margin: 0;
+    padding: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Layout & Containers */
+#app-body {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    padding: 20px;
+    box-sizing: border-box;
+    gap: 20px;
+    overflow-y: auto;
+}
+
+#main-view {
+    height: 100%;
+}
+
+/* Typography */
+h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-color);
+    margin: 0 0 8px 0;
+}
+
+p {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin: 0 0 2px 0;
+    line-height: 1.5;
+}
+
+/* Chat Section */
+#chat-container {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-color);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 16px;
+    flex: 1;
+    min-height: 300px;
+    transition: box-shadow var(--transition-speed);
+}
+
+#chat-container:hover {
+    box-shadow: var(--shadow-hover);
+}
+
+
+#chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 8px;
+    margin-bottom: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.chat-message {
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    max-width: 85%;
+    word-wrap: break-word;
+    /* Animation defaults */
+    animation: fadeInUp 0.4s var(--ease-out-back) forwards;
+    opacity: 0;
+    /* Starts hidden, revealed by animation */
+}
+
+
+.chat-message.system {
+    background-color: #F3F4F6;
+    /* Very light teal */
+    color: var(--text-color);
+    align-self: center;
+    text-align: center;
+    font-size: 0.75rem;
+    border-radius: 20px;
+    padding: 6px 12px;
+}
+
+.chat-message.system p {
+    color: var(--text-color);
+    align-self: center;
+    text-align: center;
+    font-size: 0.75rem;
+}
+
+.system-msg-toggle {
+    background: none;
+    border: none;
+    color: var(--primary-color);
+    padding: 0;
+    font-size: 0.75rem;
+    cursor: pointer;
+    text-decoration: underline;
+    margin-left: 5px;
+    display: inline;
+    /* Override default button display */
+}
+
+.system-msg-toggle:hover {
+    background: none;
+    color: var(--primary-hover);
+}
+
+.chat-message.user {
+    background-color: var(--primary-color);
+    color: white;
+    align-self: flex-end;
+    border-bottom-right-radius: 2px;
+}
+
+.chat-message.user p {
+    color: white;
+}
+
+.chat-message.gemini {
+    background-color: #E0F2F1;
+    color: #00695C;
+    align-self: flex-start;
+    border-bottom-left-radius: 2px;
+}
+
+.chat-message.error {
+    background-color: var(--error-bg);
+    color: var(--error-text);
+    border: 1px solid #FECACA;
+}
+
+/* Input Area */
+#chat-input-area {
+    display: flex;
+    flex-direction: row;
+    padding: 10px;
+    /* border-top: 1px solid #e0e0e0; Removed per user request */
+    background-color: #ffffff;
+    gap: 8px;
+    align-items: stretch;
+}
+
+#chat-input {
+    flex-grow: 1;
+    border: 1px solid #d1d1d1;
+    border-radius: 4px;
+    padding: 8px;
+    resize: none;
+    min-height: 60px;
+    /* Reduced height */
+    font-family: 'Inter', sans-serif;
+    outline: none;
+    /* Remove default black outline */
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+#chat-input:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(38, 166, 154, 0.15);
+    /* Soft teal glow */
+}
+
+
+#button-container {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 60px;
+}
+
+#send-button {
+    background-color: #26A69A;
+    /* Teal to match theme */
+    color: white;
+    border: none;
+    border-radius: 4px;
+    width: 100%;
+    flex: 1;
+    /* Smaller than send button */
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#send-button:hover {
+    background-color: #00897B;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+#send-button:active {
+    transform: translateY(0);
+}
+
+
+#send-button:disabled {
+    background-color: #c8c8c8;
+    cursor: not-allowed;
+}
+
+#think-button {
+    background-color: #e2ad6d;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    width: 100%;
+    flex: 2;
+    /* Make Send button larger/more prominent */
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s;
+}
+
+#think-button:hover {
+    background-color: #d29266;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+#think-button:active {
+    transform: translateY(0);
+}
+
+
+#think-button:disabled {
+    background-color: #c8c8c8;
+    cursor: not-allowed;
+}
+
+/* Buttons */
+button,
+.ms-Button {
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: var(--radius);
+    padding: 10px 16px;
+    font-family: var(--font-family);
+    font-weight: 500;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background-color 0.2s, transform 0.1s, box-shadow 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+
+button:hover,
+.ms-Button:hover {
+    background-color: var(--primary-hover);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+
+button:active,
+.ms-Button:active {
+    transform: scale(0.98);
+}
+
+/* Refresh Button */
+#refresh-chat-button {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    background: transparent;
+    color: var(--text-secondary);
+    padding: 8px;
+    font-size: 1.2rem;
+    box-shadow: none;
+}
+
+#refresh-chat-button:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--text-color);
+    transform: rotate(15deg) scale(1.1);
+    transition: all 0.3s ease;
+}
+
+
+/* Settings Button */
+#settings-button {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: transparent;
+    color: var(--text-secondary);
+    padding: 8px;
+    font-size: 1.2rem;
+    box-shadow: none;
+}
+
+#settings-button:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--text-color);
+    transform: rotate(30deg) scale(1.1);
+    transition: all 0.3s ease;
+}
+
+
+/* Settings View */
+#settings-view {
+    padding: 24px;
+    background: var(--surface-color);
+    height: 100%;
+    box-sizing: border-box;
+}
+
+#settings-view input,
+#settings-view select,
+#settings-view textarea {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    margin-top: 8px;
+    margin-bottom: 16px;
+    font-family: var(--font-family);
+    box-sizing: border-box;
+    background-color: var(--surface-color);
+    color: var(--text-color);
+    font-size: 0.9rem;
+}
+
+#settings-view select {
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%236B7280%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 12px;
+    padding-right: 30px;
+    cursor: pointer;
+}
+
+#settings-view textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+#settings-view button {
+    margin-top: 16px;
+    margin-right: 10px;
+}
+
+#back-to-main {
+    background-color: white;
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+}
+
+/* Utilities */
+hr {
+    display: none;
+    /* Hide HRs, use spacing instead */
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #D1D5DB;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #9CA3AF;
+}
+
+/* --- Revert Button in Chat (Added to match theme) --- */
+.revert-checkpoint-btn {
+    display: inline-flex;
+    margin-top: 8px;
+    padding: 6px 12px;
+    background-color: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    color: var(--text-color);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.revert-checkpoint-btn:hover {
+    background-color: #F9FAFB;
+    border-color: #D1D5DB;
+    color: var(--primary-color);
+}
+
+/* Glance Feature Styles */
+.glance-item {
+    margin-bottom: 10px;
+    padding: 10px;
+    background-color: #f3f2f1;
+    border-radius: 4px;
+    animation: scaleIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    opacity: 0;
+}
+
+
+/* Stagger glance items */
+.glance-item:nth-child(1) {
+    animation-delay: 0.05s;
+}
+
+.glance-item:nth-child(2) {
+    animation-delay: 0.1s;
+}
+
+.glance-item:nth-child(3) {
+    animation-delay: 0.15s;
+}
+
+.glance-item:nth-child(4) {
+    animation-delay: 0.2s;
+}
+
+.glance-item:nth-child(5) {
+    animation-delay: 0.25s;
+}
+
+
+.glance-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 5px;
+}
+
+.glance-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 8px;
+    display: inline-block;
+}
+
+.glance-indicator.gray {
+    background-color: #ccc;
+}
+
+.glance-indicator.green {
+    background-color: #107c10;
+}
+
+.glance-indicator.yellow {
+    background-color: #ffb900;
+}
+
+.glance-indicator.red {
+    background-color: #d13438;
+}
+
+.glance-title {
+    font-weight: 600;
+}
+
+.glance-summary {
+    margin: 0;
+    font-size: 12px;
+    color: #605e5c;
+}
+
+/* Section Header (New) */
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.section-header h3 {
+    margin: 0;
+}
+
+#refresh-glance-button {
+    background: transparent;
+    color: var(--text-secondary);
+    padding: 4px;
+    height: auto;
+    width: auto;
+    min-width: unset;
+    border: none;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+
+
+.glance-card-header-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.glance-settings-card.over {
+    border: 2px solid var(--primary-color);
+    background-color: #E0F2F1;
+    transform: scale(1.02);
+}
+
+.glance-settings-card {
+    transition: transform 0.2s, background-color 0.2s;
+}
+
+.drag-handle {
+    color: #bbb;
+    font-size: 1.2rem;
+    cursor: grab;
+    padding: 0;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    height: 32px;
+    width: 32px;
+    border-radius: 4px;
+    margin: 0 !important;
+}
+
+.drag-handle:hover {
+    background-color: #f3f4f6;
+    color: var(--text-color);
+}
+
+.drag-handle:active {
+    cursor: grabbing;
+}
+
+.delete-card-btn {
+    background: transparent;
+    color: #999;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font-size: 1.2rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    height: 32px;
+    width: 32px;
+    border-radius: 4px;
+    margin: 0 !important;
+    transition: all 0.2s;
+}
+
+.delete-card-btn:hover {
+    color: var(--error-text);
+    background: rgba(239, 68, 68, 0.1);
+    border-radius: 4px;
+}
+
+.glance-title-input {
+    font-weight: 600;
+    font-size: 0.85rem;
+    padding: 8px;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    background: #fff;
+    flex: 1;
+    min-width: 0;
+    color: var(--text-color);
+    margin: 0 !important;
+    box-shadow: none;
+}
+
+.glance-title-input:focus {
+    border-color: var(--primary-color);
+    outline: none;
+}
+
+.glance-question-input {
+    font-size: 0.85rem;
+    padding: 6px;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    resize: vertical;
+    min-height: 40px;
+    font-family: var(--font-family);
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.settings-hint {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+    font-style: italic;
+}
+
+/* --- Welcome Screen Styles --- */
+.welcome-container {
+    padding: 20px;
+    font-family: 'Inter', sans-serif;
+    color: #333;
+}
+
+.welcome-header h2 {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    color: #2c3e50;
+}
+
+.welcome-step {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 15px;
+}
+
+.step-number {
+    background-color: #0078d4;
+    color: white;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 24px;
+    font-weight: bold;
+    font-size: 14px;
+    margin-right: 12px;
+    flex-shrink: 0;
+}
+
+.step-content p {
+    margin: 0 0 5px 0;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.welcome-note {
+    margin-top: 10px;
+    font-size: 13px;
+    color: #666;
+    font-style: italic;
+}
+
+.welcome-divider {
+    border: 0;
+    border-top: 1px solid #eee;
+    margin: 25px 0;
+}
+
+.feature-explanation {
+    margin-bottom: 20px;
+}
+
+.feature-explanation h3 {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #2c3e50;
+}
+
+.feature-explanation p {
+    margin: 0 0 8px 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #444;
+}
+
+.welcome-footer {
+    margin-top: 30px;
+    text-align: center;
+    color: #666;
+    font-size: 13px;
+}
+
+/* Revert Button Container */
+.revert-btn-container {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+}
+
+/* Advanced Settings Toggle Switch */
+.advanced-settings-section {
+    margin: 20px 0;
+    padding: 16px;
+    background-color: #f9fafb;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-color);
+}
+
+.toggle-switch-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 24px;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: 0.3s;
+    border-radius: 24px;
+}
+
+.toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: 0.3s;
+    border-radius: 50%;
+}
+
+input:checked+.toggle-slider {
+    background-color: var(--primary-color);
+}
+
+input:checked+.toggle-slider:before {
+    transform: translateX(26px);
+}
+
+.advanced-settings-section .settings-hint {
+    margin-top: 8px;
+    margin-bottom: 0;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+/* Accordion Styles */
+.accordion-header {
+    display: flex;
+    justify-content: space-between;
+    cursor: pointer;
+    padding: 10px;
+    background-color: #f3f2f1;
+    border-radius: 4px;
+    margin-bottom: 4px;
+    transition: background-color 0.2s;
+}
+
+.accordion-header:hover {
+    background-color: #e1dfdd;
+}
+
+
+
+.accordion-header h3 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.accordion-icon {
+    font-size: 0.8rem;
+    transition: transform 0.3s ease;
+    color: var(--text-secondary);
+}
+
+.accordion-header.active .accordion-icon {
+    transform: rotate(90deg);
+}
+
+.accordion-content {
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-top: none;
+    border-bottom-left-radius: var(--radius);
+    border-bottom-right-radius: var(--radius);
+    margin-bottom: 15px;
+    background-color: #fff;
+    /* Accordion animation support */
+    transition: max-height 0.3s ease-in-out, opacity 0.3s ease-in-out, margin 0.3s ease, padding 0.3s ease;
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    display: block !important;
+    /* Override inline style from JS */
+    padding-top: 0;
+    padding-bottom: 0;
+    border-width: 0;
+}
+
+.accordion-content.open {
+    max-height: 800px;
+    /* Large enough to fit content */
+    opacity: 1;
+    padding: 10px;
+    border-width: 1px;
+}
+
+/* ==================== NEW MICRO-ANIMATIONS ==================== */
+
+/* Typing Indicator - Bouncing Dots */
+.typing-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 12px;
+}
+
+.typing-indicator .dot {
+    width: 6px;
+    height: 6px;
+    background-color: var(--primary-color);
+    border-radius: 50%;
+    animation: bounce 1s infinite;
+}
+
+.typing-indicator .dot:nth-child(2) {
+    animation-delay: 0.15s;
+}
+
+.typing-indicator .dot:nth-child(3) {
+    animation-delay: 0.3s;
+}
+
+/* Teal dots (fast/regular) */
+.typing-indicator.typing-teal .dot {
+    background-color: var(--primary-color);
+}
+
+/* Yellow dots (slow/deep think) */
+.typing-indicator.typing-yellow .dot {
+    background-color: #e2ad6d;
+}
+
+/* Typing container with cancel button */
+.typing-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Cancel request button */
+.cancel-request-btn {
+    background: transparent;
+    border: none;
+    color: #999;
+    font-size: 14px;
+    padding: 4px 8px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: auto;
+    height: auto;
+}
+
+.cancel-request-btn:hover {
+    background-color: rgba(239, 68, 68, 0.1);
+    color: var(--error-text);
+}
+
+.cancel-request-btn .cancel-icon {
+    font-size: 12px;
+    font-weight: bold;
+}
+
+/* Shake Effect for Input Errors */
+#chat-input.shake {
+    animation: shake 0.4s ease-in-out;
+    border-color: var(--error-text) !important;
+}
+
+/* Glance Indicator Pulse on Status Change */
+.glance-indicator.pulse {
+    animation: pulse 0.5s ease-out;
+}
+
+/* Scroll-to-Bottom Button */
+#scroll-to-bottom {
+    position: absolute;
+    bottom: 100px;
+    right: 24px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    transition: opacity 0.2s, transform 0.2s;
+    z-index: 10;
+}
+
+#scroll-to-bottom:hover {
+    transform: scale(1.1);
+}
+
+#scroll-to-bottom.visible {
+    display: flex;
+    animation: fadeInUp 0.3s var(--ease-out-back);
+}
+
+#settings-button:hover {
+    animation: wiggle 0.5s ease-in-out;
+}

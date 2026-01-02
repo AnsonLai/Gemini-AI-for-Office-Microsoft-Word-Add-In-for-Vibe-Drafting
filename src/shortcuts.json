@@ -1,0 +1,17 @@
+{
+    "actions": [
+        {
+            "id": "ShowTaskpane",
+            "type": "ShowTaskpane",
+            "name": "Open Gemini Assistant"
+        }
+    ],
+    "shortcuts": [
+        {
+            "action": "ShowTaskpane",
+            "key": {
+                "default": "Ctrl+Shift+Q"
+            }
+        }
+    ]
+}
