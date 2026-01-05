@@ -684,7 +684,7 @@ function loadModel(type = 'fast') {
     return storedModel;
   }
   // Defaults
-  return type === 'slow' ? "gemini-3-pro-preview" : "gemini-3-flash-preview";
+  return type === 'slow' ? "gemini-2.5-pro" : "gemini-flash-latest";
 }
 
 function loadSystemMessage() {
@@ -1566,7 +1566,17 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
             addMessageToChat("Error", "Request timed out. Some changes may have been applied.");
           }
         } else {
-          addMessageToChat("Error", "Request timed out. The AI is taking longer than usual. Please try again with a simpler request.");
+          // Specific message for throttle/timeout
+          addMessageToChat("Error", "Gemini 3 is in preview and they have likely been throttled. Please go into settings and revert to Gemini 2.5.");
+
+          // Discard the timed out request from history to allow user to continue clean
+          // Remove the last user message we added for this request
+          // (The one pushed at `chatHistory.push({ role: "user", parts: [{ text: prompt }] });`)
+          // We only remove it if we haven't successfully done tools that we want to keep context for.
+          if (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === "user") {
+            console.log("Discarding timed out request from history");
+            chatHistory.pop();
+          }
         }
         keepLooping = false;
         break;
@@ -1997,8 +2007,21 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
       // Only remove loadingMsg if no tools were executed (meaning it's still a "Thinking" message)
       if (toolsExecutedInCurrentRequest.length === 0) {
         removeMessage(loadingMsg);
+
+        // Cleanup history for failed requests (timeout or error)
+        if (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === "user") {
+          console.log("Discarding failed request from history");
+          chatHistory.pop();
+        }
       }
-      const errorMessage = error.message ? `Sorry, I couldn't get a response. Error: ${error.message}` : `Sorry, I couldn't get a response. Error: ${String(error)}`;
+
+      let errorMessage = error.message ? `Sorry, I couldn't get a response. Error: ${error.message}` : `Sorry, I couldn't get a response. Error: ${String(error)}`;
+
+      // Override error message for timeouts
+      if (error.message && (error.message.includes("timed out") || error.message.includes("timeout"))) {
+        errorMessage = "Gemini 3 is in preview and they have likely been throttled. Please go into settings and revert to Gemini 2.5.";
+      }
+
       addMessageToChat("Error", errorMessage);
     }
   } finally {
