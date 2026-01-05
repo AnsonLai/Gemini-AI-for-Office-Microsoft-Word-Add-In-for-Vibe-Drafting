@@ -1560,14 +1560,16 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
         // If some tools executed successfully, show partial success
         if (toolsExecutedInCurrentRequest.length > 0) {
           const successMessage = generateSuccessMessage(toolsExecutedInCurrentRequest);
+          const throttleWarning = "\n\nIf you're using Gemini 3, it is in preview and your access has likely been throttled. Please go into settings and revert to Gemini 2.5.";
+
           if (successMessage) {
-            addMessageToChat("System", successMessage + "\n\n*(Request timed out after completing some changes)*");
+            addMessageToChat("System", successMessage + "\n\n*(Request timed out after completing some changes)*" + throttleWarning);
           } else {
-            addMessageToChat("Error", "Request timed out. Some changes may have been applied.");
+            addMessageToChat("Error", "Request timed out. Some changes may have been applied." + throttleWarning);
           }
         } else {
           // Specific message for throttle/timeout
-          addMessageToChat("Error", "Gemini 3 is in preview and they have likely been throttled. Please go into settings and revert to Gemini 2.5.");
+          addMessageToChat("Error", "If you're using Gemini 3, it is in preview and your access has likely been throttled. Please go into settings and revert to Gemini 2.5.");
 
           // Discard the timed out request from history to allow user to continue clean
           // Remove the last user message we added for this request
