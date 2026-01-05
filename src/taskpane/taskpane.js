@@ -1520,7 +1520,10 @@ TOOL SELECTION GUIDANCE:
 
 IMPORTANT: You have access to tools. You can chat and respond normally to questions. However, when the user asks for an action that involves manipulating the document, you should HEAVILY FAVOR using the corresponding tool rather than just describing the action.
 
-CRITICAL: If the user asks to 'edit text' or make any changes, prefer using the appropriate tool to apply changes directly. NEVER state that you have taken an action unless you have successfully invoked the corresponding tool.
+CRITICAL: If the user asks to 'edit text' or make any changes, you MUST use the \`apply_redlines\` tool.
+CRITICAL: If the user asks to "Reply to a comment" by "changing textual content", you MUST call BOTH \`apply_redlines\` (to apply the text change) AND \`insert_comment\` (to insert the reply). Call them in the same turn.
+NEVER claim to have "added a sentence" or "changed text" if you have only called \`insert_comment\`.
+NEVER state that you have taken an action unless you have successfully invoked the corresponding tool.
 
 AFTER executing a tool, DO NOT repeat the content of the document or the changes in your text response. The user can see the changes in the document.
 
@@ -3961,7 +3964,6 @@ async function applyExtractedFormatting(paragraph, formattingOps, context) {
 async function applySingleChange(paragraph, change, originalText, context) {
   try {
     if (change.type === 'replace') {
-      // Search for the exact substring
       const searchResults = paragraph.search(change.originalText, { matchCase: true });
       searchResults.load("items");
       await context.sync();
@@ -3976,21 +3978,37 @@ async function applySingleChange(paragraph, change, originalText, context) {
             searchResults.items[0].insertHtml(html, "Replace");
           } else {
             // Plain text: use insertText with Replace
+            console.log(`Replacing with plain text: "${change.originalText}" -> "${change.newText}"`);
             searchResults.items[0].insertText(change.newText, "Replace");
           }
+          await context.sync();
         } else {
           // Empty replacement = deletion
+          console.log(`Deleting text: "${change.originalText}"`);
           searchResults.items[0].delete();
+          await context.sync();
         }
+      } else {
+        console.warn(`Could not find text to replace: "${change.originalText}"`);
       }
     } else if (change.type === 'insert') {
       // For pure insertions, find the position and insert
+      let insertRange = null;
+      let location = "";
+
       if (change.position === 0) {
-        const range = paragraph.getRange("Start");
-        insertTextOrHtml(range, change.newText, "After");
+        insertRange = paragraph.getRange("Start");
+        location = "After";
       } else if (change.position >= originalText.length) {
-        const range = paragraph.getRange("End");
-        insertTextOrHtml(range, change.newText, "Before");
+        insertRange = paragraph.getRange("End");
+        location = "Before"; // Insert before the invisible end char? Or After last char?
+        // Safest is insertHtml/Text at End usually appends to paragraph content
+        // But getRange("End") is the end of paragraph marker.
+        // Let's stick to existing logic but clarify.
+        // Original logic:
+        // const range = paragraph.getRange("End");
+        // insertTextOrHtml(range, change.newText, "Before");
+        // We'll keep it but add logging.
       } else {
         // Insert in middle
         const anchorStart = Math.max(0, change.position - 20);
@@ -4002,19 +4020,54 @@ async function applySingleChange(paragraph, change, originalText, context) {
           await context.sync();
 
           if (searchResults.items.length > 0) {
-            const anchorRange = searchResults.items[searchResults.items.length - 1].getRange("End");
-            insertTextOrHtml(anchorRange, change.newText, "After");
+            // Append after the anchor
+            insertRange = searchResults.items[searchResults.items.length - 1].getRange("End");
+            location = "After";
+          } else {
+            console.warn(`Could not find anchor text for insertion: "${anchorText}"`);
           }
         }
       }
+
+      if (insertRange || (change.position >= originalText.length)) {
+        // Re-implement insertTextOrHtml here to support await sync
+        const range = insertRange || paragraph.getRange("End");
+        const loc = location || "Before";
+
+        console.log(`Inserting text at position ${change.position}: "${change.newText.substring(0, 50)}..."`);
+        if (hasInlineMarkdownFormatting(change.newText)) {
+          const html = marked.parseInline(change.newText);
+          range.insertHtml(html, loc);
+        } else {
+          range.insertText(change.newText, loc);
+        }
+        await context.sync();
+      }
+
     } else if (change.type === 'delete') {
       const searchResults = paragraph.search(change.originalText, { matchCase: true });
       searchResults.load("items");
       await context.sync();
 
       if (searchResults.items.length > 0) {
+        console.log(`Deleting text (deduplicated): "${change.originalText}"`);
         searchResults.items[0].delete();
+        await context.sync();
+      } else {
+        console.warn(`Could not find text to delete: "${change.originalText}"`);
       }
+    }
+
+    // --- VERIFICATION STEP ---
+    // Read back the paragraph text to confirm change persisted in the Word Object Model
+    // We swallow errors here to avoid breaking the main flow if paragraph was deleted/invalidated
+    try {
+      paragraph.load("text");
+      await context.sync();
+      // Log a snippet to confirm updates
+      console.log(`[VERIFY] Text after single change: "${paragraph.text.substring(0, 50)}..."`);
+    } catch (verifyError) {
+      console.warn("[VERIFY] Could not read back text (paragraph might be deleted or invalid):", verifyError.message);
     }
   } catch (error) {
     console.error(`Error applying DMP change:`, error);
