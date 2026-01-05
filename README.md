@@ -1,6 +1,16 @@
 # Gemini AI for Office - AI Assistant for Microsoft Word
 
-**Available on the Microsoft Marketplace:** [Download Here](https://marketplace.microsoft.com/en-ca/product/saas/wa200009707)
+**✨ Available on the Microsoft Marketplace:** [Download Here](https://marketplace.microsoft.com/en-ca/product/saas/wa200009707)
+
+![Chat with your documents using Gemini AI](assets/GeminiForWordv2chatwithdocs.png)
+
+## Quick Start
+
+1. **Install** — Get the add-in from the [Microsoft Marketplace](https://marketplace.microsoft.com/en-ca/product/saas/wa200009707) (free)
+2. **Add your API key** — Click the ⚙️ icon and enter your [Google Gemini API key](https://makersuite.google.com/app/apikey)
+3. **Start chatting** — Ask the AI to summarize, edit, or review your document!
+
+---
 
 Gemini AI for Office integrates Google Gemini AI to draft, edit, and review your document directly. Unlock the power of Google's Gemini AI directly inside Microsoft Word.
 
@@ -8,35 +18,35 @@ Gemini AI for Office is the ultimate writing companion, designed to help you dra
 
 ## Key Features
 
-### 🔑 Bring Your Own Key (BYOK)
+### Bring Your Own Key (BYOK)
 Connect your personal Google AI Studio key directly. This ensures complete privacy and allows you to pay Google directly for usage (or utilize their free tier) without the massive middleman markups.
 
-### 🤖 AI Chat Assistant
+### AI Chat Assistant
 Chat naturally with your document. Ask for summaries, clarifications, or rewrites using the latest Gemini models from Google.
 
-### ✏️ Direct Document Editing
+### Direct Document Editing
 The AI doesn't just suggest changes; it applies them. It rewrites sections with full Track Changes (redline) support, so you always stay in control. You can accept what you like and reject the rest.
 
-### 👁️ Automated "Glance" Checks
+### Automated "Glance" Checks
 Set up custom criteria—like "Check for Grammar" or "Verify Factual Accuracy"—and get an instant analysis every time you open a document.
 
-### 🔍 Built-in Research
+### Built-in Research
 Need to verify a fact? The AI can perform Google Searches to find the latest information and cite sources directly in your text.
 
-### 🎭 Custom Personas
+### Custom Personas
 Tailor the AI's personality and expertise. Make it a helpful tutor, a strict legal editor, or a creative writing coach.
 
-### 💾 Safety & Versioning
+### Safety & Versioning
 Experiment freely with built-in state checkpoints. Easily revert to previous versions of your document if you change your mind.
 
 Transform how you write today with Gemini AI for Office.
 
 ## Installation
 
-### 🚀 For Users (Recommended)
+### For Users (Recommended)
 Simply get the add-in from the **[Microsoft Marketplace](https://marketplace.microsoft.com/en-ca/product/saas/wa200009707)** for an easy one-click free download.
 
-### 🛠️ For Developers (Build from Source)
+### For Developers (Build from Source)
 Follow these steps if you want to modify the code or run it locally.
 
 #### Prerequisites
@@ -134,11 +144,11 @@ Follow these steps if you want to modify the code or run it locally.
 **Clear All Checkpoints:**
 - Click "Clear All" to delete all saved checkpoints
 
-## 🌟 Best Practices & Personas
+## Best Practices & Personas
 
 Get the most out of Gemini AI by tailoring it to your specific needs. Here are some optimized setups for different workflows:
 
-### ⚖️ Legal Professional
+### Legal Professional
 **System Message:**
 > You are assisting an in-house lawyer at AnsonCorp. You will mainly be working on legal documents. You must be specific, precise, and double-check all your advice and suggested changes. Maintain a professional and helpful tone. Be proactive in suggesting and brainstorming.
 
@@ -147,7 +157,7 @@ Get the most out of Gemini AI by tailoring it to your specific needs. Here are s
 - **Favorability:** "Does this contract favor my client or its affiliates? If neutral, leave green."
 - **Red Flags:** "Identify any high-risk clauses or unusual terms."
 
-### 🎓 Student & Academic
+### Student & Academic
 **System Message:**
 > You are an academic writing tutor. Help me improve my detailed arguments and clarity without writing the essay for me. Focus on structure, thesis strength, and proper tone. Ensure I avoid passive voice where possible.
 
@@ -156,7 +166,7 @@ Get the most out of Gemini AI by tailoring it to your specific needs. Here are s
 - **Clarity:** "Are there any overly complex sentences that should be simplified?"
 - **Passive Voice:** "Flag any excessive use of passive voice."
 
-### ✍️ Creative Writer
+### Creative Writer
 **System Message:**
 > You are a creative writing coach. Assist with character development, "show, don't tell," and pacing. Do not rewrite my style, but offer suggestions to make descriptions more vivid and dialogue more natural.
 
@@ -165,7 +175,7 @@ Get the most out of Gemini AI by tailoring it to your specific needs. Here are s
 - **Dialogue:** "Does the dialogue sound natural and distinct for each character?"
 - **Pacing:** "Is the pacing of this chapter consistent?"
 
-### 💼 Business Professional
+### Business Professional
 **System Message:**
 > You are a senior executive assistant. You edit for brevity, impact, and actionability. Remove fluff and corporate jargon. Ensure the bottom line (BLUF) is clear.
 
