@@ -11,6 +11,9 @@ import { marked } from 'marked';
 import { diff_match_patch } from 'diff-match-patch';
 import "./taskpane.css";
 
+// OOXML Engine V5.1 - Hybrid Mode for surgical document editing with track changes
+import { applyRedlineToOxml } from './modules/reconciliation/index.js';
+
 // Configure marked for GFM (GitHub Flavored Markdown) with tables, breaks, etc.
 marked.setOptions({
   gfm: true,           // Enable GitHub Flavored Markdown
@@ -4711,12 +4714,70 @@ async function routeChangeOperation(change, targetParagraph, context) {
     return;
   }
 
-  // 4. Default: Use DMP for word-level diffs
-  // DMP now handles inline markdown formatting (bold, italic, etc.) surgically
-  // using detectMarkdownFormattingPatterns() to apply Word's native font API
-  // instead of inserting literal asterisks
-  console.log("Using DMP for word-level diffs");
-  await applyWordLevelDiffs(targetParagraph, originalText, newContent, context);
+  // 4. Use OOXML Engine V5.1 (Hybrid Mode) for proper track changes
+  // This modifies the DOM in-place, embedding w:ins/w:del directly in the structure
+  console.log("Attempting OOXML Hybrid Mode for text edit");
+  const redlineEnabled = loadRedlineSetting();
+
+  // Get original text and paragraph OOXML
+  const paragraphOriginalText = targetParagraph.text.trim();
+  const paragraphOoxmlResult = targetParagraph.getOoxml();
+  await context.sync();
+
+  console.log("[OxmlEngine] Original text:", paragraphOriginalText.substring(0, 100));
+  console.log("[OxmlEngine] Paragraph OOXML length:", paragraphOoxmlResult.value.length);
+
+  // Apply redlines using hybrid engine (DOM manipulation approach)
+  const result = applyRedlineToOxml(
+    paragraphOoxmlResult.value,
+    paragraphOriginalText,
+    newContent,
+    { author: redlineEnabled ? 'AI' : undefined }
+  );
+
+  if (!result.hasChanges) {
+    console.log("[OxmlEngine] No changes detected by engine");
+    return;
+  }
+
+  console.log("[OxmlEngine] Generated OOXML with track changes, length:", result.oxml.length);
+
+  try {
+    // The hybrid engine embeds w:ins/w:del directly in the DOM structure
+    // We still need to disable Word's track changes to prevent double-tracking
+    const doc = context.document;
+    doc.load("changeTrackingMode");
+    await context.sync();
+
+    const originalMode = doc.changeTrackingMode;
+
+    // Disable track changes temporarily - our w:ins/w:del ARE the track changes
+    if (originalMode !== Word.ChangeTrackingMode.off && redlineEnabled) {
+      doc.changeTrackingMode = Word.ChangeTrackingMode.off;
+      await context.sync();
+    }
+
+    try {
+      // Insert the modified OOXML - since it's a paragraph-level replacement,
+      // and our DOM already contains the track change markers embedded in the structure,
+      // Word should render them as track changes
+      targetParagraph.insertOoxml(result.oxml, 'Replace');
+      await context.sync();
+      console.log("✅ OOXML Hybrid Mode reconciliation successful");
+    } finally {
+      // Restore track changes mode
+      if (originalMode !== Word.ChangeTrackingMode.off && redlineEnabled) {
+        doc.changeTrackingMode = originalMode;
+        await context.sync();
+      }
+    }
+  } catch (insertError) {
+    console.error("❌ OOXML insertion failed:", insertError.message);
+    // Fallback to simple text replacement
+    console.log("Falling back to simple text replacement");
+    targetParagraph.insertText(newContent, "Replace");
+    await context.sync();
+  }
 }
 
 /**
