@@ -12,7 +12,7 @@ import { diff_match_patch } from 'diff-match-patch';
 import "./taskpane.css";
 
 // OOXML Engine V5.1 - Hybrid Mode for surgical document editing with track changes
-import { applyRedlineToOxml } from './modules/reconciliation/index.js';
+import { applyRedlineToOxml, ReconciliationPipeline, wrapInDocumentFragment } from './modules/reconciliation/index.js';
 
 // Configure marked for GFM (GitHub Flavored Markdown) with tables, breaks, etc.
 marked.setOptions({
@@ -2356,22 +2356,40 @@ Return ONLY the JSON array, nothing else:`;
       paragraphs.load("items");
       await context.sync();
 
+      // Track the current paragraph count (may change as we add/remove paragraphs)
+      let currentParagraphCount = paragraphs.items.length;
+
       for (const change of aiChanges) {
         try {
           console.log("Processing change:", JSON.stringify(change));
 
           const pIndex = change.paragraphIndex - 1; // 0-based index
 
-          // Check if this is an insertion at the end (one past the last paragraph)
-          const isInsertAtEnd = pIndex === paragraphs.items.length;
+          // Check if this is an insertion at the end (index equals or exceeds paragraph count)
+          // We're lenient here - any index beyond current count is treated as an append
+          const isInsertAtEnd = pIndex >= currentParagraphCount;
 
-          if (pIndex < 0 || (pIndex >= paragraphs.items.length && !isInsertAtEnd)) {
-            console.warn(`Invalid paragraph index: ${change.paragraphIndex}`);
+          // Only reject negative indices - positive ones that exceed count are handled as appends
+          if (pIndex < 0) {
+            console.warn(`Invalid paragraph index (negative): ${change.paragraphIndex}`);
             continue;
           }
 
+          // For out-of-bounds indices, reload paragraphs and check again
+          if (pIndex >= paragraphs.items.length) {
+            // Reload paragraphs collection to get any newly added ones
+            paragraphs.load("items");
+            await context.sync();
+            currentParagraphCount = paragraphs.items.length;
+
+            // If still out of bounds after reload, treat as append to last paragraph
+            if (pIndex >= paragraphs.items.length) {
+              console.log(`Paragraph index ${change.paragraphIndex} exceeds count (${paragraphs.items.length}), treating as append`);
+            }
+          }
+
           // For insertions at the end, use the last paragraph as reference
-          const targetParagraph = isInsertAtEnd
+          const targetParagraph = (pIndex >= paragraphs.items.length)
             ? paragraphs.items[paragraphs.items.length - 1]
             : paragraphs.items[pIndex];
 
@@ -2408,13 +2426,115 @@ Return ONLY the JSON array, nothing else:`;
               continue;
             }
 
-            // Convert Markdown to Word-compatible HTML
+            // Normalize content: Convert literal escape sequences to actual characters
+            // This handles cases where the AI returns "\\n" as a two-character string instead of actual newlines
+            let normalizedContent = normalizeContentEscapes(change.content || "");
+
+            // Check if this is a list - use OOXML pipeline for proper redlines
+            const listData = parseMarkdownList(normalizedContent);
+            if (listData && listData.type !== 'text') {
+              console.log(`Detected ${listData.type} list in replace_paragraph, using OOXML pipeline`);
+              try {
+                // Get original paragraph info for proper diff/redlines
+                // Only get original text if we're REPLACING (not appending)
+                let originalTextForDeletion = '';
+                if (!isInsertAtEnd) {
+                  const originalText = targetParagraph.text;
+                  await context.sync();
+                  originalTextForDeletion = originalText;
+                }
+
+                // Create reconciliation pipeline with redline settings
+                const redlineEnabled = loadRedlineSetting();
+                const pipeline = new ReconciliationPipeline({
+                  generateRedlines: redlineEnabled,
+                  author: 'AI'
+                });
+
+                // Execute list generation - this creates OOXML with w:ins/w:del track changes
+                const result = await pipeline.executeListGeneration(
+                  normalizedContent,
+                  null, // numberingContext - let pipeline determine
+                  null, // originalRunModel - not available here
+                  originalTextForDeletion // Only pass original text if replacing, not appending
+                );
+
+                console.log(`[ListGen] Generated ${result.ooxml.length} bytes of OOXML, isInsertAtEnd=${isInsertAtEnd}`);
+
+                if (result.ooxml && result.isValid) {
+                  // Wrap in document fragment for insertOoxml
+                  const wrappedOoxml = wrapInDocumentFragment(result.ooxml, {
+                    includeNumbering: result.includeNumbering || true
+                  });
+
+                  // Temporarily disable Word's track changes to avoid double-tracking
+                  // Our w:ins/w:del ARE the track changes
+                  const doc = context.document;
+                  doc.load("changeTrackingMode");
+                  await context.sync();
+
+                  const originalMode = doc.changeTrackingMode;
+                  if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+                    doc.changeTrackingMode = Word.ChangeTrackingMode.off;
+                    await context.sync();
+                  }
+
+                  try {
+                    // Use 'After' if appending at end, 'Replace' if replacing existing paragraph
+                    const insertMode = isInsertAtEnd ? 'After' : 'Replace';
+                    console.log(`[ListGen] Using insert mode: ${insertMode}`);
+                    targetParagraph.insertOoxml(wrappedOoxml, insertMode);
+                    await context.sync();
+                    console.log(`✅ OOXML list generation successful`);
+                    changesApplied++;
+                  } finally {
+                    // Restore track changes mode
+                    if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+                      doc.changeTrackingMode = originalMode;
+                      await context.sync();
+                    }
+                  }
+                } else {
+                  console.warn('[ListGen] Pipeline returned invalid result, falling back to HTML');
+                  const htmlContent = markdownToWordHtml(normalizedContent);
+                  const insertLocation = isInsertAtEnd ? "After" : "Replace";
+                  targetParagraph.insertHtml(htmlContent, insertLocation);
+                  changesApplied++;
+                }
+              } catch (listError) {
+                console.error(`Error in OOXML list generation:`, listError);
+                // Fallback to HTML if OOXML fails
+                const htmlContent = markdownToWordHtml(normalizedContent);
+                const insertLocation = isInsertAtEnd ? "After" : "Replace";
+                targetParagraph.insertHtml(htmlContent, insertLocation);
+                changesApplied++;
+              }
+              // Skip the rest of replace_paragraph handling
+              continue;
+            }
+
+            // Check if this is a table - use HTML for now (table OOXML is complex)
+            const tableData = parseMarkdownTable(normalizedContent);
+            if (tableData) {
+              console.log(`Detected table in replace_paragraph, using HTML insertion`);
+              try {
+                const htmlContent = markdownToWordHtml(normalizedContent);
+                targetParagraph.insertHtml(htmlContent, "Replace");
+                changesApplied++;
+              } catch (tableError) {
+                console.error(`Error inserting table:`, tableError);
+              }
+              // Skip the rest of replace_paragraph handling
+              continue;
+            }
+
+            // Convert Markdown to Word-compatible HTML for regular content
             let htmlContent = "";
             try {
-              htmlContent = markdownToWordHtml(change.content || "");
+              htmlContent = markdownToWordHtml(normalizedContent);
             } catch (markedError) {
               console.error("Error parsing markdown:", markedError);
-              htmlContent = change.content || ""; // Fallback to raw text
+              htmlContent = normalizedContent; // Fallback to raw text
             }
 
             // Strip wrapping <p> if present to avoid double paragraphs if Word handles it
@@ -2434,7 +2554,7 @@ Return ONLY the JSON array, nothing else:`;
               if (isInsertAtEnd) {
                 console.log(`Inserting new paragraph after paragraph ${paragraphs.items.length}`);
                 // Use insertParagraph to add new paragraph after the last one
-                const newPara = targetParagraph.insertParagraph(change.content || "", "After");
+                const newPara = targetParagraph.insertParagraph(normalizedContent, "After");
                 await context.sync(); // Sync immediately to ensure tracked changes captures the insertion
                 changesApplied++;
               } else {
@@ -3928,7 +4048,7 @@ async function routeChangeOperation(change, targetParagraph, context) {
   console.log("[OxmlEngine] Paragraph OOXML length:", paragraphOoxmlResult.value.length);
 
   // Apply redlines using hybrid engine (DOM manipulation approach)
-  const result = applyRedlineToOxml(
+  const result = await applyRedlineToOxml(
     paragraphOoxmlResult.value,
     paragraphOriginalText,
     newContent,
@@ -4033,12 +4153,41 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
       paragraphs.load("items");
       await context.sync();
 
-      const startIdx = startIndex - 1; // Convert to 0-based
-      const endIdx = endIndex - 1;
+      let startIdx = startIndex - 1; // Convert to 0-based
+      let endIdx = endIndex - 1;
 
-      if (startIdx < 0 || endIdx >= paragraphs.items.length || startIdx > endIdx) {
-        throw new Error(`Invalid paragraph range: ${startIndex} to ${endIndex} (document has ${paragraphs.items.length} paragraphs)`);
+      // Handle out-of-range paragraph indices gracefully
+      // The AI may reference paragraphs that don't exist (e.g., after list expansion)
+      const paragraphCount = paragraphs.items.length;
+
+      if (paragraphCount === 0) {
+        throw new Error("Document has no paragraphs");
       }
+
+      // If start is beyond document, append at end
+      if (startIdx >= paragraphCount) {
+        console.log(`Start index ${startIndex} exceeds document (${paragraphCount} paragraphs), treating as append`);
+        startIdx = paragraphCount - 1;
+        endIdx = paragraphCount - 1;
+      }
+
+      // Clamp start to valid range
+      if (startIdx < 0) {
+        startIdx = 0;
+      }
+
+      // Clamp end to valid range
+      if (endIdx >= paragraphCount) {
+        console.log(`End index ${endIndex} exceeds document (${paragraphCount} paragraphs), clamping to ${paragraphCount}`);
+        endIdx = paragraphCount - 1;
+      }
+
+      // Ensure start <= end
+      if (startIdx > endIdx) {
+        startIdx = endIdx;
+      }
+
+      console.log(`Adjusted range: P${startIdx + 1} to P${endIdx + 1} (original: ${startIndex} to ${endIndex})`);
 
       // Get the range covering all paragraphs to replace
       const firstPara = paragraphs.items[startIdx];

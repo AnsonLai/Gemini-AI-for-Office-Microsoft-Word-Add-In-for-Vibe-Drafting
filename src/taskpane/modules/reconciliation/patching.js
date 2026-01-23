@@ -127,17 +127,23 @@ export function applyPatches(splitModel, diffOps, options) {
     const patchedModel = [];
     const processedInsertions = new Set();
 
-    // Build a map of runs by their start offset for quick lookup
-    const runsByOffset = new Map();
-    for (const run of splitModel) {
-        runsByOffset.set(run.startOffset, run);
-    }
+    const containerStack = [];
 
     for (const run of splitModel) {
-        // Skip non-text runs - pass through unchanged
-        if (run.kind === RunKind.BOOKMARK ||
-            run.kind === RunKind.CONTAINER_START ||
-            run.kind === RunKind.CONTAINER_END) {
+        // Track container stack
+        if (run.kind === RunKind.CONTAINER_START) {
+            containerStack.push(run.containerId);
+            patchedModel.push({ ...run });
+            continue;
+        }
+        if (run.kind === RunKind.CONTAINER_END) {
+            containerStack.pop();
+            patchedModel.push({ ...run });
+            continue;
+        }
+
+        // Bookmark pass-through
+        if (run.kind === RunKind.BOOKMARK) {
             patchedModel.push({ ...run });
             continue;
         }
@@ -168,28 +174,33 @@ export function applyPatches(splitModel, diffOps, options) {
                 rPrXml: styleSource?.rPrXml || '',
                 startOffset: insertOp.startOffset,
                 endOffset: insertOp.startOffset + insertOp.text.length,
-                author: generateRedlines ? author : undefined
+                author: generateRedlines ? author : undefined,
+                containerContext: containerStack.length > 0 ? containerStack[containerStack.length - 1] : null
             });
         }
 
         // Process the run based on the diff operation
         if (!op || op.type === DiffOp.EQUAL) {
             // No change - keep the run
-            patchedModel.push({ ...run });
+            patchedModel.push({
+                ...run,
+                containerContext: containerStack.length > 0 ? containerStack[containerStack.length - 1] : null
+            });
         } else if (op.type === DiffOp.DELETE) {
             if (generateRedlines) {
                 // Mark as deletion
                 patchedModel.push({
                     ...run,
                     kind: RunKind.DELETION,
-                    author
+                    author,
+                    containerContext: containerStack.length > 0 ? containerStack[containerStack.length - 1] : null
                 });
             }
             // If not generating redlines, simply omit the run
         }
     }
 
-    // Handle insertions at the very end (after all runs)
+    // Handle insertions at the very end
     const endOffset = splitModel.length > 0
         ? Math.max(...splitModel.map(r => r.endOffset))
         : 0;

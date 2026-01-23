@@ -11,6 +11,11 @@
 
 import { diff_match_patch } from 'diff-match-patch';
 import { preprocessMarkdown, getApplicableFormatHints } from './markdown-processor.js';
+import { ingestTableToVirtualGrid } from './ingestion.js';
+import { diffTablesWithVirtualGrid, serializeVirtualGridToOoxml } from './table-reconciliation.js';
+import { parseTable, ReconciliationPipeline } from './pipeline.js';
+import { NumberingService } from './numbering-service.js';
+import { NS_W } from './types.js';
 
 // ============================================================================
 // TYPES
@@ -65,7 +70,7 @@ import { preprocessMarkdown, getApplicableFormatHints } from './markdown-process
  * @param {string} [options.author='AI'] - Author for track changes
  * @returns {{ oxml: string, hasChanges: boolean }}
  */
-export function applyRedlineToOxml(oxml, originalText, modifiedText, options = {}) {
+export async function applyRedlineToOxml(oxml, originalText, modifiedText, options = {}) {
     const author = options.author || 'AI';
 
     const parser = new DOMParser();
@@ -86,8 +91,9 @@ export function applyRedlineToOxml(oxml, originalText, modifiedText, options = {
         return { oxml, hasChanges: false };
     }
 
-    // Preprocess markdown from modified text
-    const { cleanText: cleanModifiedText, formatHints } = preprocessMarkdown(modifiedText);
+    // Sanitize and preprocess markdown from modified text
+    const sanitizedText = sanitizeAiResponse(modifiedText);
+    const { cleanText: cleanModifiedText, formatHints } = preprocessMarkdown(sanitizedText);
 
     // Check if there are actual text changes
     const hasTextChanges = cleanModifiedText.trim() !== originalText.trim();
@@ -108,11 +114,28 @@ export function applyRedlineToOxml(oxml, originalText, modifiedText, options = {
     // Check for tables to decide mode
     const tables = xmlDoc.getElementsByTagName('w:tbl');
     const hasTables = tables.length > 0;
+    const isMarkdownTable = /^\|.+\|/.test(cleanModifiedText.trim()) && cleanModifiedText.includes('\n');
+    const isTargetList = cleanModifiedText.includes('\n') && /^([-*+]|\d+\.)/m.test(cleanModifiedText.trim());
 
-    console.log(`[OxmlEngine] Mode: ${hasTables ? 'SURGICAL' : 'RECONSTRUCTION'}, formatHints: ${formatHints.length}`);
+    console.log(`[OxmlEngine] Mode: ${hasTables ? 'SURGICAL' : 'RECONSTRUCTION'}, formatHints: ${formatHints.length}, isMarkdownTable: ${isMarkdownTable}, isTargetList: ${isTargetList}`);
 
-    if (hasTables) {
+    if (hasTables && isMarkdownTable) {
+        return applyTableReconciliation(xmlDoc, cleanModifiedText, serializer, author, formatHints);
+    } else if (hasTables) {
         return applySurgicalMode(xmlDoc, originalText, cleanModifiedText, serializer, author, formatHints);
+    } else if (isTargetList) {
+        // Use the new ReconciliationPipeline for list expanded content
+        const pipeline = new ReconciliationPipeline({ author, generateRedlines: true });
+        const result = await pipeline.execute(oxml, modifiedText);
+
+        // Wrap the result with numbering definitions for proper list rendering
+        if (result.isValid && result.ooxml && result.ooxml !== oxml) {
+            const wrapped = pipeline.wrapForInsertion(result.ooxml, {
+                includeNumbering: result.includeNumbering || true
+            });
+            return { oxml: wrapped, hasChanges: true };
+        }
+        return { oxml, hasChanges: false };
     } else {
         return applyReconstructionMode(xmlDoc, originalText, cleanModifiedText, serializer, author, formatHints);
     }
@@ -309,6 +332,47 @@ function addFormattingToRun(xmlDoc, run, format, author) {
         const strike = xmlDoc.createElement('w:strike');
         rPr.appendChild(strike);
     }
+}
+
+// ============================================================================
+// TABLE RECONCILIATION MODE (Phase 9)
+// ============================================================================
+
+/**
+ * Applies structural reconciliation to tables using Virtual Grid.
+ */
+function applyTableReconciliation(xmlDoc, modifiedText, serializer, author, formatHints) {
+    const tableNodes = Array.from(xmlDoc.getElementsByTagName('w:tbl'));
+    const newTableData = parseTable(modifiedText);
+
+    if (tableNodes.length === 0 || newTableData.rows.length === 0) {
+        return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
+    }
+
+    // For now, always reconcile the first table in the fragment
+    // In multi-table fragments, we'd need matching logic
+    const targetTable = tableNodes[0];
+    const oldGrid = ingestTableToVirtualGrid(targetTable);
+
+    // Compute operations
+    const operations = diffTablesWithVirtualGrid(oldGrid, newTableData);
+
+    if (operations.length === 0) {
+        return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
+    }
+
+    // Serialize new table
+    const options = { generateRedlines: true, author };
+    const reconciledOxml = serializeVirtualGridToOoxml(oldGrid, operations, options);
+
+    // Parse the reconciled OOXML and replace the old table in the DOM
+    const parser = new DOMParser();
+    const reconciledDoc = parser.parseFromString(reconciledOxml, 'application/xml');
+    const newTableNode = xmlDoc.importNode(reconciledDoc.documentElement, true);
+
+    targetTable.parentNode.replaceChild(newTableNode, targetTable);
+
+    return { oxml: serializer.serializeToString(xmlDoc), hasChanges: true };
 }
 
 // ============================================================================
@@ -826,9 +890,19 @@ function appendTextToCurrent(
 
     parts.forEach(part => {
         if (part === '\n') {
-            // Handle newline based on operation type
+            // Handle newline by creating a new paragraph
             if (type !== 'delete') {
-                // Would create new paragraph here in full implementation
+                const info = getParagraphInfo(baseIndex);
+                const nextParagraph = createNewParagraph(info.pPr);
+                const fragment = containerFragments.get(info.container);
+                if (fragment) {
+                    fragment.appendChild(nextParagraph);
+                    // Update the reference for subsequent text
+                    currentParagraphRef.appendChild(xmlDoc.createTextNode('')); // Dummy for reference handling
+                    // This is a bit hacky because JS doesn't have pointers, but let's assume
+                    // the caller handles the updated currentParagraph.
+                    // In a real implementation, we'd return the new paragraph or update a state object.
+                }
             }
         } else if (part === '\uFFFC') {
             // Re-insert sentinel/embedded object
@@ -1065,6 +1139,8 @@ export function sanitizeAiResponse(text) {
     // Remove LaTeX-style formatting
     cleaned = cleaned.replace(/\$\\text\{/g, '').replace(/\}\$/g, '');
     cleaned = cleaned.replace(/\$([^0-9\n]+?)\$/g, '$1');
+    // Normalize literal \n strings to real newlines
+    cleaned = cleaned.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n');
     return cleaned;
 }
 

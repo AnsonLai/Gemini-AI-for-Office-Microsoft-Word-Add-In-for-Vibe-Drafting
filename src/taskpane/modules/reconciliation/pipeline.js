@@ -10,6 +10,8 @@ import { computeWordLevelDiffOps } from './diff-engine.js';
 import { splitRunsAtDiffBoundaries, applyPatches } from './patching.js';
 import { serializeToOoxml, wrapInDocumentFragment } from './serialization.js';
 import { ContentType } from './types.js';
+import { NumberingService } from './numbering-service.js';
+import { detectNumberingContext } from './ingestion.js';
 
 /**
  * Main reconciliation pipeline class.
@@ -26,6 +28,7 @@ export class ReconciliationPipeline {
         this.generateRedlines = options.generateRedlines ?? true;
         this.author = options.author ?? 'AI';
         this.validateOutput = options.validateOutput ?? true;
+        this.numberingService = options.numberingService || new NumberingService();
     }
 
     /**
@@ -40,8 +43,14 @@ export class ReconciliationPipeline {
 
         try {
             // Stage 1: Ingest OOXML
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(originalOoxml, 'application/xml');
+            const pElement = doc.getElementsByTagNameNS('*', 'p')[0];
+
             const { runModel, acceptedText, pPr } = ingestOoxml(originalOoxml);
-            console.log(`[Reconcile] Ingested ${runModel.length} runs, ${acceptedText.length} chars`);
+            const numberingContext = pElement ? detectNumberingContext(pElement) : null;
+
+            console.log(`[Reconcile] Ingested ${runModel.length} runs, ${acceptedText.length} chars, numbering:`, numberingContext);
 
             // Stage 2: Preprocess markdown
             const { cleanText, formatHints } = preprocessMarkdown(newText);
@@ -59,6 +68,15 @@ export class ReconciliationPipeline {
 
             // Stage 3: Compute word-level diff
             const diffOps = computeWordLevelDiffOps(acceptedText, cleanText);
+
+            // Detect if this is a list transformation (e.g., paragraph with newlines)
+            const isTargetList = cleanText.includes('\n') && /^([-*+]|\d+\.)/m.test(cleanText);
+
+            if (isTargetList && (!numberingContext || !acceptedText.includes('\n'))) {
+                console.log('[Reconcile] Detected list expansion');
+                return this.executeListGeneration(cleanText, numberingContext, runModel);
+            }
+
             console.log(`[Reconcile] Computed ${diffOps.length} diff operations`);
 
             // Stage 4: Pre-split runs at boundaries
@@ -141,10 +159,109 @@ export class ReconciliationPipeline {
      * Wraps the reconciled content for document insertion.
      * 
      * @param {string} ooxml - Reconciled OOXML paragraph
+     * @param {Object} [options={}] - Options
+     * @param {boolean} [options.includeNumbering=false] - Include numbering definitions
      * @returns {string} Wrapped document fragment
      */
-    wrapForInsertion(ooxml) {
-        return wrapInDocumentFragment(ooxml);
+    wrapForInsertion(ooxml, options = {}) {
+        return wrapInDocumentFragment(ooxml, options);
+    }
+
+    /**
+     * Executes list generation when a single paragraph expands into a list.
+     * 
+     * @param {string} cleanText - Preprocessed new text (markdown list)
+     * @param {Object} numberingContext - Original numbering context
+     * @param {Array} originalRunModel - Run model of the original paragraph (optional)
+     * @param {string} originalText - Plain text of the original paragraph (optional, used if runModel not provided)
+     */
+    async executeListGeneration(cleanText, numberingContext, originalRunModel, originalText = '') {
+        const lines = cleanText.split('\n').filter(l => l.trim().length > 0);
+        const results = [];
+
+        // Identify the original text to be deleted across the new paragraphs
+        // For simplicity in list expansion, we'll put the deletion in the first generated paragraph
+        let deletionRuns = [];
+        if (this.generateRedlines) {
+            if (originalRunModel && originalRunModel.length > 0) {
+                // Use run model if provided
+                deletionRuns = originalRunModel
+                    .filter(r => r.kind === 'text' || r.kind === 'run')
+                    .map(r => ({
+                        ...r,
+                        kind: 'deletion',
+                        author: this.author
+                    }));
+            } else if (originalText && originalText.trim().length > 0) {
+                // Create simple deletion run from text
+                deletionRuns = [{
+                    kind: 'deletion',
+                    text: originalText.trim(),
+                    author: this.author,
+                    startOffset: 0,
+                    endOffset: originalText.trim().length
+                }];
+            }
+        }
+
+        // Determine the primary list type from the first item that has a valid list marker
+        let primaryType = 'bullet'; // default
+        for (const line of lines) {
+            if (/^\s*\d+\./.test(line)) {
+                primaryType = 'numbered';
+                break;
+            } else if (/^\s*[-*+]/.test(line)) {
+                primaryType = 'bullet';
+                break;
+            }
+        }
+        console.log(`[ListGen] Using primary list type: ${primaryType}`);
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const indentMatch = line.match(/^(\s*)/);
+            const indent = indentMatch ? indentMatch[1].length : 0;
+            const ilvl = Math.min(8, Math.floor(indent / 2) + (numberingContext?.ilvl || 0));
+
+            // Use the primary type for all items to ensure consistency
+            const type = primaryType;
+            // Strip list markers (if any) from the text
+            const rawText = line.trim().replace(/^([-*+]|\d+\.)\s*/, '');
+
+            // Process markdown formatting (e.g., **bold**, *italic*)
+            const { cleanText, formatHints } = preprocessMarkdown(rawText);
+
+            const numId = this.numberingService.getOrCreateNumId({ type }, numberingContext);
+            const pPrXml = this.numberingService.buildListPPr(numId, ilvl);
+
+            const runModel = [];
+
+            // Add deletion to the first paragraph only
+            if (i === 0 && deletionRuns.length > 0) {
+                runModel.push(...deletionRuns);
+            }
+
+            // Add the new text as an insertion (with clean text, formatting comes from hints)
+            runModel.push({
+                kind: this.generateRedlines ? 'insertion' : 'run',
+                text: cleanText,
+                author: this.author,
+                startOffset: 0,
+                endOffset: cleanText.length
+            });
+
+            // Pass formatHints to serialization for proper bold/italic/etc formatting
+            const itemOoxml = serializeToOoxml(runModel, pPrXml, formatHints, { author: this.author });
+            results.push(itemOoxml);
+        }
+
+        return {
+            ooxml: results.join(''),
+            isValid: true,
+            warnings: ['Paragraph expanded to list fragment'],
+            type: 'fragment',
+            includeNumbering: true
+        };
     }
 }
 
@@ -180,36 +297,30 @@ export function parseListItems(text) {
 
 /**
  * Parses table from markdown-style table text.
- * STUB: Not yet implemented.
  * 
  * @param {string} text - Table text
  * @returns {Object}
  */
 export function parseTable(text) {
-    // TODO: Implement table parsing
-    console.log('[Stub] parseTable - not implemented');
-    return { headers: [], rows: [], hasHeader: false };
-}
+    const lines = text.split('\n').filter(l => l.trim().startsWith('|'));
 
-/**
- * NumberingService for managing numbering.xml.
- * STUB: Not yet implemented.
- */
-export class NumberingService {
-    constructor() {
-        console.log('[Stub] NumberingService - not implemented');
+    if (lines.length === 0) {
+        return { headers: [], rows: [], hasHeader: false };
     }
 
-    async initialize() {
-        // TODO: Load numbering.xml
-    }
+    // Skip separator row (|---|---|)
+    const dataLines = lines.filter(l => !l.includes('---'));
 
-    getOrCreateNumId(levelConfigs, existingContext = null) {
-        // TODO: Implement numbering management
-        return '1';  // Default numId
-    }
+    const rows = dataLines.map(line => {
+        return line
+            .split('|')
+            .slice(1, -1)  // Remove empty first/last from split
+            .map(cell => cell.trim());
+    });
 
-    async commit() {
-        // TODO: Write changes to numbering.xml
-    }
+    return {
+        headers: rows[0] || [],
+        rows: rows.slice(1),
+        hasHeader: lines.some(l => l.includes('---'))
+    };
 }

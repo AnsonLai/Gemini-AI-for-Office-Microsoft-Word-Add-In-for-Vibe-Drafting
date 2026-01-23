@@ -44,8 +44,26 @@ export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = 
                 break;
 
             case RunKind.CONTAINER_START:
+                if (item.containerKind === 'sdt') {
+                    runsContent += `<w:sdt>${item.propertiesXml}<w:sdtContent>`;
+                } else if (item.containerKind === 'smartTag') {
+                    runsContent += `<w:smartTag ${item.propertiesXml}>`;
+                } else if (item.containerKind === 'hyperlink') {
+                    const props = JSON.parse(item.propertiesXml);
+                    const rIdAttr = props.rId ? ` r:id="${props.rId}"` : '';
+                    const anchorAttr = props.anchor ? ` w:anchor="${props.anchor}"` : '';
+                    runsContent += `<w:hyperlink${rIdAttr}${anchorAttr}>`;
+                }
+                break;
+
             case RunKind.CONTAINER_END:
-                // Stub: container serialization for future
+                if (item.containerKind === 'sdt') {
+                    runsContent += `</w:sdtContent></w:sdt>`;
+                } else if (item.containerKind === 'smartTag') {
+                    runsContent += `</w:smartTag>`;
+                } else if (item.containerKind === 'hyperlink') {
+                    runsContent += `</w:hyperlink>`;
+                }
                 break;
 
             default:
@@ -53,10 +71,14 @@ export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = 
         }
     }
 
-    // Build paragraph properties - strip namespace from pPr if present
+    // Build paragraph properties - handle both string and DOM element
     let pPrContent = '';
     if (pPr) {
-        pPrContent = new XMLSerializer().serializeToString(pPr);
+        if (typeof pPr === 'string') {
+            pPrContent = pPr;
+        } else {
+            pPrContent = new XMLSerializer().serializeToString(pPr);
+        }
         // Remove xmlns declarations from pPr
         pPrContent = pPrContent.replace(/\s*xmlns:[^=]+="[^"]*"/g, '');
     }
@@ -229,9 +251,59 @@ function injectFormatting(baseRPrXml, format) {
  * Must include both the document part AND the relationships part.
  * 
  * @param {string} paragraphXml - The paragraph XML (without namespace declarations)
+ * @param {Object} [options={}] - Options
+ * @param {boolean} [options.includeNumbering=false] - Whether to include numbering definitions
  * @returns {string} Complete OOXML package for insertOoxml
  */
-export function wrapInDocumentFragment(paragraphXml) {
+export function wrapInDocumentFragment(paragraphXml, options = {}) {
+    const { includeNumbering = false } = options;
+
+    // Build document relationships - include numbering if needed
+    let docRels = '';
+    if (includeNumbering) {
+        docRels = '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>';
+    }
+
+    // Build numbering.xml part if needed
+    let numberingPart = '';
+    if (includeNumbering) {
+        numberingPart = `
+  <pkg:part pkg:name="/word/numbering.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml">
+    <pkg:xmlData>
+      <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <!-- Bullet list definition -->
+        <w:abstractNum w:abstractNumId="0">
+          <w:lvl w:ilvl="0">
+            <w:start w:val="1"/>
+            <w:numFmt w:val="bullet"/>
+            <w:lvlText w:val="•"/>
+            <w:lvlJc w:val="left"/>
+            <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr>
+          </w:lvl>
+        </w:abstractNum>
+        <!-- Numbered list definition -->
+        <w:abstractNum w:abstractNumId="1">
+          <w:lvl w:ilvl="0">
+            <w:start w:val="1"/>
+            <w:numFmt w:val="decimal"/>
+            <w:lvlText w:val="%1."/>
+            <w:lvlJc w:val="left"/>
+            <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr>
+          </w:lvl>
+        </w:abstractNum>
+        <!-- Bullet list numId -->
+        <w:num w:numId="1">
+          <w:abstractNumId w:val="0"/>
+        </w:num>
+        <!-- Numbered list numId -->
+        <w:num w:numId="2">
+          <w:abstractNumId w:val="1"/>
+        </w:num>
+      </w:numbering>
+    </pkg:xmlData>
+  </pkg:part>`;
+    }
+
     // Word's insertOoxml requires a complete package with relationships
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
@@ -245,9 +317,10 @@ export function wrapInDocumentFragment(paragraphXml) {
   <pkg:part pkg:name="/word/_rels/document.xml.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
     <pkg:xmlData>
       <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        ${docRels}
       </Relationships>
     </pkg:xmlData>
-  </pkg:part>
+  </pkg:part>${numberingPart}
   <pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">
     <pkg:xmlData>
       <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">

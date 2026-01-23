@@ -5,13 +5,14 @@
  */
 
 // Main pipeline
-export { ReconciliationPipeline, detectContentType, parseListItems, parseTable, NumberingService } from './pipeline.js';
+export { ReconciliationPipeline, detectContentType, parseListItems, parseTable } from './pipeline.js';
+export { NumberingService } from './numbering-service.js';
 
 // Core types
 export { DiffOp, RunKind, ContainerKind, ContentType, NS_W, NS_R, escapeXml, getNextRevisionId, resetRevisionIdCounter } from './types.js';
 
 // Individual stage functions (for advanced usage)
-export { ingestOoxml, extractTextFromNode } from './ingestion.js';
+export { ingestOoxml, ingestTableToVirtualGrid } from './ingestion.js';
 export { preprocessMarkdown, getApplicableFormatHints, mergeFormats } from './markdown-processor.js';
 export { computeWordLevelDiffOps, wordsToChars, charsToWords, collectDiffBoundaries } from './diff-engine.js';
 export { splitRunsAtDiffBoundaries, applyPatches } from './patching.js';
