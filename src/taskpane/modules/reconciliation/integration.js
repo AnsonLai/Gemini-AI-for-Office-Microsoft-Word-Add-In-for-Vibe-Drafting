@@ -21,7 +21,7 @@ import { ReconciliationPipeline } from './index.js';
  * @returns {Promise<{success: boolean, message: string}>}
  */
 export async function applyReconciliationToParagraph(paragraph, newText, context, options = {}) {
-    const { generateRedlines = true, author = 'AI' } = options;
+    const { generateRedlines = true, author = 'Gemini AI' } = options;
 
     try {
         // Step 1: Get the paragraph's OOXML
@@ -101,11 +101,11 @@ export function shouldUseOoxmlReconciliation(change) {
  * @returns {string}
  */
 export function getAuthorForTracking() {
-    // Try to get from settings, fallback to 'AI'
+    // Try to get from settings, fallback to 'Gemini AI'
     try {
         const stored = localStorage.getItem('gemini_author_name');
-        return stored || 'AI';
+        return stored || 'Gemini AI';
     } catch {
-        return 'AI';
+        return 'Gemini AI';
     }
 }

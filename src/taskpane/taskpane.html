@@ -139,6 +139,21 @@
         <p class="settings-hint">When disabled, edits will be applied directly to the document without showing as
           tracked
           changes.</p>
+
+        <div style="margin-top: 20px;">
+          <label for="redline-author-input">Redline Author Attribution:</label>
+          <div style="display: flex; gap: 8px; margin-top: 8px; align-items: stretch; height: 38px;">
+            <input type="text" id="redline-author-input" class="ms-TextField-field"
+              style="flex-grow: 1; margin: 0; height: 100%; border-radius: var(--radius);"
+              placeholder="Name for track changes">
+            <button id="refresh-author-button" class="ms-Button" title="Pull name from Word"
+              style="padding: 0 12px; margin: 0; height: 100%; min-width: auto; background: var(--primary-color); color: white; border: none; border-radius: var(--radius); font-size: 1.2rem;">
+              &#10227;
+            </button>
+          </div>
+          <p class="settings-hint" style="margin-top: 8px;">The name that will appear in Word's track changes. Click the
+            button to pull the document's last author.</p>
+        </div>
       </div>
     </div>
     <br />

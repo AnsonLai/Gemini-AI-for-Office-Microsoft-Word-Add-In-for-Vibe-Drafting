@@ -22,6 +22,8 @@ marked.setOptions({
 
 // ==================== CONFIGURATION CONSTANTS ====================
 
+const DEFAULT_AUTHOR = "Gemini AI";
+
 // Safety settings for Gemini API (disable all safety blocks)
 const SAFETY_SETTINGS_BLOCK_NONE = [
   { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
@@ -409,6 +411,14 @@ Office.onReady((info) => {
     // Scroll-to-bottom button setup
     setupScrollToBottom();
 
+    // Add event listener for refresh author button
+    document.getElementById("refresh-author-button").onclick = async () => {
+      const author = await fetchDocumentAuthor();
+      if (author) {
+        document.getElementById("redline-author-input").value = author;
+      }
+    };
+
     // Update checkpoint status on load (internal only now)
     // updateCheckpointStatus(); // UI removed, but we can keep tracking internally if needed, or just remove this call.
   }
@@ -619,6 +629,10 @@ function showSettingsView() {
   // Load redline setting
   const redlineEnabled = loadRedlineSetting();
   document.getElementById("redline-toggle").checked = redlineEnabled;
+
+  // Load redline author setting
+  const redlineAuthor = loadRedlineAuthor();
+  document.getElementById("redline-author-input").value = redlineAuthor;
 }
 
 function showMainView() {
@@ -655,6 +669,7 @@ function saveApiKey() {
   const slowModel = document.getElementById("model-select-slow").value;
   const systemMessage = document.getElementById("system-message-input").value;
   const redlineEnabled = document.getElementById("redline-toggle").checked;
+  const redlineAuthor = document.getElementById("redline-author-input").value;
 
   if (apiKey && apiKey.trim() !== "") {
     localStorage.setItem("geminiApiKey", apiKey);
@@ -662,6 +677,7 @@ function saveApiKey() {
     localStorage.setItem("geminiModelSlow", slowModel);
     localStorage.setItem("geminiSystemMessage", systemMessage);
     saveRedlineSetting(redlineEnabled);
+    saveRedlineAuthor(redlineAuthor);
     // Glance settings are saved automatically on change
     showMainView();
     addMessageToChat("System", "Settings saved successfully.");
@@ -705,6 +721,41 @@ function loadRedlineSetting() {
 
 function saveRedlineSetting(enabled) {
   localStorage.setItem("redlineEnabled", enabled.toString());
+}
+
+function loadRedlineAuthor() {
+  const storedAuthor = localStorage.getItem("redlineAuthor");
+  if (storedAuthor && storedAuthor.trim() !== "") {
+    return storedAuthor;
+  }
+  return DEFAULT_AUTHOR; // Unified default fallback
+}
+
+function saveRedlineAuthor(author) {
+  if (author !== undefined && author !== null) {
+    localStorage.setItem("redlineAuthor", author.toString());
+  }
+}
+
+/**
+ * Fetches the document's author from Word properties.
+ */
+async function fetchDocumentAuthor() {
+  try {
+    let author = "";
+    await Word.run(async (context) => {
+      const properties = context.document.properties;
+      properties.load("lastAuthor, author");
+      await context.sync();
+
+      // Use lastAuthor if available, otherwise author
+      author = properties.lastAuthor || properties.author || "";
+    });
+    return author;
+  } catch (error) {
+    console.warn("Could not fetch document author:", error);
+    return "";
+  }
 }
 
 function loadGlanceSettings() {
@@ -2446,9 +2497,10 @@ Return ONLY the JSON array, nothing else:`;
 
                 // Create reconciliation pipeline with redline settings
                 const redlineEnabled = loadRedlineSetting();
+                const redlineAuthor = loadRedlineAuthor();
                 const pipeline = new ReconciliationPipeline({
                   generateRedlines: redlineEnabled,
-                  author: 'AI'
+                  author: redlineAuthor
                 });
 
                 // Execute list generation - this creates OOXML with w:ins/w:del track changes
@@ -4048,11 +4100,12 @@ async function routeChangeOperation(change, targetParagraph, context) {
   console.log("[OxmlEngine] Paragraph OOXML length:", paragraphOoxmlResult.value.length);
 
   // Apply redlines using hybrid engine (DOM manipulation approach)
+  const redlineAuthor = loadRedlineAuthor();
   const result = await applyRedlineToOxml(
     paragraphOoxmlResult.value,
     paragraphOriginalText,
     newContent,
-    { author: redlineEnabled ? 'AI' : undefined }
+    { author: redlineEnabled ? redlineAuthor : undefined }
   );
 
   if (!result.hasChanges) {

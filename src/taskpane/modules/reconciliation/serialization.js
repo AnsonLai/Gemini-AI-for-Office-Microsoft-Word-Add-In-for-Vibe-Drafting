@@ -18,7 +18,7 @@ import { getApplicableFormatHints } from './markdown-processor.js';
  * @returns {string} OOXML paragraph string (WITHOUT namespace - added by wrapper)
  */
 export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = {}) {
-    const { author = 'AI' } = options;
+    const { author = 'Gemini AI' } = options;
     let runsContent = '';
 
     for (const item of patchedModel) {

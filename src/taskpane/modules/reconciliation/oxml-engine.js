@@ -71,7 +71,7 @@ import { NS_W } from './types.js';
  * @returns {{ oxml: string, hasChanges: boolean }}
  */
 export async function applyRedlineToOxml(oxml, originalText, modifiedText, options = {}) {
-    const author = options.author || 'AI';
+    const author = options.author || 'Gemini AI';
 
     const parser = new DOMParser();
     const serializer = new XMLSerializer();
