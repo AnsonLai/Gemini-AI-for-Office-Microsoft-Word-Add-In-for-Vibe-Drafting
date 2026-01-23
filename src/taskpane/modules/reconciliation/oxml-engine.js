@@ -232,7 +232,8 @@ function applyFormatHintToSpans(xmlDoc, textSpans, hint, author) {
             }
 
             // Create run for formatted text
-            const formattedRun = createFormattedRunWithElement(xmlDoc, formattedText, existingRPr, hint.format);
+            // Pass author for proper tracking of the format change
+            const formattedRun = createFormattedRunWithElement(xmlDoc, formattedText, existingRPr, hint.format, author);
             parent.insertBefore(formattedRun, run);
 
             if (afterText.length > 0) {
@@ -250,41 +251,11 @@ function applyFormatHintToSpans(xmlDoc, textSpans, hint, author) {
 /**
  * Creates a text run with formatting applied directly.
  */
-function createFormattedRunWithElement(xmlDoc, text, baseRPr, format) {
+function createFormattedRunWithElement(xmlDoc, text, baseRPr, format, author) {
     const run = xmlDoc.createElement('w:r');
 
-    // Create rPr with formatting
-    const rPr = xmlDoc.createElement('w:rPr');
-
-    // Copy existing properties from base
-    if (baseRPr) {
-        Array.from(baseRPr.childNodes).forEach(child => {
-            rPr.appendChild(child.cloneNode(true));
-        });
-    }
-
-    // Add formatting elements
-    const hasElement = (tagName) => {
-        return Array.from(rPr.childNodes).some(n => n.nodeName === tagName);
-    };
-
-    if (format.bold && !hasElement('w:b')) {
-        const b = xmlDoc.createElement('w:b');
-        rPr.insertBefore(b, rPr.firstChild);
-    }
-    if (format.italic && !hasElement('w:i')) {
-        const i = xmlDoc.createElement('w:i');
-        rPr.insertBefore(i, rPr.firstChild);
-    }
-    if (format.underline && !hasElement('w:u')) {
-        const u = xmlDoc.createElement('w:u');
-        u.setAttribute('w:val', 'single');
-        rPr.insertBefore(u, rPr.firstChild);
-    }
-    if (format.strikethrough && !hasElement('w:strike')) {
-        const strike = xmlDoc.createElement('w:strike');
-        rPr.insertBefore(strike, rPr.firstChild);
-    }
+    // Create rPr with formatting (and track changes if author provided)
+    const rPr = injectFormattingToRPr(xmlDoc, baseRPr, format, author);
 
     run.appendChild(rPr);
 
@@ -309,12 +280,17 @@ function addFormattingToRun(xmlDoc, run, format, author) {
         run.insertBefore(rPr, run.firstChild);
     }
 
+    // Create rPrChange to track this modification
+    if (author) {
+        createRPrChange(xmlDoc, rPr, author);
+    }
+
     // Check if element exists in rPr
     const hasElement = (tagName) => {
         return Array.from(rPr.childNodes).some(n => n.nodeName === tagName);
     };
 
-    // Add formatting elements (with track change wrapper for redlines)
+    // Add formatting elements
     if (format.bold && !hasElement('w:b')) {
         const b = xmlDoc.createElement('w:b');
         rPr.appendChild(b);
@@ -1087,12 +1063,17 @@ function createTextRunWithRPrElement(xmlDoc, text, rPrElement, isDelete) {
  * @param {Object} format - Format flags {bold, italic, underline, strikethrough}
  * @returns {Element} New w:rPr element with formatting applied
  */
-function injectFormattingToRPr(xmlDoc, baseRPr, format) {
-    if (!format || Object.keys(format).length === 0) {
-        return baseRPr ? baseRPr.cloneNode(true) : null;
-    }
-
-    // Create new rPr element
+/**
+ * Injects formatting into run properties, creating new w:rPr element with formatting.
+ * 
+ * @param {Document} xmlDoc - The XML document
+ * @param {Element|null} baseRPr - Base run properties to inherit (will be cloned)
+ * @param {Object} format - Format flags {bold, italic, underline, strikethrough}
+ * @param {string} [author] - Optional author for track changes
+ * @returns {Element} New w:rPr element with formatting applied
+ */
+function injectFormattingToRPr(xmlDoc, baseRPr, format, author) {
+    // Always create a new rPr to ensure we don't mutate original references
     const rPr = xmlDoc.createElement('w:rPr');
 
     // Copy existing properties from base
@@ -1100,6 +1081,15 @@ function injectFormattingToRPr(xmlDoc, baseRPr, format) {
         Array.from(baseRPr.childNodes).forEach(child => {
             rPr.appendChild(child.cloneNode(true));
         });
+    }
+
+    if (!format || Object.keys(format).length === 0) {
+        return rPr;
+    }
+
+    // Add track change info if author provided
+    if (author) {
+        createRPrChange(xmlDoc, rPr, author);
     }
 
     // Add formatting elements (at the beginning, before other properties)
@@ -1127,6 +1117,36 @@ function injectFormattingToRPr(xmlDoc, baseRPr, format) {
     }
 
     return rPr;
+}
+
+/**
+ * Creates w:rPrChange element to track property changes.
+ * Captures the PREVIOUS state of properties (which is the current content of rPr before new format).
+ * 
+ * @param {Document} xmlDoc - The XML document
+ * @param {Element} rPr - The run properties element to append to
+ * @param {string} author - Author name
+ */
+function createRPrChange(xmlDoc, rPr, author) {
+    const rPrChange = xmlDoc.createElement('w:rPrChange');
+    rPrChange.setAttribute('w:id', Math.floor(Math.random() * 90000 + 10000).toString());
+    rPrChange.setAttribute('w:author', author);
+    rPrChange.setAttribute('w:date', new Date().toISOString());
+
+    // Create inner rPr for the "previous" state
+    const previousRPr = xmlDoc.createElement('w:rPr');
+
+    // Clone *current* children of rPr into previousRPr (snapshot of state before change)
+    // Note: We only capture what is currently in rPr, which represents the "base" properties
+    Array.from(rPr.childNodes).forEach(child => {
+        // Don't recurse into existing rPrChanges to avoid infinite nesting loop in simple implementation
+        if (child.nodeName !== 'w:rPrChange') {
+            previousRPr.appendChild(child.cloneNode(true));
+        }
+    });
+
+    rPrChange.appendChild(previousRPr);
+    rPr.appendChild(rPrChange);
 }
 
 /**

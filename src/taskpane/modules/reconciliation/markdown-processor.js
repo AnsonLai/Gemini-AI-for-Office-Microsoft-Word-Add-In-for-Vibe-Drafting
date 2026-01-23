@@ -30,6 +30,19 @@ export function preprocessMarkdown(text) {
     // Process patterns in order of specificity (longer patterns first)
     // Pattern groups capture: full match, inner text
     const patterns = [
+        // HTML Bold: <b>text</b>, <strong>text</strong>
+        { regex: /<b>(.+?)<\/b>/gi, format: { bold: true } },
+        { regex: /<strong>(.+?)<\/strong>/gi, format: { bold: true } },
+        // HTML Italic: <i>text</i>, <em>text</em>
+        { regex: /<i>(.+?)<\/i>/gi, format: { italic: true } },
+        { regex: /<em>(.+?)<\/em>/gi, format: { italic: true } },
+        // HTML Underline: <u>text</u>
+        { regex: /<u>(.+?)<\/u>/gi, format: { underline: true } },
+        // HTML Strikethrough: <s>text</s>, <strike>text</strike>, <del>text</del>
+        { regex: /<s>(.+?)<\/s>/gi, format: { strikethrough: true } },
+        { regex: /<strike>(.+?)<\/strike>/gi, format: { strikethrough: true } },
+        { regex: /<del>(.+?)<\/del>/gi, format: { strikethrough: true } },
+
         // Bold + Italic: ***text***
         { regex: /\*\*\*(.+?)\*\*\*/g, format: { bold: true, italic: true } },
         // Bold + Underline: **++text++**
