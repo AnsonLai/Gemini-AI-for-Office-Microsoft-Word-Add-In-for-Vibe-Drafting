@@ -32,29 +32,55 @@ export function ingestOoxml(ooxmlString) {
             return { runModel, acceptedText, pPr: null };
         }
 
-        // Find the paragraph element
-        const paragraph = doc.getElementsByTagNameNS(NS_W, 'p')[0];
-        if (!paragraph) {
-            // Try without namespace (some OOXML comes with default namespace)
-            const pElements = doc.getElementsByTagName('w:p');
-            if (pElements.length === 0) {
-                console.warn('No paragraph found in OOXML');
-                return { runModel, acceptedText, pPr: null };
+        // Find ALL paragraph elements (support multi-paragraph)
+        let paragraphs = Array.from(doc.getElementsByTagNameNS(NS_W, 'p'));
+        if (paragraphs.length === 0) {
+            paragraphs = Array.from(doc.getElementsByTagName('w:p'));
+        }
+
+        if (paragraphs.length === 0) {
+            console.warn('No paragraphs found in OOXML');
+            return { runModel, acceptedText, pPr: null };
+        }
+
+        let currentOffset = 0;
+        let firstPPr = null;
+
+        for (let pIndex = 0; pIndex < paragraphs.length; pIndex++) {
+            const pElement = paragraphs[pIndex];
+
+            // Extract paragraph properties
+            const pPr = pElement.getElementsByTagNameNS(NS_W, 'pPr')[0] ||
+                pElement.getElementsByTagName('w:pPr')[0] || null;
+            const pPrXml = pPr ? new XMLSerializer().serializeToString(pPr) : '';
+
+            // Save first pPr for legacy compatibility
+            if (pIndex === 0) {
+                firstPPr = pPr;
+            }
+
+            // Emit PARAGRAPH_START token
+            runModel.push({
+                kind: RunKind.PARAGRAPH_START,
+                pPrXml,
+                startOffset: currentOffset,
+                endOffset: currentOffset,
+                text: ''
+            });
+
+            // Process paragraph content (runs, hyperlinks, etc.)
+            const result = processNodeRecursive(pElement, currentOffset, runModel);
+            acceptedText += result.text;
+            currentOffset = acceptedText.length;
+
+            // Add newline separator between paragraphs (but not after the last one)
+            if (pIndex < paragraphs.length - 1) {
+                acceptedText += '\n';
+                currentOffset++;
             }
         }
 
-        const pElement = paragraph || doc.getElementsByTagName('w:p')[0];
-
-        // Extract paragraph properties
-        const pPr = pElement.getElementsByTagNameNS(NS_W, 'pPr')[0] ||
-            pElement.getElementsByTagName('w:pPr')[0] || null;
-
-        // Process the paragraph content
-        let currentOffset = 0;
-        const result = processNodeRecursive(pElement, currentOffset, runModel);
-        acceptedText = result.text;
-
-        return { runModel, acceptedText, pPr };
+        return { runModel, acceptedText, pPr: firstPPr };
 
     } catch (error) {
         console.error('Error ingesting OOXML:', error);

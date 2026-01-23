@@ -29,7 +29,9 @@ export const RunKind = Object.freeze({
     FIELD: 'field',
     // Container delimiters for preserving hierarchy
     CONTAINER_START: 'container_start',
-    CONTAINER_END: 'container_end'
+    CONTAINER_END: 'container_end',
+    // Multi-paragraph support
+    PARAGRAPH_START: 'paragraph_start'
 });
 
 /**

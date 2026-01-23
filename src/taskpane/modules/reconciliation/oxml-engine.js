@@ -114,6 +114,27 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     // Check for tables to decide mode
     const tables = xmlDoc.getElementsByTagName('w:tbl');
     const hasTables = tables.length > 0;
+
+    // Check for existing formatting that might need removal
+    const hasExistingFormatting = checkOxmlForFormatting(xmlDoc);
+
+    // Early exit only if NO text changes AND NO new format hints AND NO existing formatting
+    // If there IS existing formatting, we must proceed to potentially remove it if hints are empty
+    if (!hasTextChanges && !hasFormatHints && !hasExistingFormatting) {
+        console.log('[OxmlEngine] No text changes, no format hints, and no existing formatting detected');
+        return { oxml, hasChanges: false };
+    }
+
+    // Format-only change: text is the same but we have formatting to apply/remove
+    if (!hasTextChanges) {
+        console.log(`[OxmlEngine] Format-only change checking: ${formatHints.length} hints, existing formatting: ${hasExistingFormatting}`);
+        // We use applySurgicalMode for format updates on identical text as it handles the "Equal" diff logic
+        // But for non-table text, we might want a specialized path? 
+        // Actually, applySurgicalMode is safe for all content if we just want to update runs.
+        // However, applyReconstructionMode is better for body text to ensure full regeneration.
+        // Let's stick to the mode selection based on content type.
+    }
+
     const isMarkdownTable = /^\|.+\|/.test(cleanModifiedText.trim()) && cleanModifiedText.includes('\n');
     const isTargetList = cleanModifiedText.includes('\n') && /^([-*+]|\d+\.)/m.test(cleanModifiedText.trim());
 
@@ -139,6 +160,19 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     } else {
         return applyReconstructionMode(xmlDoc, originalText, cleanModifiedText, serializer, author, formatHints);
     }
+}
+
+/**
+ * Checks if the XML document contains any relevant formatting tags.
+ */
+function checkOxmlForFormatting(xmlDoc) {
+    const formattingTags = ['w:b', 'w:i', 'w:u', 'w:strike'];
+    for (const tag of formattingTags) {
+        if (xmlDoc.getElementsByTagName(tag).length > 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // ============================================================================
@@ -402,23 +436,181 @@ function applySurgicalMode(xmlDoc, originalText, modifiedText, serializer, autho
 
     for (const [op, text] of diffs) {
         if (op === 0) {
-            // EQUAL - just advance position
+            // EQUAL - reconcile formatting
+            const startPos = currentPos;
+            const endPos = currentPos + text.length;
+
+            // Find spans covered by this equal text
+            const affectedSpans = textSpans.filter(s =>
+                s.charEnd > startPos && s.charStart < endPos
+            );
+
+            for (const span of affectedSpans) {
+                // Calculate overlap
+                const overlapStart = Math.max(span.charStart, startPos);
+                const overlapEnd = Math.min(span.charEnd, endPos);
+
+                // Get format hints applicable to this overlap (adjusted relative to modified text start)
+                // Note: formatHints use indices relative to the FULL modified text
+                const localOffset = currentPos; // diff text position matches modifiedText position for Equal/Insert ops
+
+                // Oops, wait. formatHints are relative to the CLEAN MODIFIED TEXT.
+                // In Surgical Mode, `modifiedText` passed to this function IS the clean modified text.
+                // So currentPos tracks the position in clean modified text correctly.
+
+                // Check if any hints apply to this overlap
+                const applicableHints = getApplicableFormatHints(formatHints, overlapStart, overlapEnd);
+
+                // Reconcile formatting for this span segment
+                reconcileFormattingForTextSpan(xmlDoc, span, overlapStart, overlapEnd, applicableHints, author);
+            }
+
             currentPos += text.length;
         } else if (op === -1) {
             // DELETE
             processDelete(xmlDoc, textSpans, currentPos, currentPos + text.length, processedSpans, author);
-            currentPos += text.length;
+            // Delete does not advance position in new text
         } else if (op === 1) {
             // INSERT - convert newlines to spaces for surgical mode
             const textWithoutNewlines = text.replace(/\n/g, ' ');
             if (textWithoutNewlines.trim().length > 0) {
-                processInsert(xmlDoc, textSpans, currentPos, textWithoutNewlines, processedSpans, author, formatHints, insertOffset);
+                processInsert(xmlDoc, textSpans, currentPos, textWithoutNewlines, processedSpans, author, formatHints, currentPos);
             }
-            insertOffset += text.length;
+            currentPos += text.length;
         }
     }
 
     return { oxml: serializer.serializeToString(xmlDoc), hasChanges: true };
+}
+
+/**
+ * Reconciles formatting for a text span (or part of it).
+ * Removes formatting that shouldn't be there, adds formatting that should.
+ */
+function reconcileFormattingForTextSpan(xmlDoc, span, start, end, applicableHints, author) {
+    // 1. Determine desired format for this segment
+    // Combine all applicable hints (later hints override/merge)
+    const desiredFormat = {};
+    if (applicableHints.length > 0) {
+        // Merge all hints
+        applicableHints.forEach(h => Object.assign(desiredFormat, h.format));
+    }
+
+    // 2. Check existing format
+    const rPr = span.rPr;
+    const hasElement = (tagName) => {
+        return rPr && Array.from(rPr.childNodes).some(n => n.nodeName === tagName);
+    };
+
+    const existingFormat = {
+        bold: hasElement('w:b'),
+        italic: hasElement('w:i'),
+        underline: hasElement('w:u'),
+        strikethrough: hasElement('w:strike')
+    };
+
+    // 3. Compare
+    // We only care if:
+    // a) Desired has format, Existing does not -> Add
+    // b) Desired does NOT have format, Existing DOES -> Remove (if we are strict)
+
+    const formatsToCheck = ['bold', 'italic', 'underline', 'strikethrough'];
+    const changesNeeded = formatsToCheck.some(f => !!desiredFormat[f] !== existingFormat[f]);
+
+    if (!changesNeeded) return;
+
+    // 4. Apply changes
+    // Since we might be affecting only PART of a run, we basically need to do a 
+    // "replace" of that part with a new run that has the correct formatting
+    // This is similar to processDelete + processInsert, but semantic is "Formatting Change"
+
+    // To properly track "Formatted" changes in Word, we use w:rPrChange.
+    // However, if we split the run, we need to be careful.
+
+    // Simplest approach: Treat as "Format Change" logic similar to applyFormatHintToSpans
+    // preventing code duplication would be good, but we need "Removal" logic here too.
+
+    const parent = span.runElement.parentNode;
+    if (!parent) return;
+
+    const fullText = span.textElement.textContent || '';
+    const runStart = span.charStart;
+
+    const localStart = start - runStart;
+    const localEnd = end - runStart;
+
+    const beforeText = fullText.substring(0, localStart);
+    const affectedText = fullText.substring(localStart, localEnd);
+    const afterText = fullText.substring(localEnd);
+
+    // Split if needed
+    if (beforeText.length > 0) {
+        const beforeRun = createTextRun(xmlDoc, beforeText, rPr, false);
+        parent.insertBefore(beforeRun, span.runElement);
+    }
+
+    // Create new RPR based on desired format
+    // We base it on existing RPR but FORCE the desired state for the checked properties
+    const newRPr = injectExactFormattingToRPr(xmlDoc, rPr, desiredFormat, author);
+
+    const newRun = createTextRunWithRPrElement(xmlDoc, affectedText, newRPr, false);
+    parent.insertBefore(newRun, span.runElement);
+
+    if (afterText.length > 0) {
+        const afterRun = createTextRun(xmlDoc, afterText, rPr, false);
+        parent.insertBefore(afterRun, span.runElement);
+    }
+
+    parent.removeChild(span.runElement);
+}
+
+/**
+ * Creates an rPr that strictly matches the desired format state.
+ * Adds w:rPrChange if ANY change is made.
+ */
+function injectExactFormattingToRPr(xmlDoc, baseRPr, desiredFormat, author) {
+    const rPr = xmlDoc.createElement('w:rPr');
+
+    // Copy base properties FIRST
+    if (baseRPr) {
+        Array.from(baseRPr.childNodes).forEach(child => {
+            // Skip formatting tags we control
+            if (!['w:b', 'w:i', 'w:u', 'w:strike', 'w:rPrChange'].includes(child.nodeName)) {
+                rPr.appendChild(child.cloneNode(true));
+            }
+        });
+    }
+
+    // Add track change info if author provided (ALWAYS, since we only call this if changes needed)
+    if (author && baseRPr) {
+        // We need to pass the ORIGINAL rPr state to createRPrChange
+        // But we must clone it to avoid mutating original DOM
+        createRPrChange(xmlDoc, rPr, author, baseRPr); // Modified createRPrChange to accept explicit previous state
+    } else if (author) {
+        // No base RPR, create empty prev
+        createRPrChange(xmlDoc, rPr, author);
+    }
+
+    // Enforce desired format
+    if (desiredFormat.strikethrough) {
+        const strike = xmlDoc.createElement('w:strike');
+        rPr.insertBefore(strike, rPr.firstChild);
+    }
+    if (desiredFormat.underline) {
+        const u = xmlDoc.createElement('w:u');
+        u.setAttribute('w:val', 'single');
+        rPr.insertBefore(u, rPr.firstChild);
+    }
+    if (desiredFormat.italic) {
+        const i = xmlDoc.createElement('w:i');
+        rPr.insertBefore(i, rPr.firstChild);
+    }
+    if (desiredFormat.bold) {
+        const b = xmlDoc.createElement('w:b');
+        rPr.insertBefore(b, rPr.firstChild);
+    }
+
+    return rPr;
 }
 
 /**
@@ -553,7 +745,7 @@ function processInsert(xmlDoc, textSpans, pos, text, processedSpans, author, for
                 parent.insertBefore(insWrapper, targetSpan.runElement.nextSibling);
             } else {
                 // Apply format hints - may need to split text into multiple runs
-                const runs = createFormattedRuns(xmlDoc, text, baseRPr, applicableHints, insertOffset);
+                const runs = createFormattedRuns(xmlDoc, text, baseRPr, applicableHints, insertOffset, author);
                 const insWrapper = createTrackChange(xmlDoc, 'ins', null, author);
                 runs.forEach(run => insWrapper.appendChild(run));
                 parent.insertBefore(insWrapper, targetSpan.runElement.nextSibling);
@@ -1002,9 +1194,10 @@ function createTextRun(xmlDoc, text, rPr, isDelete) {
  * @param {Element|null} baseRPr - Base run properties to inherit
  * @param {Array} formatHints - Array of {start, end, format} hints
  * @param {number} baseOffset - Base offset for position calculations
+ * @param {string} [author] - Optional author for track changes
  * @returns {Element[]} Array of w:r elements
  */
-function createFormattedRuns(xmlDoc, text, baseRPr, formatHints, baseOffset) {
+function createFormattedRuns(xmlDoc, text, baseRPr, formatHints, baseOffset, author) {
     const runs = [];
     let pos = 0;
 
@@ -1026,7 +1219,7 @@ function createFormattedRuns(xmlDoc, text, baseRPr, formatHints, baseOffset) {
 
         // Formatted text
         const formattedText = text.slice(localStart, localEnd);
-        const formattedRPr = injectFormattingToRPr(xmlDoc, baseRPr, hint.format);
+        const formattedRPr = injectFormattingToRPr(xmlDoc, baseRPr, hint.format, author);
         runs.push(createTextRunWithRPrElement(xmlDoc, formattedText, formattedRPr, false));
 
         pos = localEnd;
@@ -1127,7 +1320,7 @@ function injectFormattingToRPr(xmlDoc, baseRPr, format, author) {
  * @param {Element} rPr - The run properties element to append to
  * @param {string} author - Author name
  */
-function createRPrChange(xmlDoc, rPr, author) {
+function createRPrChange(xmlDoc, rPr, author, previousRPrArg) {
     const rPrChange = xmlDoc.createElement('w:rPrChange');
     rPrChange.setAttribute('w:id', Math.floor(Math.random() * 90000 + 10000).toString());
     rPrChange.setAttribute('w:author', author);
@@ -1136,9 +1329,12 @@ function createRPrChange(xmlDoc, rPr, author) {
     // Create inner rPr for the "previous" state
     const previousRPr = xmlDoc.createElement('w:rPr');
 
+    // Determine source for previous state
+    const sourceNode = previousRPrArg || rPr;
+
     // Clone *current* children of rPr into previousRPr (snapshot of state before change)
     // Note: We only capture what is currently in rPr, which represents the "base" properties
-    Array.from(rPr.childNodes).forEach(child => {
+    Array.from(sourceNode.childNodes).forEach(child => {
         // Don't recurse into existing rPrChanges to avoid infinite nesting loop in simple implementation
         if (child.nodeName !== 'w:rPrChange') {
             previousRPr.appendChild(child.cloneNode(true));

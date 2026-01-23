@@ -24,7 +24,7 @@ export function splitRunsAtDiffBoundaries(runModel, diffOps) {
     const newModel = [];
 
     for (const run of runModel) {
-        // Skip non-text runs (bookmarks, containers, etc.)
+        // Skip non-text runs (bookmarks, containers, paragraph markers, etc.)
         if (run.kind !== RunKind.TEXT && run.kind !== RunKind.HYPERLINK) {
             newModel.push(run);
             continue;
@@ -138,6 +138,12 @@ export function applyPatches(splitModel, diffOps, options) {
         }
         if (run.kind === RunKind.CONTAINER_END) {
             containerStack.pop();
+            patchedModel.push({ ...run });
+            continue;
+        }
+
+        // Paragraph markers pass-through
+        if (run.kind === RunKind.PARAGRAPH_START) {
             patchedModel.push({ ...run });
             continue;
         }

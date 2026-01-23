@@ -71,9 +71,12 @@ export class ReconciliationPipeline {
 
             // Detect if this is a list transformation (e.g., paragraph with newlines)
             const isTargetList = cleanText.includes('\n') && /^([-*+]|\d+\.)/m.test(cleanText);
+            // Key fix: Only use executeListGeneration for EXPANSION (single paragraph -> list)
+            // If acceptedText already has newlines, we ingested multiple paragraphs and should use surgical diff
+            const isExpansion = isTargetList && !acceptedText.includes('\n');
 
-            if (isTargetList && (!numberingContext || !acceptedText.includes('\n'))) {
-                console.log('[Reconcile] Detected list expansion');
+            if (isExpansion) {
+                console.log('[Reconcile] Detected list expansion from single paragraph');
                 return this.executeListGeneration(cleanText, numberingContext, runModel);
             }
 

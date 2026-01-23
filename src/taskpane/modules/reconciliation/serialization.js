@@ -19,50 +19,81 @@ import { getApplicableFormatHints } from './markdown-processor.js';
  */
 export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = {}) {
     const { author = 'Gemini AI' } = options;
-    let runsContent = '';
+    const paragraphs = [];
+    let currentPPrXml = '';
+    let currentRuns = [];
+
+    // Helper to flush accumulated runs into a paragraph
+    function flushParagraph() {
+        if (currentRuns.length > 0 || paragraphs.length === 0) {
+            // Build paragraph properties - handle both string and DOM element
+            let pPrContent = '';
+            if (currentPPrXml) {
+                pPrContent = currentPPrXml.replace(/\s*xmlns:[^=]+="[^"]*"/g, '');
+            } else if (pPr) {
+                // Fallback to legacy pPr if no PARAGRAPH_START was seen
+                if (typeof pPr === 'string') {
+                    pPrContent = pPr;
+                } else {
+                    pPrContent = new XMLSerializer().serializeToString(pPr);
+                }
+                pPrContent = pPrContent.replace(/\s*xmlns:[^=]+="[^"]*"/g, '');
+            }
+            paragraphs.push(`<w:p>${pPrContent}${currentRuns.join('')}</w:p>`);
+            currentRuns = [];
+        }
+    }
 
     for (const item of patchedModel) {
         switch (item.kind) {
+            case RunKind.PARAGRAPH_START:
+                // Flush previous paragraph before starting a new one
+                if (currentRuns.length > 0 || paragraphs.length > 0) {
+                    flushParagraph();
+                }
+                currentPPrXml = item.pPrXml || '';
+                break;
+
             case RunKind.TEXT:
-                runsContent += buildRunXmlWithHints(item, formatHints);
+                currentRuns.push(buildRunXmlWithHints(item, formatHints));
                 break;
 
             case RunKind.DELETION:
-                runsContent += buildDeletionXml(item, author);
+                currentRuns.push(buildDeletionXml(item, author));
                 break;
 
             case RunKind.INSERTION:
-                runsContent += buildInsertionXml(item, formatHints, author);
+                currentRuns.push(buildInsertionXml(item, formatHints, author));
                 break;
 
             case RunKind.BOOKMARK:
             case RunKind.HYPERLINK:
                 // Pass through original XML - but strip any namespace declarations
                 if (item.nodeXml) {
-                    runsContent += item.nodeXml.replace(/\s*xmlns:[^=]+="[^"]*"/g, '');
+                    currentRuns.push(item.nodeXml.replace(/\s*xmlns:[^=]+="[^"]*"/g, ''));
                 }
                 break;
 
             case RunKind.CONTAINER_START:
                 if (item.containerKind === 'sdt') {
-                    runsContent += `<w:sdt>${item.propertiesXml}<w:sdtContent>`;
+                    currentRuns.push(`<w:sdt>${item.propertiesXml}<w:sdtContent>`);
                 } else if (item.containerKind === 'smartTag') {
-                    runsContent += `<w:smartTag ${item.propertiesXml}>`;
+                    currentRuns.push(`<w:smartTag ${item.propertiesXml}>`);
                 } else if (item.containerKind === 'hyperlink') {
                     const props = JSON.parse(item.propertiesXml);
                     const rIdAttr = props.rId ? ` r:id="${props.rId}"` : '';
                     const anchorAttr = props.anchor ? ` w:anchor="${props.anchor}"` : '';
-                    runsContent += `<w:hyperlink${rIdAttr}${anchorAttr}>`;
+                    currentRuns.push(`<w:hyperlink${rIdAttr}${anchorAttr}>`);
                 }
                 break;
 
             case RunKind.CONTAINER_END:
                 if (item.containerKind === 'sdt') {
-                    runsContent += `</w:sdtContent></w:sdt>`;
+                    currentRuns.push(`</w:sdtContent></w:sdt>`);
                 } else if (item.containerKind === 'smartTag') {
-                    runsContent += `</w:smartTag>`;
+                    currentRuns.push(`</w:smartTag>`);
                 } else if (item.containerKind === 'hyperlink') {
-                    runsContent += `</w:hyperlink>`;
+                    currentRuns.push(`</w:hyperlink>`);
                 }
                 break;
 
@@ -71,20 +102,11 @@ export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = 
         }
     }
 
-    // Build paragraph properties - handle both string and DOM element
-    let pPrContent = '';
-    if (pPr) {
-        if (typeof pPr === 'string') {
-            pPrContent = pPr;
-        } else {
-            pPrContent = new XMLSerializer().serializeToString(pPr);
-        }
-        // Remove xmlns declarations from pPr
-        pPrContent = pPrContent.replace(/\s*xmlns:[^=]+="[^"]*"/g, '');
-    }
+    // Flush final paragraph
+    flushParagraph();
 
-    // Return paragraph WITHOUT namespace - wrapper will add it
-    return `<w:p>${pPrContent}${runsContent}</w:p>`;
+    // Return all paragraphs WITHOUT namespace - wrapper will add it
+    return paragraphs.join('');
 }
 
 /**
