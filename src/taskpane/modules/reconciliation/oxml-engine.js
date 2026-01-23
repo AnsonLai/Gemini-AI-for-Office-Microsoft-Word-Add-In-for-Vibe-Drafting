@@ -99,10 +99,25 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     const hasTextChanges = cleanModifiedText.trim() !== originalText.trim();
     const hasFormatHints = formatHints.length > 0;
 
-    // Early exit only if NO text changes AND NO format hints
-    if (!hasTextChanges && !hasFormatHints) {
-        console.log('[OxmlEngine] No text changes AND no format hints detected');
+    // Extract existing formatting from the OOXML paragraph runs
+    const { existingFormatHints, textSpans } = extractFormattingFromOoxml(xmlDoc);
+    const hasExistingFormatting = existingFormatHints.length > 0;
+
+    console.log(`[OxmlEngine] Text changes: ${hasTextChanges}, New format hints: ${formatHints.length}, Existing format hints: ${existingFormatHints.length}`);
+
+    // Determine format removal: no new hints but existing formatting exists
+    const needsFormatRemoval = !hasTextChanges && !hasFormatHints && hasExistingFormatting;
+
+    // Early exit only if NO text changes AND NO format hints to add AND NO existing formatting to remove
+    if (!hasTextChanges && !hasFormatHints && !hasExistingFormatting) {
+        console.log('[OxmlEngine] No text changes, no format hints, and no existing formatting detected');
         return { oxml, hasChanges: false };
+    }
+
+    // Format REMOVAL: text is unchanged, no new hints, but original has formatting to strip
+    if (needsFormatRemoval) {
+        console.log(`[OxmlEngine] Format REMOVAL detected: stripping ${existingFormatHints.length} format ranges`);
+        return applyFormatRemovalWithSpans(xmlDoc, textSpans, existingFormatHints, serializer, author);
     }
 
     // Format-only change: text is the same but we have formatting to apply
@@ -114,26 +129,6 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     // Check for tables to decide mode
     const tables = xmlDoc.getElementsByTagName('w:tbl');
     const hasTables = tables.length > 0;
-
-    // Check for existing formatting that might need removal
-    const hasExistingFormatting = checkOxmlForFormatting(xmlDoc);
-
-    // Early exit only if NO text changes AND NO new format hints AND NO existing formatting
-    // If there IS existing formatting, we must proceed to potentially remove it if hints are empty
-    if (!hasTextChanges && !hasFormatHints && !hasExistingFormatting) {
-        console.log('[OxmlEngine] No text changes, no format hints, and no existing formatting detected');
-        return { oxml, hasChanges: false };
-    }
-
-    // Format-only change: text is the same but we have formatting to apply/remove
-    if (!hasTextChanges) {
-        console.log(`[OxmlEngine] Format-only change checking: ${formatHints.length} hints, existing formatting: ${hasExistingFormatting}`);
-        // We use applySurgicalMode for format updates on identical text as it handles the "Equal" diff logic
-        // But for non-table text, we might want a specialized path? 
-        // Actually, applySurgicalMode is safe for all content if we just want to update runs.
-        // However, applyReconstructionMode is better for body text to ensure full regeneration.
-        // Let's stick to the mode selection based on content type.
-    }
 
     const isMarkdownTable = /^\|.+\|/.test(cleanModifiedText.trim()) && cleanModifiedText.includes('\n');
     const isTargetList = cleanModifiedText.includes('\n') && /^([-*+]|\d+\.)/m.test(cleanModifiedText.trim());
@@ -162,8 +157,384 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     }
 }
 
+// ============================================================================
+// FORMAT EXTRACTION & REMOVAL
+// ============================================================================
+
 /**
- * Checks if the XML document contains any relevant formatting tags.
+ * Extracts formatting hints from actual paragraph runs in the OOXML.
+ * Only looks inside w:p elements to avoid style definitions.
+ * 
+ * @returns {{ existingFormatHints: Array, textSpans: Array }}
+ */
+/**
+ * Extracts formatting hints from actual paragraph runs in the OOXML.
+ * Only looks inside w:p elements to avoid style definitions.
+ * 
+ * @returns {{ existingFormatHints: Array, textSpans: Array }}
+ */
+function extractFormattingFromOoxml(xmlDoc) {
+    const existingFormatHints = [];
+    const textSpans = [];
+    let charOffset = 0;
+
+    // Only process runs inside paragraphs (not styles)
+    const allParagraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
+
+    for (const p of allParagraphs) {
+        // 1. Find pPr and its rPr (paragraph-level default run properties)
+        let pRPr = null;
+        for (const child of p.childNodes) {
+            if (child.nodeName === 'w:pPr') {
+                for (const pChild of child.childNodes) {
+                    if (pChild.nodeName === 'w:rPr') {
+                        pRPr = pChild;
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+
+        // Extract paragraph-level format flags
+        const pFormat = extractFormatFromRPr(pRPr);
+        if (pFormat.hasFormatting) {
+            console.log(`[OxmlEngine] Found paragraph-level formatting: ${JSON.stringify(pFormat)}`);
+        }
+
+        // 2. Process runs directly inside paragraphs
+        for (const child of p.childNodes) {
+            if (child.nodeName === 'w:r') {
+                charOffset = processRunForFormatting(child, p, charOffset, textSpans, existingFormatHints, pFormat);
+            } else if (child.nodeName === 'w:hyperlink') {
+                // Process runs inside hyperlinks
+                for (const hc of child.childNodes) {
+                    if (hc.nodeName === 'w:r') {
+                        charOffset = processRunForFormatting(hc, p, charOffset, textSpans, existingFormatHints, pFormat);
+                    }
+                }
+            }
+        }
+        // Add newline between paragraphs (not after last)
+        charOffset++; // Account for implicit newline
+    }
+
+    console.log(`[OxmlEngine] Extracted ${textSpans.length} text spans, ${existingFormatHints.length} format hints`);
+    return { existingFormatHints, textSpans };
+}
+
+/**
+ * Extracts formatting flags from an rPr element.
+ */
+function extractFormatFromRPr(rPr) {
+    const format = { bold: false, italic: false, underline: false, strikethrough: false, hasFormatting: false };
+    if (!rPr) return format;
+
+    for (const child of rPr.childNodes) {
+        if (child.nodeName === 'w:b') format.bold = true;
+        if (child.nodeName === 'w:i') format.italic = true;
+        if (child.nodeName === 'w:u') format.underline = true;
+        if (child.nodeName === 'w:strike') format.strikethrough = true;
+
+        // Check for style reference (very common for bold/italic)
+        if (child.nodeName === 'w:rStyle') {
+            const styleRef = child.getAttribute('w:val');
+            if (styleRef) {
+                const lowerStyle = styleRef.toLowerCase();
+                if (lowerStyle.includes('bold') || lowerStyle.includes('strong')) format.bold = true;
+                if (lowerStyle.includes('italic') || lowerStyle.includes('emphasis')) format.italic = true;
+                if (lowerStyle.includes('underline')) format.underline = true;
+            }
+        }
+    }
+
+    format.hasFormatting = format.bold || format.italic || format.underline || format.strikethrough;
+    return format;
+}
+
+/**
+ * Processes a single run element to extract text spans and formatting.
+ */
+function processRunForFormatting(run, paragraph, charOffset, textSpans, formatHints, pFormat = null) {
+    // Find rPr by iterating children
+    let rPr = null;
+    for (const child of run.childNodes) {
+        if (child.nodeName === 'w:rPr') {
+            rPr = child;
+            break;
+        }
+    }
+
+    // Extract formatting flags from rPr, merging with paragraph defaults
+    const format = extractFormatFromRPr(rPr);
+
+    // Merge with paragraph-level defaults if they aren't explicitly overridden
+    // Note: In OOXML, if pPr/rPr has bold, all runs are bold unless they have bold=off.
+    // Simplifying: if pFormat has it, we have it.
+    if (pFormat) {
+        if (pFormat.bold && !format.bold) format.bold = true;
+        if (pFormat.italic && !format.italic) format.italic = true;
+        if (pFormat.underline && !format.underline) format.underline = true;
+        if (pFormat.strikethrough && !format.strikethrough) format.strikethrough = true;
+    }
+
+    format.hasFormatting = format.bold || format.italic || format.underline || format.strikethrough;
+
+    // Find text elements
+    let currentOffset = charOffset;
+    for (const child of run.childNodes) {
+        if (child.nodeName === 'w:t') {
+            const text = child.textContent || '';
+            if (text.length > 0) {
+                const start = currentOffset;
+                const end = currentOffset + text.length;
+
+                textSpans.push({
+                    charStart: start,
+                    charEnd: end,
+                    textElement: child,
+                    runElement: run,
+                    paragraph: paragraph,
+                    rPr: rPr,
+                    format: { ...format }
+                });
+
+                // If this run has any formatting, record it as a format hint
+                if (format.hasFormatting) {
+                    formatHints.push({
+                        start,
+                        end,
+                        format: { ...format },
+                        run,
+                        rPr
+                    });
+                }
+
+                currentOffset = end;
+            }
+        }
+    }
+
+    return currentOffset;
+}
+
+/**
+ * Removes formatting from specified spans using the pre-extracted data.
+ * Handles both direct formatting (w:b tags) and inherited formatting (from paragraph).
+ * For inherited formatting, adds explicit override elements (w:b w:val="0").
+ */
+function applyFormatRemovalWithSpans(xmlDoc, textSpans, existingFormatHints, serializer, author) {
+    let hasAnyChanges = false;
+    const processedRuns = new Set();
+    const processedParagraphs = new Set();
+
+    console.log(`[OxmlEngine] applyFormatRemovalWithSpans: ${existingFormatHints.length} hints to process`);
+
+    // 1. Check and strip paragraph-level formatting first
+    for (const span of textSpans) {
+        const paragraph = span.paragraph;
+        if (processedParagraphs.has(paragraph)) continue;
+        processedParagraphs.add(paragraph);
+
+        // Find pPr/rPr
+        let pPr = null;
+        let pRPr = null;
+        for (const child of paragraph.childNodes) {
+            if (child.nodeName === 'w:pPr') {
+                pPr = child;
+                for (const pChild of child.childNodes) {
+                    if (pChild.nodeName === 'w:rPr') {
+                        pRPr = pChild;
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+
+        if (pRPr) {
+            const pToRemove = [];
+            for (const child of Array.from(pRPr.childNodes)) {
+                if (['w:b', 'w:i', 'w:u', 'w:strike'].includes(child.nodeName)) {
+                    pToRemove.push(child);
+                }
+            }
+
+            if (pToRemove.length > 0) {
+                hasAnyChanges = true;
+                console.log(`[OxmlEngine] Removing paragraph-level formatting: ${pToRemove.map(e => e.nodeName).join(', ')}`);
+                for (const el of pToRemove) {
+                    pRPr.removeChild(el);
+                }
+            }
+        }
+    }
+
+    // 2. Process each format hint - handle both direct and inherited formatting
+    for (const hint of existingFormatHints) {
+        const run = hint.run;
+        let rPr = hint.rPr;
+
+        // Skip if already processed this run
+        if (processedRuns.has(run)) continue;
+        processedRuns.add(run);
+
+        console.log(`[OxmlEngine] Processing format hint: bold=${hint.format.bold}, italic=${hint.format.italic}, rPr=${rPr ? 'exists' : 'null'}`);
+
+        // Case 1: Run has rPr - check for direct formatting OR style-based formatting
+        if (rPr && rPr.parentNode) {
+            const toRemove = [];
+            let hasStyleRef = false;
+
+            for (const child of Array.from(rPr.childNodes)) {
+                if (['w:b', 'w:i', 'w:u', 'w:strike'].includes(child.nodeName)) {
+                    toRemove.push(child);
+                }
+                if (child.nodeName === 'w:rStyle') {
+                    hasStyleRef = true;
+                }
+            }
+
+            // Case 1a: Direct formatting tags exist - remove them
+            if (toRemove.length > 0) {
+                hasAnyChanges = true;
+                console.log(`[OxmlEngine] Removing direct formatting from run: ${toRemove.map(e => e.nodeName).join(', ')}`);
+
+                // Create rPrChange for track changes
+                let rPrChange = null;
+                for (const child of rPr.childNodes) {
+                    if (child.nodeName === 'w:rPrChange') {
+                        rPrChange = child;
+                        break;
+                    }
+                }
+
+                if (!rPrChange) {
+                    rPrChange = xmlDoc.createElement('w:rPrChange');
+                    rPrChange.setAttribute('w:author', author || 'Gemini AI');
+                    rPrChange.setAttribute('w:date', new Date().toISOString());
+
+                    const originalRPr = xmlDoc.createElement('w:rPr');
+                    for (const child of rPr.childNodes) {
+                        if (child.nodeName !== 'w:rPrChange') {
+                            originalRPr.appendChild(child.cloneNode(true));
+                        }
+                    }
+                    rPrChange.appendChild(originalRPr);
+                    rPr.appendChild(rPrChange);
+                }
+
+                for (const el of toRemove) {
+                    rPr.removeChild(el);
+                }
+            }
+            // Case 1b: No direct tags but formatting detected (from style or paragraph) - add overrides
+            else if (hint.format.hasFormatting) {
+                hasAnyChanges = true;
+                console.log(`[OxmlEngine] Adding format overrides for style-based/inherited formatting (rPr exists)`);
+
+                // Create rPrChange before modifying
+                let rPrChange = null;
+                for (const child of rPr.childNodes) {
+                    if (child.nodeName === 'w:rPrChange') {
+                        rPrChange = child;
+                        break;
+                    }
+                }
+
+                if (!rPrChange) {
+                    rPrChange = xmlDoc.createElement('w:rPrChange');
+                    rPrChange.setAttribute('w:author', author || 'Gemini AI');
+                    rPrChange.setAttribute('w:date', new Date().toISOString());
+
+                    const originalRPr = xmlDoc.createElement('w:rPr');
+                    for (const child of rPr.childNodes) {
+                        if (child.nodeName !== 'w:rPrChange') {
+                            originalRPr.appendChild(child.cloneNode(true));
+                        }
+                    }
+                    rPrChange.appendChild(originalRPr);
+                    rPr.appendChild(rPrChange);
+                }
+
+                // Add explicit override elements to turn OFF the formatting
+                if (hint.format.bold) {
+                    const b = xmlDoc.createElement('w:b');
+                    b.setAttribute('w:val', '0');
+                    rPr.insertBefore(b, rPr.firstChild);
+                }
+                if (hint.format.italic) {
+                    const i = xmlDoc.createElement('w:i');
+                    i.setAttribute('w:val', '0');
+                    rPr.insertBefore(i, rPr.firstChild);
+                }
+                if (hint.format.underline) {
+                    const u = xmlDoc.createElement('w:u');
+                    u.setAttribute('w:val', 'none');
+                    rPr.insertBefore(u, rPr.firstChild);
+                }
+                if (hint.format.strikethrough) {
+                    const strike = xmlDoc.createElement('w:strike');
+                    strike.setAttribute('w:val', '0');
+                    rPr.insertBefore(strike, rPr.firstChild);
+                }
+            }
+        }
+        // Case 2: Run has no rPr but inherits formatting - add override elements
+        else if (!rPr && hint.format.hasFormatting) {
+            hasAnyChanges = true;
+            console.log(`[OxmlEngine] Adding format overrides for inherited formatting`);
+
+            // Create rPr for this run
+            rPr = xmlDoc.createElement('w:rPr');
+
+            // Add override elements to turn OFF inherited formatting
+            if (hint.format.bold) {
+                const b = xmlDoc.createElement('w:b');
+                b.setAttribute('w:val', '0');
+                rPr.appendChild(b);
+            }
+            if (hint.format.italic) {
+                const i = xmlDoc.createElement('w:i');
+                i.setAttribute('w:val', '0');
+                rPr.appendChild(i);
+            }
+            if (hint.format.underline) {
+                const u = xmlDoc.createElement('w:u');
+                u.setAttribute('w:val', 'none');
+                rPr.appendChild(u);
+            }
+            if (hint.format.strikethrough) {
+                const strike = xmlDoc.createElement('w:strike');
+                strike.setAttribute('w:val', '0');
+                rPr.appendChild(strike);
+            }
+
+            // Create rPrChange for track changes (previous state was empty)
+            const rPrChange = xmlDoc.createElement('w:rPrChange');
+            rPrChange.setAttribute('w:author', author || 'Gemini AI');
+            rPrChange.setAttribute('w:date', new Date().toISOString());
+            const emptyOriginalRPr = xmlDoc.createElement('w:rPr');
+            rPrChange.appendChild(emptyOriginalRPr);
+            rPr.appendChild(rPrChange);
+
+            // Insert rPr as first child of run
+            run.insertBefore(rPr, run.firstChild);
+        }
+    }
+
+    if (hasAnyChanges) {
+        console.log('[OxmlEngine] Format removal applied successfully');
+        return { oxml: serializer.serializeToString(xmlDoc), hasChanges: true };
+    }
+
+    console.log('[OxmlEngine] No formatting elements were removed');
+    return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
+}
+
+/**
+ * LEGACY: Checks if the XML document contains any relevant formatting tags.
+ * Kept for backward compatibility but now extractFormattingFromOoxml is preferred.
  */
 function checkOxmlForFormatting(xmlDoc) {
     const formattingTags = ['w:b', 'w:i', 'w:u', 'w:strike'];

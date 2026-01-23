@@ -146,6 +146,60 @@ if (result.hasChanges) {
 
 ---
 
+## Formatting Reconciliation & Removal
+
+One of the most complex aspects of the Hybrid Engine is reconciling existing formatting with the AI's requested state, particularly when the AI wants to **remove** formatting (e.g., unbolding text).
+
+### The Challenge: Invisible Formatting
+
+Formatting in Word isn't always direct tags on a run. It can be:
+- **Direct**: `<w:b/>` on a `w:r`
+- **Inherited**: Defined in Paragraph Properties (`w:pPr/w:rPr`)
+- **Style-based**: Referenced via `<w:rStyle w:val="Strong"/>`
+
+### Three-Step Reconciliation Logic
+
+When the AI sends text without markdown markers (implying plain text), the engine performs a **Semantic Extraction**:
+
+1.  **Extract Formatting**: The engine walks the `w:p` structure and builds a `formatHints` map from the *original* OOXML. This map merges paragraph-level defaults and style-referenced formatting into a uniform "Calculated State" for every character.
+2.  **Detect Removal**: If `hasTextChanges = false` but `formatHints` (from AI) is empty while `existingFormatHints` (from OOXML) is NOT, the engine enters **Format Removal Mode**.
+3.  **Apply Explicit Overrides**: Since simple tag removal doesn't work for inherited or style-based formatting, the engine adds **Explicit Overrides**.
+
+```mermaid
+graph TD
+    A[Start Reconciliation] --> B{Existing Formatting?}
+    B -- No --> C[Finish]
+    B -- Yes --> D{AI Hint Removal?}
+    D -- No --> C
+    D -- Yes --> E[Enter Format Removal Mode]
+    
+    E --> F{Run has rPr?}
+    F -- Yes --> G{Direct Tags exist?}
+    G -- Yes --> H[Case 1a: Remove Direct Tags + w:rPrChange]
+    G -- No --> I[Case 1b: Add Overrides + w:rPrChange]
+    
+    F -- No --> J[Case 2: Create rPr + Overrides + w:rPrChange]
+    
+    H --> K[Result: Overridden State]
+    I --> K
+    J --> K
+```
+
+### Removal Cases & Implementation
+
+| Case | Scenario | Logic | Example XML (Result) |
+|------|----------|-------|----------------------|
+| **1a** | Direct tag `<w:b/>` exists | Remove `<w:b/>`, add `<w:rPrChange>` | `<w:rPr><w:rPrChange...><w:rPr><w:b/></w:rPr></w:rPrChange></w:rPr>` |
+| **1b** | Inherited from Style | Keep style, add `<w:b w:val="0"/>` override | `<w:rPr><w:rStyle w:val="Strong"/><w:b w:val="0"/><w:rPrChange.../></w:rPr>` |
+| **2** | Inherited from Para | Create `<w:rPr>`, add `<w:b w:val="0"/>` override | `<w:rPr><w:b w:val="0"/><w:rPrChange.../></w:rPr>` |
+
+### Tracked Changes for Formatting
+
+All formatting changes (addition or removal) are wrapped in `w:rPrChange`. This captures a snapshot of the `rPr` state *before* the change, allowing Word to display the redline correctly in the "Review" pane even if no text was changed.
+
+
+---
+
 ## Core Data Types
 
 ```javascript
