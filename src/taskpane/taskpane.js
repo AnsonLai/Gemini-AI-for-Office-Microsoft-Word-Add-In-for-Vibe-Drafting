@@ -107,8 +107,13 @@ async function detectDocumentFont() {
 function markdownToWordHtml(markdown) {
   if (!markdown) return "";
 
+  // Pre-process underline and strikethrough (marked native GFM might be disabled or fail in some environments)
+  const processedMarkdown = markdown
+    .replace(/\+\+(.+?)\+\+/g, '<u>$1</u>')
+    .replace(/~~(.+?)~~/g, '<s>$1</s>');
+
   // Parse markdown to HTML using marked library
-  let html = marked.parse(markdown);
+  let html = marked.parse(processedMarkdown);
 
   // === TABLE FORMATTING ===
   // Word requires explicit styling for tables to render properly with borders
@@ -181,8 +186,11 @@ function markdownToWordHtmlInline(markdown) {
     return markdownToWordHtml(markdown);
   }
 
-  // For inline content, use parseInline and wrap with explicit font
-  return `<span style="font-family: '${cachedDocumentFont}', Calibri, sans-serif;">${marked.parseInline(markdown)}</span>`;
+  // For inline content, pre-process underline/strike and use parseInline
+  const processedMarkdown = markdown
+    .replace(/\+\+(.+?)\+\+/g, '<u>$1</u>')
+    .replace(/~~(.+?)~~/g, '<s>$1</s>');
+  return `<span style="font-family: '${cachedDocumentFont}', Calibri, sans-serif;">${marked.parseInline(processedMarkdown)}</span>`;
 }
 
 /**
@@ -1369,7 +1377,7 @@ async function sendChatMessage(modelType = 'fast') {
         function_declarations: [
           {
             name: "apply_redlines",
-            description: "Applies suggested edits to the document. Use this tool whenever the user asks to 'edit text', 'change text', 'modify', 'add', 'delete', 'reword', 'rephrase', 'update', 'bold', 'italicize', or apply any TEXT FORMATTING to the document. For bold text, use **text** markdown syntax. For italic text, use *text* markdown syntax. Do NOT suggest changes in the chat; always use this tool to apply them directly. The edits will be applied under track changes (redlines). NEVER say you have applied edits unless you have successfully called this tool.",
+            description: "Applies suggested edits to the document. Use this tool whenever the user asks to 'edit text', 'change text', 'modify', 'add', 'delete', 'reword', 'rephrase', 'update', 'bold', 'italicize', 'underline', 'strikethrough', or apply any TEXT FORMATTING to the document. For bold text, use **text** markdown syntax. For italic text, use *text* markdown syntax. For underline, use ++text++ markdown syntax. For strikethrough, use ~~text~~ markdown syntax. Do NOT suggest changes in the chat; always use this tool to apply them directly. The edits will be applied under track changes (redlines). NEVER say you have applied edits unless you have successfully called this tool.",
             parameters: {
               type: "OBJECT",
               properties: {
@@ -2321,6 +2329,8 @@ Each change must be an object with the following structure:
 All content and replacementText values support Markdown formatting. Use these when the user requests formatting:
 - **Bold**: Use **text** (double asterisks)
 - *Italic*: Use *text* (single asterisks)
+- **Underline**: Use ++text++ (double pluses)
+- ~~Strikethrough~~: Use ~~text~~ (double tildes)
 - ***Bold Italic***: Use ***text*** (triple asterisks)
 - **Unordered/Bullet lists**: Use "- item" or "* item" on separate lines. These render as bullet points (•).
 - **Ordered/Numbered lists**: Use "1. item", "2. item" on separate lines. These render as 1, 2, 3...
@@ -3817,9 +3827,9 @@ function hasBlockElements(content) {
 function hasInlineMarkdownFormatting(text) {
   if (!text) return false;
   // Check for common inline markdown patterns:
-  // **bold**, *italic*, __bold__, _italic_, `code`, ~~strikethrough~~
+  // **bold**, *italic*, __bold__, _italic_, `code`, ~~strikethrough~~, ++underline++
   // Also check for **...** pattern specifically
-  return /(\*\*.+?\*\*|\*.+?\*|__.+?__|_.+?_|`.+?`|~~.+?~~)/.test(text);
+  return /(\*\*.+?\*\*|\*.+?\*|__.+?__|_.+?_|`.+?`|~~.+?~~|\+\+.+?\+\+)/.test(text);
 }
 
 /**

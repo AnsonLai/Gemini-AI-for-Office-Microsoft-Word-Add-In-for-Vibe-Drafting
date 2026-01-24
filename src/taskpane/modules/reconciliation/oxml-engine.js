@@ -925,28 +925,56 @@ function addFormattingToRun(xmlDoc, run, format, author, generateRedlines) {
         createRPrChange(xmlDoc, rPr, author);
     }
 
-    // Check if element exists in rPr
-    const hasElement = (tagName) => {
-        return Array.from(rPr.childNodes).some(n => n.nodeName === tagName);
+    // Helper to force-add element (removing existing is handled by logic below)
+    const addElement = (tagName, val = null) => {
+        // Remove ANY existing occurence first to ensure we override 'val=0' or wrong position
+        const existing = Array.from(rPr.childNodes).filter(n => n.nodeName === tagName);
+        existing.forEach(e => rPr.removeChild(e));
+
+        const el = xmlDoc.createElement(tagName);
+        if (val) el.setAttribute('w:val', val);
+
+        // Insert in correct schema order
+        // Schema order (simplified): rStyle, rFonts, b, i, caps, strike, color, sz, u, ...
+        // We will define a priority list and insert before the first child that has LOWER priority (later in list)
+
+        const priority = ['w:rStyle', 'w:rFonts', 'w:b', 'w:bCs', 'w:i', 'w:iCs', 'w:caps', 'w:smallCaps', 'w:strike', 'w:dstrike', 'w:outline', 'w:shadow', 'w:emboss', 'w:imprint', 'w:noProof', 'w:snapToGrid', 'w:vanish', 'w:webHidden', 'w:color', 'w:spacing', 'w:w', 'w:kern', 'w:position', 'w:sz', 'w:szCs', 'w:highlight', 'w:u', 'w:effect', 'w:bdr', 'w:shd', 'w:fitText', 'w:vertAlign', 'w:rtl', 'w:cs', 'w:em', 'w:lang', 'w:eastAsianLayout', 'w:specVanish', 'w:oMath'];
+
+        const myIndex = priority.indexOf(tagName);
+        const myPriority = myIndex === -1 ? 999 : myIndex; // Unknown elements go to end
+
+        let inserted = false;
+        for (const child of Array.from(rPr.childNodes)) {
+            // Skip text nodes (whitespace)
+            if (child.nodeType !== 1) continue;
+
+            const childName = child.nodeName;
+            const childIndex = priority.indexOf(childName);
+            const childPriority = childIndex === -1 ? 999 : childIndex;
+
+            if (childPriority > myPriority) {
+                rPr.insertBefore(el, child);
+                inserted = true;
+                break;
+            }
+        }
+
+        if (!inserted) {
+            rPr.appendChild(el);
+        }
     };
 
-    // Add formatting elements
-    if (format.bold && !hasElement('w:b')) {
-        const b = xmlDoc.createElement('w:b');
-        rPr.appendChild(b);
+    if (format.bold) {
+        addElement('w:b');
     }
-    if (format.italic && !hasElement('w:i')) {
-        const i = xmlDoc.createElement('w:i');
-        rPr.appendChild(i);
+    if (format.italic) {
+        addElement('w:i');
     }
-    if (format.underline && !hasElement('w:u')) {
-        const u = xmlDoc.createElement('w:u');
-        u.setAttribute('w:val', 'single');
-        rPr.appendChild(u);
+    if (format.underline) {
+        addElement('w:u', 'single');
     }
-    if (format.strikethrough && !hasElement('w:strike')) {
-        const strike = xmlDoc.createElement('w:strike');
-        rPr.appendChild(strike);
+    if (format.strikethrough) {
+        addElement('w:strike');
     }
 }
 
@@ -1320,23 +1348,54 @@ function injectExactFormattingToRPr(xmlDoc, baseRPr, desiredFormat, author, gene
         createRPrChange(xmlDoc, rPr, author);
     }
 
+    // Helper to force-add element (removing existing is handled by logic below)
+    const addElement = (tagName, val = null) => {
+        // Remove ANY existing occurence first
+        const existing = Array.from(rPr.childNodes).filter(n => n.nodeName === tagName);
+        existing.forEach(e => rPr.removeChild(e));
+
+        const el = xmlDoc.createElement(tagName);
+        if (val) el.setAttribute('w:val', val);
+
+        // Insert in correct schema order
+        const priority = ['w:rStyle', 'w:rFonts', 'w:b', 'w:bCs', 'w:i', 'w:iCs', 'w:caps', 'w:smallCaps', 'w:strike', 'w:dstrike', 'w:outline', 'w:shadow', 'w:emboss', 'w:imprint', 'w:noProof', 'w:snapToGrid', 'w:vanish', 'w:webHidden', 'w:color', 'w:spacing', 'w:w', 'w:kern', 'w:position', 'w:sz', 'w:szCs', 'w:highlight', 'w:u', 'w:effect', 'w:bdr', 'w:shd', 'w:fitText', 'w:vertAlign', 'w:rtl', 'w:cs', 'w:em', 'w:lang', 'w:eastAsianLayout', 'w:specVanish', 'w:oMath'];
+
+        const myIndex = priority.indexOf(tagName);
+        const myPriority = myIndex === -1 ? 999 : myIndex;
+
+        let inserted = false;
+        for (const child of Array.from(rPr.childNodes)) {
+            // Skip text nodes (whitespace)
+            if (child.nodeType !== 1) continue;
+
+            const childName = child.nodeName;
+            const childIndex = priority.indexOf(childName);
+            const childPriority = childIndex === -1 ? 999 : childIndex;
+
+            if (childPriority > myPriority) {
+                rPr.insertBefore(el, child);
+                inserted = true;
+                break;
+            }
+        }
+
+        if (!inserted) {
+            rPr.appendChild(el);
+        }
+    };
+
     // Enforce desired format
     if (desiredFormat.strikethrough) {
-        const strike = xmlDoc.createElement('w:strike');
-        rPr.insertBefore(strike, rPr.firstChild);
+        addElement('w:strike');
     }
     if (desiredFormat.underline) {
-        const u = xmlDoc.createElement('w:u');
-        u.setAttribute('w:val', 'single');
-        rPr.insertBefore(u, rPr.firstChild);
+        addElement('w:u', 'single');
     }
     if (desiredFormat.italic) {
-        const i = xmlDoc.createElement('w:i');
-        rPr.insertBefore(i, rPr.firstChild);
+        addElement('w:i');
     }
     if (desiredFormat.bold) {
-        const b = xmlDoc.createElement('w:b');
-        rPr.insertBefore(b, rPr.firstChild);
+        addElement('w:b');
     }
 
     return rPr;
@@ -2061,28 +2120,53 @@ function injectFormattingToRPr(xmlDoc, baseRPr, format, author, generateRedlines
         createRPrChange(xmlDoc, rPr, author);
     }
 
-    // Add formatting elements (at the beginning, before other properties)
-    // Check if formatting already exists to avoid duplicates
-    const hasElement = (tagName) => {
-        return Array.from(rPr.childNodes).some(n => n.nodeName === tagName);
+    // Helper to force-add element (removing existing is handled by logic below)
+    const addElement = (tagName, val = null) => {
+        // Remove ANY existing occurence first
+        const existing = Array.from(rPr.childNodes).filter(n => n.nodeName === tagName);
+        existing.forEach(e => rPr.removeChild(e));
+
+        const el = xmlDoc.createElement(tagName);
+        if (val) el.setAttribute('w:val', val);
+
+        // Insert in correct schema order
+        const priority = ['w:rStyle', 'w:rFonts', 'w:b', 'w:bCs', 'w:i', 'w:iCs', 'w:caps', 'w:smallCaps', 'w:strike', 'w:dstrike', 'w:outline', 'w:shadow', 'w:emboss', 'w:imprint', 'w:noProof', 'w:snapToGrid', 'w:vanish', 'w:webHidden', 'w:color', 'w:spacing', 'w:w', 'w:kern', 'w:position', 'w:sz', 'w:szCs', 'w:highlight', 'w:u', 'w:effect', 'w:bdr', 'w:shd', 'w:fitText', 'w:vertAlign', 'w:rtl', 'w:cs', 'w:em', 'w:lang', 'w:eastAsianLayout', 'w:specVanish', 'w:oMath'];
+
+        const myIndex = priority.indexOf(tagName);
+        const myPriority = myIndex === -1 ? 999 : myIndex;
+
+        let inserted = false;
+        for (const child of Array.from(rPr.childNodes)) {
+            // Skip text nodes (whitespace)
+            if (child.nodeType !== 1) continue;
+
+            const childName = child.nodeName;
+            const childIndex = priority.indexOf(childName);
+            const childPriority = childIndex === -1 ? 999 : childIndex;
+
+            if (childPriority > myPriority) {
+                rPr.insertBefore(el, child);
+                inserted = true;
+                break;
+            }
+        }
+
+        if (!inserted) {
+            rPr.appendChild(el);
+        }
     };
 
-    if (format.strikethrough && !hasElement('w:strike')) {
-        const strike = xmlDoc.createElement('w:strike');
-        rPr.insertBefore(strike, rPr.firstChild);
+    if (format.bold) {
+        addElement('w:b');
     }
-    if (format.underline && !hasElement('w:u')) {
-        const u = xmlDoc.createElement('w:u');
-        u.setAttribute('w:val', 'single');
-        rPr.insertBefore(u, rPr.firstChild);
+    if (format.italic) {
+        addElement('w:i');
     }
-    if (format.italic && !hasElement('w:i')) {
-        const i = xmlDoc.createElement('w:i');
-        rPr.insertBefore(i, rPr.firstChild);
+    if (format.underline) {
+        addElement('w:u', 'single');
     }
-    if (format.bold && !hasElement('w:b')) {
-        const b = xmlDoc.createElement('w:b');
-        rPr.insertBefore(b, rPr.firstChild);
+    if (format.strikethrough) {
+        addElement('w:strike');
     }
 
     return rPr;
