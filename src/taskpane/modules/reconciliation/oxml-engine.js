@@ -10,7 +10,7 @@
  */
 
 import { diff_match_patch } from 'diff-match-patch';
-import { preprocessMarkdown, getApplicableFormatHints } from './markdown-processor.js';
+import { preprocessMarkdown, getApplicableFormatHints, mergeFormats } from './markdown-processor.js';
 import { diffTablesWithVirtualGrid, serializeVirtualGridToOoxml, generateTableOoxml } from './table-reconciliation.js';
 import { parseTable, ReconciliationPipeline } from './pipeline.js';
 import { wordsToChars, charsToWords } from './diff-engine.js';
@@ -537,6 +537,12 @@ function applyFormatRemovalWithSpans(xmlDoc, textSpans, existingFormatHints, ser
             if (pToRemove.length > 0) {
                 hasAnyChanges = true;
                 console.log(`[OxmlEngine] Removing paragraph-level formatting: ${pToRemove.map(e => e.nodeName).join(', ')}`);
+
+                // Add track change for paragraph properties
+                if (generateRedlines) {
+                    createPPrChange(xmlDoc, pPr, author || 'Gemini AI');
+                }
+
                 for (const el of pToRemove) {
                     pRPr.removeChild(el);
                 }
@@ -553,150 +559,12 @@ function applyFormatRemovalWithSpans(xmlDoc, textSpans, existingFormatHints, ser
         if (processedRuns.has(run)) continue;
         processedRuns.add(run);
 
-        console.log(`[OxmlEngine] Processing format hint: bold=${hint.format.bold}, italic=${hint.format.italic}, rPr=${rPr ? 'exists' : 'null'}`);
+        console.log(`[OxmlEngine] Processing format removal for hint: rPr=${rPr ? 'exists' : 'null'}`);
 
-        // Case 1: Run has rPr - check for direct formatting OR style-based formatting
-        if (rPr && rPr.parentNode) {
-            const toRemove = [];
-            let hasStyleRef = false;
-
-            for (const child of Array.from(rPr.childNodes)) {
-                if (['w:b', 'w:i', 'w:u', 'w:strike'].includes(child.nodeName)) {
-                    toRemove.push(child);
-                }
-                if (child.nodeName === 'w:rStyle') {
-                    hasStyleRef = true;
-                }
-            }
-
-            // Case 1a: Direct formatting tags exist - remove them
-            if (toRemove.length > 0) {
-                hasAnyChanges = true;
-                console.log(`[OxmlEngine] Removing direct formatting from run: ${toRemove.map(e => e.nodeName).join(', ')}`);
-
-                // Create rPrChange for track changes
-                let rPrChange = null;
-                for (const child of rPr.childNodes) {
-                    if (child.nodeName === 'w:rPrChange') {
-                        rPrChange = child;
-                        break;
-                    }
-                }
-
-                if (!rPrChange && generateRedlines) {
-                    rPrChange = xmlDoc.createElement('w:rPrChange');
-                    rPrChange.setAttribute('w:author', author || 'Gemini AI');
-                    rPrChange.setAttribute('w:date', new Date().toISOString());
-
-                    const originalRPr = xmlDoc.createElement('w:rPr');
-                    for (const child of rPr.childNodes) {
-                        if (child.nodeName !== 'w:rPrChange') {
-                            originalRPr.appendChild(child.cloneNode(true));
-                        }
-                    }
-                    rPrChange.appendChild(originalRPr);
-                    rPr.appendChild(rPrChange);
-                }
-
-                for (const el of toRemove) {
-                    rPr.removeChild(el);
-                }
-            }
-            // Case 1b: No direct tags but formatting detected (from style or paragraph) - add overrides
-            else if (hint.format.hasFormatting) {
-                hasAnyChanges = true;
-                console.log(`[OxmlEngine] Adding format overrides for style-based/inherited formatting (rPr exists)`);
-
-                // Create rPrChange before modifying
-                let rPrChange = null;
-                for (const child of rPr.childNodes) {
-                    if (child.nodeName === 'w:rPrChange') {
-                        rPrChange = child;
-                        break;
-                    }
-                }
-
-                if (!rPrChange && generateRedlines) {
-                    rPrChange = xmlDoc.createElement('w:rPrChange');
-                    rPrChange.setAttribute('w:author', author || 'Gemini AI');
-                    rPrChange.setAttribute('w:date', new Date().toISOString());
-
-                    const originalRPr = xmlDoc.createElement('w:rPr');
-                    for (const child of rPr.childNodes) {
-                        if (child.nodeName !== 'w:rPrChange') {
-                            originalRPr.appendChild(child.cloneNode(true));
-                        }
-                    }
-                    rPrChange.appendChild(originalRPr);
-                    rPr.appendChild(rPrChange);
-                }
-
-                // Add explicit override elements to turn OFF the formatting
-                if (hint.format.bold) {
-                    const b = xmlDoc.createElement('w:b');
-                    b.setAttribute('w:val', '0');
-                    rPr.insertBefore(b, rPr.firstChild);
-                }
-                if (hint.format.italic) {
-                    const i = xmlDoc.createElement('w:i');
-                    i.setAttribute('w:val', '0');
-                    rPr.insertBefore(i, rPr.firstChild);
-                }
-                if (hint.format.underline) {
-                    const u = xmlDoc.createElement('w:u');
-                    u.setAttribute('w:val', 'none');
-                    rPr.insertBefore(u, rPr.firstChild);
-                }
-                if (hint.format.strikethrough) {
-                    const strike = xmlDoc.createElement('w:strike');
-                    strike.setAttribute('w:val', '0');
-                    rPr.insertBefore(strike, rPr.firstChild);
-                }
-            }
-        }
-        // Case 2: Run has no rPr but inherits formatting - add override elements
-        else if (!rPr && hint.format.hasFormatting) {
-            hasAnyChanges = true;
-            console.log(`[OxmlEngine] Adding format overrides for inherited formatting`);
-
-            // Create rPr for this run
-            rPr = xmlDoc.createElement('w:rPr');
-
-            // Add override elements to turn OFF inherited formatting
-            if (hint.format.bold) {
-                const b = xmlDoc.createElement('w:b');
-                b.setAttribute('w:val', '0');
-                rPr.appendChild(b);
-            }
-            if (hint.format.italic) {
-                const i = xmlDoc.createElement('w:i');
-                i.setAttribute('w:val', '0');
-                rPr.appendChild(i);
-            }
-            if (hint.format.underline) {
-                const u = xmlDoc.createElement('w:u');
-                u.setAttribute('w:val', 'none');
-                rPr.appendChild(u);
-            }
-            if (hint.format.strikethrough) {
-                const strike = xmlDoc.createElement('w:strike');
-                strike.setAttribute('w:val', '0');
-                rPr.appendChild(strike);
-            }
-
-            // Create rPrChange for track changes (previous state was empty) - only if enabled
-            if (generateRedlines) {
-                const rPrChange = xmlDoc.createElement('w:rPrChange');
-                rPrChange.setAttribute('w:author', author || 'Gemini AI');
-                rPrChange.setAttribute('w:date', new Date().toISOString());
-                const emptyOriginalRPr = xmlDoc.createElement('w:rPr');
-                rPrChange.appendChild(emptyOriginalRPr);
-                rPr.appendChild(rPrChange);
-            }
-
-            // Insert rPr as first child of run
-            run.insertBefore(rPr, run.firstChild);
-        }
+        // For removal, target format is all properties OFF
+        const targetFormat = { bold: false, italic: false, underline: false, strikethrough: false };
+        addFormattingToRun(xmlDoc, run, targetFormat, author, generateRedlines);
+        hasAnyChanges = true;
     }
 
     if (hasAnyChanges) {
@@ -795,10 +663,9 @@ function applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, a
 
     const allParagraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
 
-    // Build text span map
+    // 1. Build text span map
     allParagraphs.forEach((p, pIndex) => {
         const container = p.parentNode;
-
         Array.from(p.childNodes).forEach(child => {
             if (child.nodeName === 'w:r') {
                 processRunElement(child, p, container, fullText, textSpans);
@@ -812,15 +679,77 @@ function applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, a
                 });
             }
         });
-
-        if (pIndex < allParagraphs.length - 1) {
-            fullText += '\n';
-        }
+        if (pIndex < allParagraphs.length - 1) fullText += '\n';
     });
 
-    // Apply each format hint to the corresponding text spans
+    // 2. Identify all split points
+    const boundaries = new Set();
     for (const hint of formatHints) {
-        applyFormatHintToSpans(xmlDoc, textSpans, hint, author, generateRedlines);
+        boundaries.add(hint.start);
+        boundaries.add(hint.end);
+    }
+    const sortedBoundaries = Array.from(boundaries).sort((a, b) => a - b);
+
+    // 3. For each unique range between boundaries, find applicable formatting
+    // Instead of sequential application which might override, we find the EXACT target for each range.
+    for (let i = 0; i < sortedBoundaries.length + 1; i++) {
+        const start = i === 0 ? 0 : sortedBoundaries[i - 1];
+        const end = i === sortedBoundaries.length ? fullText.length : sortedBoundaries[i];
+
+        if (start >= end) continue;
+
+        // Find hints that cover this range
+        const applicableHints = formatHints.filter(h => h.start < end && h.end > start);
+        const targetFormat = mergeFormats(...applicableHints.map(h => h.format));
+
+        // Find spans overlapping this range
+        const affectedSpans = textSpans.filter(s => s.charEnd > start && s.charStart < end);
+
+        for (const span of affectedSpans) {
+            const run = span.runElement;
+            const parent = run.parentNode;
+            if (!parent) continue;
+
+            const runStart = span.charStart;
+            const runEnd = span.charEnd;
+            const intersectStart = Math.max(runStart, start);
+            const intersectEnd = Math.min(runEnd, end);
+
+            const runText = span.textElement.textContent || '';
+            const localStart = intersectStart - runStart;
+            const localEnd = intersectEnd - runStart;
+
+            if (localStart === 0 && localEnd === runText.length) {
+                // Entire run fits in this range
+                addFormattingToRun(xmlDoc, run, targetFormat, author, generateRedlines);
+            } else {
+                // Split the run
+                const beforeText = runText.substring(0, localStart);
+                const targetText = runText.substring(localStart, localEnd);
+                const afterText = runText.substring(localEnd);
+
+                const existingRPr = run.getElementsByTagName('w:rPr')[0] || null;
+
+                if (beforeText.length > 0) {
+                    parent.insertBefore(createTextRun(xmlDoc, beforeText, existingRPr, false), run);
+                }
+
+                const newFormattedRun = createFormattedRunWithElement(xmlDoc, targetText, existingRPr, targetFormat, author, generateRedlines);
+                parent.insertBefore(newFormattedRun, run);
+
+                if (afterText.length > 0) {
+                    parent.insertBefore(createTextRun(xmlDoc, afterText, existingRPr, false), run);
+                }
+
+                parent.removeChild(run);
+
+                // Update textSpans to reflect the split (important for subsequent iterations)
+                // Actually, since we process ranges sequentially, we don't need to update textSpans 
+                // for THE SAME range, but we might for LATER ranges.
+                // However, our boundaries ensure that NO hint will ever partially overlap 
+                // a run created by a previous range's split.
+            }
+        }
     }
 
     return { oxml: serializer.serializeToString(xmlDoc), hasChanges: true };
@@ -913,6 +842,7 @@ function createFormattedRunWithElement(xmlDoc, text, baseRPr, format, author, ge
  */
 function addFormattingToRun(xmlDoc, run, format, author, generateRedlines) {
     let rPr = run.getElementsByTagName('w:rPr')[0];
+    const baseRPr = rPr ? rPr.cloneNode(true) : null;
 
     // Create rPr if it doesn't exist
     if (!rPr) {
@@ -920,62 +850,12 @@ function addFormattingToRun(xmlDoc, run, format, author, generateRedlines) {
         run.insertBefore(rPr, run.firstChild);
     }
 
-    // Create rPrChange to track this modification
-    if (author && generateRedlines) {
-        createRPrChange(xmlDoc, rPr, author);
-    }
+    // Synchronize formatting using robust helper
+    const newRPr = injectFormattingToRPr(xmlDoc, baseRPr, format, author, generateRedlines);
 
-    // Helper to force-add element (removing existing is handled by logic below)
-    const addElement = (tagName, val = null) => {
-        // Remove ANY existing occurence first to ensure we override 'val=0' or wrong position
-        const existing = Array.from(rPr.childNodes).filter(n => n.nodeName === tagName);
-        existing.forEach(e => rPr.removeChild(e));
-
-        const el = xmlDoc.createElement(tagName);
-        if (val) el.setAttribute('w:val', val);
-
-        // Insert in correct schema order
-        // Schema order (simplified): rStyle, rFonts, b, i, caps, strike, color, sz, u, ...
-        // We will define a priority list and insert before the first child that has LOWER priority (later in list)
-
-        const priority = ['w:rStyle', 'w:rFonts', 'w:b', 'w:bCs', 'w:i', 'w:iCs', 'w:caps', 'w:smallCaps', 'w:strike', 'w:dstrike', 'w:outline', 'w:shadow', 'w:emboss', 'w:imprint', 'w:noProof', 'w:snapToGrid', 'w:vanish', 'w:webHidden', 'w:color', 'w:spacing', 'w:w', 'w:kern', 'w:position', 'w:sz', 'w:szCs', 'w:highlight', 'w:u', 'w:effect', 'w:bdr', 'w:shd', 'w:fitText', 'w:vertAlign', 'w:rtl', 'w:cs', 'w:em', 'w:lang', 'w:eastAsianLayout', 'w:specVanish', 'w:oMath'];
-
-        const myIndex = priority.indexOf(tagName);
-        const myPriority = myIndex === -1 ? 999 : myIndex; // Unknown elements go to end
-
-        let inserted = false;
-        for (const child of Array.from(rPr.childNodes)) {
-            // Skip text nodes (whitespace)
-            if (child.nodeType !== 1) continue;
-
-            const childName = child.nodeName;
-            const childIndex = priority.indexOf(childName);
-            const childPriority = childIndex === -1 ? 999 : childIndex;
-
-            if (childPriority > myPriority) {
-                rPr.insertBefore(el, child);
-                inserted = true;
-                break;
-            }
-        }
-
-        if (!inserted) {
-            rPr.appendChild(el);
-        }
-    };
-
-    if (format.bold) {
-        addElement('w:b');
-    }
-    if (format.italic) {
-        addElement('w:i');
-    }
-    if (format.underline) {
-        addElement('w:u', 'single');
-    }
-    if (format.strikethrough) {
-        addElement('w:strike');
-    }
+    // Replace old rPr children with new ones
+    while (rPr.firstChild) rPr.removeChild(rPr.firstChild);
+    Array.from(newRPr.childNodes).forEach(child => rPr.appendChild(child));
 }
 
 // ============================================================================
@@ -1308,7 +1188,7 @@ function reconcileFormattingForTextSpan(xmlDoc, span, start, end, applicableHint
 
     // Create new RPR based on desired format
     // We base it on existing RPR but FORCE the desired state for the checked properties
-    const newRPr = injectExactFormattingToRPr(xmlDoc, rPr, desiredFormat, author, generateRedlines);
+    const newRPr = injectFormattingToRPr(xmlDoc, rPr, desiredFormat, author, generateRedlines);
 
     const newRun = createTextRunWithRPrElement(xmlDoc, affectedText, newRPr, false);
     parent.insertBefore(newRun, span.runElement);
@@ -1319,86 +1199,6 @@ function reconcileFormattingForTextSpan(xmlDoc, span, start, end, applicableHint
     }
 
     parent.removeChild(span.runElement);
-}
-
-/**
- * Creates an rPr that strictly matches the desired format state.
- * Adds w:rPrChange if ANY change is made.
- */
-function injectExactFormattingToRPr(xmlDoc, baseRPr, desiredFormat, author, generateRedlines) {
-    const rPr = xmlDoc.createElement('w:rPr');
-
-    // Copy base properties FIRST
-    if (baseRPr) {
-        Array.from(baseRPr.childNodes).forEach(child => {
-            // Skip formatting tags we control
-            if (!['w:b', 'w:i', 'w:u', 'w:strike', 'w:rPrChange'].includes(child.nodeName)) {
-                rPr.appendChild(child.cloneNode(true));
-            }
-        });
-    }
-
-    // Add track change info if author provided (ALWAYS, since we only call this if changes needed)
-    if (author && baseRPr && generateRedlines) {
-        // We need to pass the ORIGINAL rPr state to createRPrChange
-        // But we must clone it to avoid mutating original DOM
-        createRPrChange(xmlDoc, rPr, author, baseRPr); // Modified createRPrChange to accept explicit previous state
-    } else if (author && generateRedlines) {
-        // No base RPR, create empty prev
-        createRPrChange(xmlDoc, rPr, author);
-    }
-
-    // Helper to force-add element (removing existing is handled by logic below)
-    const addElement = (tagName, val = null) => {
-        // Remove ANY existing occurence first
-        const existing = Array.from(rPr.childNodes).filter(n => n.nodeName === tagName);
-        existing.forEach(e => rPr.removeChild(e));
-
-        const el = xmlDoc.createElement(tagName);
-        if (val) el.setAttribute('w:val', val);
-
-        // Insert in correct schema order
-        const priority = ['w:rStyle', 'w:rFonts', 'w:b', 'w:bCs', 'w:i', 'w:iCs', 'w:caps', 'w:smallCaps', 'w:strike', 'w:dstrike', 'w:outline', 'w:shadow', 'w:emboss', 'w:imprint', 'w:noProof', 'w:snapToGrid', 'w:vanish', 'w:webHidden', 'w:color', 'w:spacing', 'w:w', 'w:kern', 'w:position', 'w:sz', 'w:szCs', 'w:highlight', 'w:u', 'w:effect', 'w:bdr', 'w:shd', 'w:fitText', 'w:vertAlign', 'w:rtl', 'w:cs', 'w:em', 'w:lang', 'w:eastAsianLayout', 'w:specVanish', 'w:oMath'];
-
-        const myIndex = priority.indexOf(tagName);
-        const myPriority = myIndex === -1 ? 999 : myIndex;
-
-        let inserted = false;
-        for (const child of Array.from(rPr.childNodes)) {
-            // Skip text nodes (whitespace)
-            if (child.nodeType !== 1) continue;
-
-            const childName = child.nodeName;
-            const childIndex = priority.indexOf(childName);
-            const childPriority = childIndex === -1 ? 999 : childIndex;
-
-            if (childPriority > myPriority) {
-                rPr.insertBefore(el, child);
-                inserted = true;
-                break;
-            }
-        }
-
-        if (!inserted) {
-            rPr.appendChild(el);
-        }
-    };
-
-    // Enforce desired format
-    if (desiredFormat.strikethrough) {
-        addElement('w:strike');
-    }
-    if (desiredFormat.underline) {
-        addElement('w:u', 'single');
-    }
-    if (desiredFormat.italic) {
-        addElement('w:i');
-    }
-    if (desiredFormat.bold) {
-        addElement('w:b');
-    }
-
-    return rPr;
 }
 
 /**
@@ -2106,28 +1906,31 @@ function injectFormattingToRPr(xmlDoc, baseRPr, format, author, generateRedlines
     // Copy existing properties from base
     if (baseRPr) {
         Array.from(baseRPr.childNodes).forEach(child => {
-            rPr.appendChild(child.cloneNode(true));
+            // Skip existing property tags that we will synchronize
+            if (!['w:b', 'w:bCs', 'w:i', 'w:iCs', 'w:u', 'w:strike', 'w:rPrChange'].includes(child.nodeName)) {
+                rPr.appendChild(child.cloneNode(true));
+            }
         });
     }
 
-    if (!format || Object.keys(format).length === 0) {
+    if (!format) {
         return rPr;
     }
 
-    // Add track change info if author provided
     // Add track change info if author provided AND enabled
     if (author && generateRedlines) {
-        createRPrChange(xmlDoc, rPr, author);
+        // Capture previous state BEFORE synchronization
+        createRPrChange(xmlDoc, rPr, author, baseRPr);
     }
 
-    // Helper to force-add element (removing existing is handled by logic below)
-    const addElement = (tagName, val = null) => {
-        // Remove ANY existing occurence first
-        const existing = Array.from(rPr.childNodes).filter(n => n.nodeName === tagName);
-        existing.forEach(e => rPr.removeChild(e));
-
+    // Helper to force-add/sync element
+    const syncElement = (tagName, isOn, valOn = null, valOff = '0') => {
         const el = xmlDoc.createElement(tagName);
-        if (val) el.setAttribute('w:val', val);
+        if (isOn) {
+            if (valOn) el.setAttribute('w:val', valOn);
+        } else {
+            if (valOff) el.setAttribute('w:val', valOff);
+        }
 
         // Insert in correct schema order
         const priority = ['w:rStyle', 'w:rFonts', 'w:b', 'w:bCs', 'w:i', 'w:iCs', 'w:caps', 'w:smallCaps', 'w:strike', 'w:dstrike', 'w:outline', 'w:shadow', 'w:emboss', 'w:imprint', 'w:noProof', 'w:snapToGrid', 'w:vanish', 'w:webHidden', 'w:color', 'w:spacing', 'w:w', 'w:kern', 'w:position', 'w:sz', 'w:szCs', 'w:highlight', 'w:u', 'w:effect', 'w:bdr', 'w:shd', 'w:fitText', 'w:vertAlign', 'w:rtl', 'w:cs', 'w:em', 'w:lang', 'w:eastAsianLayout', 'w:specVanish', 'w:oMath'];
@@ -2137,37 +1940,29 @@ function injectFormattingToRPr(xmlDoc, baseRPr, format, author, generateRedlines
 
         let inserted = false;
         for (const child of Array.from(rPr.childNodes)) {
-            // Skip text nodes (whitespace)
             if (child.nodeType !== 1) continue;
-
-            const childName = child.nodeName;
-            const childIndex = priority.indexOf(childName);
+            const childIndex = priority.indexOf(child.nodeName);
             const childPriority = childIndex === -1 ? 999 : childIndex;
-
             if (childPriority > myPriority) {
                 rPr.insertBefore(el, child);
                 inserted = true;
                 break;
             }
         }
-
-        if (!inserted) {
-            rPr.appendChild(el);
-        }
+        if (!inserted) rPr.appendChild(el);
     };
 
-    if (format.bold) {
-        addElement('w:b');
-    }
-    if (format.italic) {
-        addElement('w:i');
-    }
-    if (format.underline) {
-        addElement('w:u', 'single');
-    }
-    if (format.strikethrough) {
-        addElement('w:strike');
-    }
+    // Synchronize properties - explicitly support subtraction
+    syncElement('w:b', !!format.bold);
+    // Also sync complex scripts bold
+    syncElement('w:bCs', !!format.bold);
+
+    syncElement('w:i', !!format.italic);
+    syncElement('w:iCs', !!format.italic);
+
+    syncElement('w:u', !!format.underline, 'single', 'none');
+
+    syncElement('w:strike', !!format.strikethrough);
 
     return rPr;
 }
@@ -2203,6 +1998,38 @@ function createRPrChange(xmlDoc, rPr, author, previousRPrArg) {
 
     rPrChange.appendChild(previousRPr);
     rPr.appendChild(rPrChange);
+}
+
+/**
+ * Creates w:pPrChange element to track property changes.
+ * 
+ * @param {Document} xmlDoc - The XML document
+ * @param {Element} pPr - The paragraph properties element to append to
+ * @param {string} author - Author name
+ * @param {Element} [previousPPrArg] - Optional previous state
+ */
+function createPPrChange(xmlDoc, pPr, author, previousPPrArg) {
+    const pPrChange = xmlDoc.createElement('w:pPrChange');
+    pPrChange.setAttribute('w:id', Math.floor(Math.random() * 90000 + 10000).toString());
+    pPrChange.setAttribute('w:author', author);
+    pPrChange.setAttribute('w:date', new Date().toISOString());
+
+    // Create inner pPr for the "previous" state
+    const previousPPr = xmlDoc.createElement('w:pPr');
+
+    // Determine source for previous state
+    const sourceNode = previousPPrArg || pPr;
+
+    // Clone *current* children of pPr into previousPPr
+    // Note: pPr has different child structure than rPr (e.g. pStyle, pBdr, tabs, spacing, ind, etc.)
+    Array.from(sourceNode.childNodes).forEach(child => {
+        if (child.nodeName !== 'w:pPrChange' && child.nodeName !== 'w:rPr') {
+            previousPPr.appendChild(child.cloneNode(true));
+        }
+    });
+
+    pPrChange.appendChild(previousPPr);
+    pPr.appendChild(pPrChange);
 }
 
 /**

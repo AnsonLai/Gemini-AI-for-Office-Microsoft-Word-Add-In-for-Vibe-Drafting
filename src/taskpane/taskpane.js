@@ -4160,7 +4160,8 @@ async function routeChangeOperation(change, targetParagraph, context) {
   const redlineEnabled = loadRedlineSetting();
 
   // Get original text and paragraph OOXML
-  const paragraphOriginalText = targetParagraph.text.trim();
+  // Get original text (preserve whitespace for exact diffing) and paragraph OOXML
+  const paragraphOriginalText = targetParagraph.text;
   const paragraphOoxmlResult = targetParagraph.getOoxml();
   await context.sync();
 
@@ -4202,9 +4203,11 @@ async function routeChangeOperation(change, targetParagraph, context) {
     await context.sync();
 
     const originalMode = doc.changeTrackingMode;
+    console.log(`[OxmlEngine] Current track changes mode: ${originalMode}, redlineEnabled: ${redlineEnabled}`);
 
     // Disable track changes temporarily - our w:ins/w:del ARE the track changes
-    if (originalMode !== Word.ChangeTrackingMode.off && redlineEnabled) {
+    if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+      console.log("[OxmlEngine] Temporarily disabling Word track changes for OOXML insertion");
       doc.changeTrackingMode = Word.ChangeTrackingMode.off;
       await context.sync();
     }
@@ -4218,7 +4221,8 @@ async function routeChangeOperation(change, targetParagraph, context) {
       console.log("✅ OOXML Hybrid Mode reconciliation successful");
     } finally {
       // Restore track changes mode
-      if (originalMode !== Word.ChangeTrackingMode.off && redlineEnabled) {
+      if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+        console.log(`[OxmlEngine] Restoring track changes mode to: ${originalMode}`);
         doc.changeTrackingMode = originalMode;
         await context.sync();
       }
