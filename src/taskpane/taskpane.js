@@ -12,7 +12,7 @@ import { diff_match_patch } from 'diff-match-patch';
 import "./taskpane.css";
 
 // OOXML Engine V5.1 - Hybrid Mode for surgical document editing with track changes
-import { applyRedlineToOxml, ReconciliationPipeline, wrapInDocumentFragment, preprocessMarkdown } from './modules/reconciliation/index.js';
+import { applyRedlineToOxml, ReconciliationPipeline, wrapInDocumentFragment, preprocessMarkdown, parseTable } from './modules/reconciliation/index.js';
 
 // Configure marked for GFM (GitHub Flavored Markdown) with tables, breaks, etc.
 marked.setOptions({
@@ -2575,19 +2575,69 @@ Return ONLY the JSON array, nothing else:`;
               continue;
             }
 
-            // Check if this is a table - use HTML for now (table OOXML is complex)
-            const tableData = parseMarkdownTable(normalizedContent);
-            if (tableData) {
-              console.log(`Detected table in replace_paragraph, using HTML insertion`);
-              try {
-                const htmlContent = markdownToWordHtml(normalizedContent);
-                targetParagraph.insertHtml(htmlContent, "Replace");
-                changesApplied++;
-              } catch (tableError) {
-                console.error(`Error inserting table:`, tableError);
+            // Check if this is a table - use OOXML pipeline
+            const matchedTable = normalizedContent.includes('|');
+            if (matchedTable) {
+              const tableData = parseTable(normalizedContent);
+              if (tableData.rows.length > 0 || tableData.headers.length > 0) {
+                console.log(`Detected table in replace_paragraph, using OOXML pipeline`);
+                try {
+                  // Create reconciliation pipeline with redline settings
+                  const redlineEnabled = loadRedlineSetting();
+                  const redlineAuthor = loadRedlineAuthor();
+                  const pipeline = new ReconciliationPipeline({
+                    generateRedlines: redlineEnabled,
+                    author: redlineAuthor
+                  });
+
+                  // Execute table generation - this creates OOXML with w:tbl and optional w:ins
+                  const result = pipeline.executeTableGeneration(normalizedContent);
+
+                  if (result.ooxml && result.isValid) {
+                    // Wrap in document fragment
+                    const wrappedOoxml = wrapInDocumentFragment(result.ooxml, {
+                      includeNumbering: false
+                    });
+
+                    // Disable track changes temporarily
+                    const doc = context.document;
+                    doc.load("changeTrackingMode");
+                    await context.sync();
+
+                    const originalMode = doc.changeTrackingMode;
+                    if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+                      doc.changeTrackingMode = Word.ChangeTrackingMode.off;
+                      await context.sync();
+                    }
+
+                    try {
+                      const insertMode = isInsertAtEnd ? 'After' : 'Replace';
+                      console.log(`[TableGen] Using insert mode: ${insertMode}`);
+                      targetParagraph.insertOoxml(wrappedOoxml, insertMode);
+                      await context.sync();
+                      console.log(`✅ OOXML table generation successful`);
+                      changesApplied++;
+                    } finally {
+                      if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+                        doc.changeTrackingMode = originalMode;
+                        await context.sync();
+                      }
+                    }
+                  } else {
+                    console.warn('[TableGen] Pipeline failed, falling back to HTML');
+                    const htmlContent = markdownToWordHtml(normalizedContent);
+                    targetParagraph.insertHtml(htmlContent, isInsertAtEnd ? "After" : "Replace");
+                    changesApplied++;
+                  }
+                } catch (tableError) {
+                  console.error(`Error in OOXML table generation:`, tableError);
+                  const htmlContent = markdownToWordHtml(normalizedContent);
+                  targetParagraph.insertHtml(htmlContent, isInsertAtEnd ? "After" : "Replace");
+                  changesApplied++;
+                }
+                // Skip the rest of replace_paragraph handling
+                continue;
               }
-              // Skip the rest of replace_paragraph handling
-              continue;
             }
 
             // Convert Markdown to Word-compatible HTML for regular content
@@ -3931,48 +3981,6 @@ function parseMarkdownList(content) {
   };
 }
 
-/**
- * Parses markdown table into structured data
- * Format: | Header 1 | Header 2 |\n|----------|----------|\n| Cell 1 | Cell 2 |
- */
-function parseMarkdownTable(content) {
-  if (!content || !content.includes('|')) return null;
-
-  const lines = content.trim().split('\n').filter(l => l.includes('|'));
-  if (lines.length < 2) return null; // Need at least header + separator
-
-  const rows = [];
-  let skipNext = false;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-
-    // Skip separator line (|----|----|)
-    if (/^\|[\s-:|]+\|$/.test(line)) {
-      skipNext = false;
-      continue;
-    }
-
-    // Parse table row
-    const cells = line.split('|')
-      .map(cell => cell.trim())
-      .filter(cell => cell.length > 0);
-
-    if (cells.length > 0) {
-      rows.push(cells);
-    }
-  }
-
-  if (rows.length === 0) return null;
-
-  return {
-    type: 'table',
-    headers: rows[0],
-    rows: rows.slice(1),
-    numCols: rows[0].length,
-    numRows: rows.length
-  };
-}
 
 /**
  * Applies a numbered or bullet list using Word's native list API
@@ -4031,58 +4039,6 @@ async function applyNativeList(targetParagraph, listData, context) {
   console.log(`Successfully applied native list`);
 }
 
-/**
- * Creates a table using Word's native table API
- * Much more reliable than HTML insertion
- */
-async function createNativeTable(targetParagraph, tableData, context) {
-  if (!tableData || !tableData.headers || tableData.headers.length === 0) {
-    console.warn('No table data to create');
-    return;
-  }
-
-  console.log(`Creating native table: ${tableData.numRows} rows × ${tableData.numCols} cols`);
-
-  // Calculate total rows (headers + data rows)
-  const totalRows = 1 + (tableData.rows ? tableData.rows.length : 0);
-
-  // Prepare values array for table
-  const values = [tableData.headers];
-  if (tableData.rows) {
-    values.push(...tableData.rows);
-  }
-
-  // Ensure all rows have the same number of columns
-  const numCols = tableData.numCols;
-  for (let i = 0; i < values.length; i++) {
-    while (values[i].length < numCols) {
-      values[i].push(''); // Pad with empty cells
-    }
-  }
-
-  // Clear target paragraph and insert table after it
-  targetParagraph.clear();
-
-  // Create the table
-  const table = targetParagraph.insertTable(totalRows, numCols, Word.InsertLocation.after, values);
-
-  // Apply styling
-  table.styleBuiltIn = Word.BuiltInStyleName.gridTable1Light;
-  table.headerRowCount = 1;
-
-  // Style header row
-  const headerRow = table.rows.getFirst();
-  headerRow.font.bold = true;
-
-  // Add borders
-  table.set({
-    width: 100, // Percentage
-    shadingColor: '#FFFFFF'
-  });
-
-  await context.sync();
-  console.log('Successfully created native table');
-}
 
 
 /**
@@ -4125,12 +4081,16 @@ async function routeChangeOperation(change, targetParagraph, context) {
       return;
     }
 
-    // Try to parse as table
-    const tableData = parseMarkdownTable(newContent);
-    if (tableData) {
-      console.log("Using native table API");
-      await createNativeTable(targetParagraph, tableData, context);
-      return;
+    // Try to parse as table - use OOXML Hybrid Mode even for empty paragraphs
+    const matchedTable = newContent.includes('|');
+    if (matchedTable) {
+      const tableData = parseTable(newContent);
+      if (tableData.rows.length > 0 || tableData.headers.length > 0) {
+        console.log("Detected table in empty paragraph, using OOXML Hybrid Mode");
+        // Fall through to OOXML Engine (Stage 4) which handles empty original text correctly
+      }
+    } else {
+      // ...Existing formatting/HTML check...
     }
 
     // Check if this is simple text with possible formatting
@@ -4173,13 +4133,8 @@ async function routeChangeOperation(change, targetParagraph, context) {
     return;
   }
 
-  // Try to parse as table
-  const tableData = parseMarkdownTable(newContent);
-  if (tableData) {
-    console.log("Detected table, using native API");
-    await createNativeTable(targetParagraph, tableData, context);
-    return;
-  }
+  // NOTE: Table detection removed here. Let applyRedlineToOxml handle tables 
+  // via OOXML Hybrid Mode, which handles both existing tables and text-to-table.
 
   // 3. Check for block elements (headings, mixed content, etc.)
   if (hasBlockElements(newContent)) {

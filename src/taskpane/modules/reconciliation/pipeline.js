@@ -12,6 +12,7 @@ import { serializeToOoxml, wrapInDocumentFragment } from './serialization.js';
 import { ContentType } from './types.js';
 import { NumberingService } from './numbering-service.js';
 import { detectNumberingContext } from './ingestion.js';
+import { generateTableOoxml } from './table-reconciliation.js';
 
 /**
  * Main reconciliation pipeline class.
@@ -273,6 +274,35 @@ export class ReconciliationPipeline {
             type: 'fragment',
             includeNumbering: true,
             numberingXml: numberingXml
+        };
+    }
+
+    /**
+     * Executes table generation from markdown text.
+     * 
+     * @param {string} markdownTable - Markdown table text
+     * @returns {Object} ReconciliationResult containing the table OOXML
+     */
+    executeTableGeneration(markdownTable) {
+        const tableData = parseTable(markdownTable);
+        if (tableData.rows.length === 0 && tableData.headers.length === 0) {
+            return {
+                ooxml: '',
+                isValid: false,
+                warnings: ['Could not parse Markdown table']
+            };
+        }
+
+        const tableOoxml = generateTableOoxml(tableData, {
+            generateRedlines: this.generateRedlines,
+            author: this.author
+        });
+
+        return {
+            ooxml: tableOoxml,
+            isValid: true,
+            warnings: [],
+            includeNumbering: false
         };
     }
 }

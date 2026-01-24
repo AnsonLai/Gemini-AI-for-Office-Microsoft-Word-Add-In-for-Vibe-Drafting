@@ -11,12 +11,95 @@ import { NS_W, getNextRevisionId, escapeXml, RunKind } from './types.js';
 import { preprocessMarkdown } from './markdown-processor.js';
 
 /**
+ * Generates a new w:tbl OOXML structure from Markdown table data.
+ * This enables pure OOXML table creation without Word JS API.
+ * 
+ * @param {Object} tableData - Parsed Markdown table { headers, rows, hasHeader }
+ * @param {Object} options - { generateRedlines, author }
+ * @returns {string} Complete w:tbl OOXML
+ */
+export function generateTableOoxml(tableData, options = {}) {
+    const { generateRedlines = false, author = 'AI' } = options;
+    const date = new Date().toISOString();
+    const revId = generateRedlines ? getNextRevisionId() : null;
+
+    // Determine number of columns
+    const numCols = tableData.headers?.length || (tableData.rows?.[0]?.length || 1);
+
+    // Build default table properties (100% width, single borders)
+    const tblPr = `
+        <w:tblPr>
+            <w:tblW w:w="5000" w:type="pct"/>
+            <w:tblBorders>
+                <w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+                <w:left w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+                <w:bottom w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+                <w:right w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+                <w:insideH w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+                <w:insideV w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+            </w:tblBorders>
+            <w:tblLook w:val="04A0" w:firstRow="1" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/>
+        </w:tblPr>
+    `.trim();
+
+    // Build grid columns (equal width)
+    const gridCols = Array(numCols).fill('<w:gridCol/>').join('');
+    const tblGrid = `<w:tblGrid>${gridCols}</w:tblGrid>`;
+
+    // Build all rows
+    const allRows = tableData.hasHeader ? [tableData.headers, ...tableData.rows] : tableData.rows;
+    let rowsXml = '';
+
+    for (let r = 0; r < allRows.length; r++) {
+        const isHeaderRow = tableData.hasHeader && r === 0;
+        const row = allRows[r] || [];
+        let cellsXml = '';
+
+        for (let c = 0; c < numCols; c++) {
+            const cellText = row[c] || '';
+            const { cleanText, formatHints } = preprocessMarkdown(cellText);
+
+            // Build run model for the cell
+            const runModel = [{
+                kind: generateRedlines ? RunKind.INSERTION : RunKind.TEXT,
+                text: cleanText,
+                rPrXml: isHeaderRow ? '<w:rPr><w:b/></w:rPr>' : '',
+                author,
+                startOffset: 0,
+                endOffset: cleanText.length
+            }];
+
+            const runsOoxml = serializeToOoxml(runModel, null, formatHints, { author });
+
+            // Cell properties
+            const tcPr = '<w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr>';
+            cellsXml += `<w:tc>${tcPr}<w:p>${runsOoxml}</w:p></w:tc>`;
+        }
+
+        // Row properties
+        const trPr = '<w:trPr/>';
+        rowsXml += `<w:tr>${trPr}${cellsXml}</w:tr>`;
+    }
+
+    // Build the table
+    let tableXml = `<w:tbl>${tblPr}${tblGrid}${rowsXml}</w:tbl>`;
+
+    // Wrap entire table in w:ins if generating redlines
+    if (generateRedlines && revId) {
+        tableXml = `<w:ins w:id="${revId}" w:author="${escapeXml(author)}" w:date="${date}">${tableXml}</w:ins>`;
+    }
+
+    return tableXml;
+}
+
+/**
  * Computes operations to reconcile two tables.
  * 
  * @param {Object} oldGrid - Original Virtual Grid model
  * @param {Object} newTableData - Parsed markdown table data
  * @returns {Array} List of operations
  */
+
 export function diffTablesWithVirtualGrid(oldGrid, newTableData) {
     const operations = [];
     const { headers, rows: newRowsData, hasHeader } = newTableData;

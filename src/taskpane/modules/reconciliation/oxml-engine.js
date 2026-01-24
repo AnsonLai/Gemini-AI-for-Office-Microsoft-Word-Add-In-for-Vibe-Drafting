@@ -11,10 +11,11 @@
 
 import { diff_match_patch } from 'diff-match-patch';
 import { preprocessMarkdown, getApplicableFormatHints } from './markdown-processor.js';
-import { diffTablesWithVirtualGrid, serializeVirtualGridToOoxml } from './table-reconciliation.js';
+import { diffTablesWithVirtualGrid, serializeVirtualGridToOoxml, generateTableOoxml } from './table-reconciliation.js';
 import { parseTable, ReconciliationPipeline } from './pipeline.js';
 import { wordsToChars, charsToWords } from './diff-engine.js';
 import { NumberingService } from './numbering-service.js';
+import { ingestTableToVirtualGrid } from './ingestion.js';
 import { NS_W } from './types.js';
 
 // ============================================================================
@@ -293,6 +294,12 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     const tableCellContext = detectTableCellContext(xmlDoc, originalText);
 
     console.log(`[OxmlEngine] Mode: ${hasTables ? 'SURGICAL' : 'RECONSTRUCTION'}, formatHints: ${formatHints.length}, isMarkdownTable: ${isMarkdownTable}, isTargetList: ${isTargetList}, isTableCellParagraph: ${tableCellContext.isTableCellParagraph}`);
+
+    // Handle Markdown table creation when no existing table
+    if (isMarkdownTable && !hasTables) {
+        console.log('[OxmlEngine] Text-to-table transformation: generating new table from Markdown');
+        return applyTextToTableTransformation(xmlDoc, cleanModifiedText, serializer, author, generateRedlines);
+    }
 
     if (hasTables && isMarkdownTable) {
         return applyTableReconciliation(xmlDoc, cleanModifiedText, serializer, author, formatHints);
@@ -974,13 +981,130 @@ function applyTableReconciliation(xmlDoc, modifiedText, serializer, author, form
     const options = { generateRedlines: true, author };
     const reconciledOxml = serializeVirtualGridToOoxml(oldGrid, operations, options);
 
-    // Parse the reconciled OOXML and replace the old table in the DOM
+    // Parse the reconciled OOXML - wrap with namespace declaration for proper parsing
     const parser = new DOMParser();
-    const reconciledDoc = parser.parseFromString(reconciledOxml, 'application/xml');
-    const newTableNode = xmlDoc.importNode(reconciledDoc.documentElement, true);
+    const wrappedOxml = `<root xmlns:w="${NS_W}">${reconciledOxml}</root>`;
+    const reconciledDoc = parser.parseFromString(wrappedOxml, 'application/xml');
 
-    targetTable.parentNode.replaceChild(newTableNode, targetTable);
+    // Check for parse errors
+    const parseError = reconciledDoc.getElementsByTagName('parsererror')[0];
+    if (parseError) {
+        console.error('[OxmlEngine] Failed to parse reconciled table OOXML:', parseError.textContent);
+        return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
+    }
 
+    const newTableNode = reconciledDoc.getElementsByTagName('w:tbl')[0];
+    if (!newTableNode) {
+        console.error('[OxmlEngine] No table found in reconciled OOXML');
+        return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
+    }
+
+    const importedTable = xmlDoc.importNode(newTableNode, true);
+    targetTable.parentNode.replaceChild(importedTable, targetTable);
+
+    return { oxml: serializer.serializeToString(xmlDoc), hasChanges: true };
+}
+
+/**
+ * Transforms paragraph content into a new table.
+ * Used when original content has no table but modified text is a Markdown table.
+ * 
+ * @param {Document} xmlDoc - Parsed XML document
+ * @param {string} modifiedText - Clean Markdown table text
+ * @param {XMLSerializer} serializer - XML serializer
+ * @param {string} author - Author for track changes
+ * @param {boolean} generateRedlines - Whether to generate track changes
+ * @returns {{ oxml: string, hasChanges: boolean }}
+ */
+function applyTextToTableTransformation(xmlDoc, modifiedText, serializer, author, generateRedlines) {
+    const tableData = parseTable(modifiedText);
+
+    if (!tableData || tableData.rows.length === 0) {
+        console.log('[OxmlEngine] Failed to parse table data from Markdown');
+        return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
+    }
+
+    // Generate the new table OOXML
+    const tableOoxml = generateTableOoxml(tableData, { generateRedlines, author });
+
+    // Parse the generated table
+    const parser = new DOMParser();
+    const tableDoc = parser.parseFromString(`<root xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${tableOoxml}</root>`, 'application/xml');
+
+    // Check for parse errors
+    const parseError = tableDoc.getElementsByTagName('parsererror')[0];
+    if (parseError) {
+        console.error('[OxmlEngine] Failed to parse generated table OOXML:', parseError.textContent);
+        return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
+    }
+
+    // Find the generated table element (w:tbl or w:ins containing w:tbl)
+    let newTableElement = tableDoc.getElementsByTagNameNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'tbl')[0];
+    if (!newTableElement) {
+        // If wrapped in w:ins, find the w:ins element
+        newTableElement = tableDoc.getElementsByTagNameNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'ins')[0];
+    }
+    if (!newTableElement) {
+        console.error('[OxmlEngine] No table element found in generated OOXML');
+        return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
+    }
+
+    // Import the new table into the target document
+    const importedTable = xmlDoc.importNode(newTableElement, true);
+
+    // Find all paragraphs to replace
+    const paragraphs = Array.from(xmlDoc.getElementsByTagNameNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'p'));
+
+    if (paragraphs.length === 0) {
+        console.log('[OxmlEngine] No paragraphs found to replace');
+        return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
+    }
+
+    // Get the parent of the first paragraph (where we'll insert the table)
+    const firstParagraph = paragraphs[0];
+    const parent = firstParagraph.parentNode;
+
+    if (generateRedlines) {
+        // Wrap all original paragraphs in w:del for track changes
+        const date = new Date().toISOString();
+        paragraphs.forEach((p, idx) => {
+            // Create w:del wrapper for each paragraph's content
+            const runs = Array.from(p.getElementsByTagNameNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'r'));
+            runs.forEach(run => {
+                const textNodes = Array.from(run.getElementsByTagNameNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 't'));
+                textNodes.forEach(t => {
+                    const text = t.textContent || '';
+                    if (text.trim()) {
+                        // Create w:delText to replace w:t
+                        const delText = xmlDoc.createElementNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'w:delText');
+                        delText.textContent = text;
+                        t.parentNode.replaceChild(delText, t);
+                    }
+                });
+
+                // Wrap run in w:del
+                const del = xmlDoc.createElementNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'w:del');
+                del.setAttribute('w:id', String(Math.floor(Math.random() * 100000)));
+                del.setAttribute('w:author', author);
+                del.setAttribute('w:date', date);
+                run.parentNode.insertBefore(del, run);
+                del.appendChild(run);
+            });
+        });
+    } else {
+        // Remove all paragraphs except the first (which will be replaced)
+        paragraphs.slice(1).forEach(p => p.parentNode.removeChild(p));
+    }
+
+    // Insert the new table before the first paragraph
+    parent.insertBefore(importedTable, firstParagraph);
+
+    // If not generating redlines, remove the first paragraph too
+    if (!generateRedlines) {
+        parent.removeChild(firstParagraph);
+    }
+
+    console.log('[OxmlEngine] Text-to-table transformation complete');
     return { oxml: serializer.serializeToString(xmlDoc), hasChanges: true };
 }
 

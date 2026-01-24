@@ -24,3 +24,6 @@ export { applyReconciliationToParagraph, shouldUseOoxmlReconciliation, getAuthor
 // OOXML Engine V5.1 - Hybrid Mode (DOM-based manipulation)
 export { applyRedlineToOxml, sanitizeAiResponse } from './oxml-engine.js';
 
+// Table Reconciliation
+export { generateTableOoxml, diffTablesWithVirtualGrid, serializeVirtualGridToOoxml } from './table-reconciliation.js';
+
