@@ -416,7 +416,17 @@ Office.onReady((info) => {
       const author = await fetchDocumentAuthor();
       if (author) {
         document.getElementById("redline-author-input").value = author;
+        saveRedlineAuthor(author);
       }
+    };
+
+    // Add event listeners for Redline settings
+    document.getElementById("redline-toggle").onchange = (e) => {
+      saveRedlineSetting(e.target.checked);
+    };
+
+    document.getElementById("redline-author-input").oninput = (e) => {
+      saveRedlineAuthor(e.target.value);
     };
 
     // Update checkpoint status on load (internal only now)
@@ -4105,7 +4115,10 @@ async function routeChangeOperation(change, targetParagraph, context) {
     paragraphOoxmlResult.value,
     paragraphOriginalText,
     newContent,
-    { author: redlineEnabled ? redlineAuthor : undefined }
+    {
+      author: redlineEnabled ? redlineAuthor : undefined,
+      generateRedlines: redlineEnabled
+    }
   );
 
   if (!result.hasChanges) {

@@ -71,6 +71,9 @@ import { NS_W } from './types.js';
  * @returns {{ oxml: string, hasChanges: boolean }}
  */
 export async function applyRedlineToOxml(oxml, originalText, modifiedText, options = {}) {
+    // Default generateRedlines to true for backward compatibility
+    const generateRedlines = options.generateRedlines ?? true;
+    // Format author name: sanitize and default. If redlines disabled, author doesn't matter as much but good to have.
     const author = options.author || 'Gemini AI';
 
     const parser = new DOMParser();
@@ -117,13 +120,13 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     // Format REMOVAL: text is unchanged, no new hints, but original has formatting to strip
     if (needsFormatRemoval) {
         console.log(`[OxmlEngine] Format REMOVAL detected: stripping ${existingFormatHints.length} format ranges`);
-        return applyFormatRemovalWithSpans(xmlDoc, textSpans, existingFormatHints, serializer, author);
+        return applyFormatRemovalWithSpans(xmlDoc, textSpans, existingFormatHints, serializer, author, generateRedlines);
     }
 
     // Format-only change: text is the same but we have formatting to apply
     if (!hasTextChanges && hasFormatHints) {
         console.log(`[OxmlEngine] Format-only change detected: ${formatHints.length} format hints`);
-        return applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, author);
+        return applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, author, generateRedlines);
     }
 
     // Check for tables to decide mode
@@ -138,22 +141,23 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     if (hasTables && isMarkdownTable) {
         return applyTableReconciliation(xmlDoc, cleanModifiedText, serializer, author, formatHints);
     } else if (hasTables) {
-        return applySurgicalMode(xmlDoc, originalText, cleanModifiedText, serializer, author, formatHints);
+        return applySurgicalMode(xmlDoc, originalText, cleanModifiedText, serializer, author, formatHints, generateRedlines);
     } else if (isTargetList) {
         // Use the new ReconciliationPipeline for list expanded content
-        const pipeline = new ReconciliationPipeline({ author, generateRedlines: true });
+        const pipeline = new ReconciliationPipeline({ author, generateRedlines });
         const result = await pipeline.execute(oxml, modifiedText);
 
         // Wrap the result with numbering definitions for proper list rendering
         if (result.isValid && result.ooxml && result.ooxml !== oxml) {
             const wrapped = pipeline.wrapForInsertion(result.ooxml, {
-                includeNumbering: result.includeNumbering || true
+                includeNumbering: result.includeNumbering || true,
+                numberingXml: result.numberingXml
             });
             return { oxml: wrapped, hasChanges: true };
         }
         return { oxml, hasChanges: false };
     } else {
-        return applyReconstructionMode(xmlDoc, originalText, cleanModifiedText, serializer, author, formatHints);
+        return applyReconstructionMode(xmlDoc, originalText, cleanModifiedText, serializer, author, formatHints, generateRedlines);
     }
 }
 
@@ -323,7 +327,7 @@ function processRunForFormatting(run, paragraph, charOffset, textSpans, formatHi
  * Handles both direct formatting (w:b tags) and inherited formatting (from paragraph).
  * For inherited formatting, adds explicit override elements (w:b w:val="0").
  */
-function applyFormatRemovalWithSpans(xmlDoc, textSpans, existingFormatHints, serializer, author) {
+function applyFormatRemovalWithSpans(xmlDoc, textSpans, existingFormatHints, serializer, author, generateRedlines = true) {
     let hasAnyChanges = false;
     const processedRuns = new Set();
     const processedParagraphs = new Set();
@@ -409,7 +413,7 @@ function applyFormatRemovalWithSpans(xmlDoc, textSpans, existingFormatHints, ser
                     }
                 }
 
-                if (!rPrChange) {
+                if (!rPrChange && generateRedlines) {
                     rPrChange = xmlDoc.createElement('w:rPrChange');
                     rPrChange.setAttribute('w:author', author || 'Gemini AI');
                     rPrChange.setAttribute('w:date', new Date().toISOString());
@@ -442,7 +446,7 @@ function applyFormatRemovalWithSpans(xmlDoc, textSpans, existingFormatHints, ser
                     }
                 }
 
-                if (!rPrChange) {
+                if (!rPrChange && generateRedlines) {
                     rPrChange = xmlDoc.createElement('w:rPrChange');
                     rPrChange.setAttribute('w:author', author || 'Gemini AI');
                     rPrChange.setAttribute('w:date', new Date().toISOString());
@@ -510,13 +514,15 @@ function applyFormatRemovalWithSpans(xmlDoc, textSpans, existingFormatHints, ser
                 rPr.appendChild(strike);
             }
 
-            // Create rPrChange for track changes (previous state was empty)
-            const rPrChange = xmlDoc.createElement('w:rPrChange');
-            rPrChange.setAttribute('w:author', author || 'Gemini AI');
-            rPrChange.setAttribute('w:date', new Date().toISOString());
-            const emptyOriginalRPr = xmlDoc.createElement('w:rPr');
-            rPrChange.appendChild(emptyOriginalRPr);
-            rPr.appendChild(rPrChange);
+            // Create rPrChange for track changes (previous state was empty) - only if enabled
+            if (generateRedlines) {
+                const rPrChange = xmlDoc.createElement('w:rPrChange');
+                rPrChange.setAttribute('w:author', author || 'Gemini AI');
+                rPrChange.setAttribute('w:date', new Date().toISOString());
+                const emptyOriginalRPr = xmlDoc.createElement('w:rPr');
+                rPrChange.appendChild(emptyOriginalRPr);
+                rPr.appendChild(rPrChange);
+            }
 
             // Insert rPr as first child of run
             run.insertBefore(rPr, run.firstChild);
@@ -554,7 +560,7 @@ function checkOxmlForFormatting(xmlDoc) {
  * Applies formatting changes to existing text without modifying content.
  * Used when markdown formatting is applied to unchanged text.
  */
-function applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, author) {
+function applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, author, generateRedlines = true) {
     let fullText = '';
     const textSpans = [];
 
@@ -585,7 +591,7 @@ function applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, a
 
     // Apply each format hint to the corresponding text spans
     for (const hint of formatHints) {
-        applyFormatHintToSpans(xmlDoc, textSpans, hint, author);
+        applyFormatHintToSpans(xmlDoc, textSpans, hint, author, generateRedlines);
     }
 
     return { oxml: serializer.serializeToString(xmlDoc), hasChanges: true };
@@ -595,7 +601,7 @@ function applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, a
  * Applies a single format hint to affected text spans.
  * Splits runs when only partial formatting is needed.
  */
-function applyFormatHintToSpans(xmlDoc, textSpans, hint, author) {
+function applyFormatHintToSpans(xmlDoc, textSpans, hint, author, generateRedlines) {
     // Find spans that overlap with this format hint
     const affectedSpans = textSpans.filter(s =>
         s.charEnd > hint.start && s.charStart < hint.end
@@ -625,7 +631,7 @@ function applyFormatHintToSpans(xmlDoc, textSpans, hint, author) {
 
         // If the entire run needs formatting, just add it directly
         if (localStart === 0 && localEnd === fullText.length) {
-            addFormattingToRun(xmlDoc, run, hint.format, author);
+            addFormattingToRun(xmlDoc, run, hint.format, author, generateRedlines);
         } else {
             // Need to split the run into parts
             // Create runs for before, formatted, and after sections
@@ -638,7 +644,7 @@ function applyFormatHintToSpans(xmlDoc, textSpans, hint, author) {
 
             // Create run for formatted text
             // Pass author for proper tracking of the format change
-            const formattedRun = createFormattedRunWithElement(xmlDoc, formattedText, existingRPr, hint.format, author);
+            const formattedRun = createFormattedRunWithElement(xmlDoc, formattedText, existingRPr, hint.format, author, generateRedlines);
             parent.insertBefore(formattedRun, run);
 
             if (afterText.length > 0) {
@@ -656,11 +662,11 @@ function applyFormatHintToSpans(xmlDoc, textSpans, hint, author) {
 /**
  * Creates a text run with formatting applied directly.
  */
-function createFormattedRunWithElement(xmlDoc, text, baseRPr, format, author) {
+function createFormattedRunWithElement(xmlDoc, text, baseRPr, format, author, generateRedlines) {
     const run = xmlDoc.createElement('w:r');
 
-    // Create rPr with formatting (and track changes if author provided)
-    const rPr = injectFormattingToRPr(xmlDoc, baseRPr, format, author);
+    // Create rPr with formatting (and track changes if author provided AND enabled)
+    const rPr = injectFormattingToRPr(xmlDoc, baseRPr, format, author, generateRedlines);
 
     run.appendChild(rPr);
 
@@ -676,7 +682,7 @@ function createFormattedRunWithElement(xmlDoc, text, baseRPr, format, author) {
 /**
  * Adds formatting elements to a run's rPr, with track change support.
  */
-function addFormattingToRun(xmlDoc, run, format, author) {
+function addFormattingToRun(xmlDoc, run, format, author, generateRedlines) {
     let rPr = run.getElementsByTagName('w:rPr')[0];
 
     // Create rPr if it doesn't exist
@@ -686,7 +692,7 @@ function addFormattingToRun(xmlDoc, run, format, author) {
     }
 
     // Create rPrChange to track this modification
-    if (author) {
+    if (author && generateRedlines) {
         createRPrChange(xmlDoc, rPr, author);
     }
 
@@ -764,7 +770,7 @@ function applyTableReconciliation(xmlDoc, modifiedText, serializer, author, form
  * Surgical mode: Modifies existing runs in-place without changing paragraph structure.
  * Safe for tables and complex layouts.
  */
-function applySurgicalMode(xmlDoc, originalText, modifiedText, serializer, author, formatHints) {
+function applySurgicalMode(xmlDoc, originalText, modifiedText, serializer, author, formatHints, generateRedlines = true) {
     let fullText = '';
     const textSpans = [];
 
@@ -833,19 +839,19 @@ function applySurgicalMode(xmlDoc, originalText, modifiedText, serializer, autho
                 const applicableHints = getApplicableFormatHints(formatHints, overlapStart, overlapEnd);
 
                 // Reconcile formatting for this span segment
-                reconcileFormattingForTextSpan(xmlDoc, span, overlapStart, overlapEnd, applicableHints, author);
+                reconcileFormattingForTextSpan(xmlDoc, span, overlapStart, overlapEnd, applicableHints, author, generateRedlines);
             }
 
             currentPos += text.length;
         } else if (op === -1) {
             // DELETE
-            processDelete(xmlDoc, textSpans, currentPos, currentPos + text.length, processedSpans, author);
+            processDelete(xmlDoc, textSpans, currentPos, currentPos + text.length, processedSpans, author, generateRedlines);
             // Delete does not advance position in new text
         } else if (op === 1) {
             // INSERT - convert newlines to spaces for surgical mode
             const textWithoutNewlines = text.replace(/\n/g, ' ');
             if (textWithoutNewlines.trim().length > 0) {
-                processInsert(xmlDoc, textSpans, currentPos, textWithoutNewlines, processedSpans, author, formatHints, currentPos);
+                processInsert(xmlDoc, textSpans, currentPos, textWithoutNewlines, processedSpans, author, formatHints, currentPos, generateRedlines);
             }
             currentPos += text.length;
         }
@@ -858,7 +864,7 @@ function applySurgicalMode(xmlDoc, originalText, modifiedText, serializer, autho
  * Reconciles formatting for a text span (or part of it).
  * Removes formatting that shouldn't be there, adds formatting that should.
  */
-function reconcileFormattingForTextSpan(xmlDoc, span, start, end, applicableHints, author) {
+function reconcileFormattingForTextSpan(xmlDoc, span, start, end, applicableHints, author, generateRedlines) {
     // 1. Determine desired format for this segment
     // Combine all applicable hints (later hints override/merge)
     const desiredFormat = {};
@@ -922,7 +928,7 @@ function reconcileFormattingForTextSpan(xmlDoc, span, start, end, applicableHint
 
     // Create new RPR based on desired format
     // We base it on existing RPR but FORCE the desired state for the checked properties
-    const newRPr = injectExactFormattingToRPr(xmlDoc, rPr, desiredFormat, author);
+    const newRPr = injectExactFormattingToRPr(xmlDoc, rPr, desiredFormat, author, generateRedlines);
 
     const newRun = createTextRunWithRPrElement(xmlDoc, affectedText, newRPr, false);
     parent.insertBefore(newRun, span.runElement);
@@ -939,7 +945,7 @@ function reconcileFormattingForTextSpan(xmlDoc, span, start, end, applicableHint
  * Creates an rPr that strictly matches the desired format state.
  * Adds w:rPrChange if ANY change is made.
  */
-function injectExactFormattingToRPr(xmlDoc, baseRPr, desiredFormat, author) {
+function injectExactFormattingToRPr(xmlDoc, baseRPr, desiredFormat, author, generateRedlines) {
     const rPr = xmlDoc.createElement('w:rPr');
 
     // Copy base properties FIRST
@@ -953,11 +959,11 @@ function injectExactFormattingToRPr(xmlDoc, baseRPr, desiredFormat, author) {
     }
 
     // Add track change info if author provided (ALWAYS, since we only call this if changes needed)
-    if (author && baseRPr) {
+    if (author && baseRPr && generateRedlines) {
         // We need to pass the ORIGINAL rPr state to createRPrChange
         // But we must clone it to avoid mutating original DOM
         createRPrChange(xmlDoc, rPr, author, baseRPr); // Modified createRPrChange to accept explicit previous state
-    } else if (author) {
+    } else if (author && generateRedlines) {
         // No base RPR, create empty prev
         createRPrChange(xmlDoc, rPr, author);
     }
@@ -1024,7 +1030,7 @@ function getUpdatedFullText(r, currentFullText) {
 /**
  * Processes a deletion by splitting runs and wrapping in w:del
  */
-function processDelete(xmlDoc, textSpans, startPos, endPos, processedSpans, author) {
+function processDelete(xmlDoc, textSpans, startPos, endPos, processedSpans, author, generateRedlines) {
     const affectedSpans = textSpans.filter(s =>
         s.charEnd > startPos && s.charStart < endPos
     );
@@ -1048,8 +1054,17 @@ function processDelete(xmlDoc, textSpans, startPos, endPos, processedSpans, auth
         if (beforeText.length === 0 && afterText.length === 0) {
             // Entire run is deleted
             const delRun = createTextRun(xmlDoc, deletedText, span.rPr, true);
-            const delWrapper = createTrackChange(xmlDoc, 'del', delRun, author);
-            parent.insertBefore(delWrapper, span.runElement);
+            if (generateRedlines) {
+                const delWrapper = createTrackChange(xmlDoc, 'del', delRun, author);
+                parent.insertBefore(delWrapper, span.runElement);
+            } else {
+                // Without redlines, "deletion" means REMOVING nodes.
+                // But this function generally APPENDS del nodes.
+                // If we want to physically remove text, we should just NOT insert anything.
+                // BUT we also need to remove the original node later.
+                // Line 1058 removes original node.
+                // So if we don't insert replacement, it's a delete!
+            }
             parent.removeChild(span.runElement);
         } else {
             // Partial deletion - split the run
@@ -1059,8 +1074,11 @@ function processDelete(xmlDoc, textSpans, startPos, endPos, processedSpans, auth
             }
 
             const delRun = createTextRun(xmlDoc, deletedText, span.rPr, true);
-            const delWrapper = createTrackChange(xmlDoc, 'del', delRun, author);
-            parent.insertBefore(delWrapper, span.runElement);
+            if (generateRedlines) {
+                const delWrapper = createTrackChange(xmlDoc, 'del', delRun, author);
+                parent.insertBefore(delWrapper, span.runElement);
+            }
+            // If no redlines, we just don't insert the delWrapper. The text is gone implicitly.
 
             if (afterText.length > 0) {
                 const afterRun = createTextRun(xmlDoc, afterText, span.rPr, false);
@@ -1077,7 +1095,7 @@ function processDelete(xmlDoc, textSpans, startPos, endPos, processedSpans, auth
 /**
  * Processes an insertion by adding a new w:ins element with optional formatting
  */
-function processInsert(xmlDoc, textSpans, pos, text, processedSpans, author, formatHints = [], insertOffset = 0) {
+function processInsert(xmlDoc, textSpans, pos, text, processedSpans, author, formatHints = [], insertOffset = 0, generateRedlines = true) {
     // Find the span at the insertion position
     let targetSpan = textSpans.find(s => pos >= s.charStart && pos < s.charEnd);
 
@@ -1112,14 +1130,23 @@ function processInsert(xmlDoc, textSpans, pos, text, processedSpans, author, for
             if (applicableHints.length === 0) {
                 // No special formatting - use base rPr
                 const insRun = createTextRun(xmlDoc, text, baseRPr, false);
-                const insWrapper = createTrackChange(xmlDoc, 'ins', insRun, author);
-                parent.insertBefore(insWrapper, targetSpan.runElement.nextSibling);
+                if (generateRedlines) {
+                    const insWrapper = createTrackChange(xmlDoc, 'ins', insRun, author);
+                    parent.insertBefore(insWrapper, targetSpan.runElement.nextSibling);
+                } else {
+                    parent.insertBefore(insRun, targetSpan.runElement.nextSibling);
+                }
             } else {
                 // Apply format hints - may need to split text into multiple runs
-                const runs = createFormattedRuns(xmlDoc, text, baseRPr, applicableHints, insertOffset, author);
-                const insWrapper = createTrackChange(xmlDoc, 'ins', null, author);
-                runs.forEach(run => insWrapper.appendChild(run));
-                parent.insertBefore(insWrapper, targetSpan.runElement.nextSibling);
+                const runs = createFormattedRuns(xmlDoc, text, baseRPr, applicableHints, insertOffset, author, generateRedlines);
+
+                if (generateRedlines) {
+                    const insWrapper = createTrackChange(xmlDoc, 'ins', null, author);
+                    runs.forEach(run => insWrapper.appendChild(run));
+                    parent.insertBefore(insWrapper, targetSpan.runElement.nextSibling);
+                } else {
+                    runs.forEach(run => parent.insertBefore(run, targetSpan.runElement.nextSibling));
+                }
             }
         }
     }
@@ -1133,7 +1160,7 @@ function processInsert(xmlDoc, textSpans, pos, text, processedSpans, author, for
  * Reconstruction mode: Rebuilds paragraph content allowing new paragraphs.
  * Supports list splitting via newlines.
  */
-function applyReconstructionMode(xmlDoc, originalText, modifiedText, serializer, author, formatHints) {
+function applyReconstructionMode(xmlDoc, originalText, modifiedText, serializer, author, formatHints, generateRedlines = true) {
     const body = xmlDoc.getElementsByTagName('w:body')[0] || xmlDoc.documentElement;
     const paragraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
 
@@ -1252,7 +1279,7 @@ function applyReconstructionMode(xmlDoc, originalText, modifiedText, serializer,
                     currentOriginalIndex + offset, currentParagraph, paragraphMap,
                     containerFragments, sentinelMap, referenceMap, tokenToCharMap,
                     replacementContainers, getParagraphInfo, createNewParagraph, author,
-                    formatHints, currentInsertOffset
+                    formatHints, currentInsertOffset, generateRedlines
                 );
 
                 offset += length;
@@ -1270,7 +1297,7 @@ function applyReconstructionMode(xmlDoc, originalText, modifiedText, serializer,
                 currentOriginalIndex, currentParagraph, paragraphMap,
                 containerFragments, sentinelMap, referenceMap, tokenToCharMap,
                 replacementContainers, getParagraphInfo, createNewParagraph, author,
-                formatHints, currentInsertOffset
+                formatHints, currentInsertOffset, generateRedlines
             );
             currentInsertOffset += text.length;
         } else if (op === -1) {
@@ -1291,7 +1318,7 @@ function applyReconstructionMode(xmlDoc, originalText, modifiedText, serializer,
                     currentOriginalIndex + offset, currentParagraph, paragraphMap,
                     containerFragments, sentinelMap, referenceMap, tokenToCharMap,
                     replacementContainers, getParagraphInfo, createNewParagraph, author,
-                    formatHints, currentInsertOffset
+                    formatHints, currentInsertOffset, generateRedlines
                 );
 
                 offset += length;
@@ -1420,7 +1447,7 @@ function appendTextToCurrent(
     currentParagraphRef, paragraphMap, containerFragments,
     sentinelMap, referenceMap, tokenToCharMap,
     replacementContainers, getParagraphInfo, createNewParagraph, author,
-    formatHints = [], insertOffset = 0
+    formatHints = [], insertOffset = 0, generateRedlines = true
 ) {
     // This is a simplified version - full implementation would need to track
     // currentParagraph as a mutable reference. For now, we process in-line.
@@ -1486,8 +1513,16 @@ function appendTextToCurrent(
                 t.setAttribute('xml:space', 'preserve');
                 t.textContent = part;
                 run.appendChild(t);
-                const del = createTrackChange(xmlDoc, 'del', run, author);
-                parent.appendChild(del);
+
+                if (generateRedlines) {
+                    const del = createTrackChange(xmlDoc, 'del', run, author);
+                    parent.appendChild(del);
+                } else {
+                    // No redlines: just don't add the deleted text at all? 
+                    // In RECONSTRUCTION mode, we are building a NEW structure.
+                    // If we want to delete text, we simply DO NOT append it.
+                    // So we do NOTHING.
+                }
             } else if (type === 'insert') {
                 // Check for applicable format hints
                 const applicableHints = getApplicableFormatHints(formatHints, insertOffset, insertOffset + part.length);
@@ -1500,14 +1535,25 @@ function appendTextToCurrent(
                     t.setAttribute('xml:space', 'preserve');
                     t.textContent = part;
                     run.appendChild(t);
-                    const ins = createTrackChange(xmlDoc, 'ins', run, author);
-                    parent.appendChild(ins);
+
+                    if (generateRedlines) {
+                        const ins = createTrackChange(xmlDoc, 'ins', run, author);
+                        parent.appendChild(ins);
+                    } else {
+                        // Direct insert
+                        parent.appendChild(run);
+                    }
                 } else {
                     // Apply format hints
-                    const runs = createFormattedRuns(xmlDoc, part, rPr, applicableHints, insertOffset);
-                    const ins = createTrackChange(xmlDoc, 'ins', null, author);
-                    runs.forEach(run => ins.appendChild(run));
-                    parent.appendChild(ins);
+                    const runs = createFormattedRuns(xmlDoc, part, rPr, applicableHints, insertOffset, author, generateRedlines);
+
+                    if (generateRedlines) {
+                        const ins = createTrackChange(xmlDoc, 'ins', null, author);
+                        runs.forEach(run => ins.appendChild(run));
+                        parent.appendChild(ins);
+                    } else {
+                        runs.forEach(run => parent.appendChild(run));
+                    }
                 }
             } else {
                 // Equal - no track change wrapper
@@ -1568,7 +1614,7 @@ function createTextRun(xmlDoc, text, rPr, isDelete) {
  * @param {string} [author] - Optional author for track changes
  * @returns {Element[]} Array of w:r elements
  */
-function createFormattedRuns(xmlDoc, text, baseRPr, formatHints, baseOffset, author) {
+function createFormattedRuns(xmlDoc, text, baseRPr, formatHints, baseOffset, author, generateRedlines) {
     const runs = [];
     let pos = 0;
 
@@ -1590,7 +1636,7 @@ function createFormattedRuns(xmlDoc, text, baseRPr, formatHints, baseOffset, aut
 
         // Formatted text
         const formattedText = text.slice(localStart, localEnd);
-        const formattedRPr = injectFormattingToRPr(xmlDoc, baseRPr, hint.format, author);
+        const formattedRPr = injectFormattingToRPr(xmlDoc, baseRPr, hint.format, author, generateRedlines);
         runs.push(createTextRunWithRPrElement(xmlDoc, formattedText, formattedRPr, false));
 
         pos = localEnd;
@@ -1636,7 +1682,7 @@ function createTextRunWithRPrElement(xmlDoc, text, rPrElement, isDelete) {
  * @param {string} [author] - Optional author for track changes
  * @returns {Element} New w:rPr element with formatting applied
  */
-function injectFormattingToRPr(xmlDoc, baseRPr, format, author) {
+function injectFormattingToRPr(xmlDoc, baseRPr, format, author, generateRedlines) {
     // Always create a new rPr to ensure we don't mutate original references
     const rPr = xmlDoc.createElement('w:rPr');
 
@@ -1652,7 +1698,8 @@ function injectFormattingToRPr(xmlDoc, baseRPr, format, author) {
     }
 
     // Add track change info if author provided
-    if (author) {
+    // Add track change info if author provided AND enabled
+    if (author && generateRedlines) {
         createRPrChange(xmlDoc, rPr, author);
     }
 

@@ -43,6 +43,17 @@ export function preprocessMarkdown(text) {
         { regex: /<strike>(.+?)<\/strike>/gi, format: { strikethrough: true } },
         { regex: /<del>(.+?)<\/del>/gi, format: { strikethrough: true } },
 
+        // Escaped HTML Bold: &lt;b&gt;text&lt;/b&gt;, &lt;strong&gt;text&lt;/strong&gt;
+        { regex: /&lt;b&gt;(.+?)&lt;\/b&gt;/gi, format: { bold: true }, isEscaped: true },
+        { regex: /&lt;strong&gt;(.+?)&lt;\/strong&gt;/gi, format: { bold: true }, isEscaped: true },
+        // Escaped HTML Italic: &lt;i&gt;text&lt;/i&gt;, &lt;em&gt;text&lt;/em&gt;
+        { regex: /&lt;i&gt;(.+?)&lt;\/i&gt;/gi, format: { italic: true }, isEscaped: true },
+        { regex: /&lt;em&gt;(.+?)&lt;\/em&gt;/gi, format: { italic: true }, isEscaped: true },
+        // Escaped HTML Underline: &lt;u&gt;text&lt;/u&gt;
+        { regex: /&lt;u&gt;(.+?)&lt;\/u&gt;/gi, format: { underline: true }, isEscaped: true },
+        // Escaped HTML Strikethrough: &lt;s&gt;text&lt;/s&gt;
+        { regex: /&lt;s&gt;(.+?)&lt;\/s&gt;/gi, format: { strikethrough: true }, isEscaped: true },
+
         // Bold + Italic: ***text***
         { regex: /\*\*\*(.+?)\*\*\*/g, format: { bold: true, italic: true } },
         // Bold + Underline: **++text++**
@@ -70,7 +81,7 @@ export function preprocessMarkdown(text) {
                 start: match.index,
                 end: match.index + match[0].length,
                 fullMatch: match[0],
-                innerText: match[1],
+                innerText: pattern.isEscaped ? decodeHtmlEntities(match[1]) : match[1],
                 format: pattern.format
             });
         }
@@ -149,4 +160,17 @@ export function mergeFormats(...formats) {
         }
     }
     return result;
+}
+
+/**
+ * Decodes HTML entities in text (e.g. &amp; -> &)
+ */
+function decodeHtmlEntities(text) {
+    if (!text) return '';
+    return text
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#039;/g, "'");
 }

@@ -275,52 +275,44 @@ function injectFormatting(baseRPrXml, format) {
  * @param {string} paragraphXml - The paragraph XML (without namespace declarations)
  * @param {Object} [options={}] - Options
  * @param {boolean} [options.includeNumbering=false] - Whether to include numbering definitions
+ * @param {string} [options.numberingXml] - Custom numbering XML (w:numbering)
  * @returns {string} Complete OOXML package for insertOoxml
  */
 export function wrapInDocumentFragment(paragraphXml, options = {}) {
-    const { includeNumbering = false } = options;
+    const { includeNumbering = false, numberingXml = null } = options;
 
     // Build document relationships - include numbering if needed
     let docRels = '';
-    if (includeNumbering) {
+    if (includeNumbering || numberingXml) {
         docRels = '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>';
     }
 
     // Build numbering.xml part if needed
     let numberingPart = '';
-    if (includeNumbering) {
+    if (numberingXml) {
+        // Use custom provided numbering XML
+        numberingPart = `
+  <pkg:part pkg:name="/word/numbering.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml">
+    <pkg:xmlData>
+      ${numberingXml.replace(/<\?xml[^>]*\?>/g, '')}
+    </pkg:xmlData>
+  </pkg:part>`;
+    } else if (includeNumbering) {
+        // Fallback to default numbering definition
         numberingPart = `
   <pkg:part pkg:name="/word/numbering.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml">
     <pkg:xmlData>
       <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
         <!-- Bullet list definition -->
         <w:abstractNum w:abstractNumId="0">
-          <w:lvl w:ilvl="0">
-            <w:start w:val="1"/>
-            <w:numFmt w:val="bullet"/>
-            <w:lvlText w:val="•"/>
-            <w:lvlJc w:val="left"/>
-            <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr>
-          </w:lvl>
+          <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="•"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl>
         </w:abstractNum>
         <!-- Numbered list definition -->
         <w:abstractNum w:abstractNumId="1">
-          <w:lvl w:ilvl="0">
-            <w:start w:val="1"/>
-            <w:numFmt w:val="decimal"/>
-            <w:lvlText w:val="%1."/>
-            <w:lvlJc w:val="left"/>
-            <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr>
-          </w:lvl>
+          <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl>
         </w:abstractNum>
-        <!-- Bullet list numId -->
-        <w:num w:numId="1">
-          <w:abstractNumId w:val="0"/>
-        </w:num>
-        <!-- Numbered list numId -->
-        <w:num w:numId="2">
-          <w:abstractNumId w:val="1"/>
-        </w:num>
+        <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>
+        <w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num>
       </w:numbering>
     </pkg:xmlData>
   </pkg:part>`;

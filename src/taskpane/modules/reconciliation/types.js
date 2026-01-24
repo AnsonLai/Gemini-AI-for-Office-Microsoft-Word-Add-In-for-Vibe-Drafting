@@ -55,6 +55,29 @@ export const ContentType = Object.freeze({
 });
 
 /**
+ * Supported numbering formats
+ */
+export const NumberFormat = Object.freeze({
+    DECIMAL: 'decimal',           // 1, 2, 3
+    LOWER_ALPHA: 'lowerLetter',   // a, b, c
+    UPPER_ALPHA: 'upperLetter',   // A, B, C
+    LOWER_ROMAN: 'lowerRoman',    // i, ii, iii
+    UPPER_ROMAN: 'upperRoman',    // I, II, III
+    BULLET: 'bullet',             // •
+    OUTLINE: 'outline'            // 1.1.2.3
+});
+
+/**
+ * Numbering suffixes/formats
+ */
+export const NumberSuffix = Object.freeze({
+    PERIOD: 'period',             // 1.
+    PAREN_RIGHT: 'parenRight',    // 1)
+    PAREN_BOTH: 'parenBoth',      // (1)
+    NONE: 'none'
+});
+
+/**
  * @typedef {Object} RunEntry
  * @property {string} kind - RunKind value
  * @property {string} text - Text content of the run

@@ -207,34 +207,40 @@ export class ReconciliationPipeline {
             }
         }
 
-        // Determine the primary list type from the first item that has a valid list marker
-        let primaryType = 'bullet'; // default
+        // Determine the primary list type and format from the first item
+        let firstMarker = '';
         for (const line of lines) {
-            if (/^\s*\d+\./.test(line)) {
-                primaryType = 'numbered';
-                break;
-            } else if (/^\s*[-*+]/.test(line)) {
-                primaryType = 'bullet';
+            const match = line.match(/^\s*((?:\d+(?:\.\d+)*\.?|\([a-zA-Z0-9ivxlc]+\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|-|\*|•)\s*)/);
+            if (match) {
+                firstMarker = match[1].trim();
                 break;
             }
         }
-        console.log(`[ListGen] Using primary list type: ${primaryType}`);
+
+        const { format } = this.numberingService.detectNumberingFormat(firstMarker);
+        console.log(`[ListGen] Detected marker: "${firstMarker}", format: ${format}`);
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             const indentMatch = line.match(/^(\s*)/);
             const indent = indentMatch ? indentMatch[1].length : 0;
+
+            // 2 spaces = 1 level
             const ilvl = Math.min(8, Math.floor(indent / 2) + (numberingContext?.ilvl || 0));
 
-            // Use the primary type for all items to ensure consistency
-            const type = primaryType;
-            // Strip list markers (if any) from the text
-            const rawText = line.trim().replace(/^([-*+]|\d+\.)\s*/, '');
+            // Extract the marker for THIS line to see if it overrides the primary format 
+            // (e.g. mixed lists, though we try to stay consistent)
+            const markerMatch = line.match(/^\s*((?:\d+(?:\.\d+)*\.?|\([a-zA-Z0-9ivxlc]+\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|-|\*|•)\s*)/);
+            const currentMarker = markerMatch ? markerMatch[1].trim() : '';
+            const lineFormat = currentMarker ? this.numberingService.detectNumberingFormat(currentMarker).format : format;
+
+            // Strip list markers from the text
+            const rawText = line.trim().replace(/^((?:\d+(?:\.\d+)*\.?|\([a-zA-Z0-9ivxlc]+\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|-|\*|•)\s*)/, '');
 
             // Process markdown formatting (e.g., **bold**, *italic*)
             const { cleanText, formatHints } = preprocessMarkdown(rawText);
 
-            const numId = this.numberingService.getOrCreateNumId({ type }, numberingContext);
+            const numId = this.numberingService.getOrCreateNumId({ type: lineFormat }, numberingContext);
             const pPrXml = this.numberingService.buildListPPr(numId, ilvl);
 
             const runModel = [];
@@ -258,12 +264,15 @@ export class ReconciliationPipeline {
             results.push(itemOoxml);
         }
 
+        const numberingXml = this.numberingService.generateNumberingXml();
+
         return {
             ooxml: results.join(''),
             isValid: true,
             warnings: ['Paragraph expanded to list fragment'],
             type: 'fragment',
-            includeNumbering: true
+            includeNumbering: true,
+            numberingXml: numberingXml
         };
     }
 }
