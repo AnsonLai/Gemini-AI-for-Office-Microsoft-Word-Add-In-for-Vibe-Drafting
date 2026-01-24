@@ -12,7 +12,7 @@ import { diff_match_patch } from 'diff-match-patch';
 import "./taskpane.css";
 
 // OOXML Engine V5.1 - Hybrid Mode for surgical document editing with track changes
-import { applyRedlineToOxml, ReconciliationPipeline, wrapInDocumentFragment } from './modules/reconciliation/index.js';
+import { applyRedlineToOxml, ReconciliationPipeline, wrapInDocumentFragment, preprocessMarkdown } from './modules/reconciliation/index.js';
 
 // Configure marked for GFM (GitHub Flavored Markdown) with tables, breaks, etc.
 marked.setOptions({
@@ -3773,6 +3773,76 @@ function hasInlineMarkdownFormatting(text) {
 }
 
 /**
+ * Wrapper for preprocessMarkdown that handles empty paragraph cases.
+ * Returns clean text and format hints for formatting application.
+ * 
+ * @param {string} content - Content with markdown formatting
+ * @returns {{ cleanText: string, formatHints: Array }}
+ */
+async function preprocessMarkdownForParagraph(content) {
+  try {
+    return preprocessMarkdown(content);
+  } catch (e) {
+    console.error('preprocessMarkdown failed:', e);
+    return { cleanText: content, formatHints: [] };
+  }
+}
+
+/**
+ * Applies format hints to specific text ranges in a paragraph using Word's font API.
+ * This avoids HTML/OOXML insertion issues in table cells.
+ * 
+ * @param {Word.Paragraph} paragraph - Target paragraph
+ * @param {string} text - The text content
+ * @param {Array} formatHints - Array of format hints with start/end/format
+ * @param {Word.RequestContext} context - Word context
+ */
+async function applyFormatHintsToRanges(paragraph, text, formatHints, context) {
+  // Load paragraph as range
+  const paragraphRange = paragraph.getRange();
+  paragraphRange.load('text');
+  await context.sync();
+
+  // Get the paragraph text to verify positions
+  const paragraphText = paragraphRange.text;
+
+  for (const hint of formatHints) {
+    try {
+      // Calculate the text to search for based on the hint offsets
+      const hintText = text.substring(hint.start, hint.end);
+      if (!hintText || hintText.trim().length === 0) continue;
+
+      // Search for the text within the paragraph
+      const searchResults = paragraphRange.search(hintText, { matchCase: true, matchWholeWord: false });
+      searchResults.load('items');
+      await context.sync();
+
+      if (searchResults.items.length > 0) {
+        // Apply formatting to the first match
+        const targetRange = searchResults.items[0];
+
+        if (hint.format.bold) {
+          targetRange.font.bold = true;
+        }
+        if (hint.format.italic) {
+          targetRange.font.italic = true;
+        }
+        if (hint.format.underline) {
+          targetRange.font.underline = Word.UnderlineType.single;
+        }
+        if (hint.format.strikethrough) {
+          targetRange.font.strikeThrough = true;
+        }
+
+        await context.sync();
+      }
+    } catch (formatError) {
+      console.warn(`Could not apply formatting to hint at ${hint.start}-${hint.end}:`, formatError);
+    }
+  }
+}
+
+/**
  * Inserts text at a range, using HTML insertion if markdown formatting is detected
  * This ensures **bold**, *italic*, etc. are properly rendered instead of literal
  */
@@ -4063,7 +4133,30 @@ async function routeChangeOperation(change, targetParagraph, context) {
       return;
     }
 
-    // Fall back to HTML for other content
+    // Check if this is simple text with possible formatting
+    // For cells inside tables, prefer OOXML path to avoid nested table issues
+    const hasFormatting = hasInlineMarkdownFormatting(newContent);
+    if (hasFormatting) {
+      console.log("Empty paragraph with formatting - using insertText for simplicity");
+      // For empty paragraphs with simple formatting, just insert the text directly
+      // The formatting will be applied as markdown symbols which is better than nested tables
+      // Use insertText with markdown stripped, then apply formatting separately
+      const { cleanText, formatHints } = await preprocessMarkdownForParagraph(newContent);
+      targetParagraph.insertText(cleanText, "Replace");
+      await context.sync();
+
+      // If there are format hints, apply them using Word's font API
+      if (formatHints.length > 0) {
+        try {
+          await applyFormatHintsToRanges(targetParagraph, cleanText, formatHints, context);
+        } catch (formatError) {
+          console.warn("Could not apply formatting:", formatError);
+        }
+      }
+      return;
+    }
+
+    // Fall back to HTML for other content (no formatting, no tables)
     console.log("Using HTML insertion for empty paragraph");
     const htmlContent = markdownToWordHtml(newContent);
     targetParagraph.insertHtml(htmlContent, "Replace");
@@ -4123,6 +4216,14 @@ async function routeChangeOperation(change, targetParagraph, context) {
 
   if (!result.hasChanges) {
     console.log("[OxmlEngine] No changes detected by engine");
+    return;
+  }
+
+  // Handle native API formatting for table cells
+  if (result.useNativeApi && result.formatHints) {
+    console.log("[OxmlEngine] Using native Font API for table cell formatting");
+    await applyFormatHintsToRanges(targetParagraph, result.originalText, result.formatHints, context);
+    console.log("✅ Native API formatting successful");
     return;
   }
 

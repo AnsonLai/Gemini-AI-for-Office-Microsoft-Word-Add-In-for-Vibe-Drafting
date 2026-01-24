@@ -57,6 +57,136 @@ import { NS_W } from './types.js';
  */
 
 // ============================================================================
+// TABLE CELL CONTEXT DETECTION
+// ============================================================================
+
+/**
+ * Checks if the OOXML contains paragraphs inside a table structure.
+ * When paragraph.getOoxml() is called on a paragraph in a table cell,
+ * Word returns the ENTIRE table structure. We detect this and return
+ * all paragraphs so the table wrapper can be stripped for text edits.
+ * 
+ * @param {Document} xmlDoc - Parsed XML document
+ * @returns {{ hasTableWrapper: boolean, paragraphs: Element[], tableElement: Element|null }}
+ */
+function detectTableCellContext(xmlDoc, originalText) {
+    const tables = xmlDoc.getElementsByTagName('w:tbl');
+    if (tables.length === 0) {
+        return { hasTableWrapper: false, isTableCellParagraph: false, paragraphs: [], paragraph: null, tableElement: null };
+    }
+
+    // Get all paragraphs inside table cells
+    const allParagraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
+    const paragraphsInCells = allParagraphs.filter(p => {
+        let parent = p.parentNode;
+        while (parent) {
+            if (parent.nodeName === 'w:tc') return true;
+            parent = parent.parentNode;
+        }
+        return false;
+    });
+
+    console.log(`[OxmlEngine] Table wrapper detected: ${tables.length} tables, ${paragraphsInCells.length} paragraphs in cells`);
+
+    // Try to find the target paragraph by matching text content
+    let targetParagraph = null;
+    if (originalText && originalText.trim()) {
+        const normalizedTarget = originalText.trim();
+        for (const p of paragraphsInCells) {
+            // Extract text content from paragraph
+            const textNodes = p.getElementsByTagName('w:t');
+            let paragraphText = '';
+            for (const t of textNodes) {
+                paragraphText += t.textContent || '';
+            }
+
+            if (paragraphText.trim() === normalizedTarget) {
+                targetParagraph = p;
+                console.log(`[OxmlEngine] Found target paragraph by text match: "${normalizedTarget.substring(0, 30)}..."`);
+                break;
+            }
+        }
+    }
+
+    // Return the target paragraph if found
+    return {
+        hasTableWrapper: true,
+        isTableCellParagraph: paragraphsInCells.length > 0,
+        targetParagraph: targetParagraph,
+        paragraphs: paragraphsInCells,
+        paragraph: targetParagraph || paragraphsInCells[0] || null,
+        tableElement: tables[0]
+    };
+}
+
+/**
+ * Extracts paragraph(s) from table context and wraps for standalone insertion.
+ * This prevents nested table creation when editing paragraphs in table cells.
+ * 
+ * @param {Document} xmlDoc - The full XML document  
+ * @param {Element|Element[]} paragraphs - One or more paragraph elements to extract
+ * @param {XMLSerializer} serializer - XML serializer
+ * @returns {string} Paragraph(s) OOXML wrapped in pkg:package format
+ */
+function serializeParagraphOnly(xmlDoc, paragraphs, serializer) {
+    // Handle both single paragraph and array of paragraphs
+    const paragraphArray = Array.isArray(paragraphs) ? paragraphs : [paragraphs];
+
+    // Serialize all paragraphs
+    let combinedXml = '';
+    for (const p of paragraphArray) {
+        if (!p) continue;
+        let pXml = serializer.serializeToString(p);
+        // Remove redundant namespace declarations that would conflict with wrapper
+        // But keep the w: prefixed elements intact
+        pXml = pXml.replace(/\s+xmlns:w="[^"]*"/g, '');
+        pXml = pXml.replace(/\s+xmlns:r="[^"]*"/g, '');
+        pXml = pXml.replace(/\s+xmlns:wp="[^"]*"/g, '');
+        combinedXml += pXml;
+    }
+
+    console.log(`[OxmlEngine] Stripping table wrapper, serializing ${paragraphArray.length} paragraphs`);
+    console.log(`[OxmlEngine] Paragraph XML preview: ${combinedXml.substring(0, 200)}...`);
+
+    // Wrap in pkg:package format for insertOoxml
+    return wrapParagraphInPackage(combinedXml);
+}
+
+/**
+ * Wraps a paragraph XML string in a complete pkg:package for insertOoxml.
+ * 
+ * @param {string} paragraphXml - The paragraph XML (without full namespace)
+ * @returns {string} Complete OOXML package
+ */
+function wrapParagraphInPackage(paragraphXml) {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
+  <pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
+    <pkg:xmlData>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+      </Relationships>
+    </pkg:xmlData>
+  </pkg:part>
+  <pkg:part pkg:name="/word/_rels/document.xml.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
+    <pkg:xmlData>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+      </Relationships>
+    </pkg:xmlData>
+  </pkg:part>
+  <pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">
+    <pkg:xmlData>
+      <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+        <w:body>
+          ${paragraphXml}
+        </w:body>
+      </w:document>
+    </pkg:xmlData>
+  </pkg:part>
+</pkg:package>`;
+}
+
+// ============================================================================
 // MAIN EXPORT
 // ============================================================================
 
@@ -120,13 +250,36 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     // Format REMOVAL: text is unchanged, no new hints, but original has formatting to strip
     if (needsFormatRemoval) {
         console.log(`[OxmlEngine] Format REMOVAL detected: stripping ${existingFormatHints.length} format ranges`);
-        return applyFormatRemovalWithSpans(xmlDoc, textSpans, existingFormatHints, serializer, author, generateRedlines);
+        const result = applyFormatRemovalWithSpans(xmlDoc, textSpans, existingFormatHints, serializer, author, generateRedlines);
+
+        // Check if we're in table cell context - strip table wrapper if so
+        const tableCellCtx = detectTableCellContext(xmlDoc, originalText);
+        if (tableCellCtx.hasTableWrapper && result.hasChanges && tableCellCtx.targetParagraph) {
+            console.log('[OxmlEngine] Stripping table wrapper for table cell paragraph');
+            return { oxml: serializeParagraphOnly(xmlDoc, tableCellCtx.targetParagraph, serializer), hasChanges: true };
+        }
+        return result;
     }
 
     // Format-only change: text is the same but we have formatting to apply
     if (!hasTextChanges && hasFormatHints) {
         console.log(`[OxmlEngine] Format-only change detected: ${formatHints.length} format hints`);
-        return applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, author, generateRedlines);
+
+        // Check if we're in table cell context FIRST - if so, handle specially
+        const tableCellCtx = detectTableCellContext(xmlDoc, originalText);
+        if (tableCellCtx.hasTableWrapper && tableCellCtx.targetParagraph) {
+            console.log('[OxmlEngine] Table cell context: applying formatting to target paragraph only');
+
+            // Apply formatting to ONLY the target paragraph (not all paragraphs)
+            applyFormatToSingleParagraph(xmlDoc, tableCellCtx.targetParagraph, formatHints, author, generateRedlines);
+
+            console.log('[OxmlEngine] Stripping table wrapper for table cell paragraph (format-only)');
+            return { oxml: serializeParagraphOnly(xmlDoc, tableCellCtx.targetParagraph, serializer), hasChanges: true };
+        }
+
+        // Standard path for non-table paragraphs
+        const result = applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, author, generateRedlines);
+        return result;
     }
 
     // Check for tables to decide mode
@@ -136,12 +289,22 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     const isMarkdownTable = /^\|.+\|/.test(cleanModifiedText.trim()) && cleanModifiedText.includes('\n');
     const isTargetList = cleanModifiedText.includes('\n') && /^([-*+]|\d+\.)/m.test(cleanModifiedText.trim());
 
-    console.log(`[OxmlEngine] Mode: ${hasTables ? 'SURGICAL' : 'RECONSTRUCTION'}, formatHints: ${formatHints.length}, isMarkdownTable: ${isMarkdownTable}, isTargetList: ${isTargetList}`);
+    // Detect table cell context early
+    const tableCellContext = detectTableCellContext(xmlDoc, originalText);
+
+    console.log(`[OxmlEngine] Mode: ${hasTables ? 'SURGICAL' : 'RECONSTRUCTION'}, formatHints: ${formatHints.length}, isMarkdownTable: ${isMarkdownTable}, isTargetList: ${isTargetList}, isTableCellParagraph: ${tableCellContext.isTableCellParagraph}`);
 
     if (hasTables && isMarkdownTable) {
         return applyTableReconciliation(xmlDoc, cleanModifiedText, serializer, author, formatHints);
     } else if (hasTables) {
-        return applySurgicalMode(xmlDoc, originalText, cleanModifiedText, serializer, author, formatHints, generateRedlines);
+        const result = applySurgicalMode(xmlDoc, originalText, cleanModifiedText, serializer, author, formatHints, generateRedlines);
+
+        // For table cell edits, return only the target paragraph without table wrapper
+        if (tableCellContext.hasTableWrapper && result.hasChanges && tableCellContext.targetParagraph) {
+            console.log('[OxmlEngine] Stripping table wrapper for table cell paragraph (surgical mode)');
+            return { oxml: serializeParagraphOnly(xmlDoc, tableCellContext.targetParagraph, serializer), hasChanges: true };
+        }
+        return result;
     } else if (isTargetList) {
         // Use the new ReconciliationPipeline for list expanded content
         const pipeline = new ReconciliationPipeline({ author, generateRedlines });
@@ -555,6 +718,65 @@ function checkOxmlForFormatting(xmlDoc) {
 // ============================================================================
 // FORMAT-ONLY MODE (applies formatting without text changes)
 // ============================================================================
+
+/**
+ * Applies formatting to a single paragraph only.
+ * Used for table cell edits where format hints are relative to the target paragraph's text only.
+ * 
+ * @param {Document} xmlDoc - The XML document
+ * @param {Element} paragraph - The target paragraph element
+ * @param {Array} formatHints - Format hints with start/end offsets
+ * @param {string} author - Author for track changes
+ * @param {boolean} generateRedlines - Whether to generate track changes
+ */
+function applyFormatToSingleParagraph(xmlDoc, paragraph, formatHints, author, generateRedlines) {
+    let charOffset = 0;
+    const textSpans = [];
+
+    // Build text spans ONLY from this paragraph
+    Array.from(paragraph.childNodes).forEach(child => {
+        if (child.nodeName === 'w:r') {
+            const textElem = child.getElementsByTagName('w:t')[0];
+            if (textElem && textElem.textContent) {
+                const text = textElem.textContent;
+                textSpans.push({
+                    charStart: charOffset,
+                    charEnd: charOffset + text.length,
+                    textElement: textElem,
+                    runElement: child,
+                    paragraph: paragraph,
+                    container: paragraph.parentNode
+                });
+                charOffset += text.length;
+            }
+        } else if (child.nodeName === 'w:hyperlink') {
+            Array.from(child.childNodes).forEach(hc => {
+                if (hc.nodeName === 'w:r') {
+                    const textElem = hc.getElementsByTagName('w:t')[0];
+                    if (textElem && textElem.textContent) {
+                        const text = textElem.textContent;
+                        textSpans.push({
+                            charStart: charOffset,
+                            charEnd: charOffset + text.length,
+                            textElement: textElem,
+                            runElement: hc,
+                            paragraph: paragraph,
+                            container: child
+                        });
+                        charOffset += text.length;
+                    }
+                }
+            });
+        }
+    });
+
+    console.log(`[OxmlEngine] Single paragraph has ${textSpans.length} text spans, total chars: ${charOffset}`);
+
+    // Apply each format hint to the corresponding text spans
+    for (const hint of formatHints) {
+        applyFormatHintToSpans(xmlDoc, textSpans, hint, author, generateRedlines);
+    }
+}
 
 /**
  * Applies formatting changes to existing text without modifying content.

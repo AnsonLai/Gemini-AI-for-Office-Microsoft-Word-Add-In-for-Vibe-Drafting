@@ -13,10 +13,13 @@ graph TD
     A[Input: Original OOXML + New Text] --> B{OxmlEngine Router}
     
     B -- "No Text Changes + Format Hints" --> C[FORMAT-ONLY MODE]
-    C --> D[In-Place DOM Modification]
+    C --> L{Table Context?}
+    L -- Yes --> M[Paragraph Unwrap/Rewrap]
+    M --> D[In-Place DOM Modification]
+    L -- No --> D
     
     B -- "Text Changes + Tables Detected" --> E[SURGICAL MODE]
-    E --> D
+    E --> L
     
     B -- "Markdown Table Detected" --> F[TABLE RECONCILIATION]
     F --> G[Virtual Grid Diff]
@@ -65,8 +68,8 @@ The engine automatically selects the appropriate mode based on content analysis:
 
 | Mode | Trigger | Use Case | Implementation |
 |------|---------|----------|----------------|
-| **FORMAT-ONLY** | Text unchanged, has format hints | Bolding/italicizing existing text | In-Place DOM |
-| **SURGICAL** | Has tables in original | Safe edits preserving table structure | In-Place DOM |
+| **FORMAT-ONLY** | Text unchanged, has format hints | Bolding/italicizing existing text | In-Place DOM (+ Unwrap) |
+| **SURGICAL** | Has tables in original | Safe edits preserving table structure | In-Place DOM (+ Unwrap) |
 | **RECONSTRUCTION** | Standard text edits (no tables) | Paragraph splitting, text insertion | In-Place DOM |
 | **LIST EXPANSION** | New text is a list, original is not | Turning a paragraph into a bulleted list | **ReconciliationPipeline** |
 
@@ -96,6 +99,20 @@ When the AI applies markdown formatting to existing text (e.g., `**bold this**`)
 - Triggered when changes involve markdown tables
 - Converts OOXML tables to a **Virtual Grid** for diffing
 - Handles merged cells and span updates
+
+### Table Cell Paragraph Handling: The Unwrap/Rewrap Strategy
+
+When editing a paragraph within a table cell, the engine must handle a critical Word API behavior:
+
+> [!WARNING]
+> **Word API Limitation**: `Word.Paragraph.getOoxml()` on a paragraph inside a table cell returns the **entire table structure** (wrapped in `w:tbl`), not just the paragraph. Inserting this back via `insertOoxml("Replace")` results in a **nested table**.
+
+#### The Solution: Surgical Extraction
+
+1.  **Detection**: `detectTableCellContext(xmlDoc, originalText)` identifies if a table wrapper is present and uses exact text matching to find the specific `w:p` element from the many paragraphs that might exist in the table.
+2.  **Scoping**: For format-only edits, we use `applyFormatToSingleParagraph()` to build text spans ONLY for the target paragraph. This ensures character-based format hints from the AI match the correct runs.
+3.  **Serialization (Unwrap)**: `serializeParagraphOnly()` extracts the modified `w:p` element, strips redundant namespaces, and wraps it in a minimal `pkg:package` structure.
+4.  **Insertion**: The resulting single-paragraph OOXML is inserted back into the document, effectively replacing the original paragraph without triggering table nesting.
 
 ### Key Decision: Virtual Grid
 
