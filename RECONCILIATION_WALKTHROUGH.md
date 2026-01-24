@@ -1,33 +1,41 @@
 # Word Add-in: Document Reconciliation Architecture
 
-This document describes the diff/reconciliation system for the Word Add-in. The architecture follows a **Virtual DOM pattern** where a lightweight text representation manages a heavier OOXML document structure, preserving all formatting through surgical edits.
+This document describes the diff/reconciliation system for the Word Add-in. The architecture follows a **Hybrid Engine** pattern that intelligently routes operations between surgical in-place DOM manipulation and a full reconciliation pipeline, depending on the complexity of the change.
 
 ---
 
 ## Architecture Overview
 
+The **OOXML Engine** (`oxml-engine.js`) acts as the central router/dispatcher. It analyzes the incoming request (original text vs. new text) and the document state (tables, lists) to select the most robust strategy.
+
 ```mermaid
 graph TD
-    A[Original OOXML] --> B[Ingest: parseOoxml]
-    C[New Text with Markdown] --> D[Preprocess: stripMarkdown]
+    A[Input: Original OOXML + New Text] --> B{OxmlEngine Router}
     
-    B --> E[runModel + acceptedText]
-    D --> F[cleanText + formatHints]
+    B -- "No Text Changes + Format Hints" --> C[FORMAT-ONLY MODE]
+    C --> D[In-Place DOM Modification]
     
-    E --> G[Diff: computeWordLevelDiffOps]
-    F --> G
+    B -- "Text Changes + Tables Detected" --> E[SURGICAL MODE]
+    E --> D
     
-    G --> H[diffOps]
-    H --> I[Split: splitRunsAtBoundaries]
+    B -- "Markdown Table Detected" --> F[TABLE RECONCILIATION]
+    F --> G[Virtual Grid Diff]
+    G --> H[Replace Table Node]
     
-    I --> J[Patch: applyPatches]
-    J --> K[patchedModel]
+    subgraph "Decision: Virtual Grid"
+    G
+    end
     
-    K --> L[Serialize: toOoxml with formatHints]
-    L --> M[Final OOXML with w:ins/w:del]
+    B -- "List Expansion Detected" --> I[RECONCILIATION PIPELINE]
+    I --> J[Full Pipeline (Ingest/Diff/Patch/Serialize)]
+    
+    B -- "Standard Text Edit" --> K[RECONSTRUCTION MODE]
+    K --> D
 ```
 
-**Key Insight**: The "Virtual DOM" is the `acceptedText` string + `runModel` array. We diff on the lightweight string, then apply changes back to the structured model that preserves formatting.
+### Hybrid Strategy
+1.  **In-Place DOM Manipulation (Primary)**: For most operations (formatting, text edits, existing tables), we modify the XML DOM directly. This preserves all original attributes, ids, and properties that we don't explicitly intend to change.
+2.  **Full Pipeline (Secondary)**: For complex structural generation (specifically turning a paragraph into a list), we use a `ReconciliationPipeline` that ingests content into a model, applies structural patches, and regenerates the OOXML with proper numbering definitions.
 
 ---
 
@@ -51,88 +59,71 @@ The **V5.1 Hybrid Mode Engine** (`oxml-engine.js`) solves this by modifying the 
 // 4. Call insertOoxml() - Word sees our embedded track changes
 ```
 
-### Three Operating Modes
+### Four Operating Modes
 
 The engine automatically selects the appropriate mode based on content analysis:
 
-| Mode | Trigger | Use Case |
-|------|---------|----------|
-| **FORMAT-ONLY** | Text unchanged, has format hints | Bolding/italicizing existing text |
-| **SURGICAL** | Has tables | Safe in-place edits preserving structure |
-| **RECONSTRUCTION** | No tables | Allows paragraph splitting/creation |
+| Mode | Trigger | Use Case | Implementation |
+|------|---------|----------|----------------|
+| **FORMAT-ONLY** | Text unchanged, has format hints | Bolding/italicizing existing text | In-Place DOM |
+| **SURGICAL** | Has tables in original | Safe edits preserving table structure | In-Place DOM |
+| **RECONSTRUCTION** | Standard text edits (no tables) | Paragraph splitting, text insertion | In-Place DOM |
+| **LIST EXPANSION** | New text is a list, original is not | Turning a paragraph into a bulleted list | **ReconciliationPipeline** |
 
 #### FORMAT-ONLY MODE
-When the AI applies markdown formatting to existing text (e.g., `**bold this**`), the underlying text is unchanged after stripping markers. The engine:
-
-1. Detects `hasTextChanges = false` AND `hasFormatHints = true`
-2. Builds a TextSpan map from original OOXML
-3. For each format hint, finds affected runs
-4. **Splits runs** at format boundaries (critical for precision!)
-5. Applies formatting (`<w:b/>`, `<w:i/>`, etc.) only to targeted runs
-
-> **Key Learning**: When only PART of a run needs formatting, you MUST split the run into three parts:
-> - Before text (unformatted)
-> - Target text (formatted)  
-> - After text (unformatted)
+When the AI applies markdown formatting to existing text (e.g., `**bold this**`), the underlying text is unchanged after stripping markers. The engine splits runs at format boundaries and applies `<w:rPr>` changes directly.
 
 #### SURGICAL MODE (for tables)
 - Modifies existing run elements in place
 - Never creates or deletes paragraph structure
 - Newlines in insertions converted to spaces
-- Safe for complex layouts
+- Critical for preserving complex table layouts
 
 #### RECONSTRUCTION MODE (for body without tables)
 - Rebuilds paragraph content allowing new paragraphs
-- Supports list splitting via newlines
-- More flexible but requires stable container references
+- Supports splitting text flow into multiple runs or paragraphs
+- Used for general text generation
+
+#### LIST EXPANSION (Pipeline)
+- Triggered when a simple paragraph expands into a markdown list
+- Uses `ReconciliationPipeline` to:
+  1. Ingest original content
+  2. Generate new `w:p` elements for list items
+  3. Inject proper `w:numPr` (numbering properties)
+  4. Return a `fragment` type result for insertion
+
+#### TABLE RECONCILIATION MODE
+- Triggered when changes involve markdown tables
+- Converts OOXML tables to a **Virtual Grid** for diffing
+- Handles merged cells and span updates
+
+### Key Decision: Virtual Grid
+
+> **Problem**: OOXML tables are row-based, but users think of tables as a 2D grid. Merged cells (`vMerge`, `gridSpan`) create a complex sparse structure that makes spatial reasoning and diffing extremely difficult (e.g., "what is the cell at row 2, col 3?").
+>
+> **Solution**: We convert the table into a **Virtual Grid**—a 2D array where every physical cell is fully realized. Merged cells are "exploded" so the content is repeated in every grid slot it occupies. We diff this flat grid, and then re-serialize to OOXML, calculating the new spans. This allows us to use standard coordinate-based logic.
 
 ### Markdown Formatting Support
 
 The engine preprocesses markdown and captures format hints with character offsets:
 
-| Markdown | OOXML Element | Example |
-|----------|---------------|---------|
-| `**text**` | `<w:b/>` | Bold |
-| `*text*` | `<w:i/>` | Italic |
-| `++text++` | `<w:u w:val="single"/>` | Underline |
-| `~~text~~` | `<w:strike/>` | Strikethrough |
-| `***text***` | `<w:b/>` + `<w:i/>` | Bold + Italic |
+| Markdown | OOXML Element |
+|----------|---------------|
+| `**text**` or `__text__` | `<w:b/>` (Bold) |
+| `*text*` or `_text_` | `<w:i/>` (Italic) |
+| `++text++` | `<w:u w:val="single"/>` (Underline) |
+| `~~text~~` | `<w:strike/>` (Strikethrough) |
+| `***text***` | `<w:b/>` + `<w:i/>` |
+| `**++text++**` | `<w:b/>` + `<w:u/>` |
 
 Format hints are applied during both text changes (insertions) and format-only changes.
-
-### Run Splitting for Partial Formatting
-
-When a format hint covers only part of a run:
-
-```
-Original run: "The quick brown fox jumps"
-Format hint:  bold "brown fox" (positions 10-19)
-
-Result:
-  Run 1: "The quick " (unformatted)
-  Run 2: "brown fox" (<w:b/>)
-  Run 3: " jumps" (unformatted)
-```
-
-```javascript
-// Splitting logic
-const beforeText = fullText.substring(0, localStart);
-const formattedText = fullText.substring(localStart, localEnd);
-const afterText = fullText.substring(localEnd);
-
-// Create 3 separate runs, remove original
-parent.insertBefore(beforeRun, run);
-parent.insertBefore(formattedRunWithBold, run);
-parent.insertBefore(afterRun, run);
-parent.removeChild(run);
-```
 
 ### Usage
 
 ```javascript
-import { applyRedlineToOxml } from './modules/reconciliation/index.js';
+import { applyRedlineToOxml } from './modules/reconciliation/oxml-engine.js';
 
-const result = applyRedlineToOxml(
+const result = await applyRedlineToOxml(
   originalOoxml,      // The paragraph's OOXML (pkg:package format)
   originalText,       // Plain text extracted from paragraph
   newText,            // New text from AI (may include markdown)
@@ -234,34 +225,39 @@ export const RunKind = Object.freeze({
 The reconciliation pipeline has 6 explicit stages, each independently testable:
 
 ```javascript
-class ReconciliationPipeline {
-    constructor(options = {}) {
-        this.generateRedlines = options.generateRedlines ?? true;
-        this.author = options.author ?? 'AI';
-    }
-    
     async execute(originalOoxml, newText) {
         // Stage 1: Ingest OOXML
         const { runModel, acceptedText, pPr } = ingestOoxml(originalOoxml);
-        
+        const numberingContext = detectNumberingContext(pElement); // Context from adjacent paragraph
+
         // Stage 2: Preprocess markdown
         const { cleanText, formatHints } = preprocessMarkdown(newText);
-        
+
         // Stage 3: Compute word-level diff
         const diffOps = computeWordLevelDiffOps(acceptedText, cleanText);
-        
+
+        // Detect if this is a list expansion (single paragraph -> list)
+        const isTargetList = cleanText.includes('\n') && /^([-*+]|\d+\.)/m.test(cleanText);
+        const isExpansion = isTargetList && !acceptedText.includes('\n');
+
+        if (isExpansion) {
+            return this.executeListGeneration(cleanText, numberingContext, runModel);
+        }
+
         // Stage 4: Pre-split runs at boundaries
         const splitModel = splitRunsAtDiffBoundaries(runModel, diffOps);
-        
+
         // Stage 5: Apply patches
         const patchedModel = applyPatches(splitModel, diffOps, {
             generateRedlines: this.generateRedlines,
             author: this.author,
             formatHints
         });
-        
+
         // Stage 6: Serialize to OOXML
-        return serializeToOoxml(patchedModel, pPr);
+        const resultOoxml = serializeToOoxml(patchedModel, pPr, formatHints, { author: this.author });
+        
+        return { ooxml: resultOoxml, isValid: true };
     }
 }
 ```
@@ -277,6 +273,12 @@ Converts OOXML into a structured run model with character-level offset mapping. 
 - Fields (`w:fldSimple`)
 - Content controls (`w:sdt`)
 - Smart tags (`w:smartTag`)
+
+### Key Decision: Container Linearization
+
+> **Problem**: Complex elements like Content Controls and Hyperlinks create nested tree structures that are difficult to diff against the flat text received from the AI.
+>
+> **Solution**: We flatten the tree into a linear `RunModel` using `CONTAINER_START` and `CONTAINER_END` tokens. This preserves the hierarchy as immutable "brackets" around the content, allowing us to use standard linear diff algorithms on the text between them without losing structural context. This essentially treats complex structures as "special text" that must be preserved paired.
 
 ### Extended Run Types
 
@@ -537,9 +539,12 @@ Strips markdown syntax BEFORE diffing to prevent markers from corrupting word bo
 | `*text*` | Italic | `<w:i/>` |
 | `++text++` | Underline | `<w:u w:val="single"/>` |
 | `~~text~~` | Strikethrough | `<w:strike/>` |
-| `^^TEXT^^` | ALL CAPS | `<w:caps/>` |
 | `***text***` | Bold + Italic | `<w:b/><w:i/>` |
 | `**++text++**` | Bold + Underline | `<w:b/><w:u/>` |
+| `<b>text</b>` | Bold | `<w:b/>` |
+| `<i>text</i>` | Italic | `<w:i/>` |
+| `<u>text</u>` | Underline | `<w:u w:val="single"/>` |
+| `<s>text</s>` | Strikethrough | `<w:strike/>` |
 
 ```javascript
 function preprocessMarkdown(text) {
@@ -606,6 +611,10 @@ Output: {
 }
 ```
 
+### Supported HTML Tags
+The processor also strips common HTML formatting tags used by AI models:
+`<b>`, `<strong>`, `<i>`, `<em>`, `<u>`, `<s>`, `<strike>`, `<del>`.
+
 ### Applying Format to OOXML
 
 ```javascript
@@ -648,6 +657,12 @@ function injectFormatting(baseRPrXml, format, options = {}) {
 ## Stage 3: Word-Level Diffing
 
 Tokenizes text into words before diffing for cleaner results.
+
+### Key Decision: Word-Level Tokenization
+
+> **Problem**: Standard character-level diffs (like `git diff`) often split words unintuitively. For example, changing "The" to "There" might show as "The" + insert "re", which looks messy in a Word document redline.
+>
+> **Solution**: We tokenize the text into words, map each unique word to a single Unicode character, perform the diff on these characters, and then map back to words. This ensures that changes are always grouped by whole words, resulting in "native-looking" redlines that users expect in Word.
 
 ```javascript
 function computeWordLevelDiffOps(originalText, newText) {
@@ -732,6 +747,14 @@ function splitRunsAtDiffBoundaries(runModel, diffOps) {
 
 Walks through the split run model and applies diff operations. The `generateRedlines` flag controls whether changes are tracked or applied destructively.
 
+### Key Decision: Context-Aware Style Inheritance
+
+> **Problem**: When the AI inserts new text, what formatting should it have? If we insert "world" after "**Hello**", should it be bold?
+>
+> **Solution**: We use a heuristic based on whitespace:
+> *   **Continuation**: If the new text directly follows characters (no space), it inherits the *previous* run's style (e.g., "**Hell**o" -> "**Hello**").
+> *   **New Word**: If the new text starts with a space, it inherits the *next* run's style (or the paragraph default). This prevents "bleeding" styles where unbolded text accidentally picks up a previous bold header.
+
 ### Style Inheritance Strategy
 
 When inserting text, determines which run's formatting to inherit:
@@ -811,32 +834,59 @@ function applyPatches(splitModel, diffOps, options) {
 
 ## Stage 6: Serialize to OOXML
 
-Converts the patched run model back to OOXML, applying format hints during serialization.
+Converts the patched run model back to valid OOXML. This stage handles the reconstruction of complex container elements (like Content Controls and Hyperlinks) and applies format hints.
+
+### Unified Container Serialization
+
+The serializer reconstructs the hierarchy by tracking container tokens (`CONTAINER_START` / `CONTAINER_END`) encountered in the run model.
 
 ```javascript
-function serializeToOoxml(patchedModel, pPr, formatHints = []) {
-    let runsContent = '';
-
+function serializeToOoxml(patchedModel, pPr, formatHints = [], options = {}) {
+    // ... setup ...
     for (const item of patchedModel) {
         switch (item.kind) {
             case RunKind.TEXT:
-                runsContent += buildRunXmlWithHints(item.text, item.rPrXml, formatHints, item.startOffset);
+                currentRuns.push(buildRunXmlWithHints(item, formatHints));
                 break;
-            case RunKind.DELETION:
-                runsContent += buildDeletionXml(item.text, item.rPrXml, item.revisionId, item.author);
+                
+            case RunKind.CONTAINER_START:
+                if (item.containerKind === 'sdt') {
+                    currentRuns.push(`<w:sdt>${item.propertiesXml}<w:sdtContent>`);
+                } else if (item.containerKind === 'hyperlink') {
+                    // Reconstruct w:hyperlink with r:id and anchor
+                    currentRuns.push(`<w:hyperlink ...>`);
+                }
                 break;
-            case RunKind.INSERTION:
-                runsContent += buildInsertionXmlWithHints(item.text, item.rPrXml, formatHints, item.startOffset, item.author);
+                
+            case RunKind.CONTAINER_END:
+                if (item.containerKind === 'sdt') {
+                    currentRuns.push(`</w:sdtContent></w:sdt>`);
+                } else if (item.containerKind === 'hyperlink') {
+                    currentRuns.push(`</w:hyperlink>`);
+                }
                 break;
-            case RunKind.BOOKMARK:
-            case RunKind.HYPERLINK:
-                runsContent += item.nodeXml;
-                break;
+                
+            // ... handle INSERTION, DELETION, etc.
         }
     }
+    // ...
+}
+```
 
-    const pPrContent = pPr ? new XMLSerializer().serializeToString(pPr) : '';
-    return `<w:p xmlns:w="...">${pPrContent}${runsContent}</w:p>`;
+### Document Wrapping
+
+For insertions via `insertOoxml`, the serialized paragraphs must be wrapped in a full `pkg:package` structure, including relationships (specifically for numbering).
+
+```javascript
+export function wrapInDocumentFragment(paragraphXml, options = {}) {
+    const { includeNumbering = false } = options;
+    
+    // Auto-generates pkg:package with:
+    // 1. /word/document.xml (containing our paragraphXml)
+    // 2. /word/_rels/document.xml.rels (relationships)
+    // 3. /word/numbering.xml (if includeNumbering is true)
+    
+    return `<?xml version="1.0" ...><pkg:package>...</pkg:package>`;
 }
 ```
 
@@ -1062,1122 +1112,77 @@ const NumberSuffix = Object.freeze({
 });
 ```
 
-### Marker Pattern Detection
+### Legal Formatting Strategy
+
+The `NumberingService` detects markers like `(a)`, `i.`, or `1.1.` using regex and selects the appropriate OOXML `numFmt`. If a complex outline is detected, it generates a custom `w:numbering` part.
 
 ```javascript
-function detectNumberingFormat(marker) {
-    // Hierarchical outline: 1.1.2 or 4.1.2.3
-    if (/^\d+(\.\d+)+\.?$/.test(marker)) {
-        return { format: NumberFormat.OUTLINE, suffix: NumberSuffix.PERIOD };
-    }
-    
-    // Parenthesized formats: (a), (i), (1)
-    if (/^\([a-z]\)$/.test(marker)) {
-        return { format: NumberFormat.LOWER_ALPHA, suffix: NumberSuffix.PAREN_BOTH };
-    }
-    if (/^\([ivxlc]+\)$/i.test(marker)) {
-        const isLower = marker === marker.toLowerCase();
-        return { format: isLower ? NumberFormat.LOWER_ROMAN : NumberFormat.UPPER_ROMAN, suffix: NumberSuffix.PAREN_BOTH };
-    }
-    if (/^\(\d+\)$/.test(marker)) {
-        return { format: NumberFormat.DECIMAL, suffix: NumberSuffix.PAREN_BOTH };
-    }
-    
-    // Standard formats with period: 1., a., A., i., I.
-    if (/^\d+\.$/.test(marker)) {
-        return { format: NumberFormat.DECIMAL, suffix: NumberSuffix.PERIOD };
-    }
-    if (/^[a-z]\.$/.test(marker)) {
-        return { format: NumberFormat.LOWER_ALPHA, suffix: NumberSuffix.PERIOD };
-    }
-    if (/^[A-Z]\.$/.test(marker)) {
-        return { format: NumberFormat.UPPER_ALPHA, suffix: NumberSuffix.PERIOD };
-    }
-    if (/^[ivxlc]+\.$/i.test(marker)) {
-        const isLower = marker === marker.toLowerCase();
-        return { format: isLower ? NumberFormat.LOWER_ROMAN : NumberFormat.UPPER_ROMAN, suffix: NumberSuffix.PERIOD };
-    }
-    
-    // Bullet
-    if (/^[-*•]$/.test(marker)) {
-        return { format: NumberFormat.BULLET, suffix: null };
-    }
-    
-    return { format: NumberFormat.DECIMAL, suffix: NumberSuffix.PERIOD };
+// numbering-service.js
+detectNumberingFormat(marker) {
+    if (/^\d+(\.\d+)+\.?$/.test(m)) return { format: NumberFormat.OUTLINE, suffix: NumberSuffix.PERIOD };
+    if (/^\([a-z]\)$/.test(m))      return { format: NumberFormat.LOWER_ALPHA, suffix: NumberSuffix.PAREN_BOTH };
+    // ...
+}
+
+generateNumberingXml(customConfigs) {
+    // Generates <w:lvl> and <w:abstractNum> for standard legal schemes
 }
 ```
 
-### Parsing Legal Lists with Formats
+### List Item Insertion
+When a paragraph expands into a list, the pipeline uses `executeListGeneration` to create a multi-paragraph fragment.
 
 ```javascript
-function parseListItems(text) {
-    const lines = text.split('\n');
-    const items = [];
-    
-    // Regex captures: indent, marker, content
-    const lineRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\([a-zA-Z0-9ivxlc]+\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|-|\*|•)\s*)(.*)$/;
-    
+// pipeline.js
+async executeListGeneration(cleanText, numberingContext, originalRunModel) {
+    const lines = cleanText.split('\n');
     for (const line of lines) {
-        const match = line.match(lineRegex);
-        if (!match) continue;
-        
-        const [, indent, marker, content] = match;
-        const level = Math.floor(indent.length / 3);  // 3 spaces per level (legal convention)
-        const { format, suffix } = detectNumberingFormat(marker.trim());
-        
-        items.push({
-            text: content.trim(),
-            level,
-            format,
-            suffix,
-            marker: marker.trim()
-        });
-    }
-    
-    return items;
-}
-```
-
-### Hierarchical Outline Numbering
-
-For legal contracts with `1.1.2.3` style numbering:
-
-```javascript
-function parseOutlineMarker(marker) {
-    // "4.1.2.3." → [4, 1, 2, 3]
-    const parts = marker.replace(/\.$/, '').split('.').map(Number);
-    return {
-        level: parts.length - 1,  // 0-indexed
-        numbers: parts
-    };
-}
-
-function generateOutlineLevel(level) {
-    // Word uses abstract numbering definitions
-    // Level 0: 1, 2, 3
-    // Level 1: 1.1, 1.2
-    // Level 2: 1.1.1, 1.1.2
-    return {
-        format: NumberFormat.DECIMAL,
-        levelText: Array(level + 1).fill('%').map((_, i) => `%${i + 1}`).join('.') + '.',
-        // %1. at level 0, %1.%2. at level 1, etc.
-    };
-}
-```
-
-### OOXML Number Format Mapping
-
-```javascript
-function formatToOoxmlNumFmt(format) {
-    const map = {
-        [NumberFormat.DECIMAL]: 'decimal',
-        [NumberFormat.LOWER_ALPHA]: 'lowerLetter',
-        [NumberFormat.UPPER_ALPHA]: 'upperLetter',
-        [NumberFormat.LOWER_ROMAN]: 'lowerRoman',
-        [NumberFormat.UPPER_ROMAN]: 'upperRoman',
-        [NumberFormat.BULLET]: 'bullet'
-    };
-    return map[format] || 'decimal';
-}
-
-function suffixToOoxmlLevelText(format, suffix) {
-    const num = '%1';  // Placeholder for current level number
-    switch (suffix) {
-        case NumberSuffix.PERIOD: return `${num}.`;
-        case NumberSuffix.PAREN_RIGHT: return `${num})`;
-        case NumberSuffix.PAREN_BOTH: return `(${num})`;
-        default: return `${num}.`;
+        const { format } = this.numberingService.detectNumberingFormat(extractMarker(line));
+        const numId = this.numberingService.getOrCreateNumId({ type: format }, numberingContext);
+        const pPrXml = this.numberingService.buildListPPr(numId, ilvl);
+        // ...
     }
 }
 ```
 
-### Generating Custom Numbering Definition
+### Unified Pipeline
 
-When AI uses a specific format, generate a custom numbering definition:
+The system treats generation as reconciliation against empty content. By using a single code path, we ensure that new content inherits all the robust patching and track change logic of the reconciliation engine.
+
+## OOXML Output Validation
+
+Before returning reconciled OOXML, validate that the output is well-formed XML.
 
 ```javascript
-function generateNumberingDefinition(items) {
-    // Collect unique format/level combinations
-    const levels = new Map();
-    for (const item of items) {
-        if (!levels.has(item.level)) {
-            levels.set(item.level, { format: item.format, suffix: item.suffix });
-        }
+// pipeline.js
+validateBasic(ooxml) {
+    const wrappedXml = `<root xmlns:w="..." xmlns:r="...">${ooxml}</root>`;
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(wrappedXml, 'application/xml');
+    if (doc.getElementsByTagName('parsererror').length > 0) {
+        return { isValid: false, errors: ['Invalid XML structure'] };
     }
-    
-    // Generate abstractNum with levels
-    let levelsXml = '';
-    for (const [level, config] of levels) {
-        const numFmt = formatToOoxmlNumFmt(config.format);
-        const levelText = config.format === NumberFormat.OUTLINE
-            ? generateOutlineLevel(level).levelText
-            : suffixToOoxmlLevelText(config.format, config.suffix);
-        
-        levelsXml += `
-            <w:lvl w:ilvl="${level}">
-                <w:start w:val="1"/>
-                <w:numFmt w:val="${numFmt}"/>
-                <w:lvlText w:val="${levelText}"/>
-                <w:lvlJc w:val="left"/>
-                <w:pPr>
-                    <w:ind w:left="${720 * (level + 1)}" w:hanging="360"/>
-                </w:pPr>
-            </w:lvl>
-        `;
-    }
-    
-    const abstractNumId = getNextAbstractNumId();
-    return {
-        abstractNum: `
-            <w:abstractNum w:abstractNumId="${abstractNumId}">
-                <w:multiLevelType w:val="multilevel"/>
-                ${levelsXml}
-            </w:abstractNum>
-        `,
-        numId: abstractNumId
-    };
+    return { isValid: true };
 }
 ```
-
-### Common Legal Contract Numbering Schemes
-
-| Pattern | Levels | Example |
-|---------|--------|---------|
-| **Outline** | 0→1→2→3 | 1. → 1.1. → 1.1.1. → 1.1.1.1. |
-| **Article/Section** | 0→1→2 | 1. → (a) → (i) |
-| **US Contract** | 0→1→2→3 | 1. → A. → i. → (a) |
-| **UK Contract** | 0→1→2 | 1. → 1.1 → (a) |
-
-```javascript
-const LegalSchemes = {
-    OUTLINE: [
-        { format: 'decimal', suffix: '.' },      // 1.
-        { format: 'decimal', suffix: '.' },      // 1.1.
-        { format: 'decimal', suffix: '.' },      // 1.1.1.
-        { format: 'decimal', suffix: '.' }       // 1.1.1.1.
-    ],
-    ARTICLE_SECTION: [
-        { format: 'decimal', suffix: '.' },      // 1.
-        { format: 'lowerLetter', suffix: '()' }, // (a)
-        { format: 'lowerRoman', suffix: '()' }   // (i)
-    ],
-    US_CONTRACT: [
-        { format: 'decimal', suffix: '.' },      // 1.
-        { format: 'upperLetter', suffix: '.' },  // A.
-        { format: 'lowerRoman', suffix: '.' },   // i.
-        { format: 'lowerLetter', suffix: '()' }  // (a)
-    ]
-};
-```
-
-### Content Type Detection
-
-```javascript
-const ContentType = Object.freeze({
-    PARAGRAPH: 'paragraph',
-    BULLET_LIST: 'bullet_list',
-    NUMBERED_LIST: 'numbered_list',
-    TABLE: 'table'
-});
-
-function detectContentType(text) {
-    const trimmed = text.trim();
-    
-    // Table: starts with | ... |
-    if (/^\|.+\|/.test(trimmed) && trimmed.includes('\n')) {
-        return ContentType.TABLE;
-    }
-    
-    // Outline numbering: 1.1.2
-    if (/^\d+(\.\d+)+/.test(trimmed)) {
-        return ContentType.NUMBERED_LIST;
-    }
-    
-    // Parenthesized: (a), (i), (1)
-    if (/^\([a-zA-Z0-9ivxlc]+\)/.test(trimmed)) {
-        return ContentType.NUMBERED_LIST;
-    }
-    
-    // Standard numbered: 1., a., A., i., I.
-    if (/^(\d+\.|[a-zA-Z]\.|[ivxlcIVXLC]+\.)/.test(trimmed)) {
-        return ContentType.NUMBERED_LIST;
-    }
-    
-    // Bullet list: starts with - or * or •
-    if (/^[-*•]\s/.test(trimmed)) {
-        return ContentType.BULLET_LIST;
-    }
-    
-    return ContentType.PARAGRAPH;
-
-}
-```
-
-### List Parsing with Levels
-
-```javascript
-function parseListItems(text) {
-    const lines = text.split('\n');
-    const items = [];
-    
-    for (const line of lines) {
-        // Count leading spaces (2 spaces = 1 level)
-        const leadingSpaces = line.match(/^(\s*)/)[1].length;
-        const level = Math.floor(leadingSpaces / 2);
-        
-        // Strip marker (-, *, 1., a., etc.)
-        const content = line.replace(/^\s*[-*]|\d+\.|[a-z]\.\s*/, '').trim();
-        
-        if (content) {
-            items.push({ text: content, level });
-        }
-    }
-    
-    return items;  // [{ text: 'Item 1', level: 0 }, { text: 'Sub-item', level: 1 }, ...]
-}
-```
-
-### Table Parsing
-
-```javascript
-function parseTable(text) {
-    const lines = text.split('\n').filter(l => l.trim().startsWith('|'));
-    
-    // Skip separator row (|---|---|)
-    const dataLines = lines.filter(l => !l.includes('---'));
-    
-    const rows = dataLines.map(line => {
-        return line
-            .split('|')
-            .slice(1, -1)  // Remove empty first/last from split
-            .map(cell => cell.trim());
-    });
-    
-    return {
-        headers: rows[0],
-        rows: rows.slice(1),
-        hasHeader: lines.some(l => l.includes('---'))
-    };
-}
-```
-
-### Block Generation from Parsed Content
-
-```javascript
-function generateBlocks(contentType, parsedData, options = {}) {
-    switch (contentType) {
-        case ContentType.BULLET_LIST:
-        case ContentType.NUMBERED_LIST:
-            return generateListBlocks(parsedData, contentType, options);
-        case ContentType.TABLE:
-            return generateTableBlocks(parsedData, options);
-        default:
-            return [new Block({ type: 'paragraph', runModel: [], pPrXml: '' })];
-    }
-}
 
 function generateListBlocks(items, listType, options) {
-    const numId = listType === ContentType.BULLET_LIST ? '1' : '2';
     
-    return items.map(item => {
-        const { cleanText, formatHints } = preprocessMarkdown(item.text);
-        
-        const pPrXml = `
-            <w:pPr>
-                <w:pStyle w:val="ListParagraph"/>
-                <w:numPr>
-                    <w:ilvl w:val="${item.level}"/>
-                    <w:numId w:val="${numId}"/>
-                </w:numPr>
-                ${item.level > 0 ? `<w:ind w:left="${720 * (item.level + 1)}" w:hanging="360"/>` : ''}
-            </w:pPr>
-        `;
-        
-        return new Block({
-            type: 'list_item',
-            runModel: textToRunModel(cleanText, formatHints),
-            pPrXml,
-            metadata: { ilvl: item.level, numId }
-        });
-    });
-}
-```
-
-### Table Block Generation
-
-```javascript
-function generateTableBlocks(tableData, options) {
-    const { headers, rows, hasHeader } = tableData;
-    const allRows = hasHeader ? [headers, ...rows] : rows;
-    
-    // Generate table grid (column widths)
-    const colCount = headers.length;
-    const gridCols = Array(colCount).fill('<w:gridCol w:w="2000"/>').join('');
-    
-    // Generate rows
-    const rowsXml = allRows.map((row, rowIdx) => {
-        const cellsXml = row.map(cellText => {
-            const { cleanText, formatHints } = preprocessMarkdown(cellText);
-            const runs = textToRunModelXml(cleanText, formatHints);
-            
-            // Bold header row
-            const rPr = (hasHeader && rowIdx === 0) ? '<w:rPr><w:b/></w:rPr>' : '';
-            
-            return `
-                <w:tc>
-                    <w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr>
-                    <w:p><w:pPr/>${runs}</w:p>
-                </w:tc>
-            `;
-        }).join('');
-        
-        return `<w:tr>${cellsXml}</w:tr>`;
-    }).join('');
-    
-    // Return as special table block
-    return [{
-        type: 'table',
-        ooxml: `
-            <w:tbl>
-                <w:tblPr>
-                    <w:tblStyle w:val="TableGrid"/>
-                    <w:tblW w:w="0" w:type="auto"/>
-                    <w:tblBorders>
-                        <w:top w:val="single" w:sz="4"/>
-                        <w:left w:val="single" w:sz="4"/>
-                        <w:bottom w:val="single" w:sz="4"/>
-                        <w:right w:val="single" w:sz="4"/>
-                        <w:insideH w:val="single" w:sz="4"/>
-                        <w:insideV w:val="single" w:sz="4"/>
-                    </w:tblBorders>
-                </w:tblPr>
-                <w:tblGrid>${gridCols}</w:tblGrid>
-                ${rowsXml}
-            </w:tbl>
-        `
-    }];
-}
-```
-
-### Unified Pipeline (No Generation Branch)
-
-**Key Insight**: Generation is just reconciliation against empty content. By treating all operations as reconciliation, we eliminate branching and use a single code path.
-
-```javascript
-async execute(originalOoxml, newText) {
-    const newContentType = detectContentType(newText);
-    
-    // Detect what we're working with (for logging/metrics, not branching)
-    const originalType = originalOoxml ? detectContentTypeFromOoxml(originalOoxml) : null;
-    console.log(`Reconciling: ${originalType || 'empty'} → ${newContentType}`);
-    
-    // Unified approach: Always use reconciliation
-    // For "generation", originalOoxml is empty/null, so diff produces all INSERTs
-    const originalText = originalOoxml ? extractTextFromOoxml(originalOoxml) : '';
-    const { runModel, pPr } = originalOoxml 
-        ? ingestOoxml(originalOoxml) 
-        : { runModel: [], pPr: null };
-    
-    // Preprocess new content (strip markdown, get format hints)
-    const { cleanText, formatHints } = preprocessMarkdown(newText);
-    
-    // For structured content (lists/tables), parse into blocks
-    const newBlocks = parseIntoBlocks(newText, newContentType);
-    
-    if (newBlocks.length > 1 || newContentType !== ContentType.PARAGRAPH) {
-        // Block-level reconciliation (lists, tables, or multi-paragraph)
-        return this.executeBlockReconciliation(runModel, newBlocks, {
-            generateRedlines: this.generateRedlines,
-            author: this.author,
-            formatHints
-        });
-    }
-    
-    // Single paragraph: standard run-level diff
-    const diffOps = computeWordLevelDiffOps(originalText, cleanText);
-    const splitModel = splitRunsAtDiffBoundaries(runModel, diffOps);
-    const patchedModel = applyPatches(splitModel, diffOps, {
-        generateRedlines: this.generateRedlines,
-        author: this.author,
-        formatHints
-    });
-    
-    return serializeToOoxml(patchedModel, pPr, formatHints);
-}
-
-/**
- * Parse AI output into blocks based on content type
- */
-function parseIntoBlocks(text, contentType) {
-    switch (contentType) {
-        case ContentType.BULLET_LIST:
-        case ContentType.NUMBERED_LIST:
-            return parseListItems(text).map(item => new Block({
-                type: 'list_item',
-                runModel: textToRunModel(item.text, []),
-                pPrXml: buildListPPr(item.level, item.format),
-                metadata: { level: item.level, format: item.format }
-            }));
-            
-        case ContentType.TABLE:
-            const tableData = parseTable(text);
-            return [new Block({
-                type: 'table',
-                tableData,
-                metadata: { rows: tableData.rows.length, cols: tableData.headers.length }
-            })];
-            
-        default:
-            // Single paragraph block
-            return [new Block({
-                type: 'paragraph',
-                runModel: textToRunModel(text, []),
-                pPrXml: ''
-            })];
-    }
-}
-
-/**
- * Block-level reconciliation handles structured content uniformly
- */
-async executeBlockReconciliation(originalRuns, newBlocks, options) {
-    const { generateRedlines, author, formatHints } = options;
-    
-    // For each new block, reconcile against corresponding original content
-    // If no original exists (generation case), diff against empty produces all INSERTs
-    const reconciledBlocks = newBlocks.map((block, idx) => {
-        const originalBlock = this.matchOriginalBlock(originalRuns, block, idx);
-        
-        if (originalBlock) {
-            // Edit existing block
-            const diffOps = computeWordLevelDiffOps(originalBlock.getText(), block.getText());
-            const splitModel = splitRunsAtDiffBoundaries(originalBlock.runModel, diffOps);
-            block.runModel = applyPatches(splitModel, diffOps, options);
-        } else if (generateRedlines) {
-            // New block (generation case) - mark runs as insertions
-            block.runModel = block.runModel.map(run => ({
-                ...run,
-                kind: RunKind.INSERTION,
-                author
-            }));
-        }
-        
-        return block;
-    });
-    
-    // Handle deletions: blocks in original that don't match any new block
-    const deletedBlocks = this.findDeletedBlocks(originalRuns, newBlocks);
-    if (generateRedlines) {
-        for (const deleted of deletedBlocks) {
-            deleted.runModel = deleted.runModel.map(run => ({
-                ...run,
-                kind: RunKind.DELETION,
-                author
-            }));
-            reconciledBlocks.push(deleted);
-        }
-    }
-    
-    // Serialize all blocks
-    return reconciledBlocks.map(b => b.serialize(formatHints)).join('');
-}
-```
-
-### Redlines for New Content
-
-When `generateRedlines` is true, wrap entire new blocks in `w:ins`:
-
-```javascript
-function wrapBlockAsInsertion(blockOoxml, author, date) {
-    const revId = getNextRevisionId();
-    return `<w:ins w:id="${revId}" w:author="${escapeXml(author)}" w:date="${date}">${blockOoxml}</w:ins>`;
-}
-
-// In serialize:
-if (this.generateRedlines && isNewContent) {
-    return wrapBlockAsInsertion(serialized, this.author, new Date().toISOString());
-}
-```
-
 ---
 
-## Summary
+## Summary of Core Module Responsibilities
 
-| Stage | Function | Purpose |
-|-------|----------|---------|
-| 1. Detect | `detectContentType()` | Determine if text is paragraph/list/table |
-| 2. Ingest | `buildRunAwareTextModel()` | Parse OOXML → Run Model + Text |
-| 3. Preprocess | `preprocessMarkdown()` | Strip `**`/`*` → cleanText + formatHints |
-| 4. Parse | `parseListItems()` / `parseTable()` | Extract structured content |
-| 5. Diff | `computeWordLevelDiffOps()` | Word-level diff (paragraphs only) |
-| 6. Split | `splitRunsAtDiffBoundaries()` | Pre-split runs at operation boundaries |
-| 7. Patch/Generate | `applyPatches()` / `generateBlocks()` | Apply diffs or create new blocks |
-| 8. Serialize | `serializeToOoxml()` | Run Model → OOXML with format hints |
+| Module | Responsibility |
+|--------|----------------|
+| `oxml-engine.js` | Entry point, context detection, and high-level orchestration. |
+| `pipeline.js` | The 6-stage reconciliation logic, diffing, and patching. |
+| `markdown-processor.js` | Stripping markdown/HTML and capturing format hints. |
+| `numbering-service.js` | Legal marker detection and `w:numbering` XML generation. |
+| `serialization.js` | Run model conversion to OOXML and document fragment wrapping. |
+| `types.js` | Shared enums and data structures. |
 
-### Content-Type Handling
+This walkthrough describes the **V5.1 Hybrid Reconciliation Engine**, designed for surgical precision while maintaining document structural integrity.
 
-| Content Type | Block Type | Metadata | Creation |
-|--------------|------------|----------|----------|
-| Paragraph | `'paragraph'` | — | Diff/patch |
-| Bullet List | `'list_item'` | `{ ilvl, numId: '1' }` | Generate |
-| Numbered List | `'list_item'` | `{ ilvl, numId: '2' }` | Generate |
-| Table | `'table'` | `{ rows, cols }` | Generate |
-
-### Subbullet Levels
-
-| Indent | Level (`ilvl`) | Left Indent (twips) |
-|--------|----------------|---------------------|
-| None | 0 | 720 |
-| 2 spaces | 1 | 1440 |
-| 4 spaces | 2 | 2160 |
-| 6 spaces | 3 | 2880 |
-
-## Helper: Content Type Detection from OOXML
-
-For logging and metrics (not for pipeline branching), we detect the content type of existing OOXML:
-
-```javascript
-function detectContentTypeFromOoxml(ooxml) {
-    if (!ooxml) return null;
-    
-    const doc = new DOMParser().parseFromString(ooxml, 'application/xml');
-    
-    // Check for table
-    if (doc.getElementsByTagNameNS(NS_W, 'tbl').length > 0) {
-        return ContentType.TABLE;
-    }
-    
-    // Check for list (numPr in pPr)
-    const numPr = doc.getElementsByTagNameNS(NS_W, 'numPr');
-    if (numPr.length > 0) {
-        return ContentType.NUMBERED_LIST; // Or BULLET_LIST based on numId lookup
-    }
-    
-    return ContentType.PARAGRAPH;
-}
-```
-
-> [!NOTE]
-> **Complex Element Ingestion** (hyperlinks, fields, content controls) is handled by the unified `processNodeRecursive()` function in Stage 1. See [Stage 1: OOXML Ingestion](#stage-1-ooxml-ingestion-unified-container-aware) for the complete implementation.
-
----
-
-## Gap Resolution: Numbering Service
-
-Custom numbering definitions must be injected into `word/numbering.xml`, not returned inline. This requires a service layer.
-
-### Numbering Service Architecture
-
-```javascript
-class NumberingService {
-    constructor(documentPackage) {
-        this.package = documentPackage;
-        this.numberingXml = null;
-        this.nextAbstractNumId = 100;  // Start high to avoid conflicts
-        this.nextNumId = 100;
-        this.pendingDefinitions = [];
-    }
-    
-    async initialize() {
-        // Load existing numbering.xml if present
-        try {
-            const numberingPart = await this.package.getPartContent('word/numbering.xml');
-            this.numberingXml = new DOMParser().parseFromString(numberingPart, 'application/xml');
-            
-            // Find max existing IDs
-            this.nextAbstractNumId = this.findMaxId('w:abstractNum', 'w:abstractNumId') + 1;
-            this.nextNumId = this.findMaxId('w:num', 'w:numId') + 1;
-        } catch (e) {
-            // No numbering.xml exists - create skeleton
-            this.numberingXml = this.createEmptyNumbering();
-        }
-    }
-
-    /**
-     * Finds an existing numId that matches a given format/marker pattern.
-     * Prevents list restarts by continuing existing sequences.
-     */
-    findMatchingNumId(format, suffix, level) {
-        const nums = this.numberingXml.getElementsByTagNameNS(NS_W, 'num');
-        for (const num of nums) {
-            const absNumId = num.getElementsByTagNameNS(NS_W, 'abstractNumId')[0]?.getAttribute('w:val');
-            const absNum = this.findAbstractNum(absNumId);
-            if (!absNum) continue;
-
-            const lvl = this.findLevelInAbstract(absNum, level);
-            if (lvl && this.isMatchingFormat(lvl, format, suffix)) {
-                return num.getAttribute('w:numId');
-            }
-        }
-        return null;
-    }
-    
-    findMaxId(elementName, attrName) {
-        const elements = this.numberingXml.getElementsByTagNameNS(NS_W, elementName.replace('w:', ''));
-        let max = 0;
-        for (const el of elements) {
-            const id = parseInt(el.getAttribute(attrName), 10);
-            if (id > max) max = id;
-        }
-        return max;
-    }
-    
-    createEmptyNumbering() {
-        return new DOMParser().parseFromString(`
-            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-            <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-            </w:numbering>
-        `, 'application/xml');
-    }
-    
-    /**
-     * Register a new numbering definition
-     * @returns {string} The numId to use in w:numPr
-     */
-    registerNumberingDefinition(levelConfigs) {
-        const abstractNumId = this.nextAbstractNumId++;
-        const numId = this.nextNumId++;
-        
-        // Build abstractNum element
-        let levelsXml = '';
-        for (const [level, config] of Object.entries(levelConfigs)) {
-            const ilvl = parseInt(level, 10);
-            levelsXml += this.buildLevelXml(ilvl, config);
-        }
-        
-        const abstractNumXml = `
-            <w:abstractNum w:abstractNumId="${abstractNumId}" xmlns:w="${NS_W}">
-                <w:multiLevelType w:val="multilevel"/>
-                ${levelsXml}
-            </w:abstractNum>
-        `;
-        
-        const numXml = `
-            <w:num w:numId="${numId}" xmlns:w="${NS_W}">
-                <w:abstractNumId w:val="${abstractNumId}"/>
-            </w:num>
-        `;
-        
-        this.pendingDefinitions.push({ abstractNumXml, numXml, numId });
-        
-        return numId.toString();
-    }
-    
-    buildLevelXml(ilvl, config) {
-        const { format, suffix, start = 1 } = config;
-        const numFmt = formatToOoxmlNumFmt(format);
-        const levelText = this.buildLevelText(format, suffix, ilvl);
-        const indent = 720 * (ilvl + 1);
-        
-        return `
-            <w:lvl w:ilvl="${ilvl}">
-                <w:start w:val="${start}"/>
-                <w:numFmt w:val="${numFmt}"/>
-                <w:lvlText w:val="${levelText}"/>
-                <w:lvlJc w:val="left"/>
-                <w:pPr>
-                    <w:ind w:left="${indent}" w:hanging="360"/>
-                </w:pPr>
-            </w:lvl>
-        `;
-    }
-    
-    buildLevelText(format, suffix, ilvl) {
-        if (format === NumberFormat.OUTLINE) {
-            // Hierarchical: %1.%2.%3.
-            return Array.from({ length: ilvl + 1 }, (_, i) => `%${i + 1}`).join('.') + '.';
-        }
-        
-        const placeholder = `%${ilvl + 1}`;
-        switch (suffix) {
-            case NumberSuffix.PERIOD: return `${placeholder}.`;
-            case NumberSuffix.PAREN_RIGHT: return `${placeholder})`;
-            case NumberSuffix.PAREN_BOTH: return `(${placeholder})`;
-            default: return `${placeholder}.`;
-        }
-    }
-    
-    /**
-     * Commit all pending definitions to numbering.xml
-     */
-    async commit() {
-        if (this.pendingDefinitions.length === 0) return;
-        
-        const numbering = this.numberingXml.documentElement;
-        
-        for (const def of this.pendingDefinitions) {
-            // Parse and append abstractNum
-            const abstractNumDoc = new DOMParser().parseFromString(def.abstractNumXml, 'application/xml');
-            const importedAbstract = this.numberingXml.importNode(abstractNumDoc.documentElement, true);
-            numbering.appendChild(importedAbstract);
-            
-            // Parse and append num
-            const numDoc = new DOMParser().parseFromString(def.numXml, 'application/xml');
-            const importedNum = this.numberingXml.importNode(numDoc.documentElement, true);
-            numbering.appendChild(importedNum);
-        }
-        
-        // Serialize and write back
-        const serialized = new XMLSerializer().serializeToString(this.numberingXml);
-        await this.package.setPartContent('word/numbering.xml', serialized);
-        
-        this.pendingDefinitions = [];
-    }
-}
-```
-
-### Integration with Pipeline
-
-```javascript
-class ReconciliationPipeline {
-    constructor(options = {}) {
-        this.generateRedlines = options.generateRedlines ?? true;
-        this.author = options.author ?? 'AI';
-        this.numberingService = options.numberingService;  // Injected
-    }
-    
-    async executeListGeneration(newText) {
-        const items = parseListItems(newText);
-        
-        // Collect unique level configurations
-        const levelConfigs = {};
-        for (const item of items) {
-            if (!levelConfigs[item.level]) {
-                levelConfigs[item.level] = {
-                    format: item.format,
-                    suffix: item.suffix
-                };
-            }
-        }
-        
-        // Register numbering definition
-        const numId = this.numberingService.registerNumberingDefinition(levelConfigs);
-        
-        // Generate blocks with assigned numId
-        const blocks = items.map(item => {
-            const { cleanText, formatHints } = preprocessMarkdown(item.text);
-            
-            return new Block({
-                type: 'list_item',
-                runModel: textToRunModel(cleanText, formatHints),
-                pPrXml: this.buildListPPr(item.level, numId),
-                metadata: { ilvl: item.level, numId }
-            });
-        });
-        
-        // Serialize blocks
-        let result = blocks.map(b => b.serialize([])).join('');
-        
-        if (this.generateRedlines) {
-            result = wrapAsInsertion(result, this.author);
-        }
-        
-        return result;
-    }
-    
-    buildListPPr(level, numId) {
-        return `
-            <w:pPr>
-                <w:pStyle w:val="ListParagraph"/>
-                <w:numPr>
-                    <w:ilvl w:val="${level}"/>
-                    <w:numId w:val="${numId}"/>
-                </w:numPr>
-            </w:pPr>
-        `;
-    }
-}
-```
-
----
-
-## Gap Resolution: Table Cell-Level Reconciliation
-
-Instead of regenerating entire tables, diff cell-by-cell to preserve structure and enable surgical redlines.
-
-### Table Ingestion
-
-```javascript
-function ingestTable(tableNode) {
-    const rows = [];
-    const trElements = tableNode.getElementsByTagNameNS(NS_W, 'tr');
-    
-    for (let rowIdx = 0; rowIdx < trElements.length; rowIdx++) {
-        const tr = trElements[rowIdx];
-        const cells = [];
-        const tcElements = tr.getElementsByTagNameNS(NS_W, 'tc');
-        
-        for (let colIdx = 0; colIdx < tcElements.length; colIdx++) {
-            const tc = tcElements[colIdx];
-            
-            // Each cell contains paragraphs
-            const paragraphs = tc.getElementsByTagNameNS(NS_W, 'p');
-            const cellBlocks = [];
-            
-            for (const p of paragraphs) {
-                const { runModel, acceptedText } = buildRunAwareTextModel(
-                    wrapInDocument(p)
-                );
-                cellBlocks.push({
-                    runModel,
-                    acceptedText,
-                    pPrXml: extractPPr(p)
-                });
-            }
-            
-            cells.push({
-                colIdx,
-                tcPrXml: extractTcPr(tc),
-                blocks: cellBlocks,
-                getText: () => cellBlocks.map(b => b.acceptedText).join('\n')
-            });
-        }
-        
-        rows.push({
-            rowIdx,
-            trPrXml: extractTrPr(tr),
-            cells
-        });
-    }
-    
-    return {
-        tblPrXml: extractTblPr(tableNode),
-        tblGridXml: extractTblGrid(tableNode),
-        rows
-    };
-}
-```
-
-### Table Diff Strategy
-
-```javascript
-function diffTables(oldTable, newTableData) {
-    const operations = [];
-    const { headers, rows: newRows, hasHeader } = newTableData;
-    const allNewRows = hasHeader ? [headers, ...newRows] : newRows;
-    
-    // Match rows by index (simple strategy)
-    // More sophisticated: use diff algorithm on row content
-    const maxRows = Math.max(oldTable.rows.length, allNewRows.length);
-    
-    for (let rowIdx = 0; rowIdx < maxRows; rowIdx++) {
-        const oldRow = oldTable.rows[rowIdx];
-        const newRow = allNewRows[rowIdx];
-        
-        if (!oldRow && newRow) {
-            // New row added
-            operations.push({
-                type: 'row_insert',
-                rowIdx,
-                cells: newRow
-            });
-            continue;
-        }
-        
-        if (oldRow && !newRow) {
-            // Row deleted
-            operations.push({
-                type: 'row_delete',
-                rowIdx,
-                originalRow: oldRow
-            });
-            continue;
-        }
-        
-        // Both exist - compare cells
-        const maxCols = Math.max(oldRow.cells.length, newRow.length);
-        
-        for (let colIdx = 0; colIdx < maxCols; colIdx++) {
-            const oldCell = oldRow.cells[colIdx];
-            const newCellText = newRow[colIdx];
-            
-            if (!oldCell && newCellText) {
-                operations.push({
-                    type: 'cell_insert',
-                    rowIdx,
-                    colIdx,
-                    text: newCellText
-                });
-            } else if (oldCell && !newCellText) {
-                operations.push({
-                    type: 'cell_delete',
-                    rowIdx,
-                    colIdx,
-                    originalCell: oldCell
-                });
-            } else if (oldCell && newCellText) {
-                const oldText = oldCell.getText();
-                if (oldText !== newCellText) {
-                    operations.push({
-                        type: 'cell_modify',
-                        rowIdx,
-                        colIdx,
-                        originalCell: oldCell,
-                        newText: newCellText
-                    });
-                }
-            }
-        }
-    }
-    
-    return operations;
-}
-```
-
-### Table Reconciliation Execution
-
-```javascript
-async executeTableReconciliation(originalOoxml, newText) {
-    // Ingest original table
-    const doc = new DOMParser().parseFromString(originalOoxml, 'application/xml');
-    const tableNode = doc.getElementsByTagNameNS(NS_W, 'tbl')[0];
-    const oldTable = ingestTable(tableNode);
-    
-    // Parse new table from markdown
-    const newTableData = parseTable(newText);
-    
-    // Compute cell-level diff
-    const cellOps = diffTables(oldTable, newTableData);
-    
-    // Apply operations to build new table
-    return this.applyTableOperations(oldTable, cellOps);
-}
-
-applyTableOperations(oldTable, ops) {
-    // Clone original structure
-    const newRows = JSON.parse(JSON.stringify(oldTable.rows));
-    
-    for (const op of ops) {
-        switch (op.type) {
-            case 'cell_modify':
-                const cell = newRows[op.rowIdx]?.cells[op.colIdx];
-                if (cell) {
-                    // Run text diff on cell content
-                    const oldText = cell.getText();
-                    const diffOps = computeWordLevelDiffOps(oldText, op.newText);
-                    
-                    // Apply patches to cell's first block
-                    if (cell.blocks[0]) {
-                        const split = splitRunsAtDiffBoundaries(cell.blocks[0].runModel, diffOps);
-                        cell.blocks[0].runModel = applyPatches(split, diffOps, {
-                            generateRedlines: this.generateRedlines,
-                            author: this.author
-                        });
-                    }
-                }
-                break;
-                
-            case 'row_insert':
-                // Insert new row with redline wrapper
-                const newRowCells = op.cells.map((text, colIdx) => ({
-                    colIdx,
-                    tcPrXml: '<w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr>',
-                    blocks: [{ runModel: textToRunModel(text, []), pPrXml: '' }],
-                    isInserted: true
-                }));
-                newRows.splice(op.rowIdx, 0, {
-                    rowIdx: op.rowIdx,
-                    cells: newRowCells,
-                    isInserted: true
-                });
-                break;
-                
-            case 'row_delete':
-                if (this.generateRedlines) {
-                    newRows[op.rowIdx].isDeleted = true;
-                } else {
-                    newRows.splice(op.rowIdx, 1);
-                }
-                break;
-        }
-    }
-    
-    // Serialize to OOXML
-    return this.serializeTable(oldTable.tblPrXml, oldTable.tblGridXml, newRows);
-}
-```
-
----
-
-## Gap Resolution: Block Expansion Strategy
-
-When a single paragraph transforms into multiple blocks (e.g., a paragraph becoming a 3-item list), the caller must handle XML fragment insertion.
-
-### Expansion Return Type
-
-```javascript
-/**
- * @typedef {Object} ReconciliationResult
- * @property {'single'|'fragment'} type - Whether result is single node or fragment
- * @property {string} ooxml - The OOXML content
- * @property {number} blockCount - Number of w:p or w:tbl elements in result
- * @property {boolean} requiresRangeReplacement - True if caller must replace entire range
- */
-
-async execute(originalOoxml, newText) {
-    const mode = determineReconcileMode(originalOoxml, newText);
-    let resultOoxml;
-    let blockCount = 1;
-    
-    switch (mode) {
-        case ReconcileMode.PARAGRAPH_DIFF:
-            resultOoxml = await this.executeReconciliation(originalOoxml, newText);
-            break;
-            
-        case ReconcileMode.LIST_GENERATE:
-            resultOoxml = await this.executeListGeneration(newText);
-            blockCount = countElements(resultOoxml, 'w:p');
-            break;
-            
-        case ReconcileMode.TABLE_GENERATE:
-            resultOoxml = await this.executeTableGeneration(newText);
-            blockCount = 1;  // Table is single block
-            break;
-            
-        case ReconcileMode.MIXED:
-            resultOoxml = await this.executeMixedTransformation(originalOoxml, newText);
-            blockCount = countElements(resultOoxml, 'w:p') + countElements(resultOoxml, 'w:tbl');
-            break;
-    }
-    
-    return {
-        type: blockCount > 1 ? 'fragment' : 'single',
-        ooxml: resultOoxml,
-        blockCount,
-        requiresRangeReplacement: blockCount > 1
-    };
-}
-
-function countElements(ooxml, tagName) {
-    const doc = new DOMParser().parseFromString(`<root xmlns:w="${NS_W}">${ooxml}</root>`, 'application/xml');
-    return doc.getElementsByTagNameNS(NS_W, tagName.replace('w:', '')).length;
-}
-```
-
-### Caller Integration (Word Add-in Layer)
-
-```javascript
-async function applyReconciliationResult(range, result) {
-    if (result.type === 'single') {
-        // Simple case: replace range's OOXML
-        range.insertOoxml(result.ooxml, Word.InsertLocation.replace);
-    } else {
-        // Fragment case: must delete original and insert fragment
-        await context.sync();
-        
-        // Get insertion point
-        const insertPoint = range.getRange(Word.RangeLocation.start);
-        
-        // Delete original content
-        range.delete();
-        await context.sync();
-        
-        // Insert fragment as multiple paragraphs
-        insertPoint.insertOoxml(result.ooxml, Word.InsertLocation.after);
-        await context.sync();
-    }
-}
-```
 
 ---
 
@@ -4284,423 +3289,18 @@ function collectAllBoundaries(diffOps, formatChanges) {
 
 ## Gap Resolution: OOXML Output Validation
 
-Before returning reconciled OOXML, validate that the output is well-formed and semantically correct. This prevents corrupted documents from being inserted into Word.
-
-### Validation Checks
+Before returning reconciled OOXML, validate that the output is well-formed XML.
 
 ```javascript
-/**
- * @typedef {Object} ValidationResult
- * @property {boolean} isValid
- * @property {Array<string>} errors
- * @property {Array<string>} warnings
- */
-
-/**
- * Validates OOXML output before returning to caller
- */
-function validateOoxmlOutput(ooxml) {
-    const result = {
-        isValid: true,
-        errors: [],
-        warnings: []
-    };
-    
-    // 1. XML Well-formedness
-    const wellFormedness = checkXmlWellFormedness(ooxml);
-    if (!wellFormedness.valid) {
-        result.isValid = false;
-        result.errors.push(`XML parse error: ${wellFormedness.error}`);
-        return result; // Can't proceed with further checks
+// pipeline.js
+validateBasic(ooxml) {
+    const wrappedXml = `<root xmlns:w="..." xmlns:r="...">${ooxml}</root>`;
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(wrappedXml, 'application/xml');
+    if (doc.getElementsByTagName('parsererror').length > 0) {
+        return { isValid: false, errors: ['Invalid XML structure'] };
     }
-    
-    const doc = wellFormedness.doc;
-    
-    // 2. Namespace declarations
-    const namespaceResult = checkNamespaceDeclarations(doc, ooxml);
-    result.errors.push(...namespaceResult.errors);
-    result.warnings.push(...namespaceResult.warnings);
-    
-    // 3. Track change structure
-    const trackChangeResult = checkTrackChangeStructure(doc);
-    result.errors.push(...trackChangeResult.errors);
-    result.warnings.push(...trackChangeResult.warnings);
-    
-    // 4. Revision ID uniqueness
-    const revisionResult = checkRevisionIdUniqueness(doc);
-    result.errors.push(...revisionResult.errors);
-    
-    // 5. Element nesting validity
-    const nestingResult = checkElementNesting(doc);
-    result.errors.push(...nestingResult.errors);
-    
-    // 6. Required child elements
-    const childResult = checkRequiredChildren(doc);
-    result.errors.push(...childResult.errors);
-    result.warnings.push(...childResult.warnings);
-    
-    // 7. Attribute value validity
-    const attrResult = checkAttributeValues(doc);
-    result.errors.push(...attrResult.errors);
-    
-    result.isValid = result.errors.length === 0;
-    
-    return result;
-}
-
-/**
- * Check 1: XML Well-formedness
- */
-function checkXmlWellFormedness(ooxml) {
-    try {
-        // Wrap in root element with namespace declarations for parsing
-        const wrappedXml = `
-            <w:document 
-                xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-                xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-                xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
-                xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
-                ${ooxml}
-            </w:document>
-        `;
-        
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(wrappedXml, 'application/xml');
-        
-        // Check for parse errors
-        const parseError = doc.getElementsByTagName('parsererror')[0];
-        if (parseError) {
-            return { valid: false, error: parseError.textContent };
-        }
-        
-        return { valid: true, doc };
-    } catch (e) {
-        return { valid: false, error: e.message };
-    }
-}
-
-/**
- * Check 2: Namespace declarations
- */
-function checkNamespaceDeclarations(doc, rawXml) {
-    const result = { errors: [], warnings: [] };
-    
-    // Check for common issues
-    const prefixPattern = /<(w|r|wp|a|m|mc):/g;
-    const matches = rawXml.match(prefixPattern) || [];
-    const usedPrefixes = new Set(matches.map(m => m.slice(1, -1)));
-    
-    // Standard namespace URIs
-    const expectedNamespaces = {
-        'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
-        'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
-    };
-    
-    for (const prefix of usedPrefixes) {
-        if (expectedNamespaces[prefix]) {
-            // Check if namespace is properly declared in final output context
-            // (This is informational - actual declaration happens at document level)
-        }
-    }
-    
-    return result;
-}
-
-/**
- * Check 3: Track change structure validity
- */
-function checkTrackChangeStructure(doc) {
-    const result = { errors: [], warnings: [] };
-    
-    // w:ins and w:del should not be directly nested inside each other
-    const insElements = doc.getElementsByTagNameNS(NS_W, 'ins');
-    const delElements = doc.getElementsByTagNameNS(NS_W, 'del');
-    
-    for (const ins of insElements) {
-        let parent = ins.parentNode;
-        while (parent && parent.nodeName !== 'w:document') {
-            if (parent.nodeName === 'w:del') {
-                result.errors.push('Invalid structure: w:ins nested inside w:del');
-                break;
-            }
-            if (parent.nodeName === 'w:ins') {
-                result.warnings.push('Nested w:ins elements detected (may be valid but unusual)');
-                break;
-            }
-            parent = parent.parentNode;
-        }
-    }
-    
-    for (const del of delElements) {
-        let parent = del.parentNode;
-        while (parent && parent.nodeName !== 'w:document') {
-            if (parent.nodeName === 'w:ins') {
-                result.errors.push('Invalid structure: w:del nested inside w:ins');
-                break;
-            }
-            parent = parent.parentNode;
-        }
-    }
-    
-    // Check that deletions contain w:delText, not w:t
-    for (const del of delElements) {
-        const textNodes = del.getElementsByTagNameNS(NS_W, 't');
-        if (textNodes.length > 0) {
-            result.errors.push('w:del contains w:t instead of w:delText');
-        }
-    }
-    
-    return result;
-}
-
-/**
- * Check 4: Revision ID uniqueness
- */
-function checkRevisionIdUniqueness(doc) {
-    const result = { errors: [] };
-    const revisionIds = new Set();
-    
-    const trackElements = [
-        ...doc.getElementsByTagNameNS(NS_W, 'ins'),
-        ...doc.getElementsByTagNameNS(NS_W, 'del'),
-        ...doc.getElementsByTagNameNS(NS_W, 'moveFrom'),
-        ...doc.getElementsByTagNameNS(NS_W, 'moveTo'),
-        ...doc.getElementsByTagNameNS(NS_W, 'rPrChange'),
-        ...doc.getElementsByTagNameNS(NS_W, 'pPrChange')
-    ];
-    
-    for (const el of trackElements) {
-        const id = el.getAttribute('w:id');
-        if (id) {
-            if (revisionIds.has(id)) {
-                result.errors.push(`Duplicate revision ID: ${id}`);
-            }
-            revisionIds.add(id);
-        }
-    }
-    
-    return result;
-}
-
-/**
- * Check 5: Element nesting validity
- */
-function checkElementNesting(doc) {
-    const result = { errors: [] };
-    
-    // Valid parent-child relationships
-    const validParents = {
-        'w:r': ['w:p', 'w:ins', 'w:del', 'w:hyperlink', 'w:sdtContent', 'w:smartTag', 'w:customXml'],
-        'w:t': ['w:r'],
-        'w:delText': ['w:r'],
-        'w:p': ['w:body', 'w:tc', 'w:sdtContent', 'w:txbxContent', 'w:footnote', 'w:endnote', 'w:comment', 'w:ins', 'w:del'],
-        'w:tc': ['w:tr'],
-        'w:tr': ['w:tbl']
-    };
-    
-    for (const [childName, allowedParents] of Object.entries(validParents)) {
-        const elements = doc.getElementsByTagNameNS(NS_W, childName.replace('w:', ''));
-        
-        for (const el of elements) {
-            const parentName = el.parentNode?.nodeName;
-            if (parentName && !allowedParents.includes(parentName)) {
-                result.errors.push(`Invalid nesting: ${childName} inside ${parentName}`);
-            }
-        }
-    }
-    
-    return result;
-}
-
-/**
- * Check 6: Required child elements
- */
-function checkRequiredChildren(doc) {
-    const result = { errors: [], warnings: [] };
-    
-    // Tables must have tblGrid
-    const tables = doc.getElementsByTagNameNS(NS_W, 'tbl');
-    for (const tbl of tables) {
-        const tblGrid = tbl.getElementsByTagNameNS(NS_W, 'tblGrid')[0];
-        if (!tblGrid) {
-            result.errors.push('Table missing required w:tblGrid element');
-        }
-    }
-    
-    // Table cells should contain at least one paragraph
-    const cells = doc.getElementsByTagNameNS(NS_W, 'tc');
-    for (let i = 0; i < cells.length; i++) {
-        const tc = cells[i];
-        const paragraphs = tc.getElementsByTagNameNS(NS_W, 'p');
-        if (paragraphs.length === 0) {
-            result.warnings.push(`Table cell ${i} has no paragraphs (Word may add one automatically)`);
-        }
-    }
-    
-    // Runs should have text content (w:t or w:delText)
-    const runs = doc.getElementsByTagNameNS(NS_W, 'r');
-    for (const run of runs) {
-        const hasText = run.getElementsByTagNameNS(NS_W, 't').length > 0 ||
-                       run.getElementsByTagNameNS(NS_W, 'delText').length > 0 ||
-                       run.getElementsByTagNameNS(NS_W, 'tab').length > 0 ||
-                       run.getElementsByTagNameNS(NS_W, 'br').length > 0 ||
-                       run.getElementsByTagNameNS(NS_W, 'fldChar').length > 0 ||
-                       run.getElementsByTagNameNS(NS_W, 'instrText').length > 0;
-        
-        if (!hasText) {
-            result.warnings.push('Empty run element detected (usually harmless but wasteful)');
-        }
-    }
-    
-    return result;
-}
-
-/**
- * Check 7: Attribute value validity
- */
-function checkAttributeValues(doc) {
-    const result = { errors: [] };
-    
-    // Check numFmt values
-    const validNumFmts = ['decimal', 'lowerLetter', 'upperLetter', 'lowerRoman', 'upperRoman', 'bullet', 'none'];
-    const numFmtElements = doc.getElementsByTagNameNS(NS_W, 'numFmt');
-    for (const el of numFmtElements) {
-        const val = el.getAttribute('w:val');
-        if (val && !validNumFmts.includes(val)) {
-            result.errors.push(`Invalid numFmt value: ${val}`);
-        }
-    }
-    
-    // Check ilvl values (should be 0-8)
-    const ilvlElements = doc.getElementsByTagNameNS(NS_W, 'ilvl');
-    for (const el of ilvlElements) {
-        const val = parseInt(el.getAttribute('w:val'), 10);
-        if (isNaN(val) || val < 0 || val > 8) {
-            result.errors.push(`Invalid ilvl value: ${el.getAttribute('w:val')}`);
-        }
-    }
-    
-    // Check date format on track changes
-    const trackElements = [
-        ...doc.getElementsByTagNameNS(NS_W, 'ins'),
-        ...doc.getElementsByTagNameNS(NS_W, 'del')
-    ];
-    for (const el of trackElements) {
-        const date = el.getAttribute('w:date');
-        if (date && !isValidISODate(date)) {
-            result.errors.push(`Invalid date format on track change: ${date}`);
-        }
-    }
-    
-    return result;
-}
-
-function isValidISODate(dateStr) {
-    const date = new Date(dateStr);
-    return !isNaN(date.getTime());
-}
-```
-
-### Integration with Pipeline
-
-```javascript
-async execute(originalOoxml, newText) {
-    // ... all pipeline stages ...
-    
-    const resultOoxml = serializeToOoxml(patchedModel, pPr, formatHints);
-    
-    // Validate before returning
-    if (this.validateOutput !== false) {
-        const validation = validateOoxmlOutput(resultOoxml);
-        
-        if (!validation.isValid) {
-            console.error('OOXML validation failed:', validation.errors);
-            
-            // Attempt recovery or fall back to simpler strategy
-            if (this.fallbackOnValidationError) {
-                console.warn('Falling back to text replacement strategy');
-                return this.executeTextReplacementFallback(originalOoxml, newText);
-            }
-            
-            throw new OoxmlValidationError(
-                'Generated OOXML is invalid',
-                validation.errors,
-                validation.warnings
-            );
-        }
-        
-        if (validation.warnings.length > 0) {
-            console.warn('OOXML validation warnings:', validation.warnings);
-        }
-    }
-    
-    return {
-        ooxml: resultOoxml,
-        validation: validation
-    };
-}
-
-class OoxmlValidationError extends Error {
-    constructor(message, errors, warnings) {
-        super(message);
-        this.name = 'OoxmlValidationError';
-        this.errors = errors;
-        this.warnings = warnings;
-    }
-}
-```
-
-### Validation Configuration
-
-```javascript
-class ReconciliationPipeline {
-    constructor(options = {}) {
-        this.generateRedlines = options.generateRedlines ?? true;
-        this.author = options.author ?? 'AI';
-        this.numberingService = options.numberingService;
-        
-        // Validation options
-        this.validateOutput = options.validateOutput ?? true;
-        this.fallbackOnValidationError = options.fallbackOnValidationError ?? true;
-        this.strictValidation = options.strictValidation ?? false; // Treat warnings as errors
-    }
-}
-```
-
-### Sanitization Helpers
-
-When validation fails, these helpers can attempt to fix common issues:
-
-```javascript
-/**
- * Attempts to fix common OOXML issues
- */
-function sanitizeOoxml(ooxml) {
-    let sanitized = ooxml;
-    
-    // Fix: Change w:t inside w:del to w:delText
-    sanitized = sanitized.replace(
-        /(<w:del[^>]*>[\s\S]*?)<w:t([^>]*)>([\s\S]*?)<\/w:t>([\s\S]*?<\/w:del>)/g,
-        (match, before, attrs, content, after) => {
-            return `${before}<w:delText${attrs}>${content}</w:delText>${after}`;
-        }
-    );
-    
-    // Fix: Add missing w:p inside empty w:tc
-    sanitized = sanitized.replace(
-        /<w:tc>(\s*<w:tcPr[^>]*>[\s\S]*?<\/w:tcPr>)?\s*<\/w:tc>/g,
-        (match, tcPr) => {
-            return `<w:tc>${tcPr || ''}<w:p/></w:tc>`;
-        }
-    );
-    
-    // Fix: Remove empty runs
-    sanitized = sanitized.replace(
-        /<w:r>\s*(<w:rPr>[\s\S]*?<\/w:rPr>)?\s*<\/w:r>/g,
-        ''
-    );
-    
-    return sanitized;
+    return { isValid: true };
 }
 ```
 
