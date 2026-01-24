@@ -11,9 +11,9 @@
 
 import { diff_match_patch } from 'diff-match-patch';
 import { preprocessMarkdown, getApplicableFormatHints } from './markdown-processor.js';
-import { ingestTableToVirtualGrid } from './ingestion.js';
 import { diffTablesWithVirtualGrid, serializeVirtualGridToOoxml } from './table-reconciliation.js';
 import { parseTable, ReconciliationPipeline } from './pipeline.js';
+import { wordsToChars, charsToWords } from './diff-engine.js';
 import { NumberingService } from './numbering-service.js';
 import { NS_W } from './types.js';
 
@@ -801,10 +801,16 @@ function applySurgicalMode(xmlDoc, originalText, modifiedText, serializer, autho
         }
     });
 
-    // Compute diff
+    // Compute diff (Word-Level)
     const dmp = new diff_match_patch();
-    const diffs = dmp.diff_main(fullText, modifiedText);
-    dmp.diff_cleanupSemantic(diffs);
+
+    // Convert to word tokens for cleaner diffs
+    const { chars1, chars2, wordArray } = wordsToChars(fullText, modifiedText);
+    const charDiffs = dmp.diff_main(chars1, chars2);
+    dmp.diff_cleanupSemantic(charDiffs);
+
+    // Convert back to words
+    const diffs = charsToWords(charDiffs, wordArray);
 
     // Process deletions and insertions
     let currentPos = 0;
@@ -1219,10 +1225,16 @@ function applyReconstructionMode(xmlDoc, originalText, modifiedText, serializer,
         processedModifiedText = processedModifiedText.replace(new RegExp(escapedToken, 'g'), char);
     });
 
-    // Compute diff
+    // Compute diff (Word-Level)
     const dmp = new diff_match_patch();
-    const diffs = dmp.diff_main(originalFullText, processedModifiedText);
-    dmp.diff_cleanupSemantic(diffs);
+
+    // Convert to word tokens for cleaner diffs
+    const { chars1, chars2, wordArray } = wordsToChars(originalFullText, processedModifiedText);
+    const charDiffs = dmp.diff_main(chars1, chars2);
+    dmp.diff_cleanupSemantic(charDiffs);
+
+    // Convert back to words
+    const diffs = charsToWords(charDiffs, wordArray);
 
     // Create document fragments for each container
     const containerFragments = new Map();
