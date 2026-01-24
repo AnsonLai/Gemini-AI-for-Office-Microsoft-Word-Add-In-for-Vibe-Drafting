@@ -122,16 +122,15 @@ When editing a paragraph within a table cell, the engine must handle a critical 
 
 ### Markdown Formatting Support
 
-The engine preprocesses markdown and captures format hints with character offsets:
+The engine preprocesses markdown and captures format hints with character offsets. It uses a **recursive parsing** approach to support nested styles.
 
 | Markdown | OOXML Element |
 |----------|---------------|
-| `**text**` or `__text__` | `<w:b/>` (Bold) |
-| `*text*` or `_text_` | `<w:i/>` (Italic) |
-| `++text++` | `<w:u w:val="single"/>` (Underline) |
-| `~~text~~` | `<w:strike/>` (Strikethrough) |
-| `***text***` | `<w:b/>` + `<w:i/>` |
-| `**++text++**` | `<w:b/>` + `<w:u/>` |
+| `**bold**` | `<w:b/>` |
+| `*italic*` | `<w:i/>` |
+| `++underline++` | `<w:u w:val="single"/>` |
+| `~~strike~~` | `<w:strike/>` |
+| `++*nested*++` | `<w:u/>` + `<w:i/>` (captured recursively) |
 
 Format hints are applied during both text changes (insertions) and format-only changes.
 
@@ -156,22 +155,27 @@ if (result.hasChanges) {
 
 ## Formatting Reconciliation & Removal
 
-One of the most complex aspects of the Hybrid Engine is reconciling existing formatting with the AI's requested state, particularly when the AI wants to **remove** formatting (e.g., unbolding text).
-
-### The Challenge: Invisible Formatting
+### Full Property Synchronization
 
 Formatting in Word isn't always direct tags on a run. It can be:
 - **Direct**: `<w:b/>` on a `w:r`
 - **Inherited**: Defined in Paragraph Properties (`w:pPr/w:rPr`)
 - **Style-based**: Referenced via `<w:rStyle w:val="Strong"/>`
 
+### The "Subtraction" Problem
+
+> [!IMPORTANT]
+> **Additive-Only vs. Synchronization**: Early versions of the engine only knew how to *add* tags. If a run was already bold (via style), adding `<w:b/>` did nothing, but *removing* the `**` markers didn't explicitly turn off the bold.
+>
+> **Solution**: The engine now performs **Full Synchronization**. For every format property (bold, italic, etc.), it explicitly emits either an "ON" tag or an "OFF" tag (e.g., `<w:b w:val="0"/>` or `<w:u w:val="none"/>`). This ensures that removing markdown markers Reliably removes the corresponding Word formatting.
+
 ### Three-Step Reconciliation Logic
 
-When the AI sends text without markdown markers (implying plain text), the engine performs a **Semantic Extraction**:
+When the AI sends text, the engine performs a **Semantic Comparison**:
 
-1.  **Extract Formatting**: The engine walks the `w:p` structure and builds a `formatHints` map from the *original* OOXML. This map merges paragraph-level defaults and style-referenced formatting into a uniform "Calculated State" for every character.
-2.  **Detect Removal**: If `hasTextChanges = false` but `formatHints` (from AI) is empty while `existingFormatHints` (from OOXML) is NOT, the engine enters **Format Removal Mode**.
-3.  **Apply Explicit Overrides**: Since simple tag removal doesn't work for inherited or style-based formatting, the engine adds **Explicit Overrides**.
+1.  **Extract Formatting**: The engine walks the `w:r` structure and builds a hint map from the *original* OOXML.
+2.  **Identify Target**: The markdown processor identifies the *target* state (including nesting).
+3.  **Synchronize**: The engine compares the Target state with the Current state and emits explicit overrides where they differ.
 
 ```mermaid
 graph TD
@@ -195,15 +199,16 @@ graph TD
 
 ### Removal Cases & Implementation
 
-| Case | Scenario | Logic | Example XML (Result) |
-|------|----------|-------|----------------------|
-| **1a** | Direct tag `<w:b/>` exists | Remove `<w:b/>`, add `<w:rPrChange>` | `<w:rPr><w:rPrChange...><w:rPr><w:b/></w:rPr></w:rPrChange></w:rPr>` |
-| **1b** | Inherited from Style | Keep style, add `<w:b w:val="0"/>` override | `<w:rPr><w:rStyle w:val="Strong"/><w:b w:val="0"/><w:rPrChange.../></w:rPr>` |
-| **2** | Inherited from Para | Create `<w:rPr>`, add `<w:b w:val="0"/>` override | `<w:rPr><w:b w:val="0"/><w:rPrChange.../></w:rPr>` |
+| Case | Scenario | Logic | Resulting OOXML |
+|------|----------|-------|-----------------|
+| **1a** | Direct tag exists | Remove tag, add `w:rPrChange` | `<w:rPr><w:b w:val="0"/><w:rPrChange.../></w:rPr>` |
+| **1b** | Inherited from Style | Add explicit "0" override | `<w:rStyle w:val="Strong"/><w:b w:val="0"/><w:rPrChange.../>` |
 
 ### Tracked Changes for Formatting
 
-All formatting changes (addition or removal) are wrapped in `w:rPrChange`. This captures a snapshot of the `rPr` state *before* the change, allowing Word to display the redline correctly in the "Review" pane even if no text was changed.
+All formatting changes (addition or removal) are wrapped in track change markers:
+- **Run Level**: `w:rPrChange` captures the delta for specific runs.
+- **Paragraph Level**: `w:pPrChange` ensures that when an entire paragraph's formatting is modified (e.g., bolding a whole line), the redline appears correctly in the sidebar.
 
 
 ---
@@ -564,55 +569,16 @@ Strips markdown syntax BEFORE diffing to prevent markers from corrupting word bo
 | `<s>text</s>` | Strikethrough | `<w:strike/>` |
 
 ```javascript
+/**
+ * Recursive Markdown Processor
+ * Identifies formatting tags (nested or simple) and returns clean text + position hints.
+ */
 function preprocessMarkdown(text) {
-    const formatHints = [];
-    let cleanText = '';
-    let offset = 0;
-    
-    // Order matters: check longer/compound patterns first
-    // Patterns: ***bold+italic***, **++bold+underline++**, **bold**, *italic*, 
-    //           ++underline++, ~~strikethrough~~, ^^CAPS^^
-    const regex = /(\*\*\*(.+?)\*\*\*)|(\*\*\+\+(.+?)\+\+\*\*)|(\*\*(.+?)\*\*)|(\+\+(.+?)\+\+)|(~~(.+?)~~)|(\^\^(.+?)\^\^)|(\*(.+?)\*)/g;
-    let lastIndex = 0;
-    let match;
-    
-    while ((match = regex.exec(text)) !== null) {
-        const beforeText = text.slice(lastIndex, match.index);
-        cleanText += beforeText;
-        offset += beforeText.length;
-        
-        let innerText, format;
-        if (match[2]) {
-            innerText = match[2];
-            format = { bold: true, italic: true };           // ***
-        } else if (match[4]) {
-            innerText = match[4];
-            format = { bold: true, underline: true };        // **++...++**
-        } else if (match[6]) {
-            innerText = match[6];
-            format = { bold: true };                          // **
-        } else if (match[8]) {
-            innerText = match[8];
-            format = { underline: true };                     // ++
-        } else if (match[10]) {
-            innerText = match[10];
-            format = { strikethrough: true };                 // ~~
-        } else if (match[12]) {
-            innerText = match[12];
-            format = { caps: true };                          // ^^
-        } else if (match[14]) {
-            innerText = match[14];
-            format = { italic: true };                        // *
-        }
-        
-        formatHints.push({ start: offset, end: offset + innerText.length, format });
-        cleanText += innerText;
-        offset += innerText.length;
-        lastIndex = regex.lastIndex;
-    }
-    
-    cleanText += text.slice(lastIndex);
-    return { cleanText, formatHints };
+    // 1. Find all potential formatting matches in the string
+    // 2. Sort by length descending (greedy) to handle overlaps
+    // 3. For each match, recursively process the 'inner' text
+    // 4. Merge parent format with child format
+    // Result: A list of non-overlapping spans with merged format objects
 }
 ```
 
@@ -635,36 +601,16 @@ The processor also strips common HTML formatting tags used by AI models:
 ### Applying Format to OOXML
 
 ```javascript
-function injectFormatting(baseRPrXml, format, options = {}) {
-    const { generateRedlines, author } = options;
-    if (!baseRPrXml) baseRPrXml = '<w:rPr></w:rPr>';
-    
-    let content = baseRPrXml.replace(/<\/?w:rPr[^>]*>/g, '');
-    const originalContent = content;
-    
-    if (format.bold && !content.includes('<w:b')) {
-        content = '<w:b/>' + content;
-    }
-    if (format.italic && !content.includes('<w:i')) {
-        content = '<w:i/>' + content;
-    }
-    if (format.underline && !content.includes('<w:u')) {
-        content = '<w:u w:val="single"/>' + content;
-    }
-    if (format.strikethrough && !content.includes('<w:strike')) {
-        content = '<w:strike/>' + content;
-    }
-    if (format.caps && !content.includes('<w:caps')) {
-        content = '<w:caps/>' + content;
-    }
-    
-    // Style Redline: If formatting changed on existing text, add rPrChange
-    if (generateRedlines && content !== originalContent) {
-        const date = new Date().toISOString();
-        content += `<w:rPrChange w:author="${author}" w:date="${date}"><w:rPr>${originalContent}</w:rPr></w:rPrChange>`;
-    }
-    
-    return `<w:rPr>${content}</w:rPr>`;
+/**
+ * Synchronizes formatting by comparing target vs current base properties.
+ * Explicitly emits 'w:val="0"' or 'w:val="none"' for removed properties.
+ */
+function injectFormattingToRPr(xmlDoc, baseRPr, targetFormat, author, generateRedlines) {
+    // 1. Clone baseRPr but skip synchronized properties (b, i, u, strike)
+    // 2. For each target format property:
+    //    - If target=ON and current=OFF -> Add tag
+    //    - If target=OFF and current=ON -> Add tag with val="0" (explicit removal)
+    // 3. Add w:rPrChange to capture delta
 }
 ```
 

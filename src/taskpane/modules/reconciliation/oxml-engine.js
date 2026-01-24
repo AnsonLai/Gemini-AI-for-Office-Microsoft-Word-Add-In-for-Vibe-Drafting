@@ -647,10 +647,8 @@ function applyFormatToSingleParagraph(xmlDoc, paragraph, formatHints, author, ge
 
     console.log(`[OxmlEngine] Single paragraph has ${textSpans.length} text spans, total chars: ${charOffset}`);
 
-    // Apply each format hint to the corresponding text spans
-    for (const hint of formatHints) {
-        applyFormatHintToSpans(xmlDoc, textSpans, hint, author, generateRedlines);
-    }
+    // Apply each format hint to the corresponding text spans robustly
+    applyFormatHintsToSpansRobust(xmlDoc, textSpans, formatHints, author, generateRedlines);
 }
 
 /**
@@ -658,31 +656,43 @@ function applyFormatToSingleParagraph(xmlDoc, paragraph, formatHints, author, ge
  * Used when markdown formatting is applied to unchanged text.
  */
 function applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, author, generateRedlines = true) {
-    let fullText = '';
-    const textSpans = [];
-
+    let textSpans = [];
     const allParagraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
 
-    // 1. Build text span map
+    // 1. Build initial text span map
+    let currentOffset = 0;
     allParagraphs.forEach((p, pIndex) => {
         const container = p.parentNode;
         Array.from(p.childNodes).forEach(child => {
             if (child.nodeName === 'w:r') {
-                processRunElement(child, p, container, fullText, textSpans);
-                fullText = getUpdatedFullText(child, fullText);
+                currentOffset = processRunElement(child, p, container, currentOffset, textSpans);
             } else if (child.nodeName === 'w:hyperlink') {
                 Array.from(child.childNodes).forEach(hc => {
                     if (hc.nodeName === 'w:r') {
-                        processRunElement(hc, p, container, fullText, textSpans);
-                        fullText = getUpdatedFullText(hc, fullText);
+                        currentOffset = processRunElement(hc, p, container, currentOffset, textSpans);
                     }
                 });
             }
         });
-        if (pIndex < allParagraphs.length - 1) fullText += '\n';
+        if (pIndex < allParagraphs.length - 1) {
+            currentOffset++; // For \n
+        }
     });
 
-    // 2. Identify all split points
+    // 2. Apply formatting robustly (splits runs first)
+    applyFormatHintsToSpansRobust(xmlDoc, textSpans, formatHints, author, generateRedlines);
+
+    return { oxml: serializer.serializeToString(xmlDoc), hasChanges: true };
+}
+
+/**
+ * Robust version of formatting application.
+ * Identifies all boundaries, splits ALl runs FIRST, then applies merged formats.
+ */
+function applyFormatHintsToSpansRobust(xmlDoc, textSpans, formatHints, author, generateRedlines) {
+    if (textSpans.length === 0) return;
+
+    // 1. Identify all boundaries
     const boundaries = new Set();
     for (const hint of formatHints) {
         boundaries.add(hint.start);
@@ -690,131 +700,87 @@ function applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, a
     }
     const sortedBoundaries = Array.from(boundaries).sort((a, b) => a - b);
 
-    // 3. For each unique range between boundaries, find applicable formatting
-    // Instead of sequential application which might override, we find the EXACT target for each range.
-    for (let i = 0; i < sortedBoundaries.length + 1; i++) {
-        const start = i === 0 ? 0 : sortedBoundaries[i - 1];
-        const end = i === sortedBoundaries.length ? fullText.length : sortedBoundaries[i];
-
-        if (start >= end) continue;
-
-        // Find hints that cover this range
-        const applicableHints = formatHints.filter(h => h.start < end && h.end > start);
-        const targetFormat = mergeFormats(...applicableHints.map(h => h.format));
-
-        // Find spans overlapping this range
-        const affectedSpans = textSpans.filter(s => s.charEnd > start && s.charStart < end);
-
-        for (const span of affectedSpans) {
-            const run = span.runElement;
-            const parent = run.parentNode;
-            if (!parent) continue;
-
-            const runStart = span.charStart;
-            const runEnd = span.charEnd;
-            const intersectStart = Math.max(runStart, start);
-            const intersectEnd = Math.min(runEnd, end);
-
-            const runText = span.textElement.textContent || '';
-            const localStart = intersectStart - runStart;
-            const localEnd = intersectEnd - runStart;
-
-            if (localStart === 0 && localEnd === runText.length) {
-                // Entire run fits in this range
-                addFormattingToRun(xmlDoc, run, targetFormat, author, generateRedlines);
-            } else {
-                // Split the run
-                const beforeText = runText.substring(0, localStart);
-                const targetText = runText.substring(localStart, localEnd);
-                const afterText = runText.substring(localEnd);
-
-                const existingRPr = run.getElementsByTagName('w:rPr')[0] || null;
-
-                if (beforeText.length > 0) {
-                    parent.insertBefore(createTextRun(xmlDoc, beforeText, existingRPr, false), run);
+    // 2. Split-First: ensure all runs are broken at all boundaries
+    let currentSpans = [...textSpans];
+    let splitsOccurred = true;
+    while (splitsOccurred) {
+        splitsOccurred = false;
+        let nextPassSpans = [];
+        for (const span of currentSpans) {
+            let splitThisSpan = false;
+            for (const boundary of sortedBoundaries) {
+                if (boundary > span.charStart && boundary < span.charEnd) {
+                    const splitResult = splitSpanAtOffset(xmlDoc, span, boundary);
+                    if (splitResult) {
+                        nextPassSpans.push(splitResult[0], splitResult[1]);
+                        splitsOccurred = true;
+                        splitThisSpan = true;
+                        break;
+                    }
                 }
-
-                const newFormattedRun = createFormattedRunWithElement(xmlDoc, targetText, existingRPr, targetFormat, author, generateRedlines);
-                parent.insertBefore(newFormattedRun, run);
-
-                if (afterText.length > 0) {
-                    parent.insertBefore(createTextRun(xmlDoc, afterText, existingRPr, false), run);
-                }
-
-                parent.removeChild(run);
-
-                // Update textSpans to reflect the split (important for subsequent iterations)
-                // Actually, since we process ranges sequentially, we don't need to update textSpans 
-                // for THE SAME range, but we might for LATER ranges.
-                // However, our boundaries ensure that NO hint will ever partially overlap 
-                // a run created by a previous range's split.
+            }
+            if (!splitThisSpan) {
+                nextPassSpans.push(span);
             }
         }
+        currentSpans = nextPassSpans;
     }
 
-    return { oxml: serializer.serializeToString(xmlDoc), hasChanges: true };
+    // 3. Apply formatting to each span based on all applicable hints
+    for (const span of currentSpans) {
+        const applicableHints = formatHints.filter(h => h.start < span.charEnd && h.end > span.charStart);
+
+        // Full Synchronization: Apply target if hints exist, otherwise OFF if doc had formatting
+        const targetFormat = applicableHints.length > 0 ?
+            mergeFormats(...applicableHints.map(h => h.format)) :
+            { bold: false, italic: false, underline: false, strikethrough: false };
+
+        addFormattingToRun(xmlDoc, span.runElement, targetFormat, author, generateRedlines);
+    }
+}
+
+
+/**
+ * Splits a text span at a specific absolute character offset.
+ * Modifies the DOM and returns the two new span objects.
+ */
+function splitSpanAtOffset(xmlDoc, span, absoluteOffset) {
+    const run = span.runElement;
+    const parent = run.parentNode;
+    if (!parent) return null;
+
+    const fullText = span.textElement.textContent || '';
+    const localSplitPoint = absoluteOffset - span.charStart;
+
+    const textBefore = fullText.substring(0, localSplitPoint);
+    const textAfter = fullText.substring(localSplitPoint);
+
+    if (textBefore.length === 0 || textAfter.length === 0) return null;
+
+    // Create new runs
+    const runBefore = createTextRun(xmlDoc, textBefore, span.rPr, false);
+    const runAfter = createTextRun(xmlDoc, textAfter, span.rPr, false);
+
+    parent.insertBefore(runBefore, run);
+    parent.insertBefore(runAfter, run);
+    parent.removeChild(run);
+
+    const tBefore = runBefore.getElementsByTagName('w:t')[0];
+    const tAfter = runAfter.getElementsByTagName('w:t')[0];
+
+    return [
+        { ...span, charEnd: absoluteOffset, textElement: tBefore, runElement: runBefore },
+        { ...span, charStart: absoluteOffset, textElement: tAfter, runElement: runAfter }
+    ];
 }
 
 /**
  * Applies a single format hint to affected text spans.
  * Splits runs when only partial formatting is needed.
  */
+// Deprecated: use applyFormatHintsToSpansRobust instead
 function applyFormatHintToSpans(xmlDoc, textSpans, hint, author, generateRedlines) {
-    // Find spans that overlap with this format hint
-    const affectedSpans = textSpans.filter(s =>
-        s.charEnd > hint.start && s.charStart < hint.end
-    );
-
-    for (const span of affectedSpans) {
-        const run = span.runElement;
-        const parent = run.parentNode;
-        if (!parent) continue;
-
-        // Calculate the portion of this run that needs formatting
-        const runStart = span.charStart;
-        const runEnd = span.charEnd;
-        const formatStart = Math.max(runStart, hint.start);
-        const formatEnd = Math.min(runEnd, hint.end);
-
-        const fullText = span.textElement.textContent || '';
-        const localStart = formatStart - runStart;
-        const localEnd = formatEnd - runStart;
-
-        const beforeText = fullText.substring(0, localStart);
-        const formattedText = fullText.substring(localStart, localEnd);
-        const afterText = fullText.substring(localEnd);
-
-        // Get existing rPr for inheritance
-        const existingRPr = run.getElementsByTagName('w:rPr')[0] || null;
-
-        // If the entire run needs formatting, just add it directly
-        if (localStart === 0 && localEnd === fullText.length) {
-            addFormattingToRun(xmlDoc, run, hint.format, author, generateRedlines);
-        } else {
-            // Need to split the run into parts
-            // Create runs for before, formatted, and after sections
-
-            if (beforeText.length > 0) {
-                // Create run for unformatted text before
-                const beforeRun = createTextRun(xmlDoc, beforeText, existingRPr, false);
-                parent.insertBefore(beforeRun, run);
-            }
-
-            // Create run for formatted text
-            // Pass author for proper tracking of the format change
-            const formattedRun = createFormattedRunWithElement(xmlDoc, formattedText, existingRPr, hint.format, author, generateRedlines);
-            parent.insertBefore(formattedRun, run);
-
-            if (afterText.length > 0) {
-                // Create run for unformatted text after
-                const afterRun = createTextRun(xmlDoc, afterText, existingRPr, false);
-                parent.insertBefore(afterRun, run);
-            }
-
-            // Remove the original run
-            parent.removeChild(run);
-        }
-    }
+    applyFormatHintsToSpansRobust(xmlDoc, textSpans, [hint], author, generateRedlines);
 }
 
 /**
@@ -1204,25 +1170,28 @@ function reconcileFormattingForTextSpan(xmlDoc, span, start, end, applicableHint
 /**
  * Processes a run element and extracts text spans
  */
-function processRunElement(r, p, container, currentFullText, textSpans) {
+function processRunElement(r, p, container, currentOffset, textSpans) {
     const rPr = r.getElementsByTagName('w:rPr')[0] || null;
+    let localOffset = currentOffset;
 
     Array.from(r.childNodes).forEach(rc => {
         if (rc.nodeName === 'w:t') {
             const text = rc.textContent || '';
             if (text.length > 0) {
                 textSpans.push({
-                    charStart: currentFullText.length,
-                    charEnd: currentFullText.length + text.length,
+                    charStart: localOffset,
+                    charEnd: localOffset + text.length,
                     textElement: rc,
                     runElement: r,
                     paragraph: p,
                     container,
                     rPr
                 });
+                localOffset += text.length;
             }
         }
     });
+    return localOffset;
 }
 
 /**
