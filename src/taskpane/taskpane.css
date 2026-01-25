@@ -567,6 +567,28 @@ hr {
     color: var(--primary-color);
 }
 
+.retry-request-btn {
+    background-color: #FEF2F2;
+    /* Light red bg */
+    border-color: #FECACA !important;
+    /* Soft red border */
+    color: var(--error-text) !important;
+}
+
+.retry-request-btn:hover {
+    background-color: #FEE2E2 !important;
+    /* Slightly darker light red */
+    border-color: #FCA5A5 !important;
+    color: #DC2626 !important;
+    /* Darker red on hover */
+}
+
+.revert-checkpoint-btn span,
+.retry-request-btn span {
+    margin-right: 4px;
+    font-size: 1.1em;
+}
+
 /* Glance Feature Styles */
 .glance-item {
     margin-bottom: 10px;

@@ -2101,7 +2101,12 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
         errorMessage = "Gemini 3 is in preview and they have likely been throttled. Please go into settings and revert to Gemini 2.5.";
       }
 
-      addMessageToChat("Error", errorMessage);
+      const errorMsgEl = addMessageToChat("Error", errorMessage);
+
+      // Add retry button if it's the specific missing content error
+      if (error.message && error.message.includes("Gemini response was missing content.parts")) {
+        addRetryButton(errorMsgEl, chatInput.value || "", modelType);
+      }
     }
   } finally {
     // Clear the global abort controller
@@ -2287,12 +2292,34 @@ function addUndoButton(messageElement, checkpointIndex) {
   const buttonContainer = document.createElement("div");
   buttonContainer.className = "revert-btn-container";
   const revertBtn = document.createElement("button");
-  revertBtn.innerText = "\u21A9 Undo all changes"; // U+21A9 is a hooked arrow
+  revertBtn.innerHTML = "<span>&#8634;</span> Revert changes"; // ↺ clockwise open circle arrow
   revertBtn.className = "revert-checkpoint-btn";
   revertBtn.title = "Undo changes made by this action";
   revertBtn.onclick = () => restoreCheckpoint(checkpointIndex);
 
   buttonContainer.appendChild(revertBtn);
+  messageElement.appendChild(buttonContainer);
+}
+
+function addRetryButton(messageElement, originalMessage, modelType) {
+  const buttonContainer = document.createElement("div");
+  buttonContainer.className = "revert-btn-container";
+  const retryBtn = document.createElement("button");
+  retryBtn.innerHTML = "<span>&#8635;</span> Retry request"; // ↻ counter-clockwise open circle arrow
+  retryBtn.className = "revert-checkpoint-btn retry-request-btn";
+  retryBtn.title = "Retry this request";
+  retryBtn.onclick = () => {
+    // Put message back in input and trigger send
+    const chatInput = document.getElementById("chat-input");
+    if (chatInput) {
+      chatInput.value = originalMessage;
+    }
+    // Remove the error message that we're retrying from
+    removeMessage(messageElement);
+    sendChatMessage(modelType);
+  };
+
+  buttonContainer.appendChild(retryBtn);
   messageElement.appendChild(buttonContainer);
 }
 

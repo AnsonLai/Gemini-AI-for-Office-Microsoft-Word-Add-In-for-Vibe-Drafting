@@ -99,6 +99,7 @@ When the AI applies markdown formatting to existing text (e.g., `**bold this**`)
 - Triggered when changes involve markdown tables
 - Converts OOXML tables to a **Virtual Grid** for diffing
 - Handles merged cells and span updates
+- Honors `generateRedlines` flag to support clean direct edits in tables
 
 ### Table Cell Paragraph Handling: The Unwrap/Rewrap Strategy
 
@@ -277,7 +278,10 @@ The reconciliation pipeline has 6 explicit stages, each independently testable:
         });
 
         // Stage 6: Serialize to OOXML
-        const resultOoxml = serializeToOoxml(patchedModel, pPr, formatHints, { author: this.author });
+        const resultOoxml = serializeToOoxml(patchedModel, pPr, formatHints, {
+            author: this.author,
+            generateRedlines: this.generateRedlines
+        });
         
         return { ooxml: resultOoxml, isValid: true };
     }
@@ -809,7 +813,7 @@ function serializeToOoxml(patchedModel, pPr, formatHints = [], options = {}) {
     for (const item of patchedModel) {
         switch (item.kind) {
             case RunKind.TEXT:
-                currentRuns.push(buildRunXmlWithHints(item, formatHints));
+                currentRuns.push(buildRunXmlWithHints(item, formatHints, options));
                 break;
                 
             case RunKind.CONTAINER_START:
@@ -829,7 +833,18 @@ function serializeToOoxml(patchedModel, pPr, formatHints = [], options = {}) {
                 }
                 break;
                 
-            // ... handle INSERTION, DELETION, etc.
+            case RunKind.INSERTION:
+                const insValue = buildRunXmlWithHints(item, formatHints, options);
+                currentRuns.push(options.generateRedlines ? 
+                    `<w:ins w:id="${getNextRevisionId()}" w:author="${escapeXml(options.author)}">${insValue}</w:ins>` : 
+                    insValue);
+                break;
+
+            case RunKind.DELETION:
+                if (options.generateRedlines) {
+                    currentRuns.push(item.nodeXml);
+                }
+                break;
         }
     }
     // ...
@@ -878,8 +893,8 @@ function buildRunXmlWithHints(text, baseRPrXml, formatHints, runStartOffset) {
         }
         
         // Formatted text
-        const rPr = injectFormatting(baseRPrXml, hint.format.bold, hint.format.italic);
-        runs.push(`<w:r>${rPr}<w:t xml:space="preserve">${escapeXml(text.slice(localStart, localEnd))}</w:t></w:r>`);
+        const rPr = injectFormatting(baseRPrXml, hint.format, options.author, options.generateRedlines);
+        runs.push(`<w:r>${rPr}<w:t xml:space="preserve">${escapeXml(text.slice(pos, localStart))}</w:t></w:r>`);
         pos = localEnd;
     }
     
@@ -941,8 +956,8 @@ class Block {
         return this;
     }
     
-    serialize(formatHints) {
-        const content = serializeToOoxml(this.runModel, null, formatHints);
+    serialize(formatHints, options = {}) {
+        const content = serializeToOoxml(this.runModel, null, formatHints, options);
         switch (this.type) {
             case 'paragraph':
             case 'list_item':
@@ -1494,7 +1509,7 @@ function serializeVirtualGridToOoxml(grid, operations, options) {
     
     for (let row = 0; row < grid.rowCount; row++) {
         // Check if row is deleted
-        const rowDeleted = operations.some(o => o.type === 'row_delete' && o.gridRow === row);
+        const rowDeleted = operations.find(o => o.type === 'row_delete' && o.gridRow === row);
         if (rowDeleted && !options.generateRedlines) continue;
         
         let cellsXml = '';
