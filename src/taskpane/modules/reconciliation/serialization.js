@@ -18,7 +18,7 @@ import { getApplicableFormatHints } from './markdown-processor.js';
  * @returns {string} OOXML paragraph string (WITHOUT namespace - added by wrapper)
  */
 export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = {}) {
-    const { author = 'Gemini AI' } = options;
+    const { author = 'Gemini AI', generateRedlines = true } = options;
     const paragraphs = [];
     let currentPPrXml = '';
     let currentRuns = [];
@@ -59,11 +59,19 @@ export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = 
                 break;
 
             case RunKind.DELETION:
-                currentRuns.push(buildDeletionXml(item, author));
+                if (generateRedlines) {
+                    currentRuns.push(buildDeletionXml(item, author));
+                }
+                // If redlines are disabled, we simply omit the deleted content
                 break;
 
             case RunKind.INSERTION:
-                currentRuns.push(buildInsertionXml(item, formatHints, author));
+                if (generateRedlines) {
+                    currentRuns.push(buildInsertionXml(item, formatHints, author));
+                } else {
+                    // Treat insertion as a normal run when redlines are disabled
+                    currentRuns.push(buildRunXmlWithHints(item, formatHints));
+                }
                 break;
 
             case RunKind.BOOKMARK:

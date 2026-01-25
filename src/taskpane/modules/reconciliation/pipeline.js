@@ -97,7 +97,8 @@ export class ReconciliationPipeline {
 
             // Stage 6: Serialize to OOXML
             const resultOoxml = serializeToOoxml(patchedModel, pPr, formatHints, {
-                author: this.author
+                author: this.author,
+                generateRedlines: this.generateRedlines
             });
 
             // Stage 7: Basic validation
@@ -261,7 +262,10 @@ export class ReconciliationPipeline {
             });
 
             // Pass formatHints to serialization for proper bold/italic/etc formatting
-            const itemOoxml = serializeToOoxml(runModel, pPrXml, formatHints, { author: this.author });
+            const itemOoxml = serializeToOoxml(runModel, pPrXml, formatHints, {
+                author: this.author,
+                generateRedlines: this.generateRedlines
+            });
             results.push(itemOoxml);
         }
 

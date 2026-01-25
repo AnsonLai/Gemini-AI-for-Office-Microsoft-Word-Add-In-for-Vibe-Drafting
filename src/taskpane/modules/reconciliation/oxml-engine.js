@@ -302,7 +302,7 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     }
 
     if (hasTables && isMarkdownTable) {
-        return applyTableReconciliation(xmlDoc, cleanModifiedText, serializer, author, formatHints);
+        return applyTableReconciliation(xmlDoc, cleanModifiedText, serializer, author, formatHints, generateRedlines);
     } else if (hasTables) {
         const result = applySurgicalMode(xmlDoc, originalText, cleanModifiedText, serializer, author, formatHints, generateRedlines);
 
@@ -831,11 +831,12 @@ function addFormattingToRun(xmlDoc, run, format, author, generateRedlines) {
 /**
  * Applies structural reconciliation to tables using Virtual Grid.
  */
-function applyTableReconciliation(xmlDoc, modifiedText, serializer, author, formatHints) {
+function applyTableReconciliation(xmlDoc, modifiedText, serializer, author, formatHints, generateRedlines = true) {
     const tableNodes = Array.from(xmlDoc.getElementsByTagName('w:tbl'));
     const newTableData = parseTable(modifiedText);
+    const hasNewContent = newTableData.rows.length > 0 || newTableData.headers.length > 0;
 
-    if (tableNodes.length === 0 || newTableData.rows.length === 0) {
+    if (tableNodes.length === 0 || !hasNewContent) {
         return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
     }
 
@@ -852,7 +853,7 @@ function applyTableReconciliation(xmlDoc, modifiedText, serializer, author, form
     }
 
     // Serialize new table
-    const options = { generateRedlines: true, author };
+    const options = { generateRedlines, author };
     const reconciledOxml = serializeVirtualGridToOoxml(oldGrid, operations, options);
 
     // Parse the reconciled OOXML - wrap with namespace declaration for proper parsing

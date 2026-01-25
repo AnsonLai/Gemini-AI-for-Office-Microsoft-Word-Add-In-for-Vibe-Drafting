@@ -69,7 +69,7 @@ export function generateTableOoxml(tableData, options = {}) {
                 endOffset: cleanText.length
             }];
 
-            const runsOoxml = serializeToOoxml(runModel, null, formatHints, { author });
+            const runsOoxml = serializeToOoxml(runModel, null, formatHints, { author, generateRedlines });
 
             // Cell properties
             const tcPr = '<w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr>';
@@ -240,7 +240,7 @@ export function serializeVirtualGridToOoxml(grid, operations, options) {
                 endOffset: cleanText.length
             }];
 
-            const runsOoxml = serializeToOoxml(runModel, null, formatHints, { author });
+            const runsOoxml = serializeToOoxml(runModel, null, formatHints, { author, generateRedlines });
             cellsXml += `<w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr><w:p>${runsOoxml}</w:p></w:tc>`;
         }
 
@@ -279,8 +279,8 @@ function reconcileCellContent(cell, newText, options) {
         formatHints
     });
 
-    const runsOoxml = serializeToOoxml(patchedModel, baseBlock.pPr, formatHints, { author });
-    return `<w:p>${runsOoxml}</w:p>`;
+    const runsOoxml = serializeToOoxml(patchedModel, baseBlock.pPr, formatHints, { author, generateRedlines });
+    return runsOoxml;
 }
 
 function serializeCellBlocks(blocks) {
