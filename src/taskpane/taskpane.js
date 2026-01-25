@@ -1484,6 +1484,28 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
             },
           },
           {
+            name: "insert_list_item",
+            description: "Insert a single list item after a specific paragraph. Use this for surgical additions to an existing list - it inherits the numbering format from the paragraph you insert after. Much better than edit_list when you only need to add one or two items. Do NOT include numbering markers in the text - Word will add them automatically.",
+            parameters: {
+              type: "OBJECT",
+              properties: {
+                afterParagraphIndex: {
+                  type: "INTEGER",
+                  description: "The paragraph index to insert after (e.g., 5 to insert after [P5])",
+                },
+                text: {
+                  type: "STRING",
+                  description: "The text content of the new list item (WITHOUT any numbering like '1.' or '1.1.' - Word adds these automatically)",
+                },
+                indentLevel: {
+                  type: "INTEGER",
+                  description: "Optional: The indentation level relative to the paragraph you're inserting after. 0 = same level (default), 1 = one level deeper (sub-item), -1 = one level shallower",
+                },
+              },
+              required: ["afterParagraphIndex", "text"],
+            },
+          },
+          {
             name: "edit_table",
             description: "Edit a table as a unit. Use this when you need to modify table content, add/remove rows or columns. This preserves table formatting. Look for paragraphs with |T:row,col in the context. NEVER say you have edited a table unless you have successfully called this tool.",
             parameters: {
@@ -1931,6 +1953,30 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
             toolsExecutedInCurrentRequest.push({
               name: functionCall.name,
               instruction: `edit_list P${args.startParagraphIndex}-P${args.endParagraphIndex}`,
+              result: toolResult,
+              success: result.success
+            });
+
+            if (result.success) {
+              updateSystemMessage(loadingMsg, toolResult, checkpointIndex);
+            } else {
+              updateSystemMessage(loadingMsg, toolResult);
+            }
+          } else if (functionCall.name === "insert_list_item") {
+            const checkpointIndex = await createCheckpoint(true);
+            updateSystemMessage(loadingMsg, `Inserting list item after P${args.afterParagraphIndex}...`);
+
+            const result = await executeInsertListItem(
+              args.afterParagraphIndex,
+              args.text,
+              args.indentLevel || 0
+            );
+            toolResult = result.message;
+
+            // Track successful tool execution
+            toolsExecutedInCurrentRequest.push({
+              name: functionCall.name,
+              instruction: `insert_list_item after P${args.afterParagraphIndex}`,
               result: toolResult,
               success: result.success
             });
@@ -4423,6 +4469,205 @@ async function routeChangeOperation(change, targetParagraph, context) {
  */
 
 /**
+ * Execute insert_list_item tool - surgically insert a single list item after a specific paragraph
+ * @param {number} afterParagraphIndex - 1-based paragraph index to insert after
+ * @param {string} text - The text content (without numbering)
+ * @param {number} indentLevel - Relative indent: 0=same, 1=deeper, -1=shallower
+ */
+async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0) {
+  console.log(`[executeInsertListItem] Insert after P${afterParagraphIndex}: "${text.substring(0, 50)}..." (indent: ${indentLevel})`);
+
+  try {
+    await Word.run(async (context) => {
+      // Enable track changes if redline setting is enabled
+      const redlineEnabled = loadRedlineSetting();
+      let originalChangeTrackingMode = null;
+
+      if (redlineEnabled) {
+        try {
+          const doc = context.document;
+          doc.load("changeTrackingMode");
+          await context.sync();
+
+          originalChangeTrackingMode = doc.changeTrackingMode;
+          if (originalChangeTrackingMode !== Word.ChangeTrackingMode.trackAll) {
+            doc.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
+            await context.sync();
+            console.log("[executeInsertListItem] Track changes enabled");
+          }
+        } catch (trackError) {
+          console.warn("[executeInsertListItem] Could not enable track changes:", trackError);
+        }
+      }
+
+      const paragraphs = context.document.body.paragraphs;
+      paragraphs.load("items");
+      await context.sync();
+
+      const paraIdx = afterParagraphIndex - 1; // Convert to 0-based
+      if (paraIdx < 0 || paraIdx >= paragraphs.items.length) {
+        throw new Error(`Paragraph index ${afterParagraphIndex} out of range (1-${paragraphs.items.length})`);
+      }
+
+      const adjacentPara = paragraphs.items[paraIdx];
+
+      // Read the adjacent paragraph's OOXML to get its numId and ilvl
+      const adjacentOoxml = adjacentPara.getOoxml();
+      await context.sync();
+
+      const numIdMatch = adjacentOoxml.value.match(/w:numId w:val="(\d+)"/);
+      const ilvlMatch = adjacentOoxml.value.match(/w:ilvl w:val="(\d+)"/);
+
+      // Debug: Log the numbering definition info if available
+      const lvlTextMatch = adjacentOoxml.value.match(/w:lvlText w:val="([^"]*)"/);
+      if (lvlTextMatch) {
+        console.log(`[executeInsertListItem] Adjacent lvlText format: "${lvlTextMatch[1]}"`);
+      }
+
+      // Log a snippet of the OOXML for debugging numbering structure
+      const numPrSection = adjacentOoxml.value.match(/<w:numPr[\s\S]*?<\/w:numPr>/);
+      if (numPrSection) {
+        console.log(`[executeInsertListItem] Adjacent numPr: ${numPrSection[0]}`);
+      }
+
+      if (!numIdMatch) {
+        // Adjacent paragraph is not a list item - just insert plain paragraph
+        console.log("[executeInsertListItem] Adjacent paragraph is not a list item, inserting plain paragraph");
+        adjacentPara.insertParagraph(text, "After");
+        await context.sync();
+
+        // Restore tracking mode
+        if (redlineEnabled && originalChangeTrackingMode !== null &&
+          originalChangeTrackingMode !== Word.ChangeTrackingMode.trackAll) {
+          context.document.changeTrackingMode = originalChangeTrackingMode;
+          await context.sync();
+        }
+        return;
+      }
+
+      const numId = numIdMatch[1];
+      const baseIlvl = ilvlMatch ? parseInt(ilvlMatch[1], 10) : 0;
+      const newIlvl = Math.max(0, Math.min(8, baseIlvl + indentLevel)); // Clamp to 0-8
+
+      console.log(`[executeInsertListItem] Adjacent numId=${numId}, ilvl=${baseIlvl}, newIlvl=${newIlvl}`);
+
+      // Extract run properties (rPr) from adjacent paragraph to preserve font styling
+      // Look for the first w:rPr in the paragraph's OOXML
+      let rPrBlock = '';
+      const rPrMatch = adjacentOoxml.value.match(/<w:rPr[^>]*>([\s\S]*?)<\/w:rPr>/);
+      if (rPrMatch) {
+        rPrBlock = rPrMatch[0];
+        console.log(`[executeInsertListItem] Extracted rPr from adjacent paragraph`);
+      } else {
+        // No rPr found, try to at least get the font from pPr
+        const fontMatch = adjacentOoxml.value.match(/<w:rFonts[^>]*\/>/);
+        if (fontMatch) {
+          rPrBlock = `<w:rPr>${fontMatch[0]}</w:rPr>`;
+          console.log(`[executeInsertListItem] Extracted rFonts from adjacent paragraph`);
+        }
+      }
+
+      // Build OOXML for the new list item
+      const escapedText = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+      const oxmlPara = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
+          <pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
+            <pkg:xmlData>
+              <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+              </Relationships>
+            </pkg:xmlData>
+          </pkg:part>
+          <pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">
+            <pkg:xmlData>
+              <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                <w:body>
+                  <w:p>
+                    <w:pPr>
+                      <w:pStyle w:val="ListParagraph"/>
+                      <w:numPr>
+                        <w:ilvl w:val="${newIlvl}"/>
+                        <w:numId w:val="${numId}"/>
+                      </w:numPr>
+                    </w:pPr>
+                    <w:r>
+                      ${rPrBlock}
+                      <w:t xml:space="preserve">${escapedText}</w:t>
+                    </w:r>
+                  </w:p>
+                </w:body>
+              </w:document>
+            </pkg:xmlData>
+          </pkg:part>
+        </pkg:package>`;
+
+      // Insert the paragraph with text, then apply list formatting
+      const insertedPara = adjacentPara.insertParagraph(text, "After");
+      await context.sync();
+
+      // Try to apply the same list formatting using Word's list API
+      // The insertedPara should inherit some formatting, but we need to set the list explicitly
+      try {
+        // Load the inserted paragraph to access its list properties
+        insertedPara.load("listItem");
+        await context.sync();
+
+        // If it has a listItem, we can adjust its level
+        if (insertedPara.listItem && !insertedPara.listItem.isNullObject) {
+          // The list item exists - try to adjust level
+          console.log(`[executeInsertListItem] Inserted paragraph has listItem, adjusting level to ${newIlvl}`);
+          insertedPara.listItem.level = newIlvl;
+          await context.sync();
+        } else {
+          // No listItem - need to add it to a list
+          // Use the same numId as adjacent paragraph via OOXML
+          console.log(`[executeInsertListItem] No listItem found, applying list via OOXML`);
+
+          const paraRange = insertedPara.getRange("Whole");
+          paraRange.insertOoxml(oxmlPara, "Replace");
+          await context.sync();
+        }
+      } catch (listError) {
+        console.warn(`[executeInsertListItem] Could not apply list format via API: ${listError.message}`);
+        // Fallback: try OOXML replacement
+        try {
+          const paraRange = insertedPara.getRange("Whole");
+          paraRange.insertOoxml(oxmlPara, "Replace");
+          await context.sync();
+        } catch (oxmlError) {
+          console.warn(`[executeInsertListItem] OOXML fallback also failed: ${oxmlError.message}`);
+        }
+      }
+
+      console.log(`[executeInsertListItem] Successfully inserted list item (numId=${numId}, ilvl=${newIlvl})`);
+
+
+      // Restore original tracking mode if we changed it
+      if (redlineEnabled && originalChangeTrackingMode !== null &&
+        originalChangeTrackingMode !== Word.ChangeTrackingMode.trackAll) {
+        context.document.changeTrackingMode = originalChangeTrackingMode;
+        await context.sync();
+      }
+    });
+
+    return {
+      success: true,
+      message: `Successfully inserted list item after P${afterParagraphIndex}`
+    };
+  } catch (error) {
+    console.error("[executeInsertListItem] Error:", error);
+    return {
+      success: false,
+      message: `Failed to insert list item: ${error.message}`
+    };
+  }
+}
+
+/**
  * Execute edit_list tool - replaces a range of paragraphs with a proper list
  * Uses HTML insertion for reliable list formatting
  * @param {number} startIndex - 1-based paragraph index of first paragraph
@@ -4514,6 +4759,25 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
       const firstPara = paragraphs.items[startIdx];
       const lastPara = paragraphs.items[endIdx];
 
+      // Try to read the existing list's numId from the first paragraph's OOXML
+      let existingNumId = null;
+      let existingBaseIlvl = 0;
+      try {
+        const firstParaOoxml = firstPara.getOoxml();
+        await context.sync();
+
+        const numIdMatch = firstParaOoxml.value.match(/w:numId w:val="(\d+)"/);
+        const ilvlMatch = firstParaOoxml.value.match(/w:ilvl w:val="(\d+)"/);
+
+        if (numIdMatch) {
+          existingNumId = numIdMatch[1];
+          existingBaseIlvl = ilvlMatch ? parseInt(ilvlMatch[1], 10) : 0;
+          console.log(`[executeEditList] Found existing numId: ${existingNumId}, base ilvl: ${existingBaseIlvl}`);
+        }
+      } catch (oxmlError) {
+        console.warn(`[executeEditList] Could not read existing OOXML:`, oxmlError.message);
+      }
+
       // Get ranges to create a combined range
       const startRange = firstPara.getRange("Start");
       const endRange = lastPara.getRange("End");
@@ -4565,42 +4829,136 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
         return { text: stripped.trim(), level };
       });
 
-      // Build nested HTML list structure using proper nested <ol>/<ul> for Word
-      // Word interprets nested lists better than margin-left
-      let htmlContent = '';
-      let currentLevel = 0;
+      // SURGICAL APPROACH: Edit existing paragraphs in place
+      // This preserves the document's existing formatting better than bulk replacement
+      const existingCount = endIdx - startIdx + 1;
+      const newCount = itemsWithLevels.length;
 
-      for (const item of itemsWithLevels) {
-        // Close lists if going up levels
-        while (currentLevel > item.level) {
-          htmlContent += `</${listTag}>`;
-          currentLevel--;
-        }
+      console.log(`[executeEditList] Surgical mode: ${existingCount} existing → ${newCount} new items`);
 
-        // Open new lists if going down levels
-        while (currentLevel < item.level) {
-          htmlContent += `<${listTag} ${listStyle}>`;
-          currentLevel++;
-        }
+      // PHASE 1: Edit existing paragraphs with new text (keeping their style)
+      const editLimit = Math.min(existingCount, newCount);
+      for (let i = 0; i < editLimit; i++) {
+        const para = paragraphs.items[startIdx + i];
+        const item = itemsWithLevels[i];
 
-        htmlContent += `<li style="margin-bottom: 5px;">${item.text}</li>`;
+        // Get the paragraph's current text and OOXML for debugging
+        para.load("text");
+        const paraOoxml = para.getOoxml();
+        await context.sync();
+
+        const originalText = para.text.trim();
+        console.log(`[executeEditList] P${startIdx + i + 1} BEFORE: "${originalText.substring(0, 50)}..."`);
+        console.log(`[executeEditList] P${startIdx + i + 1} NEW: "${item.text.substring(0, 50)}..."`);
+
+        const numIdMatch = paraOoxml.value.match(/w:numId w:val="(\d+)"/);
+        const ilvlMatch = paraOoxml.value.match(/w:ilvl w:val="(\d+)"/);
+        const currentNumId = numIdMatch ? numIdMatch[1] : (existingNumId || '1');
+        const currentIlvl = ilvlMatch ? ilvlMatch[1] : '0';
+        const newIlvl = existingBaseIlvl + item.level;
+
+        console.log(`[executeEditList] P${startIdx + i + 1} numId=${currentNumId}, ilvl: ${currentIlvl} → ${newIlvl}`);
+
+        // Build OOXML that preserves the paragraph's numbering but updates text and ilvl
+        const escapedText = item.text
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+
+        const oxmlPara = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
+            <pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
+              <pkg:xmlData>
+                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+                </Relationships>
+              </pkg:xmlData>
+            </pkg:part>
+            <pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">
+              <pkg:xmlData>
+                <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                  <w:body>
+                    <w:p>
+                      <w:pPr>
+                        <w:pStyle w:val="ListParagraph"/>
+                        <w:numPr>
+                          <w:ilvl w:val="${newIlvl}"/>
+                          <w:numId w:val="${currentNumId}"/>
+                        </w:numPr>
+                      </w:pPr>
+                      <w:r>
+                        <w:t xml:space="preserve">${escapedText}</w:t>
+                      </w:r>
+                    </w:p>
+                  </w:body>
+                </w:document>
+              </pkg:xmlData>
+            </pkg:part>
+          </pkg:package>`;
+
+        // Use the paragraph's range for replacement (not the paragraph object)
+        const paraRange = para.getRange("Whole");
+        paraRange.insertOoxml(oxmlPara, "Replace");
+        console.log(`[executeEditList] Replaced P${startIdx + i + 1} range with OOXML`);
       }
-
-      // Close any remaining open lists
-      while (currentLevel > 0) {
-        htmlContent += `</${listTag}>`;
-        currentLevel--;
-      }
-
-      // Wrap in the top-level list
-      const htmlList = `<span style="font-family: '${cachedDocumentFont}', Calibri, sans-serif;"><${listTag} ${listStyle}>${htmlContent}</${listTag}><p>&nbsp;</p></span>`;
-
-      console.log(`Inserting HTML list (style: ${cssListStyleType}): ${htmlList.substring(0, 200)}...`);
-
-      // Use insertHtml with "Replace" to atomically replace (avoids stale range bug)
-      fullRange.insertHtml(htmlList, "Replace");
-
       await context.sync();
+
+      // PHASE 2: Insert new paragraphs if more items than existing
+      if (newCount > existingCount) {
+        console.log(`[executeEditList] Phase 2: Inserting ${newCount - existingCount} new paragraphs`);
+
+        // Reload paragraphs after Phase 1 edits
+        paragraphs.load("items");
+        await context.sync();
+
+        // Get the last edited paragraph to insert after
+        const lastEditedIdx = startIdx + existingCount - 1;
+        let insertAfterPara = paragraphs.items[lastEditedIdx];
+
+        console.log(`[executeEditList] Will insert after P${lastEditedIdx + 1}`);
+
+        for (let i = existingCount; i < newCount; i++) {
+          const item = itemsWithLevels[i];
+          const ilvl = existingBaseIlvl + item.level;
+          const templateNumId = existingNumId || '1';
+
+          console.log(`[executeEditList] Inserting item ${i + 1}: "${item.text.substring(0, 30)}..." at ilvl=${ilvl}`);
+
+          // Insert plain paragraph first
+          const insertedPara = insertAfterPara.insertParagraph(item.text, "After");
+          await context.sync();
+
+          // Apply list formatting using Word's list API
+          try {
+            // Get the inserted paragraph's range and apply list
+            insertedPara.load("listItem");
+            await context.sync();
+
+            // Use setLevelNumbering to apply the list format
+            if (insertedPara.listItem) {
+              insertedPara.listItem.level = ilvl;
+            }
+          } catch (listError) {
+            console.warn(`[executeEditList] Could not apply list format: ${listError.message}`);
+          }
+
+          // Update insertAfterPara for next iteration
+          insertAfterPara = insertedPara;
+          console.log(`[executeEditList] Inserted new paragraph ${i + 1}`);
+        }
+        await context.sync();
+      }
+
+      // PHASE 3: Delete excess paragraphs if fewer new items
+      if (newCount < existingCount) {
+        // Delete from the end to avoid index shifting
+        for (let i = existingCount - 1; i >= newCount; i--) {
+          const paraToDelete = paragraphs.items[startIdx + i];
+          paraToDelete.delete();
+          console.log(`[executeEditList] Deleted excess P${startIdx + i + 1}`);
+        }
+        await context.sync();
+      }
 
       // Restore original tracking mode if we changed it
       if (redlineEnabled && originalChangeTrackingMode !== null &&
