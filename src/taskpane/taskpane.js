@@ -1215,11 +1215,11 @@ async function restoreCheckpoint(index) {
 
 // --- Chat Feature ---
 
-async function sendChatMessage(modelType = 'fast') {
+async function sendChatMessage(modelType = 'fast', messageOverride = null) {
   const chatInput = document.getElementById("chat-input");
   const sendButton = document.getElementById("send-button");
   const thinkButton = document.getElementById("think-button");
-  const userMessage = chatInput.value;
+  const userMessage = messageOverride || chatInput.value;
 
   if (userMessage.trim() === "") {
     shakeInput();
@@ -1377,7 +1377,7 @@ async function sendChatMessage(modelType = 'fast') {
         function_declarations: [
           {
             name: "apply_redlines",
-            description: "Applies suggested edits to the document. Use this tool whenever the user asks to 'edit text', 'change text', 'modify', 'add', 'delete', 'reword', 'rephrase', 'update', 'bold', 'italicize', 'underline', 'strikethrough', or apply any TEXT FORMATTING to the document. For bold text, use **text** markdown syntax. For italic text, use *text* markdown syntax. For underline, use ++text++ markdown syntax. For strikethrough, use ~~text~~ markdown syntax. Do NOT suggest changes in the chat; always use this tool to apply them directly. The edits will be applied under track changes (redlines). NEVER say you have applied edits unless you have successfully called this tool.",
+            description: "Applies suggested edits to the document. Use this tool whenever the user asks to 'edit text', 'change text', 'modify', 'add', 'delete', 'reword', 'rephrase', 'update', 'bold', 'italicize', 'underline', 'strikethrough', or apply any TEXT FORMATTING to the document.\n\nIMPORTANT - FORMATTING RULES:\n- Bold: **text**\n- Italic: *text*\n- Underline: ++text++\n- Strikethrough: ~~text~~\n\nIMPORTANT - LIST RULES:\n- Use Markdown syntax for lists. \n- For Bullet Lists: Use '* item'. For nested items, indent with 4 spaces (e.g., '    * sub-item').\n- For Numbered Lists: Use '1. item', 'a. item', 'i. item', etc. explicitly. \n- For Nested Numbering: Use '1.1.', '1.1.1.' styles if appropriate. \n- DO NOT use simple hyphens ('-') if you intend to create a structured or numbered list. \n- INDENTATION is critical for sub-levels. Use 2 or 4 spaces.\n\nDo NOT suggest changes in the chat; always use this tool to apply them directly. The edits will be applied under track changes (redlines). NEVER say you have applied edits unless you have successfully called this tool.",
             parameters: {
               type: "OBJECT",
               properties: {
@@ -1604,7 +1604,15 @@ NEVER state that you have taken an action unless you have successfully invoked t
 
 AFTER executing a tool, DO NOT repeat the content of the document or the changes in your text response. The user can see the changes in the document.
 
-CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal IDs in your text responses to the user. These are for your internal reasoning and tool calls only. Refer to locations naturally (e.g., "the second paragraph", "the Definitions section", "the paragraph regarding termination").`,
+CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal IDs in your text responses to the user. These are for your internal reasoning and tool calls only. Refer to locations naturally (e.g., "the second paragraph", "the Definitions section", "the paragraph regarding termination").
+ 
+ LIST HANDLING:
+ When adding or modifying lists via \`apply_redlines\`, you MUST use specific Markdown syntax so the engine can format them correctly in Word:
+ - Unordered: Use '* ' (asterisk space).
+ - Ordered: Use '1. ', 'a. ', 'i. ', etc.
+ - Multi-level / Outlines: Use exact numbering like '1.1.', '1.1.1.' or '2.1. ' if that is the intent.
+ - Indentation: Sub-items MUST be indented by 4 spaces.
+ - Do NOT use generic bullets ('-') if you want specific numbering. The engine relies on your markers (e.g., '1.1.') to detect the list type.`,
         },
       ],
     };
@@ -2309,14 +2317,10 @@ function addRetryButton(messageElement, originalMessage, modelType) {
   retryBtn.className = "revert-checkpoint-btn retry-request-btn";
   retryBtn.title = "Retry this request";
   retryBtn.onclick = () => {
-    // Put message back in input and trigger send
-    const chatInput = document.getElementById("chat-input");
-    if (chatInput) {
-      chatInput.value = originalMessage;
-    }
     // Remove the error message that we're retrying from
     removeMessage(messageElement);
-    sendChatMessage(modelType);
+    // Call sendChatMessage with the original message as an override
+    sendChatMessage(modelType, originalMessage);
   };
 
   buttonContainer.appendChild(retryBtn);
@@ -2375,11 +2379,14 @@ All content and replacementText values support Markdown formatting. Use these wh
 - Headings: Use # for H1, ## for H2, ### for H3
 
 **CRITICAL LIST FORMATTING RULES**:
-- NEVER mix bullet markers with manual numbering like "• (a)" or "- 1." - this creates malformed output
-- If the document has "(a), (b), (c)" style lists, convert them to proper numbered markdown: "1. ", "2. ", "3. "
-- If the document has "1., 2., 3." style lists, use numbered markdown: "1. ", "2. ", "3. "
-- If the document has actual bullet points (•, -, *), use unordered markdown: "- " or "* "
-- When converting existing lists, REMOVE the original markers and use ONLY the markdown syntax
+- **PRESERVE HIERARCHY**: If the document uses nested numbering (1.1, 1.1.1, etc.), ALWAYS use that same hierarchical format in your changes. **Do NOT flatten nested lists** into simple numbered lists (1., 2., 3.) unless specifically asked to restructure the hierarchy.
+- **INCLUDE MARKERS**: Always include the correct list marker (e.g., "1.1.1 ") at the start of your \`newContent\` or \`content\` for list items. The system will use these to correctly set the indentation level in Word, and then it will automatically strip them from the final text.
+- **NO MIXING**: NEVER mix bullet markers with manual numbering like "• (a)" or "- 1." - this creates malformed output
+- **MARKDOWN SYNTAX**: 
+  - For bullets: use "- " or "* "
+  - For simple numbers: use "1. ", "2. "
+  - For hierarchical numbers: use "1.1. ", "1.1.1. "
+- **STRIPPING**: When converting existing lists, REMOVE the original markers from your response and use ONLY the markdown syntax described above.
 
 When the user asks for formatted content (bullets, tables, bold, etc.), ALWAYS use the appropriate Markdown syntax.
 
@@ -2532,6 +2539,89 @@ Return ONLY the JSON array, nothing else:`;
             // Normalize content: Convert literal escape sequences to actual characters
             // This handles cases where the AI returns "\\n" as a two-character string instead of actual newlines
             let normalizedContent = normalizeContentEscapes(change.content || "");
+
+            // --- NEW: Detect if target paragraph is already a list item ---
+            // If so, we need to preserve its numId/ilvl when replacing content
+            let targetIsListItem = false;
+            let targetListContext = null;
+
+            if (!isInsertAtEnd) {
+              try {
+                const targetOoxmlResult = targetParagraph.getOoxml();
+                await context.sync();
+
+                // Check for w:numPr in the paragraph's OOXML
+                const numPrMatch = targetOoxmlResult.value.match(/<w:numPr>.*?<w:ilvl w:val="(\d+)".*?<w:numId w:val="(\d+)".*?<\/w:numPr>/s);
+                if (numPrMatch) {
+                  targetIsListItem = true;
+                  targetListContext = {
+                    ooxml: targetOoxmlResult.value,
+                    ilvl: numPrMatch[1],
+                    numId: numPrMatch[2]
+                  };
+                  console.log(`[replace_paragraph] Target P${change.paragraphIndex} is list item: numId=${targetListContext.numId}, ilvl=${targetListContext.ilvl}`);
+                }
+              } catch (ooxmlError) {
+                console.warn("[replace_paragraph] Could not check list context:", ooxmlError);
+              }
+            }
+
+            // If target is a list item and content is plain text (no list markers), 
+            // use OOXML reconciliation to preserve list formatting
+            const contentHasListMarkers = /^(\s*)([-*•]|\d+\.|[a-zA-Z]\.|[ivxlcIVXLC]+\.|\d+\.\d+\.?)\s+/m.test(normalizedContent);
+
+            if (targetIsListItem && !contentHasListMarkers) {
+              console.log(`[replace_paragraph] Preserving list context for plain text edit`);
+
+              try {
+                const redlineEnabled = loadRedlineSetting();
+                const redlineAuthor = loadRedlineAuthor();
+
+                // Get original text for diffing
+                const originalText = targetParagraph.text;
+                await context.sync();
+
+                // Use OOXML reconciliation to preserve numPr
+                const result = await applyRedlineToOxml(
+                  targetListContext.ooxml,
+                  originalText,
+                  normalizedContent,
+                  {
+                    author: redlineEnabled ? redlineAuthor : undefined,
+                    generateRedlines: redlineEnabled
+                  }
+                );
+
+                if (result.oxml && result.hasChanges) {
+                  const doc = context.document;
+                  doc.load("changeTrackingMode");
+                  await context.sync();
+
+                  const originalMode = doc.changeTrackingMode;
+                  if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+                    doc.changeTrackingMode = Word.ChangeTrackingMode.off;
+                    await context.sync();
+                  }
+
+                  try {
+                    targetParagraph.insertOoxml(result.oxml, "Replace");
+                    await context.sync();
+                    console.log("✅ OOXML list-preserving edit successful");
+                    changesApplied++;
+                  } finally {
+                    if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+                      doc.changeTrackingMode = originalMode;
+                      await context.sync();
+                    }
+                  }
+                  continue; // Skip other handlers
+                }
+              } catch (listPreserveError) {
+                console.warn("[replace_paragraph] List preservation failed, falling back:", listPreserveError);
+                // Fall through to standard handlers
+              }
+            }
+            // --- END NEW ---
 
             // Check if this is a list - use OOXML pipeline for proper redlines
             const listData = parseMarkdownList(normalizedContent);
@@ -2784,7 +2874,66 @@ Return ONLY the JSON array, nothing else:`;
                 continue;
               }
 
-              // Convert Markdown to Word-compatible HTML
+              // --- NEW: Detect list structures and use OOXML engine for proper numPr ---
+              const hasListMarkers = /^(\s*)([-*•]|\d+\.|[a-zA-Z]\.|[ivxlcIVXLC]+\.|\d+\.\d+\.?)\s+/m.test(contentToParse);
+
+              if (hasListMarkers && !isTableReplacement) {
+                console.log("[replace_range] Detected list markers, using OOXML reconciliation");
+
+                try {
+                  // Get the original text from the range for diffing
+                  targetRange.load("text");
+                  const originalOoxmlResult = startPara.getOoxml(); // Get OOXML from first paragraph
+                  await context.sync();
+
+                  const originalText = targetRange.text || "";
+                  const redlineEnabled = loadRedlineSetting();
+                  const redlineAuthor = loadRedlineAuthor();
+
+                  // Use the OOXML engine for proper list generation
+                  const result = await applyRedlineToOxml(
+                    originalOoxmlResult.value,
+                    originalText,
+                    contentToParse,
+                    {
+                      author: redlineEnabled ? redlineAuthor : undefined,
+                      generateRedlines: redlineEnabled
+                    }
+                  );
+
+                  if (result.oxml && result.hasChanges) {
+                    // Temporarily disable track changes to avoid double-tracking
+                    const doc = context.document;
+                    doc.load("changeTrackingMode");
+                    await context.sync();
+
+                    const originalMode = doc.changeTrackingMode;
+                    if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+                      doc.changeTrackingMode = Word.ChangeTrackingMode.off;
+                      await context.sync();
+                    }
+
+                    try {
+                      targetRange.insertOoxml(result.oxml, "Replace");
+                      await context.sync();
+                      changesApplied++;
+                      console.log("✅ OOXML list reconciliation successful for replace_range");
+                    } finally {
+                      if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+                        doc.changeTrackingMode = originalMode;
+                        await context.sync();
+                      }
+                    }
+                    continue; // Skip HTML fallback
+                  }
+                } catch (ooxmlError) {
+                  console.warn("[replace_range] OOXML reconciliation failed, falling back to HTML:", ooxmlError);
+                  // Fall through to HTML path
+                }
+              }
+              // --- END NEW ---
+
+              // Convert Markdown to Word-compatible HTML (fallback for non-list or table content)
               let htmlContent = "";
               try {
                 htmlContent = markdownToWordHtml(contentToParse);
@@ -4288,6 +4437,10 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
   }
 
   console.log(`executeEditList: Converting P${startIndex}-P${endIndex} to ${listType} list with ${newItems.length} items`);
+  console.log(`[executeEditList] Raw newItems array:`);
+  newItems.forEach((item, idx) => {
+    console.log(`  [${idx}]: "${item.substring(0, 60)}${item.length > 60 ? '...' : ''}"`);
+  });
 
   try {
     await Word.run(async (context) => {
@@ -4386,12 +4539,63 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
 
       const listStyle = `style="list-style-type: ${cssListStyleType}; margin-left: 0; padding-left: 40px;"`;
 
-      const listItemsHtml = newItems.map(item => `<li style="margin-bottom: 5px;">${item}</li>`).join("");
-      // Add a trailing paragraph with non-breaking space to ensure proper formatting of last item
-      // Wrap in span with explicit font-family using cached document font
-      const htmlList = `<span style="font-family: '${cachedDocumentFont}', Calibri, sans-serif;"><${listTag} ${listStyle}>${listItemsHtml}</${listTag}><p>&nbsp;</p></span>`;
+      // Detect hierarchy from leading whitespace indentation (4 spaces = 1 level)
+      // Also strip any leading list markers from items to avoid doubled numbering
+      const markersRegex = /^((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s*)/;
 
-      console.log(`Inserting HTML list (style: ${cssListStyleType}): ${htmlList.substring(0, 100)}...`);
+      // Analyze items for hierarchy based on leading whitespace
+      const itemsWithLevels = newItems.map(item => {
+        // Count leading spaces/tabs
+        const indentMatch = item.match(/^(\s*)/);
+        const indentSize = indentMatch ? indentMatch[1].length : 0;
+        const level = Math.floor(indentSize / 4); // 4 spaces per level
+
+        // Strip leading whitespace
+        let stripped = item.trim();
+
+        // Also strip any list markers (1., a., -, etc.)
+        const markerMatch = stripped.match(markersRegex);
+        if (markerMatch) {
+          stripped = stripped.replace(markersRegex, '');
+          console.log(`[executeEditList] Stripped marker: "${markerMatch[1].trim()}" from item`);
+        }
+
+        console.log(`[executeEditList] Level: ${level}, Text: "${stripped.substring(0, 40)}..."`);
+
+        return { text: stripped.trim(), level };
+      });
+
+      // Build nested HTML list structure using proper nested <ol>/<ul> for Word
+      // Word interprets nested lists better than margin-left
+      let htmlContent = '';
+      let currentLevel = 0;
+
+      for (const item of itemsWithLevels) {
+        // Close lists if going up levels
+        while (currentLevel > item.level) {
+          htmlContent += `</${listTag}>`;
+          currentLevel--;
+        }
+
+        // Open new lists if going down levels
+        while (currentLevel < item.level) {
+          htmlContent += `<${listTag} ${listStyle}>`;
+          currentLevel++;
+        }
+
+        htmlContent += `<li style="margin-bottom: 5px;">${item.text}</li>`;
+      }
+
+      // Close any remaining open lists
+      while (currentLevel > 0) {
+        htmlContent += `</${listTag}>`;
+        currentLevel--;
+      }
+
+      // Wrap in the top-level list
+      const htmlList = `<span style="font-family: '${cachedDocumentFont}', Calibri, sans-serif;"><${listTag} ${listStyle}>${htmlContent}</${listTag}><p>&nbsp;</p></span>`;
+
+      console.log(`Inserting HTML list (style: ${cssListStyleType}): ${htmlList.substring(0, 200)}...`);
 
       // Use insertHtml with "Replace" to atomically replace (avoids stale range bug)
       fullRange.insertHtml(htmlList, "Replace");

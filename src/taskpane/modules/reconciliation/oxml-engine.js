@@ -288,7 +288,8 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     const hasTables = tables.length > 0;
 
     const isMarkdownTable = /^\|.+\|/.test(cleanModifiedText.trim()) && cleanModifiedText.includes('\n');
-    const isTargetList = cleanModifiedText.includes('\n') && /^([-*+]|\d+\.)/m.test(cleanModifiedText.trim());
+    const markersRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s*)/m;
+    const isTargetList = cleanModifiedText.includes('\n') && markersRegex.test(cleanModifiedText.trim());
 
     // Detect table cell context early
     const tableCellContext = detectTableCellContext(xmlDoc, originalText);
@@ -1342,8 +1343,15 @@ function processInsert(xmlDoc, textSpans, pos, text, processedSpans, author, for
  * Supports list splitting via newlines.
  */
 function applyReconstructionMode(xmlDoc, originalText, modifiedText, serializer, author, formatHints, generateRedlines = true) {
-    const body = xmlDoc.getElementsByTagName('w:body')[0] || xmlDoc.documentElement;
+    const rootElement = xmlDoc.documentElement;
+    const isBodyRoot = rootElement.nodeName === 'w:body' || rootElement.nodeName.endsWith(':package');
     const paragraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
+
+    // Determine the actual container for paragraphs
+    // If root is a paragraph, the container for reconstruction should be the DOCUMENT itself
+    // but JSDOM is picky about appending to Document.
+    let body = xmlDoc.getElementsByTagName('w:body')[0];
+    if (!body && isBodyRoot) body = rootElement;
 
     if (paragraphs.length === 0) {
         return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
@@ -1414,7 +1422,17 @@ function applyReconstructionMode(xmlDoc, originalText, modifiedText, serializer,
     // Create document fragments for each container
     const containerFragments = new Map();
     uniqueContainers.forEach(c => containerFragments.set(c, xmlDoc.createDocumentFragment()));
-    if (!containerFragments.has(body)) containerFragments.set(body, xmlDoc.createDocumentFragment());
+
+    // Ensure we have a fragment for the "main" container if body was used
+    if (body && !containerFragments.has(body)) {
+        containerFragments.set(body, xmlDoc.createDocumentFragment());
+    }
+
+    // If the input was just a paragraph, the container is the Document.
+    // We'll handle re-insertion into the Document specially.
+    if (!containerFragments.has(xmlDoc)) {
+        containerFragments.set(xmlDoc, xmlDoc.createDocumentFragment());
+    }
 
     // Helper functions
     const getParagraphInfo = (index) => {
@@ -1522,7 +1540,23 @@ function applyReconstructionMode(xmlDoc, originalText, modifiedText, serializer,
     containerFragments.forEach((fragment, container) => {
         const replacement = replacementContainers.get(container);
         const target = replacement || container;
-        target.appendChild(fragment);
+
+        // Safety check for JSDOM/Word: Never append to Document itself if it already has a root
+        if (target.nodeType === 9) { // Node.DOCUMENT_NODE
+            // If the document is now empty (we removed the old root paragraph),
+            // we can't append a fragment directly to it if it has multiple paragraphs.
+            // We must append the first paragraph as the new root, then others.
+            const firstChild = fragment.firstChild;
+            if (firstChild) {
+                target.appendChild(firstChild);
+                // Append remaining paragraphs if any
+                while (fragment.firstChild) {
+                    target.documentElement.appendChild(fragment.firstChild);
+                }
+            }
+        } else {
+            target.appendChild(fragment);
+        }
     });
 
     return { oxml: serializer.serializeToString(xmlDoc), hasChanges: true };

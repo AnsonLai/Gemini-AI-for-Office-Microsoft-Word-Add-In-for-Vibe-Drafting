@@ -1114,8 +1114,11 @@ When a paragraph expands into a list, the pipeline uses `executeListGeneration` 
 // pipeline.js
 async executeListGeneration(cleanText, numberingContext, originalRunModel) {
     const lines = cleanText.split('\n');
+    const indentStep = this.detectIndentationStep(lines); // Heuristically detects 2-space, 4-space, or tabs
+    
     for (const line of lines) {
         const { format } = this.numberingService.detectNumberingFormat(extractMarker(line));
+        const ilvl = Math.floor(indentSize / indentStep); // Level calculated from detected step
         const numId = this.numberingService.getOrCreateNumId({ type: format }, numberingContext);
         const pPrXml = this.numberingService.buildListPPr(numId, ilvl);
         // ...

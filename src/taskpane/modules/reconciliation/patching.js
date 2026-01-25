@@ -142,8 +142,9 @@ export function applyPatches(splitModel, diffOps, options) {
             continue;
         }
 
-        // Paragraph markers pass-through
+        // Paragraph markers pass-through - track current context
         if (run.kind === RunKind.PARAGRAPH_START) {
+            containerStack.pPrXml = run.pPrXml; // Track current pPr
             patchedModel.push({ ...run });
             continue;
         }
@@ -172,16 +173,99 @@ export function applyPatches(splitModel, diffOps, options) {
 
         for (const insertOp of insertOps) {
             processedInsertions.add(insertOp);
+
+            // Split insertion by newlines to handle paragraph breaks/lists
+            const lines = insertOp.text.split('\n');
             const styleSource = StyleInheritance.forInsertion(splitModel, insertOp.startOffset, insertOp.text);
 
-            patchedModel.push({
-                kind: generateRedlines ? RunKind.INSERTION : RunKind.TEXT,
-                text: insertOp.text,
-                rPrXml: styleSource?.rPrXml || '',
-                startOffset: insertOp.startOffset,
-                endOffset: insertOp.startOffset + insertOp.text.length,
-                author: generateRedlines ? author : undefined,
-                containerContext: containerStack.length > 0 ? containerStack[containerStack.length - 1] : null
+            lines.forEach((line, index) => {
+                // If we have numbering service, check for list markers on EVERY line
+                let markerMatch = null;
+                let marker = null;
+                let ilvl = 0;
+                let numId = null;
+
+                if (options.numberingService) {
+                    const markersRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s*)/m;
+                    markerMatch = line.match(markersRegex);
+
+                    if (markerMatch) {
+                        marker = markerMatch[2].trim();
+                        const { format, depth: markerLevel } = options.numberingService.detectNumberingFormat(marker);
+
+                        // Detect indentation
+                        const indentMatch = line.match(/^(\s*)/);
+                        const indentSize = indentMatch ? indentMatch[1].length : 0;
+                        const indentStep = indentSize >= 4 ? 4 : 2;
+                        let indentLevel = Math.floor(indentSize / indentStep);
+
+                        // Stripe the marker from the line text
+                        line = line.replace(markersRegex, '');
+
+                        // Resolve numId based on context
+                        let currentPPrXml = containerStack.pPrXml || '';
+                        const numIdMatch = currentPPrXml.match(/w:numId w:val="(\d+)"/);
+                        const ilvlMatch = currentPPrXml.match(/w:ilvl w:val="(\d+)"/);
+
+                        const contextNumId = numIdMatch ? numIdMatch[1] : null;
+                        const contextIlvl = ilvlMatch ? parseInt(ilvlMatch[1], 10) : 0;
+
+                        numId = options.numberingService.getOrCreateNumId(
+                            { type: format },
+                            { numId: contextNumId, type: 'unknown' }
+                        );
+
+                        // Final ilvl: 
+                        // If it's an outline format (e.g. 1.1.1), it's usually absolute
+                        if (format === 'outline') {
+                            ilvl = Math.min(8, markerLevel);
+                        } else {
+                            // Simple format: relative to current context level
+                            ilvl = Math.min(8, indentLevel + contextIlvl);
+                        }
+                    }
+                }
+
+                // For subsequent lines, we need to start a new paragraph
+                if (index > 0) {
+                    let newPPrXml = containerStack.pPrXml || '';
+                    if (markerMatch && numId) {
+                        newPPrXml = options.numberingService.buildListPPr(numId, ilvl);
+                    }
+
+                    patchedModel.push({
+                        kind: RunKind.PARAGRAPH_START,
+                        pPrXml: newPPrXml,
+                        startOffset: insertOp.startOffset,
+                        endOffset: insertOp.startOffset,
+                        text: ''
+                    });
+
+                    // Update context
+                    containerStack.pPrXml = newPPrXml;
+                } else if (markerMatch && numId) {
+                    // First line has a marker: Check if we need to convert current paragraph to a list
+                    // Find the last PARAGRAPH_START in patchedModel and update its pPrXml
+                    const lastPStart = [...patchedModel].reverse().find(r => r.kind === RunKind.PARAGRAPH_START);
+                    if (lastPStart) {
+                        const newPPrXml = options.numberingService.buildListPPr(numId, ilvl);
+                        lastPStart.pPrXml = newPPrXml;
+                        containerStack.pPrXml = newPPrXml;
+                        console.log(`[Patching] Converted current paragraph to list item: numId=${numId}, ilvl=${ilvl}`);
+                    }
+                }
+
+                if (line.length > 0 || (index > 0)) { // Always push something for index > 0 to ensure the paragraph is created
+                    patchedModel.push({
+                        kind: generateRedlines ? RunKind.INSERTION : RunKind.TEXT,
+                        text: line,
+                        rPrXml: styleSource?.rPrXml || '',
+                        startOffset: insertOp.startOffset,
+                        endOffset: insertOp.startOffset + line.length,
+                        author: generateRedlines ? author : undefined,
+                        containerContext: containerStack.length > 0 ? containerStack[containerStack.length - 1] : null
+                    });
+                }
             });
         }
 

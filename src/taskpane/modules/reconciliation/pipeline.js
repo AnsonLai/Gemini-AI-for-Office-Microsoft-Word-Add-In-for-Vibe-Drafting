@@ -71,10 +71,13 @@ export class ReconciliationPipeline {
             const diffOps = computeWordLevelDiffOps(acceptedText, cleanText);
 
             // Detect if this is a list transformation (e.g., paragraph with newlines)
-            const isTargetList = cleanText.includes('\n') && /^([-*+]|\d+\.)/m.test(cleanText);
+            const markersRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s*)/m;
+            const isTargetList = cleanText.includes('\n') && markersRegex.test(cleanText);
             // Key fix: Only use executeListGeneration for EXPANSION (single paragraph -> list)
             // If acceptedText already has newlines, we ingested multiple paragraphs and should use surgical diff
             const isExpansion = isTargetList && !acceptedText.includes('\n');
+
+            console.log(`[Reconcile] isTargetList: ${isTargetList}, isExpansion: ${isExpansion}, acceptedText n lines: ${acceptedText.split('\n').length}`);
 
             if (isExpansion) {
                 console.log('[Reconcile] Detected list expansion from single paragraph');
@@ -91,7 +94,8 @@ export class ReconciliationPipeline {
             const patchedModel = applyPatches(splitModel, diffOps, {
                 generateRedlines: this.generateRedlines,
                 author: this.author,
-                formatHints
+                formatHints,
+                numberingService: this.numberingService
             });
             console.log(`[Reconcile] Patched model has ${patchedModel.length} runs`);
 
@@ -181,24 +185,17 @@ export class ReconciliationPipeline {
      * @param {string} originalText - Plain text of the original paragraph (optional, used if runModel not provided)
      */
     async executeListGeneration(cleanText, numberingContext, originalRunModel, originalText = '') {
-        const lines = cleanText.split('\n').filter(l => l.trim().length > 0);
+        const rawLines = cleanText.split('\n').filter(l => l.trim().length > 0);
         const results = [];
 
         // Identify the original text to be deleted across the new paragraphs
-        // For simplicity in list expansion, we'll put the deletion in the first generated paragraph
         let deletionRuns = [];
         if (this.generateRedlines) {
             if (originalRunModel && originalRunModel.length > 0) {
-                // Use run model if provided
                 deletionRuns = originalRunModel
                     .filter(r => r.kind === 'text' || r.kind === 'run')
-                    .map(r => ({
-                        ...r,
-                        kind: 'deletion',
-                        author: this.author
-                    }));
+                    .map(r => ({ ...r, kind: 'deletion', author: this.author }));
             } else if (originalText && originalText.trim().length > 0) {
-                // Create simple deletion run from text
                 deletionRuns = [{
                     kind: 'deletion',
                     text: originalText.trim(),
@@ -209,40 +206,66 @@ export class ReconciliationPipeline {
             }
         }
 
+        // Determine the indentation step (2 spaces, 4 spaces, or tabs)
+        const indentStep = this.detectIndentationStep(rawLines);
+        console.log(`[ListGen] Detected indentation step: ${indentStep} spaces/chars`);
+
         // Determine the primary list type and format from the first item
         let firstMarker = '';
-        for (const line of lines) {
-            const match = line.match(/^\s*((?:\d+(?:\.\d+)*\.?|\([a-zA-Z0-9ivxlc]+\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|-|\*|•)\s*)/);
+        const markerRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s*)/m;
+
+        for (const line of rawLines) {
+            const match = line.match(markerRegex);
             if (match) {
-                firstMarker = match[1].trim();
+                firstMarker = match[2].trim();
                 break;
             }
         }
 
-        const { format } = this.numberingService.detectNumberingFormat(firstMarker);
-        console.log(`[ListGen] Detected marker: "${firstMarker}", format: ${format}`);
+        const { format: defaultFormat } = this.numberingService.detectNumberingFormat(firstMarker);
+        console.log(`[ListGen] Detected primary marker: "${firstMarker}", format: ${defaultFormat}`);
 
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
+        for (let i = 0; i < rawLines.length; i++) {
+            const line = rawLines[i];
+
+            // Extract the marker for THIS line
+            const markerMatch = line.match(markerRegex);
+            const currentMarker = markerMatch ? markerMatch[2].trim() : '';
+
+            // If marker exists, detect its specific format (supports mixed lists)
+            const lineFormatInfo = currentMarker ?
+                this.numberingService.detectNumberingFormat(currentMarker) :
+                { format: defaultFormat, depth: 0 };
+
+            // Detect indentation
             const indentMatch = line.match(/^(\s*)/);
-            const indent = indentMatch ? indentMatch[1].length : 0;
+            const indentSize = indentMatch ? indentMatch[1].length : 0;
+            if (i === 0 && indentSize > 0) {
+                // ...
+            }
 
-            // 2 spaces = 1 level
-            const ilvl = Math.min(8, Math.floor(indent / 2) + (numberingContext?.ilvl || 0));
+            // Calculate level
+            let ilvl = 0; // Declare ilvl here
+            const indentLevel = indentStep > 0 ? Math.floor(indentSize / indentStep) : 0;
+            const contextLevel = numberingContext?.ilvl || 0;
 
-            // Extract the marker for THIS line to see if it overrides the primary format 
-            // (e.g. mixed lists, though we try to stay consistent)
-            const markerMatch = line.match(/^\s*((?:\d+(?:\.\d+)*\.?|\([a-zA-Z0-9ivxlc]+\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|-|\*|•)\s*)/);
-            const currentMarker = markerMatch ? markerMatch[1].trim() : '';
-            const lineFormat = currentMarker ? this.numberingService.detectNumberingFormat(currentMarker).format : format;
+            if (currentMarker && lineFormatInfo.format === 'outline') {
+                // Hierarchical markers are absolute within the document
+                ilvl = Math.min(8, lineFormatInfo.depth);
+            } else {
+                // Simple markers or no-marker lines are relative to the original paragraph's level
+                ilvl = Math.min(8, indentLevel + contextLevel);
+            }
 
             // Strip list markers from the text
-            const rawText = line.trim().replace(/^((?:\d+(?:\.\d+)*\.?|\([a-zA-Z0-9ivxlc]+\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|-|\*|•)\s*)/, '');
+            const textAfterMarker = line.replace(markerRegex, '');
 
             // Process markdown formatting (e.g., **bold**, *italic*)
-            const { cleanText, formatHints } = preprocessMarkdown(rawText);
+            const { cleanText: segmentText, formatHints } = preprocessMarkdown(textAfterMarker);
 
-            const numId = this.numberingService.getOrCreateNumId({ type: lineFormat }, numberingContext);
+            // Get or create numId. 
+            // In a recursive scheme (1.1.1), numberingService should ideally decide if we stay in same numId.
+            const numId = this.numberingService.getOrCreateNumId({ type: lineFormatInfo.format }, numberingContext);
             const pPrXml = this.numberingService.buildListPPr(numId, ilvl);
 
             const runModel = [];
@@ -252,16 +275,15 @@ export class ReconciliationPipeline {
                 runModel.push(...deletionRuns);
             }
 
-            // Add the new text as an insertion (with clean text, formatting comes from hints)
+            // Add the new text as an insertion
             runModel.push({
                 kind: this.generateRedlines ? 'insertion' : 'run',
-                text: cleanText,
+                text: segmentText,
                 author: this.author,
                 startOffset: 0,
-                endOffset: cleanText.length
+                endOffset: segmentText.length
             });
 
-            // Pass formatHints to serialization for proper bold/italic/etc formatting
             const itemOoxml = serializeToOoxml(runModel, pPrXml, formatHints, {
                 author: this.author,
                 generateRedlines: this.generateRedlines
@@ -280,6 +302,33 @@ export class ReconciliationPipeline {
             numberingXml: numberingXml
         };
     }
+
+    /**
+     * Heuristically detects the indentation step (number of spaces or tabs per level).
+     * 
+     * @param {string[]} lines - Array of lines
+     * @returns {number} The detected step (defaulting to 2)
+     */
+    detectIndentationStep(lines) {
+        const indentations = lines
+            .map(l => l.match(/^(\s*)/)[0].length)
+            .filter(len => len > 0)
+            .sort((a, b) => a - b);
+
+        if (indentations.length === 0) return 2; // Default
+
+        // Find the smallest non-zero jump
+        let minJump = indentations[0];
+        for (let i = 1; i < indentations.length; i++) {
+            const jump = indentations[i] - indentations[i - 1];
+            if (jump > 0 && jump < minJump) {
+                minJump = jump;
+            }
+        }
+
+        return minJump || 2;
+    }
+
 
     /**
      * Executes table generation from markdown text.

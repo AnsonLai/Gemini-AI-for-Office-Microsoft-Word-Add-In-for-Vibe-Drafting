@@ -25,7 +25,7 @@ export class NumberingService {
     /**
      * Resolves the best numId to use for a requested list format.
      * 
-     * @param {Object} formatConfig - Requested format (type, level)
+     * @param {Object} formatConfig - Requested format (type, depth)
      * @param {Object} existingContext - Context from adjacent paragraph
      * @returns {string} The numId to use
      */
@@ -34,7 +34,6 @@ export class NumberingService {
 
         // Priority 1: Use existing context if it matches the requested type
         if (existingContext && existingContext.numId) {
-            // If we have type info from context, check if it matches
             if (existingContext.type === requestedType || existingContext.type === 'unknown') {
                 return existingContext.numId;
             }
@@ -45,67 +44,73 @@ export class NumberingService {
             return this.contextMap.get(requestedType);
         }
 
-        // Priority 3: Fallback based on type
-        // Word standard: 1 for bullet (circles), 2 for decimal (1., 2., 3.)
-        if (requestedType === NumberFormat.DECIMAL || requestedType === NumberFormat.OUTLINE) return '2';
+        // Priority 3: Special Handling for Outline (recursive 1.1.1)
+        if (requestedType === NumberFormat.OUTLINE) {
+            // Use our new predefined Outline scheme (numId 3)
+            return '3';
+        }
+
+        // Priority 4: Fallback based on type
+        if (requestedType === NumberFormat.DECIMAL) return '2';
         if (requestedType === NumberFormat.BULLET) return '1';
 
-        // If it's a specific alpha/roman type, we ideally would inject a new numbering def
-        // For now, mapping to 2 (decimal) as common base if specific one isn't found
+        // If it's a specific alpha/roman type, we might need a custom scheme if levels 1/2 of NumId 2 aren't enough
         return '2';
     }
 
     /**
-     * Detects numbering format from a string marker (e.g. "1.", "(a)", "i.")
+     * Detects numbering format from a string marker (e.g. "1.", "(a)", "i.", "1.1.")
      * 
      * @param {string} marker - The marker text
-     * @returns {Object} { format, suffix }
+     * @returns {Object} { format, suffix, depth }
      */
     detectNumberingFormat(marker) {
         const m = (marker || '').trim();
-        if (!m) return { format: NumberFormat.BULLET, suffix: NumberSuffix.NONE };
+        if (!m) return { format: NumberFormat.BULLET, suffix: NumberSuffix.NONE, depth: 0 };
 
         // Bullet
         if (/^[-*•]$/.test(m)) {
-            return { format: NumberFormat.BULLET, suffix: NumberSuffix.NONE };
+            return { format: NumberFormat.BULLET, suffix: NumberSuffix.NONE, depth: 0 };
         }
 
         // Hierarchical outline: 1.1.2 or 4.1.2.3
-        if (/^\d+(\.\d+)+\.?$/.test(m)) {
-            return { format: NumberFormat.OUTLINE, suffix: NumberSuffix.PERIOD };
+        const outlineMatch = m.match(/^(\d+(?:\.\d+)+)\.?$/);
+        if (outlineMatch) {
+            const depth = outlineMatch[1].split('.').length - 1;
+            return { format: NumberFormat.OUTLINE, suffix: NumberSuffix.PERIOD, depth };
         }
 
         // Parenthesized formats: (a), (i), (1)
         if (/^\([a-z]\)$/.test(m)) {
-            return { format: NumberFormat.LOWER_ALPHA, suffix: NumberSuffix.PAREN_BOTH };
+            return { format: NumberFormat.LOWER_ALPHA, suffix: NumberSuffix.PAREN_BOTH, depth: 0 };
         }
         if (/^\([ivxlc]+\)$/i.test(m)) {
             const isLower = m === m.toLowerCase();
-            return { format: isLower ? NumberFormat.LOWER_ROMAN : NumberFormat.UPPER_ROMAN, suffix: NumberSuffix.PAREN_BOTH };
+            return { format: isLower ? NumberFormat.LOWER_ROMAN : NumberFormat.UPPER_ROMAN, suffix: NumberSuffix.PAREN_BOTH, depth: 0 };
         }
         if (/^\(\d+\)$/.test(m)) {
-            return { format: NumberFormat.DECIMAL, suffix: NumberSuffix.PAREN_BOTH };
+            return { format: NumberFormat.DECIMAL, suffix: NumberSuffix.PAREN_BOTH, depth: 0 };
         }
 
         // Standard formats with period: 1., a., A., i., I.
         if (/^\d+\.$/.test(m)) {
-            return { format: NumberFormat.DECIMAL, suffix: NumberSuffix.PERIOD };
+            return { format: NumberFormat.DECIMAL, suffix: NumberSuffix.PERIOD, depth: 0 };
         }
         if (/^[a-z]\.$/.test(m)) {
-            return { format: NumberFormat.LOWER_ALPHA, suffix: NumberSuffix.PERIOD };
+            return { format: NumberFormat.LOWER_ALPHA, suffix: NumberSuffix.PERIOD, depth: 0 };
         }
         if (/^[A-Z]\.$/.test(m)) {
-            return { format: NumberFormat.UPPER_ALPHA, suffix: NumberSuffix.PERIOD };
+            return { format: NumberFormat.UPPER_ALPHA, suffix: NumberSuffix.PERIOD, depth: 0 };
         }
         if (/^[ivxlc]+\.$/i.test(m)) {
             const isLower = m === m.toLowerCase();
-            return { format: isLower ? NumberFormat.LOWER_ROMAN : NumberFormat.UPPER_ROMAN, suffix: NumberSuffix.PERIOD };
+            return { format: isLower ? NumberFormat.LOWER_ROMAN : NumberFormat.UPPER_ROMAN, suffix: NumberSuffix.PERIOD, depth: 0 };
         }
 
         // Default to decimal if it looks like a number
-        if (/^\d+/.test(m)) return { format: NumberFormat.DECIMAL, suffix: NumberSuffix.PERIOD };
+        if (/^\d+/.test(m)) return { format: NumberFormat.DECIMAL, suffix: NumberSuffix.PERIOD, depth: 0 };
 
-        return { format: NumberFormat.BULLET, suffix: NumberSuffix.NONE };
+        return { format: NumberFormat.BULLET, suffix: NumberSuffix.NONE, depth: 0 };
     }
 
     /**
@@ -202,6 +207,17 @@ export class NumberingService {
             <w:lvl w:ilvl="4"><w:start w:val="1"/><w:numFmt w:val="lowerLetter"/><w:lvlText w:val="%5."/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="3600" w:hanging="360"/></w:pPr></w:lvl>
         </w:abstractNum>`;
 
+        // Outline Numbered (numId 3) - 1 / 1.1 / 1.1.1
+        let abstractNum2 = `
+        <w:abstractNum w:abstractNumId="2">
+            <w:multiLevelType w:val="multilevel"/>
+            <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl>
+            <w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1.%2"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="1440" w:hanging="360"/></w:pPr></w:lvl>
+            <w:lvl w:ilvl="2"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1.%2.%3"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="2160" w:hanging="360"/></w:pPr></w:lvl>
+            <w:lvl w:ilvl="3"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1.%2.%3.%4"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="2880" w:hanging="360"/></w:pPr></w:lvl>
+            <w:lvl w:ilvl="4"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1.%2.%3.%4.%5"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="3600" w:hanging="360"/></w:pPr></w:lvl>
+        </w:abstractNum>`;
+
         // Handle custom configurations (e.g. outline 1.1.1)
         let customAbstractNums = '';
         let customNums = '';
@@ -231,12 +247,16 @@ export class NumberingService {
         <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
             ${abstractNum0}
             ${abstractNum1}
+            ${abstractNum2}
             ${customAbstractNums}
             <w:num w:numId="1">
                 <w:abstractNumId w:val="0"/>
             </w:num>
             <w:num w:numId="2">
                 <w:abstractNumId w:val="1"/>
+            </w:num>
+            <w:num w:numId="3">
+                <w:abstractNumId w:val="2"/>
             </w:num>
             ${customNums}
         </w:numbering>`;
