@@ -16,6 +16,7 @@ import { parseTable, ReconciliationPipeline } from './pipeline.js';
 import { wordsToChars, charsToWords } from './diff-engine.js';
 import { NumberingService } from './numbering-service.js';
 import { ingestTableToVirtualGrid } from './ingestion.js';
+import { wrapInDocumentFragment } from './serialization.js';
 import { NS_W } from './types.js';
 
 // ============================================================================
@@ -315,15 +316,18 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
         return result;
     } else if (isTargetList) {
         // Use the new ReconciliationPipeline for list expanded content
+        console.log('[OxmlEngine] 🎯 Using reconciliation pipeline for list generation');
         const pipeline = new ReconciliationPipeline({ author, generateRedlines });
         const result = await pipeline.execute(oxml, modifiedText);
 
         // Wrap the result with numbering definitions for proper list rendering
         if (result.isValid && result.ooxml && result.ooxml !== oxml) {
-            const wrapped = pipeline.wrapForInsertion(result.ooxml, {
+            console.log(`[OxmlEngine] Wrapping list OOXML with numbering definitions, includeNumbering=${result.includeNumbering}`);
+            const wrapped = wrapInDocumentFragment(result.ooxml, {
                 includeNumbering: result.includeNumbering || true,
                 numberingXml: result.numberingXml
             });
+            console.log(`[OxmlEngine] ✅ Wrapped OOXML length: ${wrapped.length}`);
             return { oxml: wrapped, hasChanges: true };
         }
         return { oxml, hasChanges: false };

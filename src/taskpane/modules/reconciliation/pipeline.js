@@ -9,7 +9,7 @@ import { preprocessMarkdown } from './markdown-processor.js';
 import { computeWordLevelDiffOps } from './diff-engine.js';
 import { splitRunsAtDiffBoundaries, applyPatches } from './patching.js';
 import { serializeToOoxml, wrapInDocumentFragment } from './serialization.js';
-import { ContentType } from './types.js';
+import { ContentType, RunKind } from './types.js';
 import { NumberingService } from './numbering-service.js';
 import { detectNumberingContext } from './ingestion.js';
 import { generateTableOoxml } from './table-reconciliation.js';
@@ -71,17 +71,21 @@ export class ReconciliationPipeline {
             // Stage 3: Compute word-level diff
             const diffOps = computeWordLevelDiffOps(acceptedText, cleanText);
 
+            // Count actual paragraph elements ingested
+            const paragraphCount = runModel.filter(r => r.kind === RunKind.PARAGRAPH_START).length;
+
             // Detect if this is a list transformation (e.g., paragraph with newlines)
-            const markersRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s*)/m;
+            const markersRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s+)/m;
             const isTargetList = cleanText.includes('\n') && markersRegex.test(cleanText);
-            // Key fix: Only use executeListGeneration for EXPANSION (single paragraph -> list)
-            // If acceptedText already has newlines, we ingested multiple paragraphs and should use surgical diff
-            const isExpansion = isTargetList && !acceptedText.includes('\n');
 
-            console.log(`[Reconcile] isTargetList: ${isTargetList}, isExpansion: ${isExpansion}, acceptedText n lines: ${acceptedText.split('\n').length}`);
+            console.log(`[Reconcile] isTargetList: ${isTargetList}, paragraphCount: ${paragraphCount}`);
 
-            if (isExpansion) {
-                console.log('[Reconcile] Detected list expansion from single paragraph');
+            // If target is a list, always use list generation logic
+            // This handles both expansion (1 para -> N items) and conversion (N paras -> M items)
+            if (isTargetList) {
+                console.log('[Reconcile] 🎯 ENTERING LIST GENERATION PATH');
+                console.log(`[Reconcile] cleanText preview: ${cleanText.substring(0, 100)}...`);
+                console.log(`[Reconcile] acceptedText preview: ${acceptedText.substring(0, 100)}...`);
                 return this.executeListGeneration(cleanText, numberingContext, runModel);
             }
 
@@ -213,7 +217,7 @@ export class ReconciliationPipeline {
 
         // Determine the primary list type and format from the first item
         let firstMarker = '';
-        const markerRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s*)/;
+        const markerRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s+)/;
 
         for (const line of rawLines) {
             const match = line.match(markerRegex);
@@ -302,8 +306,12 @@ export class ReconciliationPipeline {
 
         const numberingXml = this.numberingService.generateNumberingXml();
 
+        const finalOoxml = results.join('');
+        console.log(`[ListGen] ✅ Generated OOXML for ${results.length} list items, total length: ${finalOoxml.length}`);
+        console.log(`[ListGen] First 200 chars: ${finalOoxml.substring(0, 200)}...`);
+
         return {
-            ooxml: results.join(''),
+            ooxml: finalOoxml,
             isValid: true,
             warnings: ['Paragraph expanded to list fragment'],
             type: 'fragment',

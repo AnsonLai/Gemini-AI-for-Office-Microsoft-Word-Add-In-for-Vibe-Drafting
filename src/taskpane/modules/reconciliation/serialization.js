@@ -29,7 +29,7 @@ export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = 
             // Build paragraph properties - handle both string and DOM element
             let pPrContent = '';
             if (currentPPrXml) {
-                pPrContent = currentPPrXml.replace(/\s*xmlns:[^=]+="[^"]*"/g, '');
+                pPrContent = currentPPrXml.replace(/\s+xmlns:[^=]+="[^"]*"/g, '');
             } else if (pPr) {
                 // Fallback to legacy pPr if no PARAGRAPH_START was seen
                 if (typeof pPr === 'string') {
@@ -37,7 +37,7 @@ export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = 
                 } else {
                     pPrContent = new XMLSerializer().serializeToString(pPr);
                 }
-                pPrContent = pPrContent.replace(/\s*xmlns:[^=]+="[^"]*"/g, '');
+                pPrContent = pPrContent.replace(/\s+xmlns:[^=]+="[^"]*"/g, '');
             }
             paragraphs.push(`<w:p>${pPrContent}${currentRuns.join('')}</w:p>`);
             currentRuns = [];
@@ -78,7 +78,7 @@ export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = 
             case RunKind.HYPERLINK:
                 // Pass through original XML - but strip any namespace declarations
                 if (item.nodeXml) {
-                    currentRuns.push(item.nodeXml.replace(/\s*xmlns:[^=]+="[^"]*"/g, ''));
+                    currentRuns.push(item.nodeXml.replace(/\s+xmlns:[^=]+="[^"]*"/g, ''));
                 }
                 break;
 
@@ -129,7 +129,7 @@ function buildRunXmlWithHints(item, formatHints, options = {}) {
 
     if (applicableHints.length === 0) {
         // No formatting changes - use original rPr (strip namespace)
-        let cleanRPr = item.rPrXml ? item.rPrXml.replace(/\s*xmlns:[^=]+="[^"]*"/g, '') : '';
+        let cleanRPr = item.rPrXml ? item.rPrXml.replace(/\s+xmlns:[^=]+="[^"]*"/g, '') : '';
         if (options && typeof options === 'string') { // Support old signature if called directly
             cleanRPr = applyFont(cleanRPr, options);
         }
@@ -141,7 +141,7 @@ function buildRunXmlWithHints(item, formatHints, options = {}) {
     let pos = 0;
     const text = item.text;
     const baseOffset = item.startOffset;
-    let cleanRPr = item.rPrXml ? item.rPrXml.replace(/\s*xmlns:[^=]+="[^"]*"/g, '') : '';
+    let cleanRPr = item.rPrXml ? item.rPrXml.replace(/\s+xmlns:[^=]+="[^"]*"/g, '') : '';
     const font = typeof options === 'string' ? options : (options?.font);
 
     for (const hint of applicableHints) {
@@ -190,7 +190,7 @@ function buildSimpleRun(text, rPrXml) {
 function buildDeletionXml(item, author, font = null) {
     const revId = getNextRevisionId();
     const date = new Date().toISOString();
-    let rPr = item.rPrXml ? item.rPrXml.replace(/\s*xmlns:[^=]+="[^"]*"/g, '') : '';
+    let rPr = item.rPrXml ? item.rPrXml.replace(/\s+xmlns:[^=]+="[^"]*"/g, '') : '';
 
     if (font) {
         rPr = applyFont(rPr, font);
@@ -216,7 +216,7 @@ function buildInsertionXml(item, formatHints, author, font = null) {
     // Build the inner run content with format hints
     const applicableHints = getApplicableFormatHints(formatHints, item.startOffset, item.endOffset);
     let innerContent = '';
-    let cleanRPr = item.rPrXml ? item.rPrXml.replace(/\s*xmlns:[^=]+="[^"]*"/g, '') : '';
+    let cleanRPr = item.rPrXml ? item.rPrXml.replace(/\s+xmlns:[^=]+="[^"]*"/g, '') : '';
 
     if (font) {
         cleanRPr = applyFont(cleanRPr, font);

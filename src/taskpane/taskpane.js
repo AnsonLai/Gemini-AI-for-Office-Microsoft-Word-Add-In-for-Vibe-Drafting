@@ -2744,6 +2744,42 @@ Return ONLY the JSON array, nothing else:`;
                     targetParagraph.insertOoxml(wrappedOoxml, insertMode);
                     await context.sync();
                     console.log(`✅ OOXML list generation successful`);
+
+                    // WORKAROUND: Insert a dummy spacing paragraph after the list, then remove it
+                    // This forces Word to properly re-evaluate and link the list structure
+                    try {
+                      // Get all paragraphs to find the newly inserted list items
+                      const paragraphs = context.document.body.paragraphs;
+                      paragraphs.load("items");
+                      await context.sync();
+
+                      // Find the paragraph at the target index (after replacement/insertion)
+                      const targetIdx = targetParagraph.index || paragraphIndex;
+
+                      // Calculate how many list items were inserted
+                      const listItemCount = listData.items.length;
+
+                      // Insert dummy paragraph after the last list item
+                      if (targetIdx + listItemCount - 1 < paragraphs.items.length) {
+                        const lastListItem = paragraphs.items[targetIdx + listItemCount - 1];
+                        const dummyPara = lastListItem.insertParagraph("", "After");
+                        await context.sync();
+
+                        console.log(`[ListGen] Inserted dummy spacing paragraph after ${listItemCount} list items`);
+
+                        // Force Word to re-evaluate
+                        await context.sync();
+
+                        // Delete the dummy paragraph
+                        dummyPara.delete();
+                        await context.sync();
+
+                        console.log(`[ListGen] Removed dummy spacing paragraph`);
+                      }
+                    } catch (spacingError) {
+                      console.warn(`[ListGen] Spacing workaround failed (non-critical):`, spacingError.message);
+                    }
+
                     changesApplied++;
                   } finally {
                     // Restore track changes mode
@@ -4408,6 +4444,47 @@ async function routeChangeOperation(change, targetParagraph, context) {
       targetParagraph.insertOoxml(result.oxml, 'Replace');
       await context.sync();
       console.log("✅ OOXML Hybrid Mode reconciliation successful");
+
+      // WORKAROUND: If this was a list transformation, insert dummy paragraph to force Word re-evaluation
+      // Detect if the result contains list formatting
+      if (result.oxml.includes('<w:numPr>') || result.oxml.includes('ListParagraph')) {
+        try {
+          console.log('[OxmlEngine] Detected list in result, applying spacing workaround');
+
+          // Count how many paragraphs were generated (count <w:p> tags)
+          const pCount = (result.oxml.match(/<w:p>/g) || []).length;
+
+          if (pCount > 1) {
+            // Reload paragraphs to get the newly inserted ones
+            const paragraphs = context.document.body.paragraphs;
+            paragraphs.load("items");
+            await context.sync();
+
+            // Find the target paragraph index
+            const targetIdx = targetParagraph.index || 0;
+
+            // Insert dummy paragraph after the last list item
+            if (targetIdx + pCount - 1 < paragraphs.items.length) {
+              const lastListItem = paragraphs.items[targetIdx + pCount - 1];
+              const dummyPara = lastListItem.insertParagraph("", "After");
+              await context.sync();
+
+              console.log(`[OxmlEngine] Inserted dummy spacing paragraph after ${pCount} list items`);
+
+              // Force Word to re-evaluate
+              await context.sync();
+
+              // Delete the dummy paragraph
+              dummyPara.delete();
+              await context.sync();
+
+              console.log(`[OxmlEngine] Removed dummy spacing paragraph`);
+            }
+          }
+        } catch (spacingError) {
+          console.warn(`[OxmlEngine] Spacing workaround failed (non-critical):`, spacingError.message);
+        }
+      }
     } finally {
       // Restore track changes mode
       if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
@@ -4643,7 +4720,9 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
     return { success: false, message: "No list items provided." };
   }
 
+  console.log(`\n\n========== 📋 EXECUTE_EDIT_LIST CALLED ==========`);
   console.log(`executeEditList: Converting P${startIndex}-P${endIndex} to ${listType} list with ${newItems.length} items`);
+  console.log(`[executeEditList] Numbering style: ${numberingStyle}`);
   console.log(`[executeEditList] Raw newItems array:`);
   newItems.forEach((item, idx) => {
     console.log(`  [${idx}]: "${item.substring(0, 60)}${item.length > 60 ? '...' : ''}"`);
@@ -4936,70 +5015,27 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
 
         // Get the last edited paragraph to insert after
         const lastEditedIdx = startIdx + existingCount - 1;
-        let insertAfterPara = paragraphs.items[lastEditedIdx];
+        const insertAfterPara = paragraphs.items[lastEditedIdx];
 
         console.log(`[executeEditList] Will insert after P${lastEditedIdx + 1}`);
+
+        // Build all new paragraphs into a single OOXML package
+        const newParagraphsXml = [];
 
         for (let i = existingCount; i < newCount; i++) {
           const item = itemsWithLevels[i];
           const ilvl = existingBaseIlvl + item.level;
-          // Use the same numId as determined earlier for this list
           const numIdForPhase2 = (!existingNumId && listType === "numbered" && numFmt !== 'decimal') ? '100' : (existingNumId || templateNumId);
 
-          console.log(`[executeEditList] Inserting item ${i + 1}: "${item.text.substring(0, 30)}..." at ilvl=${ilvl}`);
+          console.log(`[executeEditList] Building paragraph ${i + 1}: "${item.text.substring(0, 30)}..." at ilvl=${ilvl}`);
 
-          // Build OOXML for the new list item (same approach as Phase 1)
           const escapedText = item.text
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
 
-          // Include numbering.xml part for first Phase 2 item if using custom style
-          // (subsequent items can reuse the numId that was established)
-          let phase2NumberingPart = '';
-          if (i === existingCount && !existingNumId && listType === "numbered" && numFmt !== 'decimal') {
-            phase2NumberingPart = `
-            <pkg:part pkg:name="/word/_rels/document.xml.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
-              <pkg:xmlData>
-                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-                  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
-                </Relationships>
-              </pkg:xmlData>
-            </pkg:part>
-            <pkg:part pkg:name="/word/numbering.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml">
-              <pkg:xmlData>
-                <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-                  <w:abstractNum w:abstractNumId="100">
-                    <w:multiLevelType w:val="multilevel"/>
-                    <w:lvl w:ilvl="0">
-                      <w:start w:val="1"/>
-                      <w:numFmt w:val="${numFmt}"/>
-                      <w:lvlText w:val="%1."/>
-                      <w:lvlJc w:val="left"/>
-                      <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr>
-                    </w:lvl>
-                  </w:abstractNum>
-                  <w:num w:numId="100">
-                    <w:abstractNumId w:val="100"/>
-                  </w:num>
-                </w:numbering>
-              </pkg:xmlData>
-            </pkg:part>`;
-          }
-
-          const oxmlPara = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-            <pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
-              <pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
-                <pkg:xmlData>
-                  <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-                    <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
-                  </Relationships>
-                </pkg:xmlData>
-              </pkg:part>${phase2NumberingPart}
-              <pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">
-                <pkg:xmlData>
-                  <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-                    <w:body>
+          // Build paragraph XML (without full package wrapper)
+          newParagraphsXml.push(`
                       <w:p>
                         <w:pPr>
                           <w:pStyle w:val="ListParagraph"/>
@@ -5011,29 +5047,96 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
                         <w:r>
                           <w:t xml:space="preserve">${escapedText}</w:t>
                         </w:r>
-                      </w:p>
-                    </w:body>
-                  </w:document>
-                </pkg:xmlData>
-              </pkg:part>
-            </pkg:package>`;
+                      </w:p>`);
+        }
 
-          // Insert OOXML after the last paragraph
-          const insertRange = insertAfterPara.getRange("End");
-          insertRange.insertOoxml(oxmlPara, "After");
-          await context.sync();
+        // Include numbering.xml part if using custom style
+        let phase2NumberingPart = '';
+        if (!existingNumId && listType === "numbered" && numFmt !== 'decimal') {
+          phase2NumberingPart = `
+          <pkg:part pkg:name="/word/_rels/document.xml.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
+            <pkg:xmlData>
+              <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
+              </Relationships>
+            </pkg:xmlData>
+          </pkg:part>
+          <pkg:part pkg:name="/word/numbering.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml">
+            <pkg:xmlData>
+              <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                <w:abstractNum w:abstractNumId="100">
+                  <w:multiLevelType w:val="multilevel"/>
+                  <w:lvl w:ilvl="0">
+                    <w:start w:val="1"/>
+                    <w:numFmt w:val="${numFmt}"/>
+                    <w:lvlText w:val="%1."/>
+                    <w:lvlJc w:val="left"/>
+                    <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr>
+                  </w:lvl>
+                </w:abstractNum>
+                <w:num w:numId="100">
+                  <w:abstractNumId w:val="100"/>
+                </w:num>
+              </w:numbering>
+            </pkg:xmlData>
+          </pkg:part>`;
+        }
 
-          // Reload paragraphs to get the newly inserted one for next iteration
+        // Combine all paragraphs into a single OOXML package
+        const combinedOxml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
+            <pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
+              <pkg:xmlData>
+                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+                </Relationships>
+              </pkg:xmlData>
+            </pkg:part>${phase2NumberingPart}
+            <pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">
+              <pkg:xmlData>
+                <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                  <w:body>
+                    ${newParagraphsXml.join('\n')}
+                  </w:body>
+                </w:document>
+              </pkg:xmlData>
+            </pkg:part>
+          </pkg:package>`;
+
+        // Insert all new paragraphs at once
+        const insertRange = insertAfterPara.getRange("End");
+        insertRange.insertOoxml(combinedOxml, "After");
+        await context.sync();
+
+        console.log(`[executeEditList] Inserted ${newCount - existingCount} new paragraphs via single OOXML package`);
+
+        // WORKAROUND: Insert a dummy spacing paragraph after the list, then remove it
+        // This forces Word to properly re-evaluate and link the list structure
+        try {
+          // Reload paragraphs to get the newly inserted ones
           paragraphs.load("items");
           await context.sync();
 
-          // The new paragraph should be at lastEditedIdx + (i - existingCount + 1)
-          const newParaIdx = lastEditedIdx + (i - existingCount + 1);
-          if (newParaIdx < paragraphs.items.length) {
-            insertAfterPara = paragraphs.items[newParaIdx];
-          }
+          // Insert a blank paragraph after the last list item
+          const lastListItemIdx = startIdx + newCount - 1;
+          if (lastListItemIdx < paragraphs.items.length) {
+            const lastListItem = paragraphs.items[lastListItemIdx];
+            const dummyPara = lastListItem.insertParagraph("", "After");
+            await context.sync();
 
-          console.log(`[executeEditList] Inserted new paragraph ${i + 1} via OOXML`);
+            console.log(`[executeEditList] Inserted dummy spacing paragraph`);
+
+            // Force Word to re-evaluate by syncing again
+            await context.sync();
+
+            // Now delete the dummy paragraph
+            dummyPara.delete();
+            await context.sync();
+
+            console.log(`[executeEditList] Removed dummy spacing paragraph`);
+          }
+        } catch (spacingError) {
+          console.warn(`[executeEditList] Spacing workaround failed (non-critical):`, spacingError.message);
         }
       }
 
@@ -5055,6 +5158,8 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
         await context.sync();
       }
 
+      console.log(`\n[executeEditList] ✅ SUCCESSFULLY COMPLETED`);
+      console.log(`========== END EXECUTE_EDIT_LIST ==========\n\n`);
       console.log(`Successfully replaced paragraphs with ${listType} list`);
     });
 
