@@ -4254,51 +4254,124 @@ async function applyNativeList(targetParagraph, listData, context) {
     return;
   }
 
-  console.log(`Applying native ${listData.type} list with ${listData.items.length} items`);
-
-  // Determine the built-in style to use
-  const listStyle = listData.type === 'numbered'
-    ? Word.BuiltInStyleName.listNumber
-    : Word.BuiltInStyleName.listBullet;
+  console.log(`Applying native ${listData.type} list with ${listData.items.length} items (Mixed Content Mode with Formatting)`);
 
   // Clear the target paragraph first
   targetParagraph.clear();
 
-  // Apply first item to target paragraph
+  // Helper to apply style based on item type
+  const applyStyleForItem = async (para, item) => {
+    // 1. Process markdown to separate clean text and hints
+    const { cleanText, formatHints } = await preprocessMarkdownForParagraph(item.text);
+
+    // 2. Apply list style/level (do this BEFORE content manipulation if possible, or after)
+    // Applying style first is usually safer for List interactions
+    if (item.type === 'numbered') {
+      para.styleBuiltIn = Word.BuiltInStyleName.listNumber;
+      para.load('listItemOrNullObject');
+      await context.sync();
+      if (!para.listItemOrNullObject.isNullObject) {
+        para.listItemOrNullObject.level = item.level || 0;
+      }
+    } else if (item.type === 'bullet') {
+      para.styleBuiltIn = Word.BuiltInStyleName.listBullet;
+      para.load('listItemOrNullObject');
+      await context.sync();
+      if (!para.listItemOrNullObject.isNullObject) {
+        para.listItemOrNullObject.level = item.level || 0;
+      }
+    } else {
+      // Plain text - avoid list style
+      para.styleBuiltIn = "Normal";
+    }
+
+    // 3. Insert the clean text (no markdown symbols)
+    // Note: iterating items logic below handles insertion differently for first vs rest
+    return { cleanText, formatHints };
+  };
+
+  // Helper to apply formatting AFTER text insertion
+  const applyFormatting = async (para, cleanText, formatHints) => {
+    if (formatHints && formatHints.length > 0) {
+      try {
+        await applyFormatHintsToRanges(para, cleanText, formatHints, context);
+      } catch (e) {
+        console.warn("Failed to apply list item formatting:", e);
+      }
+    }
+  };
+
+  // --- Process Item 0 (Target Paragraph) ---
   const firstItem = listData.items[0];
-  targetParagraph.insertText(firstItem.text, Word.InsertLocation.end);
-  targetParagraph.styleBuiltIn = listStyle;
 
-  // Set the list level for first item
-  targetParagraph.load('listItemOrNullObject');
-  await context.sync();
+  // Clean parsing
+  const { cleanText: firstClean, formatHints: firstHints } = await preprocessMarkdownForParagraph(firstItem.text);
 
-  if (!targetParagraph.listItemOrNullObject.isNullObject) {
-    targetParagraph.listItemOrNullObject.level = firstItem.level || 0;
+  // Insert text
+  targetParagraph.insertText(firstClean, Word.InsertLocation.end);
+
+  // Apply Structure
+  if (firstItem.type === 'numbered') {
+    targetParagraph.styleBuiltIn = Word.BuiltInStyleName.listNumber;
+    targetParagraph.load('listItemOrNullObject');
+    await context.sync();
+    if (!targetParagraph.listItemOrNullObject.isNullObject) {
+      targetParagraph.listItemOrNullObject.level = firstItem.level || 0;
+    }
+  } else if (firstItem.type === 'bullet') {
+    targetParagraph.styleBuiltIn = Word.BuiltInStyleName.listBullet;
+    targetParagraph.load('listItemOrNullObject');
+    await context.sync();
+    if (!targetParagraph.listItemOrNullObject.isNullObject) {
+      targetParagraph.listItemOrNullObject.level = firstItem.level || 0;
+    }
+  } else {
+    targetParagraph.styleBuiltIn = "Normal";
   }
 
-  // Insert remaining items
+  // Apply Formatting
+  await applyFormatting(targetParagraph, firstClean, firstHints);
+
+
+  // --- Process Remaining Items ---
   let previousPara = targetParagraph;
+
   for (let i = 1; i < listData.items.length; i++) {
     const item = listData.items[i];
 
-    // Insert new paragraph after previous
-    const newPara = previousPara.insertParagraph(item.text, Word.InsertLocation.after);
-    newPara.styleBuiltIn = listStyle;
+    // Parse content
+    const { cleanText, formatHints } = await preprocessMarkdownForParagraph(item.text);
 
-    // Set list level
-    newPara.load('listItemOrNullObject');
-    await context.sync();
+    // Insert new paragraph with clean text
+    const newPara = previousPara.insertParagraph(cleanText, Word.InsertLocation.after);
 
-    if (!newPara.listItemOrNullObject.isNullObject) {
-      newPara.listItemOrNullObject.level = item.level || 0;
+    // Apply Structure
+    if (item.type === 'numbered') {
+      newPara.styleBuiltIn = Word.BuiltInStyleName.listNumber;
+      newPara.load('listItemOrNullObject');
+      await context.sync();
+      if (!newPara.listItemOrNullObject.isNullObject) {
+        newPara.listItemOrNullObject.level = item.level || 0;
+      }
+    } else if (item.type === 'bullet') {
+      newPara.styleBuiltIn = Word.BuiltInStyleName.listBullet;
+      newPara.load('listItemOrNullObject');
+      await context.sync();
+      if (!newPara.listItemOrNullObject.isNullObject) {
+        newPara.listItemOrNullObject.level = item.level || 0;
+      }
+    } else {
+      newPara.styleBuiltIn = "Normal";
     }
+
+    // Apply Formatting
+    await applyFormatting(newPara, cleanText, formatHints);
 
     previousPara = newPara;
   }
 
   await context.sync();
-  console.log(`Successfully applied native list`);
+  console.log(`Successfully applied mixed content list with formatting`);
 }
 
 
