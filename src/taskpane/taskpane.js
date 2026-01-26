@@ -4201,7 +4201,12 @@ function parseMarkdownList(content) {
     if (!line.trim()) continue;
 
     // Unified marker regex matching NumberingService and Pipeline
-    const markerRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s*)(.*)$/;
+    // REQUIREMENT: Marker must be followed by whitespace or end-of-line to distinguish from bold/italic
+    // Matches: "* item", "1. item", "1.item" (no space - allowed by some parsers but ambiguous),
+    // BUT we want to enforce space for bullets to avoid *Bold* confusion.
+    // The previous regex was: /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s*)(.*)$/
+    // New regex uses lookahead (?=\s|$) to ensure marker is separate.
+    const markerRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])(?=\s|$)\s*)(.*)$/;
     const match = line.match(markerRegex);
 
     if (match) {
