@@ -3285,3 +3285,59 @@ validateBasic(ooxml) {
 }
 ```
 
+---
+
+## List Editing Tools
+
+The Word Add-in provides specialized tools for editing lists that preserve the document's existing numbering format and styling.
+
+### Key Decision: Surgical vs. Bulk Editing
+
+> **Problem**: When the AI needs to add a single bullet to an existing list, using the `edit_list` tool (which replaces the entire list range) is destructive. It can corrupt numbering, lose formatting, or create duplicate text when track changes is enabled.
+>
+> **Solution**: We provide two tools:
+> 1. **`insert_list_item`**: For surgical single-item insertions (preferred for adding 1-2 items)
+> 2. **`edit_list`**: For bulk replacement when the list structure changes significantly
+
+### `insert_list_item` Tool
+
+Surgically inserts a single list item after a specific paragraph, inheriting the numbering format from the adjacent paragraph.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `afterParagraphIndex` | Integer | Yes | The paragraph index to insert after (1-based) |
+| `text` | String | Yes | The text content WITHOUT numbering markers |
+| `indentLevel` | Integer | No | Relative indent: 0=same level, 1=sub-item, -1=parent level |
+
+#### Implementation Details
+
+1. **numId Inheritance**: Uses the same `numId` as the adjacent paragraph
+2. **ilvl Calculation**: `newIlvl = baseIlvl + indentLevel`
+3. **rPr Extraction**: Copies font styling from adjacent paragraph's OOXML
+
+```javascript
+// Key flow:
+const insertedPara = adjacentPara.insertParagraph(text, "After");
+insertedPara.listItem.level = newIlvl;  // Word's list API
+```
+
+> [!IMPORTANT]
+> **Numbering Format Limitation**: The visual format depends on the document's `abstractNum` definition. If `ilvl=2` shows "2.3" instead of "2.2.1", the document uses `lvlText="%1."` instead of `lvlText="%1.%2.%3"`.
+
+### `edit_list` Tool (Surgical Mode)
+
+For bulk edits, uses a three-phase surgical approach:
+
+1. **Phase 1**: Edit existing paragraphs in place (preserving numId)
+2. **Phase 2**: Insert new paragraphs if more items than existing
+3. **Phase 3**: Delete excess paragraphs if fewer items
+
+### lvlText Format Reference
+
+| lvlText | Produces | Example |
+|---------|----------|---------|
+| `%1.` | 1., 2., 3. | Simple numbered |
+| `%1.%2` | 1.1, 2.1 | Two-level outline |
+| `%1.%2.%3` | 1.1.1 | Three-level outline |

@@ -18,7 +18,7 @@ import { getApplicableFormatHints } from './markdown-processor.js';
  * @returns {string} OOXML paragraph string (WITHOUT namespace - added by wrapper)
  */
 export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = {}) {
-    const { author = 'Gemini AI', generateRedlines = true } = options;
+    const { author = 'Gemini AI', generateRedlines = true, font = null } = options;
     const paragraphs = [];
     let currentPPrXml = '';
     let currentRuns = [];
@@ -55,22 +55,22 @@ export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = 
                 break;
 
             case RunKind.TEXT:
-                currentRuns.push(buildRunXmlWithHints(item, formatHints));
+                currentRuns.push(buildRunXmlWithHints(item, formatHints, font));
                 break;
 
             case RunKind.DELETION:
                 if (generateRedlines) {
-                    currentRuns.push(buildDeletionXml(item, author));
+                    currentRuns.push(buildDeletionXml(item, author, font));
                 }
                 // If redlines are disabled, we simply omit the deleted content
                 break;
 
             case RunKind.INSERTION:
                 if (generateRedlines) {
-                    currentRuns.push(buildInsertionXml(item, formatHints, author));
+                    currentRuns.push(buildInsertionXml(item, formatHints, author, font));
                 } else {
                     // Treat insertion as a normal run when redlines are disabled
-                    currentRuns.push(buildRunXmlWithHints(item, formatHints));
+                    currentRuns.push(buildRunXmlWithHints(item, formatHints, font));
                 }
                 break;
 
@@ -124,12 +124,15 @@ export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = 
  * @param {import('./types.js').FormatHint[]} formatHints - Format hints
  * @returns {string}
  */
-function buildRunXmlWithHints(item, formatHints) {
+function buildRunXmlWithHints(item, formatHints, options = {}) {
     const applicableHints = getApplicableFormatHints(formatHints, item.startOffset, item.endOffset);
 
     if (applicableHints.length === 0) {
         // No formatting changes - use original rPr (strip namespace)
-        const cleanRPr = item.rPrXml ? item.rPrXml.replace(/\s*xmlns:[^=]+="[^"]*"/g, '') : '';
+        let cleanRPr = item.rPrXml ? item.rPrXml.replace(/\s*xmlns:[^=]+="[^"]*"/g, '') : '';
+        if (options && typeof options === 'string') { // Support old signature if called directly
+            cleanRPr = applyFont(cleanRPr, options);
+        }
         return buildSimpleRun(item.text, cleanRPr);
     }
 
@@ -138,7 +141,8 @@ function buildRunXmlWithHints(item, formatHints) {
     let pos = 0;
     const text = item.text;
     const baseOffset = item.startOffset;
-    const cleanRPr = item.rPrXml ? item.rPrXml.replace(/\s*xmlns:[^=]+="[^"]*"/g, '') : '';
+    let cleanRPr = item.rPrXml ? item.rPrXml.replace(/\s*xmlns:[^=]+="[^"]*"/g, '') : '';
+    const font = typeof options === 'string' ? options : (options?.font);
 
     for (const hint of applicableHints) {
         const localStart = Math.max(0, hint.start - baseOffset);
@@ -183,10 +187,14 @@ function buildSimpleRun(text, rPrXml) {
  * @param {string} author - Author name
  * @returns {string}
  */
-function buildDeletionXml(item, author) {
+function buildDeletionXml(item, author, font = null) {
     const revId = getNextRevisionId();
     const date = new Date().toISOString();
-    const rPr = item.rPrXml ? item.rPrXml.replace(/\s*xmlns:[^=]+="[^"]*"/g, '') : '';
+    let rPr = item.rPrXml ? item.rPrXml.replace(/\s*xmlns:[^=]+="[^"]*"/g, '') : '';
+
+    if (font) {
+        rPr = applyFont(rPr, font);
+    }
 
     return `<w:del w:id="${revId}" w:author="${escapeXml(author)}" w:date="${date}">` +
         `<w:r>${rPr}<w:delText xml:space="preserve">${escapeXml(item.text)}</w:delText></w:r>` +
@@ -201,14 +209,18 @@ function buildDeletionXml(item, author) {
  * @param {string} author - Author name
  * @returns {string}
  */
-function buildInsertionXml(item, formatHints, author) {
+function buildInsertionXml(item, formatHints, author, font = null) {
     const revId = getNextRevisionId();
     const date = new Date().toISOString();
 
     // Build the inner run content with format hints
     const applicableHints = getApplicableFormatHints(formatHints, item.startOffset, item.endOffset);
     let innerContent = '';
-    const cleanRPr = item.rPrXml ? item.rPrXml.replace(/\s*xmlns:[^=]+="[^"]*"/g, '') : '';
+    let cleanRPr = item.rPrXml ? item.rPrXml.replace(/\s*xmlns:[^=]+="[^"]*"/g, '') : '';
+
+    if (font) {
+        cleanRPr = applyFont(cleanRPr, font);
+    }
 
     if (applicableHints.length === 0) {
         innerContent = buildSimpleRun(item.text, cleanRPr);
@@ -239,6 +251,32 @@ function buildInsertionXml(item, formatHints, author) {
     return `<w:ins w:id="${revId}" w:author="${escapeXml(author)}" w:date="${date}">` +
         innerContent +
         `</w:ins>`;
+}
+
+/**
+ * Applies a font to run properties XML.
+ * 
+ * @param {string} baseRPrXml - Base run properties
+ * @param {string} font - Font name
+ * @returns {string}
+ */
+function applyFont(baseRPrXml, font) {
+    if (!font) return baseRPrXml;
+
+    // Extract existing content from rPr
+    let content = '';
+    if (baseRPrXml) {
+        content = baseRPrXml.replace(/<\/?w:rPr[^>]*>/g, '');
+    }
+
+    // Replace or add rFonts
+    if (content.includes('<w:rFonts')) {
+        content = content.replace(/<w:rFonts[^>]*\/>/, `<w:rFonts w:ascii="${font}" w:hAnsi="${font}"/>`);
+    } else {
+        content = `<w:rFonts w:ascii="${font}" w:hAnsi="${font}"/>` + content;
+    }
+
+    return `<w:rPr>${content}</w:rPr>`;
 }
 
 /**

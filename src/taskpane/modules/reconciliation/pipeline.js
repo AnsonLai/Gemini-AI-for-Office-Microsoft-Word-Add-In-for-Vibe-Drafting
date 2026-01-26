@@ -30,6 +30,7 @@ export class ReconciliationPipeline {
         this.author = options.author ?? 'AI';
         this.validateOutput = options.validateOutput ?? true;
         this.numberingService = options.numberingService || new NumberingService();
+        this.font = options.font || null;
     }
 
     /**
@@ -212,7 +213,7 @@ export class ReconciliationPipeline {
 
         // Determine the primary list type and format from the first item
         let firstMarker = '';
-        const markerRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s*)/m;
+        const markerRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s*)/;
 
         for (const line of rawLines) {
             const match = line.match(markerRegex);
@@ -286,7 +287,8 @@ export class ReconciliationPipeline {
 
             const itemOoxml = serializeToOoxml(runModel, pPrXml, formatHints, {
                 author: this.author,
-                generateRedlines: this.generateRedlines
+                generateRedlines: this.generateRedlines,
+                font: this.font
             });
             results.push(itemOoxml);
         }

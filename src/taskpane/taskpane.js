@@ -105,6 +105,7 @@ async function detectDocumentFont() {
  * Ensures proper formatting for Word's HTML parser.
  */
 function markdownToWordHtml(markdown) {
+  console.log(`[markdownToWordHtml] Processing content: ${markdown.substring(0, 50)}...`);
   if (!markdown) return "";
 
   // Pre-process underline and strikethrough (marked native GFM might be disabled or fail in some environments)
@@ -1226,6 +1227,8 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
     return;
   }
 
+  // Hide any existing retry buttons since conversation is continuing
+  hideAllRetryButtons();
 
   // Reset tool execution tracker for this request
   toolsExecutedInCurrentRequest = [];
@@ -2159,7 +2162,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
 
       // Add retry button if it's the specific missing content error
       if (error.message && error.message.includes("Gemini response was missing content.parts")) {
-        addRetryButton(errorMsgEl, chatInput.value || "", modelType);
+        addRetryButton(errorMsgEl, userMessage);
       }
     }
   } finally {
@@ -2355,22 +2358,33 @@ function addUndoButton(messageElement, checkpointIndex) {
   messageElement.appendChild(buttonContainer);
 }
 
-function addRetryButton(messageElement, originalMessage, modelType) {
+function addRetryButton(messageElement, originalMessage) {
   const buttonContainer = document.createElement("div");
-  buttonContainer.className = "revert-btn-container";
+  buttonContainer.className = "revert-btn-container retry-btn-container";
   const retryBtn = document.createElement("button");
-  retryBtn.innerHTML = "<span>&#8635;</span> Retry request"; // ↻ counter-clockwise open circle arrow
+  retryBtn.innerHTML = "<span>&#8635;</span> Retry"; // ↻ counter-clockwise open circle arrow
   retryBtn.className = "revert-checkpoint-btn retry-request-btn";
-  retryBtn.title = "Retry this request";
+  retryBtn.title = "Paste message back into input";
   retryBtn.onclick = () => {
-    // Remove the error message that we're retrying from
-    removeMessage(messageElement);
-    // Call sendChatMessage with the original message as an override
-    sendChatMessage(modelType, originalMessage);
+    // Paste the message into the input field
+    const chatInput = document.getElementById("chat-input");
+    if (chatInput) {
+      chatInput.value = originalMessage;
+      chatInput.focus();
+    }
+    // Hide the retry button after clicking
+    buttonContainer.style.display = "none";
   };
 
   buttonContainer.appendChild(retryBtn);
   messageElement.appendChild(buttonContainer);
+}
+
+function hideAllRetryButtons() {
+  const retryContainers = document.querySelectorAll(".retry-btn-container");
+  retryContainers.forEach(container => {
+    container.style.display = "none";
+  });
 }
 
 function removeMessage(messageElement) {
@@ -2416,7 +2430,7 @@ All content and replacementText values support Markdown formatting. Use these wh
 - ***Bold Italic***: Use ***text*** (triple asterisks)
 - **Unordered/Bullet lists**: Use "- item" or "* item" on separate lines. These render as bullet points (•).
 - **Ordered/Numbered lists**: Use "1. item", "2. item" on separate lines. These render as 1, 2, 3...
-- **Alphabetical lists**: Use "1. item", "2. item" (numbered) - Word will convert to proper numbering.
+- **Alphabetical lists (A, B, C)**: Use "A. item", "B. item" on separate lines. Use lowercase "a. item" for a, b, c. Use "I.", "II." for roman numerals.
 - Line breaks: Use actual newlines (\\n) in the text
 - Tables: Use GitHub-style markdown tables:
   | Header 1 | Header 2 |
@@ -2615,6 +2629,7 @@ Return ONLY the JSON array, nothing else:`;
             // If target is a list item and content is plain text (no list markers), 
             // use OOXML reconciliation to preserve list formatting
             const contentHasListMarkers = /^(\s*)([-*•]|\d+\.|[a-zA-Z]\.|[ivxlcIVXLC]+\.|\d+\.\d+\.?)\s+/m.test(normalizedContent);
+            console.log(`[replace_paragraph] contentHasListMarkers: ${contentHasListMarkers}`);
 
             if (targetIsListItem && !contentHasListMarkers) {
               console.log(`[replace_paragraph] Preserving list context for plain text edit`);
@@ -2671,6 +2686,7 @@ Return ONLY the JSON array, nothing else:`;
 
             // Check if this is a list - use OOXML pipeline for proper redlines
             const listData = parseMarkdownList(normalizedContent);
+            console.log(`[replace_paragraph] listData result: type=${listData?.type}, items=${listData?.items?.length}`);
             if (listData && listData.type !== 'text') {
               console.log(`Detected ${listData.type} list in replace_paragraph, using OOXML pipeline`);
               try {
@@ -2688,7 +2704,8 @@ Return ONLY the JSON array, nothing else:`;
                 const redlineAuthor = loadRedlineAuthor();
                 const pipeline = new ReconciliationPipeline({
                   generateRedlines: redlineEnabled,
-                  author: redlineAuthor
+                  author: redlineAuthor,
+                  font: cachedDocumentFont // Ensure font consistency
                 });
 
                 // Execute list generation - this creates OOXML with w:ins/w:del track changes
@@ -2704,7 +2721,8 @@ Return ONLY the JSON array, nothing else:`;
                 if (result.ooxml && result.isValid) {
                   // Wrap in document fragment for insertOoxml
                   const wrappedOoxml = wrapInDocumentFragment(result.ooxml, {
-                    includeNumbering: result.includeNumbering || true
+                    includeNumbering: true,
+                    numberingXml: result.numberingXml // Crucial for A, B, C styles
                   });
 
                   // Temporarily disable Word's track changes to avoid double-tracking
@@ -4182,23 +4200,24 @@ function parseMarkdownList(content) {
   for (const line of lines) {
     if (!line.trim()) continue;
 
-    // Match numbered list: "1. item" or "  2. item" (with optional indentation)
-    const numberedMatch = line.match(/^(\s*)(\d+)\.\s+(.+)$/);
-    if (numberedMatch) {
-      const indent = numberedMatch[1];
-      const level = Math.floor(indent.length / 2); // 2 spaces = 1 level
-      const text = numberedMatch[3];
-      items.push({ type: 'numbered', level, text });
-      continue;
-    }
+    // Unified marker regex matching NumberingService and Pipeline
+    const markerRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s*)(.*)$/;
+    const match = line.match(markerRegex);
 
-    // Match bullet list: "- item" or "  * item" or "  + item"
-    const bulletMatch = line.match(/^(\s*)[-*+]\s+(.+)$/);
-    if (bulletMatch) {
-      const indent = bulletMatch[1];
-      const level = Math.floor(indent.length / 2);
-      const text = bulletMatch[2];
-      items.push({ type: 'bullet', level, text });
+    if (match) {
+      const indent = match[1];
+      const marker = match[2].trim();
+      const text = match[3];
+      const level = Math.floor(indent.length / 2); // 2 spaces per level
+
+      // Determine type based on marker
+      const isBullet = /^[-*•]$/.test(marker);
+      items.push({
+        type: isBullet ? 'bullet' : 'numbered',
+        level,
+        text: text.trim(),
+        marker: marker
+      });
       continue;
     }
 
@@ -4211,6 +4230,7 @@ function parseMarkdownList(content) {
   // Determine primary type (numbered or bullet)
   const hasNumbered = items.some(i => i.type === 'numbered');
   const hasBullet = items.some(i => i.type === 'bullet');
+  console.log(`[parseMarkdownList] Processing ${lines.length} lines. hasNumbered=${hasNumbered}, hasBullet=${hasBullet}`);
 
   return {
     type: hasNumbered ? 'numbered' : (hasBullet ? 'bullet' : 'text'),
@@ -4803,6 +4823,28 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
 
       const listStyle = `style="list-style-type: ${cssListStyleType}; margin-left: 0; padding-left: 40px;"`;
 
+      // Map numberingStyle to OOXML numFmt values for direct OOXML insertion
+      const numFmtMap = {
+        "decimal": "decimal",
+        "lowerAlpha": "lowerLetter",
+        "upperAlpha": "upperLetter",
+        "lowerRoman": "lowerRoman",
+        "upperRoman": "upperRoman"
+      };
+      const numFmt = numFmtMap[numberingStyle] || "decimal";
+
+      // Determine template numId when creating a new list (no existing numId)
+      // We'll use numId 100+ for custom styles to avoid conflicts
+      let templateNumId = existingNumId;
+      if (!templateNumId) {
+        if (listType === "bullet") {
+          templateNumId = "1"; // Default bullet
+        } else {
+          // For numbered lists, use numId 2 (default decimal) - the numFmt will override display
+          templateNumId = "2";
+        }
+        console.log(`[executeEditList] No existing numId, using template: ${templateNumId}, numFmt: ${numFmt}`);
+      }
       // Detect hierarchy from leading whitespace indentation (4 spaces = 1 level)
       // Also strip any leading list markers from items to avoid doubled numbering
       const markersRegex = /^((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s*)/;
@@ -4865,6 +4907,45 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
           .replace(/</g, '&lt;')
           .replace(/>/g, '&gt;');
 
+        // Use templateNumId when paragraph doesn't have existing numbering
+        const numIdForPara = currentNumId === (existingNumId || '1') && !existingNumId ? templateNumId : currentNumId;
+
+        // Build the numbering.xml part if creating a new list with custom style
+        let numberingPart = '';
+        if (!existingNumId && listType === "numbered" && numFmt !== 'decimal') {
+          // Include a complete numbering definition for custom styles
+          // Use a high numId to avoid conflicts (100+)
+          const customNumId = '100';
+          numberingPart = `
+            <pkg:part pkg:name="/word/_rels/document.xml.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
+              <pkg:xmlData>
+                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
+                </Relationships>
+              </pkg:xmlData>
+            </pkg:part>
+            <pkg:part pkg:name="/word/numbering.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml">
+              <pkg:xmlData>
+                <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                  <w:abstractNum w:abstractNumId="100">
+                    <w:multiLevelType w:val="multilevel"/>
+                    <w:lvl w:ilvl="0">
+                      <w:start w:val="1"/>
+                      <w:numFmt w:val="${numFmt}"/>
+                      <w:lvlText w:val="%1."/>
+                      <w:lvlJc w:val="left"/>
+                      <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr>
+                    </w:lvl>
+                  </w:abstractNum>
+                  <w:num w:numId="100">
+                    <w:abstractNumId w:val="100"/>
+                  </w:num>
+                </w:numbering>
+              </pkg:xmlData>
+            </pkg:part>`;
+          // Use this custom numId for the paragraph
+        }
+
         const oxmlPara = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
           <pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
             <pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
@@ -4873,7 +4954,7 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
                   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
                 </Relationships>
               </pkg:xmlData>
-            </pkg:part>
+            </pkg:part>${numberingPart}
             <pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">
               <pkg:xmlData>
                 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
@@ -4883,7 +4964,7 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
                         <w:pStyle w:val="ListParagraph"/>
                         <w:numPr>
                           <w:ilvl w:val="${newIlvl}"/>
-                          <w:numId w:val="${currentNumId}"/>
+                          <w:numId w:val="${numberingPart ? '100' : numIdForPara}"/>
                         </w:numPr>
                       </w:pPr>
                       <w:r>
@@ -4920,33 +5001,98 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
         for (let i = existingCount; i < newCount; i++) {
           const item = itemsWithLevels[i];
           const ilvl = existingBaseIlvl + item.level;
-          const templateNumId = existingNumId || '1';
+          // Use the same numId as determined earlier for this list
+          const numIdForPhase2 = (!existingNumId && listType === "numbered" && numFmt !== 'decimal') ? '100' : (existingNumId || templateNumId);
 
           console.log(`[executeEditList] Inserting item ${i + 1}: "${item.text.substring(0, 30)}..." at ilvl=${ilvl}`);
 
-          // Insert plain paragraph first
-          const insertedPara = insertAfterPara.insertParagraph(item.text, "After");
-          await context.sync();
+          // Build OOXML for the new list item (same approach as Phase 1)
+          const escapedText = item.text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
 
-          // Apply list formatting using Word's list API
-          try {
-            // Get the inserted paragraph's range and apply list
-            insertedPara.load("listItem");
-            await context.sync();
-
-            // Use setLevelNumbering to apply the list format
-            if (insertedPara.listItem) {
-              insertedPara.listItem.level = ilvl;
-            }
-          } catch (listError) {
-            console.warn(`[executeEditList] Could not apply list format: ${listError.message}`);
+          // Include numbering.xml part for first Phase 2 item if using custom style
+          // (subsequent items can reuse the numId that was established)
+          let phase2NumberingPart = '';
+          if (i === existingCount && !existingNumId && listType === "numbered" && numFmt !== 'decimal') {
+            phase2NumberingPart = `
+            <pkg:part pkg:name="/word/_rels/document.xml.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
+              <pkg:xmlData>
+                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
+                </Relationships>
+              </pkg:xmlData>
+            </pkg:part>
+            <pkg:part pkg:name="/word/numbering.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml">
+              <pkg:xmlData>
+                <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                  <w:abstractNum w:abstractNumId="100">
+                    <w:multiLevelType w:val="multilevel"/>
+                    <w:lvl w:ilvl="0">
+                      <w:start w:val="1"/>
+                      <w:numFmt w:val="${numFmt}"/>
+                      <w:lvlText w:val="%1."/>
+                      <w:lvlJc w:val="left"/>
+                      <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr>
+                    </w:lvl>
+                  </w:abstractNum>
+                  <w:num w:numId="100">
+                    <w:abstractNumId w:val="100"/>
+                  </w:num>
+                </w:numbering>
+              </pkg:xmlData>
+            </pkg:part>`;
           }
 
-          // Update insertAfterPara for next iteration
-          insertAfterPara = insertedPara;
-          console.log(`[executeEditList] Inserted new paragraph ${i + 1}`);
+          const oxmlPara = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
+              <pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
+                <pkg:xmlData>
+                  <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                    <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+                  </Relationships>
+                </pkg:xmlData>
+              </pkg:part>${phase2NumberingPart}
+              <pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">
+                <pkg:xmlData>
+                  <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                    <w:body>
+                      <w:p>
+                        <w:pPr>
+                          <w:pStyle w:val="ListParagraph"/>
+                          <w:numPr>
+                            <w:ilvl w:val="${ilvl}"/>
+                            <w:numId w:val="${numIdForPhase2}"/>
+                          </w:numPr>
+                        </w:pPr>
+                        <w:r>
+                          <w:t xml:space="preserve">${escapedText}</w:t>
+                        </w:r>
+                      </w:p>
+                    </w:body>
+                  </w:document>
+                </pkg:xmlData>
+              </pkg:part>
+            </pkg:package>`;
+
+          // Insert OOXML after the last paragraph
+          const insertRange = insertAfterPara.getRange("End");
+          insertRange.insertOoxml(oxmlPara, "After");
+          await context.sync();
+
+          // Reload paragraphs to get the newly inserted one for next iteration
+          paragraphs.load("items");
+          await context.sync();
+
+          // The new paragraph should be at lastEditedIdx + (i - existingCount + 1)
+          const newParaIdx = lastEditedIdx + (i - existingCount + 1);
+          if (newParaIdx < paragraphs.items.length) {
+            insertAfterPara = paragraphs.items[newParaIdx];
+          }
+
+          console.log(`[executeEditList] Inserted new paragraph ${i + 1} via OOXML`);
         }
-        await context.sync();
       }
 
       // PHASE 3: Delete excess paragraphs if fewer new items

@@ -10,6 +10,7 @@ export class NumberingService {
     constructor() {
         this.contextMap = new Map(); // Cache for numIds found in the document
         this.nextNumId = 1000;
+        this.customConfigs = []; // Track custom configs needed for current run
     }
 
     /**
@@ -54,7 +55,28 @@ export class NumberingService {
         if (requestedType === NumberFormat.DECIMAL) return '2';
         if (requestedType === NumberFormat.BULLET) return '1';
 
-        // If it's a specific alpha/roman type, we might need a custom scheme if levels 1/2 of NumId 2 aren't enough
+        // Priority 5: Handle specialized Alpha/Roman at Level 0 (or if context doesn't match)
+        // If we are at Level 0 and want something other than Decimal, we need a custom config
+        const ilvl = existingContext ? parseInt(existingContext.ilvl || '0') : 0;
+        if (ilvl === 0 && requestedType !== NumberFormat.DECIMAL && requestedType !== NumberFormat.BULLET) {
+            // Find or create a custom config for this specific format
+            const signature = `custom_${requestedType}`;
+            if (this.contextMap.has(signature)) {
+                return this.contextMap.get(signature);
+            }
+
+            const newNumId = String(this.nextNumId++);
+            this.customConfigs.push({
+                numId: newNumId,
+                levels: [
+                    { format: requestedType, suffix: formatConfig.suffix || NumberSuffix.PERIOD }
+                ]
+            });
+            this.contextMap.set(signature, newNumId);
+            return newNumId;
+        }
+
+        // Default fallback to NumId 2 (Legal/Nested)
         return '2';
     }
 
@@ -173,10 +195,13 @@ export class NumberingService {
     /**
      * Generates a full w:numbering XML block including custom legal schemes.
      * 
-     * @param {Array} customConfigs - Optional array of { numId, levels: [{ format, suffix }] }
+     * @param {Array} externalConfigs - Optional array of { numId, levels: [{ format, suffix }] }
      * @returns {string} w:numbering XML
      */
-    generateNumberingXml(customConfigs = []) {
+    generateNumberingXml(externalConfigs = []) {
+        // Merge internal customConfigs with external ones
+        const allCustomConfigs = [...this.customConfigs, ...externalConfigs];
+
         // Default Bullet (numId 1)
         let abstractNum0 = `
         <w:abstractNum w:abstractNumId="0">
@@ -222,7 +247,7 @@ export class NumberingService {
         let customAbstractNums = '';
         let customNums = '';
 
-        customConfigs.forEach((config, idx) => {
+        allCustomConfigs.forEach((config, idx) => {
             const absId = 10 + idx;
             customAbstractNums += `
             <w:abstractNum w:abstractNumId="${absId}">
