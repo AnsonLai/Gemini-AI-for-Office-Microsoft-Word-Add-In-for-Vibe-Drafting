@@ -4248,131 +4248,7 @@ function parseMarkdownList(content) {
  * Applies a numbered or bullet list using Word's native list API
  * This is more reliable than HTML insertion
  */
-async function applyNativeList(targetParagraph, listData, context) {
-  if (!listData || !listData.items || listData.items.length === 0) {
-    console.warn('No list items to apply');
-    return;
-  }
-
-  console.log(`Applying native ${listData.type} list with ${listData.items.length} items (Mixed Content Mode with Formatting)`);
-
-  // Clear the target paragraph first
-  targetParagraph.clear();
-
-  // Helper to apply style based on item type
-  const applyStyleForItem = async (para, item) => {
-    // 1. Process markdown to separate clean text and hints
-    const { cleanText, formatHints } = await preprocessMarkdownForParagraph(item.text);
-
-    // 2. Apply list style/level (do this BEFORE content manipulation if possible, or after)
-    // Applying style first is usually safer for List interactions
-    if (item.type === 'numbered') {
-      para.styleBuiltIn = Word.BuiltInStyleName.listNumber;
-      para.load('listItemOrNullObject');
-      await context.sync();
-      if (!para.listItemOrNullObject.isNullObject) {
-        para.listItemOrNullObject.level = item.level || 0;
-      }
-    } else if (item.type === 'bullet') {
-      para.styleBuiltIn = Word.BuiltInStyleName.listBullet;
-      para.load('listItemOrNullObject');
-      await context.sync();
-      if (!para.listItemOrNullObject.isNullObject) {
-        para.listItemOrNullObject.level = item.level || 0;
-      }
-    } else {
-      // Plain text - avoid list style
-      para.styleBuiltIn = "Normal";
-    }
-
-    // 3. Insert the clean text (no markdown symbols)
-    // Note: iterating items logic below handles insertion differently for first vs rest
-    return { cleanText, formatHints };
-  };
-
-  // Helper to apply formatting AFTER text insertion
-  const applyFormatting = async (para, cleanText, formatHints) => {
-    if (formatHints && formatHints.length > 0) {
-      try {
-        await applyFormatHintsToRanges(para, cleanText, formatHints, context);
-      } catch (e) {
-        console.warn("Failed to apply list item formatting:", e);
-      }
-    }
-  };
-
-  // --- Process Item 0 (Target Paragraph) ---
-  const firstItem = listData.items[0];
-
-  // Clean parsing
-  const { cleanText: firstClean, formatHints: firstHints } = await preprocessMarkdownForParagraph(firstItem.text);
-
-  // Insert text
-  targetParagraph.insertText(firstClean, Word.InsertLocation.end);
-
-  // Apply Structure
-  if (firstItem.type === 'numbered') {
-    targetParagraph.styleBuiltIn = Word.BuiltInStyleName.listNumber;
-    targetParagraph.load('listItemOrNullObject');
-    await context.sync();
-    if (!targetParagraph.listItemOrNullObject.isNullObject) {
-      targetParagraph.listItemOrNullObject.level = firstItem.level || 0;
-    }
-  } else if (firstItem.type === 'bullet') {
-    targetParagraph.styleBuiltIn = Word.BuiltInStyleName.listBullet;
-    targetParagraph.load('listItemOrNullObject');
-    await context.sync();
-    if (!targetParagraph.listItemOrNullObject.isNullObject) {
-      targetParagraph.listItemOrNullObject.level = firstItem.level || 0;
-    }
-  } else {
-    targetParagraph.styleBuiltIn = "Normal";
-  }
-
-  // Apply Formatting
-  await applyFormatting(targetParagraph, firstClean, firstHints);
-
-
-  // --- Process Remaining Items ---
-  let previousPara = targetParagraph;
-
-  for (let i = 1; i < listData.items.length; i++) {
-    const item = listData.items[i];
-
-    // Parse content
-    const { cleanText, formatHints } = await preprocessMarkdownForParagraph(item.text);
-
-    // Insert new paragraph with clean text
-    const newPara = previousPara.insertParagraph(cleanText, Word.InsertLocation.after);
-
-    // Apply Structure
-    if (item.type === 'numbered') {
-      newPara.styleBuiltIn = Word.BuiltInStyleName.listNumber;
-      newPara.load('listItemOrNullObject');
-      await context.sync();
-      if (!newPara.listItemOrNullObject.isNullObject) {
-        newPara.listItemOrNullObject.level = item.level || 0;
-      }
-    } else if (item.type === 'bullet') {
-      newPara.styleBuiltIn = Word.BuiltInStyleName.listBullet;
-      newPara.load('listItemOrNullObject');
-      await context.sync();
-      if (!newPara.listItemOrNullObject.isNullObject) {
-        newPara.listItemOrNullObject.level = item.level || 0;
-      }
-    } else {
-      newPara.styleBuiltIn = "Normal";
-    }
-
-    // Apply Formatting
-    await applyFormatting(newPara, cleanText, formatHints);
-
-    previousPara = newPara;
-  }
-
-  await context.sync();
-  console.log(`Successfully applied mixed content list with formatting`);
-}
+// applyNativeList REMOVED - Lists are now handled by the OOXML pipeline for portability
 
 
 
@@ -4408,13 +4284,7 @@ async function routeChangeOperation(change, targetParagraph, context) {
   if (!originalText || originalText.trim().length === 0) {
     console.log("Empty paragraph detected");
 
-    // Try to parse as list
-    const listData = parseMarkdownList(newContent);
-    if (listData && listData.type !== 'text') {
-      console.log(`Using native ${listData.type} list API`);
-      await applyNativeList(targetParagraph, listData, context);
-      return;
-    }
+    // Lists are now handled by the OOXML pipeline (Stage 4) for portability
 
     // Try to parse as table - use OOXML Hybrid Mode even for empty paragraphs
     const matchedTable = newContent.includes('|');
@@ -4460,13 +4330,7 @@ async function routeChangeOperation(change, targetParagraph, context) {
 
   // 2. Check for structured content types
 
-  // Try to parse as numbered/bullet list
-  const listData = parseMarkdownList(newContent);
-  if (listData && listData.type !== 'text') {
-    console.log(`Detected ${listData.type} list, using native API`);
-    await applyNativeList(targetParagraph, listData, context);
-    return;
-  }
+  // Lists are now handled by the OOXML pipeline (Stage 4) for portability
 
   // NOTE: Table detection removed here. Let applyRedlineToOxml handle tables 
   // via OOXML Hybrid Mode, which handles both existing tables and text-to-table.

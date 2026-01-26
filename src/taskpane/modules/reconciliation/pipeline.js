@@ -233,41 +233,48 @@ export class ReconciliationPipeline {
             const markerMatch = line.match(markerRegex);
             const currentMarker = markerMatch ? markerMatch[2].trim() : '';
 
-            // If marker exists, detect its specific format (supports mixed lists)
-            const lineFormatInfo = currentMarker ?
-                this.numberingService.detectNumberingFormat(currentMarker) :
-                { format: defaultFormat, depth: 0 };
+            let pPrXml = '';
+            let segmentText = '';
 
-            // Detect indentation
-            const indentMatch = line.match(/^(\s*)/);
-            const indentSize = indentMatch ? indentMatch[1].length : 0;
-            if (i === 0 && indentSize > 0) {
-                // ...
-            }
+            if (currentMarker) {
+                // --- LIST ITEM ---
+                // If marker exists, detect its specific format (supports mixed lists)
+                const lineFormatInfo = this.numberingService.detectNumberingFormat(currentMarker);
 
-            // Calculate level
-            let ilvl = 0; // Declare ilvl here
-            const indentLevel = indentStep > 0 ? Math.floor(indentSize / indentStep) : 0;
-            const contextLevel = numberingContext?.ilvl || 0;
+                // Detect indentation
+                const indentMatch = line.match(/^(\s*)/);
+                const indentSize = indentMatch ? indentMatch[1].length : 0;
 
-            if (currentMarker && lineFormatInfo.format === 'outline') {
-                // Hierarchical markers are absolute within the document
-                ilvl = Math.min(8, lineFormatInfo.depth);
+                // Calculate level
+                let ilvl = 0;
+                const indentLevel = indentStep > 0 ? Math.floor(indentSize / indentStep) : 0;
+                const contextLevel = numberingContext?.ilvl || 0;
+
+                if (lineFormatInfo.format === 'outline') {
+                    // Hierarchical markers are absolute within the document
+                    ilvl = Math.min(8, lineFormatInfo.depth);
+                } else {
+                    // Simple markers or no-marker lines are relative to the original paragraph's level
+                    ilvl = Math.min(8, indentLevel + contextLevel);
+                }
+
+                // Strip list markers from the text
+                segmentText = line.replace(markerRegex, '');
+
+                // Get or create numId
+                const numId = this.numberingService.getOrCreateNumId({ type: lineFormatInfo.format }, numberingContext);
+                pPrXml = this.numberingService.buildListPPr(numId, ilvl);
             } else {
-                // Simple markers or no-marker lines are relative to the original paragraph's level
-                ilvl = Math.min(8, indentLevel + contextLevel);
+                // --- PLAIN TEXT (e.g. Preamble) ---
+                // No marker = Normal paragraph.
+                // Reset to standard text.
+                segmentText = line;
+                // pPrXml remains empty, which defaults to Normal/inherited style in serializeToOoxml
+                // Note: We intentionally ignore indentation for preamble to avoid accidental list formatting
             }
-
-            // Strip list markers from the text
-            const textAfterMarker = line.replace(markerRegex, '');
 
             // Process markdown formatting (e.g., **bold**, *italic*)
-            const { cleanText: segmentText, formatHints } = preprocessMarkdown(textAfterMarker);
-
-            // Get or create numId. 
-            // In a recursive scheme (1.1.1), numberingService should ideally decide if we stay in same numId.
-            const numId = this.numberingService.getOrCreateNumId({ type: lineFormatInfo.format }, numberingContext);
-            const pPrXml = this.numberingService.buildListPPr(numId, ilvl);
+            const { cleanText, formatHints } = preprocessMarkdown(segmentText);
 
             const runModel = [];
 
@@ -279,10 +286,10 @@ export class ReconciliationPipeline {
             // Add the new text as an insertion
             runModel.push({
                 kind: this.generateRedlines ? 'insertion' : 'run',
-                text: segmentText,
+                text: cleanText,
                 author: this.author,
                 startOffset: 0,
-                endOffset: segmentText.length
+                endOffset: cleanText.length
             });
 
             const itemOoxml = serializeToOoxml(runModel, pPrXml, formatHints, {
