@@ -67,24 +67,30 @@ import { NS_W } from './types.js';
  * Creates a document fragment with w:del (old formatted text) + w:ins (new unformatted text).
  * 
  * @param {Element} originalRun - The original run element with formatting
+ * @param {Document} xmlDoc - The XML document
+ * @param {Element} originalRun - The original run element
  * @param {string} textContent - The text content
  * @param {string} author - Author name for track changes
  * @param {string} dateStr - ISO date string
  * @returns {string} OOXML fragment string
  */
-function buildSurgicalReplacementOoxml(originalRun, textContent, author, dateStr) {
+function buildSurgicalReplacementOoxml(xmlDoc, originalRun, textContent, author, dateStr, formatToRemove) {
     const authorName = author || 'Gemini AI';
     const delId = Math.floor(Math.random() * 1000000);
     const insId = Math.floor(Math.random() * 1000000);
+
+    const serializer = new XMLSerializer();
 
     // Build the deleted run (keeps original formatting)
     let rPrXml = '';
     const rPr = originalRun.getElementsByTagName('w:rPr')[0];
     if (rPr) {
-        // Serialize the original rPr
-        const serializer = new XMLSerializer();
         rPrXml = serializer.serializeToString(rPr);
+        rPrXml = rPrXml.replace(/\s+xmlns:[^=]+="[^"]*"/g, '');
     }
+
+    // Build rPr for the inserted run with explicit format overrides
+    const unformattedRPrXml = buildOverrideRPrXml(xmlDoc, originalRun, formatToRemove, serializer);
 
     // Escape text for XML
     const escapedText = textContent
@@ -92,29 +98,16 @@ function buildSurgicalReplacementOoxml(originalRun, textContent, author, dateStr
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
 
-    // Build OOXML fragment with proper namespace declarations
-    const ooxmlFragment = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
-<pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">
-<pkg:xmlData>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
-            xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-<w:body>
-<w:p>
-<w:del w:id="${delId}" w:author="${authorName}" w:date="${dateStr}">
-<w:r>${rPrXml}<w:delText xml:space="preserve">${escapedText}</w:delText></w:r>
-</w:del>
-<w:ins w:id="${insId}" w:author="${authorName}" w:date="${dateStr}">
-<w:r><w:t xml:space="preserve">${escapedText}</w:t></w:r>
-</w:ins>
-</w:p>
-</w:body>
-</w:document>
-</pkg:xmlData>
-</pkg:part>
-</pkg:package>`;
+    // Range.insertOoxml expects inline content, not a full package
+    const delFragment = `<w:del xmlns:w="${NS_W}" w:id="${delId}" w:author="${authorName}" w:date="${dateStr}">` +
+        `<w:r>${rPrXml}<w:delText xml:space="preserve">${escapedText}</w:delText></w:r>` +
+        `</w:del>`;
 
-    return ooxmlFragment;
+    const insFragment = `<w:ins xmlns:w="${NS_W}" w:id="${insId}" w:author="${authorName}" w:date="${dateStr}">` +
+        `<w:r>${unformattedRPrXml}<w:t xml:space="preserve">${escapedText}</w:t></w:r>` +
+        `</w:ins>`;
+
+    return `${delFragment}${insFragment}`;
 }
 
 /**
@@ -123,26 +116,175 @@ function buildSurgicalReplacementOoxml(originalRun, textContent, author, dateStr
  * @param {string} textContent - The text content
  * @returns {string} OOXML fragment string
  */
-function buildUnformattedRunOoxml(textContent) {
+function buildUnformattedRunOoxml(xmlDoc, originalRun, textContent, formatToRemove) {
+    const serializer = new XMLSerializer();
+    const unformattedRPrXml = buildOverrideRPrXml(xmlDoc, originalRun, formatToRemove, serializer);
+
     const escapedText = textContent
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
 
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
-<pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">
-<pkg:xmlData>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-<w:body>
-<w:p>
-<w:r><w:t xml:space="preserve">${escapedText}</w:t></w:r>
-</w:p>
-</w:body>
-</w:document>
-</pkg:xmlData>
-</pkg:part>
-</pkg:package>`;
+    // Inline run fragment for Range.insertOoxml
+    return `<w:r xmlns:w="${NS_W}">${unformattedRPrXml}<w:t xml:space="preserve">${escapedText}</w:t></w:r>`;
+}
+
+/**
+ * Builds an rPr XML snippet that explicitly removes formatting while preserving other properties.
+ */
+function buildOverrideRPrXml(xmlDoc, originalRun, formatToRemove, serializer) {
+    const baseRPr = originalRun.getElementsByTagName('w:rPr')[0] || null;
+    const rPr = baseRPr ? baseRPr.cloneNode(true) : xmlDoc.createElement('w:rPr');
+
+    const removeBold = !!formatToRemove?.bold;
+    const removeItalic = !!formatToRemove?.italic;
+    const removeUnderline = !!formatToRemove?.underline;
+    const removeStrike = !!formatToRemove?.strikethrough;
+
+    const removalSet = new Set();
+    if (removeBold) {
+        removalSet.add('w:b');
+        removalSet.add('w:bCs');
+    }
+    if (removeItalic) {
+        removalSet.add('w:i');
+        removalSet.add('w:iCs');
+    }
+    if (removeUnderline) removalSet.add('w:u');
+    if (removeStrike) removalSet.add('w:strike');
+
+    if (removalSet.size > 0) {
+        const toRemove = [];
+        for (const child of Array.from(rPr.childNodes)) {
+            if (removalSet.has(child.nodeName)) {
+                toRemove.push(child);
+            }
+        }
+        for (const el of toRemove) {
+            rPr.removeChild(el);
+        }
+    }
+
+    if (removeBold) {
+        const b = xmlDoc.createElement('w:b');
+        b.setAttribute('w:val', '0');
+        insertRPrChildInOrder(rPr, b);
+
+        const bCs = xmlDoc.createElement('w:bCs');
+        bCs.setAttribute('w:val', '0');
+        insertRPrChildInOrder(rPr, bCs);
+    }
+    if (removeItalic) {
+        const i = xmlDoc.createElement('w:i');
+        i.setAttribute('w:val', '0');
+        insertRPrChildInOrder(rPr, i);
+
+        const iCs = xmlDoc.createElement('w:iCs');
+        iCs.setAttribute('w:val', '0');
+        insertRPrChildInOrder(rPr, iCs);
+    }
+    if (removeUnderline) {
+        const u = xmlDoc.createElement('w:u');
+        u.setAttribute('w:val', 'none');
+        insertRPrChildInOrder(rPr, u);
+    }
+    if (removeStrike) {
+        const strike = xmlDoc.createElement('w:strike');
+        strike.setAttribute('w:val', '0');
+        insertRPrChildInOrder(rPr, strike);
+    }
+
+    let rPrXml = serializer.serializeToString(rPr);
+    rPrXml = rPrXml.replace(/\s+xmlns:[^=]+="[^"]*"/g, '');
+    return rPrXml === '<w:rPr/>' ? '' : rPrXml;
+}
+
+/**
+ * Inserts an rPr child node in schema order.
+ */
+function insertRPrChildInOrder(rPr, el) {
+    const priority = ['w:rStyle', 'w:rFonts', 'w:b', 'w:bCs', 'w:i', 'w:iCs', 'w:caps', 'w:smallCaps', 'w:strike', 'w:dstrike', 'w:outline', 'w:shadow', 'w:emboss', 'w:imprint', 'w:noProof', 'w:snapToGrid', 'w:vanish', 'w:webHidden', 'w:color', 'w:spacing', 'w:w', 'w:kern', 'w:position', 'w:sz', 'w:szCs', 'w:highlight', 'w:u', 'w:effect', 'w:bdr', 'w:shd', 'w:fitText', 'w:vertAlign', 'w:rtl', 'w:cs', 'w:em', 'w:lang', 'w:eastAsianLayout', 'w:specVanish', 'w:oMath'];
+
+    const myIndex = priority.indexOf(el.nodeName);
+    const myPriority = myIndex === -1 ? 999 : myIndex;
+
+    let inserted = false;
+    for (const child of Array.from(rPr.childNodes)) {
+        if (child.nodeType !== 1) continue;
+        const childIndex = priority.indexOf(child.nodeName);
+        const childPriority = childIndex === -1 ? 999 : childIndex;
+        if (childPriority > myPriority) {
+            rPr.insertBefore(el, child);
+            inserted = true;
+            break;
+        }
+    }
+    if (!inserted) rPr.appendChild(el);
+}
+
+/**
+ * Removes formatting tags and adds explicit overrides for the specified flags.
+ */
+function applyFormatOverridesToRPr(xmlDoc, rPr, formatToRemove) {
+    if (!rPr || !formatToRemove) return;
+
+    const removeBold = !!formatToRemove.bold;
+    const removeItalic = !!formatToRemove.italic;
+    const removeUnderline = !!formatToRemove.underline;
+    const removeStrike = !!formatToRemove.strikethrough;
+
+    const removalSet = new Set();
+    if (removeBold) {
+        removalSet.add('w:b');
+        removalSet.add('w:bCs');
+    }
+    if (removeItalic) {
+        removalSet.add('w:i');
+        removalSet.add('w:iCs');
+    }
+    if (removeUnderline) removalSet.add('w:u');
+    if (removeStrike) removalSet.add('w:strike');
+
+    if (removalSet.size > 0) {
+        const toRemove = [];
+        for (const child of Array.from(rPr.childNodes)) {
+            if (removalSet.has(child.nodeName)) {
+                toRemove.push(child);
+            }
+        }
+        for (const el of toRemove) {
+            rPr.removeChild(el);
+        }
+    }
+
+    if (removeBold) {
+        const b = xmlDoc.createElement('w:b');
+        b.setAttribute('w:val', '0');
+        insertRPrChildInOrder(rPr, b);
+
+        const bCs = xmlDoc.createElement('w:bCs');
+        bCs.setAttribute('w:val', '0');
+        insertRPrChildInOrder(rPr, bCs);
+    }
+    if (removeItalic) {
+        const i = xmlDoc.createElement('w:i');
+        i.setAttribute('w:val', '0');
+        insertRPrChildInOrder(rPr, i);
+
+        const iCs = xmlDoc.createElement('w:iCs');
+        iCs.setAttribute('w:val', '0');
+        insertRPrChildInOrder(rPr, iCs);
+    }
+    if (removeUnderline) {
+        const u = xmlDoc.createElement('w:u');
+        u.setAttribute('w:val', 'none');
+        insertRPrChildInOrder(rPr, u);
+    }
+    if (removeStrike) {
+        const strike = xmlDoc.createElement('w:strike');
+        strike.setAttribute('w:val', '0');
+        insertRPrChildInOrder(rPr, strike);
+    }
 }
 
 
@@ -338,55 +480,47 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     }
 
     // Format REMOVAL: text is unchanged, no new hints, but original has formatting to strip
-    // Use surgical range-level replacement instead of paragraph-level replacement
+    // Apply surgical replacement in the OOXML DOM (pure OOXML, paragraph-level insertion)
     if (needsFormatRemoval) {
-        console.log(`[OxmlEngine] Format REMOVAL detected: preparing surgical range changes`);
+        console.log(`[OxmlEngine] Format REMOVAL detected: applying surgical replacement in OOXML`);
 
-        // Build surgical change descriptors for each formatted range
-        const surgicalChanges = [];
-        const dateStr = new Date().toISOString();
+        const tableCellCtx = detectTableCellContext(xmlDoc, originalText);
+        let targetParagraph = tableCellCtx.targetParagraph || null;
 
-        for (const hint of existingFormatHints) {
-            const run = hint.run;
-            if (!run || !run.parentNode) continue;
-
-            // Get the text content from this run
-            let textContent = '';
-            for (const child of run.childNodes) {
-                if (child.nodeName === 'w:t') {
-                    textContent += child.textContent || '';
-                }
+        if (!targetParagraph) {
+            const allParagraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
+            const paragraphInfos = buildParagraphInfos(xmlDoc, allParagraphs, textSpans);
+            const matchedInfo = findMatchingParagraphInfo(paragraphInfos, originalText);
+            if (matchedInfo) {
+                targetParagraph = matchedInfo.paragraph;
             }
-
-            if (!textContent || textContent.trim().length === 0) continue;
-
-            // Build minimal OOXML for just the surgical replacement (w:del + w:ins)
-            let surgicalOoxml;
-            if (generateRedlines) {
-                surgicalOoxml = buildSurgicalReplacementOoxml(run, textContent, author, dateStr);
-            } else {
-                surgicalOoxml = buildUnformattedRunOoxml(textContent);
-            }
-
-            surgicalChanges.push({
-                searchText: textContent,
-                replacementOoxml: surgicalOoxml,
-                format: hint.format
-            });
-
-            console.log(`[OxmlEngine] Prepared surgical change for "${textContent}"`);
         }
 
-        if (surgicalChanges.length > 0) {
+        let filteredHints = existingFormatHints;
+        if (targetParagraph) {
+            filteredHints = existingFormatHints.filter(hint => {
+                const hintParagraph = getContainingParagraph(hint.run);
+                return hintParagraph === targetParagraph;
+            });
+        }
+
+        const removalResult = applyFormatRemovalAsSurgicalReplacement(
+            xmlDoc,
+            textSpans,
+            filteredHints,
+            serializer,
+            author,
+            generateRedlines
+        );
+
+        if (tableCellCtx.hasTableWrapper && targetParagraph) {
             return {
-                hasChanges: true,
-                isSurgicalFormatChange: true,
-                surgicalChanges,
-                originalText
+                oxml: serializeParagraphOnly(xmlDoc, targetParagraph, serializer),
+                hasChanges: removalResult.hasChanges
             };
         }
 
-        return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
+        return removalResult;
     }
 
     // Format-only change: text is the same but we have formatting to apply
@@ -406,7 +540,7 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
         }
 
         // Standard path for non-table paragraphs
-        const result = applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, author, generateRedlines);
+        const result = applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, author, generateRedlines, textSpans);
         // Mark as format-only so Word's track changes can surface the w:rPrChange
         return { ...result, isFormatOnly: true };
     }
@@ -696,27 +830,17 @@ function applyFormatRemovalAsSurgicalReplacement(xmlDoc, textSpans, existingForm
             insContainer.setAttribute('w:author', author || 'Gemini AI');
             insContainer.setAttribute('w:date', dateStr);
 
-            // Create new unformatted run
+            // Create new run with explicit format overrides
             const newRun = xmlDoc.createElement('w:r');
 
-            // Copy rPr but remove formatting elements
             const originalRPr = run.getElementsByTagName('w:rPr')[0];
-            if (originalRPr) {
-                const newRPr = originalRPr.cloneNode(true);
-                // Remove formatting elements
-                const toRemove = [];
-                for (const child of newRPr.childNodes) {
-                    if (['w:b', 'w:i', 'w:u', 'w:strike', 'w:rPrChange'].includes(child.nodeName)) {
-                        toRemove.push(child);
-                    }
-                }
-                for (const el of toRemove) {
-                    newRPr.removeChild(el);
-                }
-                // Only add rPr if it still has children (like rStyle, rFonts, etc.)
-                if (newRPr.childNodes.length > 0) {
-                    newRun.appendChild(newRPr);
-                }
+            const newRPr = originalRPr ? originalRPr.cloneNode(true) : xmlDoc.createElement('w:rPr');
+
+            // Remove formatting elements and add explicit overrides
+            applyFormatOverridesToRPr(xmlDoc, newRPr, hint.format);
+
+            if (newRPr.childNodes.length > 0) {
+                newRun.appendChild(newRPr);
             }
 
             // Add the text element
@@ -736,20 +860,16 @@ function applyFormatRemovalAsSurgicalReplacement(xmlDoc, textSpans, existingForm
 
             console.log(`[OxmlEngine] Created surgical replacement for "${textContent}"`);
         } else {
-            // Without redlines, just remove formatting from the run directly
-            const rPr = run.getElementsByTagName('w:rPr')[0];
-            if (rPr) {
-                const toRemove = [];
-                for (const child of rPr.childNodes) {
-                    if (['w:b', 'w:i', 'w:u', 'w:strike'].includes(child.nodeName)) {
-                        toRemove.push(child);
-                    }
-                }
-                for (const el of toRemove) {
-                    rPr.removeChild(el);
-                }
+            // Without redlines, remove formatting by explicit overrides on the run
+            let rPr = run.getElementsByTagName('w:rPr')[0];
+            if (!rPr) {
+                rPr = xmlDoc.createElement('w:rPr');
+                run.insertBefore(rPr, run.firstChild);
             }
-            console.log(`[OxmlEngine] Removed formatting directly (no redlines) for "${textContent}"`);
+
+            applyFormatOverridesToRPr(xmlDoc, rPr, hint.format);
+
+            console.log(`[OxmlEngine] Removed formatting via overrides (no redlines) for "${textContent}"`);
         }
 
         hasAnyChanges = true;
@@ -1063,34 +1183,227 @@ function applyFormatToSingleParagraph(xmlDoc, paragraph, formatHints, author, ge
  * Applies formatting changes to existing text without modifying content.
  * Used when markdown formatting is applied to unchanged text.
  */
-function applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, author, generateRedlines = true) {
-    let textSpans = [];
+function applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, author, generateRedlines = true, precomputedSpans = null) {
     const allParagraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
 
-    // 1. Build initial text span map
-    let currentOffset = 0;
-    allParagraphs.forEach((p, pIndex) => {
-        const container = p.parentNode;
-        Array.from(p.childNodes).forEach(child => {
-            if (child.nodeName === 'w:r') {
-                currentOffset = processRunElement(child, p, container, currentOffset, textSpans);
-            } else if (child.nodeName === 'w:hyperlink') {
-                Array.from(child.childNodes).forEach(hc => {
-                    if (hc.nodeName === 'w:r') {
-                        currentOffset = processRunElement(hc, p, container, currentOffset, textSpans);
-                    }
-                });
+    // Reuse precomputed spans when available to keep character offsets aligned
+    let textSpans = Array.isArray(precomputedSpans) ? precomputedSpans : [];
+
+    if (!Array.isArray(precomputedSpans)) {
+        // Build text span map when spans were not precomputed earlier
+        textSpans = [];
+        let currentOffset = 0;
+        allParagraphs.forEach((p, pIndex) => {
+            const container = p.parentNode;
+            Array.from(p.childNodes).forEach(child => {
+                if (child.nodeName === 'w:r') {
+                    currentOffset = processRunElement(child, p, container, currentOffset, textSpans);
+                } else if (child.nodeName === 'w:hyperlink') {
+                    Array.from(child.childNodes).forEach(hc => {
+                        if (hc.nodeName === 'w:r') {
+                            currentOffset = processRunElement(hc, p, container, currentOffset, textSpans);
+                        }
+                    });
+                }
+            });
+            if (pIndex < allParagraphs.length - 1) {
+                currentOffset++; // For \n between paragraphs
             }
         });
-        if (pIndex < allParagraphs.length - 1) {
-            currentOffset++; // For \n
+    }
+
+    if (!textSpans || textSpans.length === 0) {
+        console.warn('[OxmlEngine] No spans available for format-only change; deferring to native API');
+        return {
+            hasChanges: true,
+            useNativeApi: true,
+            formatHints,
+            originalText
+        };
+    }
+
+    if (!formatHints || formatHints.length === 0) {
+        return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
+    }
+
+    // Group spans by paragraph element for precise offset alignment
+    const paragraphInfos = buildParagraphInfos(xmlDoc, allParagraphs, textSpans);
+    const normalizedOriginalFull = normalizeParagraphComparisonText(originalText);
+    const normalizedOriginalTrim = normalizedOriginalFull.trim();
+
+    let targetInfo = null;
+    let matchOffset = 0;
+
+    for (const info of paragraphInfos) {
+        const candidateFull = normalizeParagraphComparisonText(info.text);
+        if (candidateFull === normalizedOriginalFull) {
+            targetInfo = info;
+            break;
+        }
+    }
+
+    if (!targetInfo && normalizedOriginalTrim.length > 0) {
+        for (const info of paragraphInfos) {
+            const candidateFull = normalizeParagraphComparisonText(info.text);
+            if (candidateFull.trim() === normalizedOriginalTrim) {
+                targetInfo = info;
+                break;
+            }
+        }
+    }
+
+    if (!targetInfo && normalizedOriginalTrim.length > 0) {
+        const docPlain = paragraphInfos.map(info => normalizeParagraphComparisonText(info.text)).join('\n');
+        const idx = docPlain.indexOf(normalizedOriginalTrim);
+        if (idx !== -1) {
+            for (const info of paragraphInfos) {
+                const start = info.startOffset;
+                const length = normalizeParagraphComparisonText(info.text).length;
+                if (idx >= start && idx <= start + length) {
+                    targetInfo = info;
+                    matchOffset = idx - start;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!targetInfo || !targetInfo.spans || targetInfo.spans.length === 0) {
+        console.warn('[OxmlEngine] Unable to pinpoint target paragraph for format-only change; deferring to native API');
+        return {
+            hasChanges: true,
+            useNativeApi: true,
+            formatHints,
+            originalText
+        };
+    }
+
+    // Adjust spans so char offsets are relative to the target paragraph
+    const baseOffset = targetInfo.spans[0].charStart;
+    const localizedSpans = targetInfo.spans.map(span => ({
+        ...span,
+        charStart: span.charStart - baseOffset,
+        charEnd: span.charEnd - baseOffset
+    }));
+
+    // Shift format hints if the match occurs after the paragraph start
+    const adjustedHints = formatHints.map(hint => ({
+        ...hint,
+        start: hint.start + matchOffset,
+        end: hint.end + matchOffset
+    }));
+
+    applyFormatHintsToSpansRobust(xmlDoc, localizedSpans, adjustedHints, author, generateRedlines);
+
+    return { oxml: serializer.serializeToString(xmlDoc), hasChanges: true };
+}
+
+/**
+ * Builds paragraph metadata (text, spans, offsets) used for format-only changes.
+ */
+function buildParagraphInfos(xmlDoc, paragraphs, textSpans) {
+    const spansByParagraph = new Map();
+    for (const span of textSpans) {
+        if (!span || !span.paragraph) continue;
+        if (!spansByParagraph.has(span.paragraph)) {
+            spansByParagraph.set(span.paragraph, []);
+        }
+        spansByParagraph.get(span.paragraph).push(span);
+    }
+
+    const infos = [];
+    let runningOffset = 0;
+
+    paragraphs.forEach((p, index) => {
+        const spans = (spansByParagraph.get(p) || []).slice().sort((a, b) => a.charStart - b.charStart);
+        const text = buildParagraphTextFromSpans(spans);
+
+        infos.push({
+            paragraph: p,
+            spans,
+            text,
+            startOffset: runningOffset
+        });
+
+        runningOffset += normalizeParagraphComparisonText(text).length;
+        if (index < paragraphs.length - 1) {
+            runningOffset += 1; // Account for implicit newline between paragraphs
         }
     });
 
-    // 2. Apply formatting robustly (splits runs first)
-    applyFormatHintsToSpansRobust(xmlDoc, textSpans, formatHints, author, generateRedlines);
+    return infos;
+}
 
-    return { oxml: serializer.serializeToString(xmlDoc), hasChanges: true };
+/**
+ * Reconstructs human-readable text from spans to align with Word paragraph text.
+ */
+function buildParagraphTextFromSpans(spans) {
+    if (!spans || spans.length === 0) return '';
+
+    let text = '';
+    for (const span of spans) {
+        if (!span || !span.textElement) continue;
+        const nodeName = span.textElement.nodeName;
+        if (nodeName === 'w:t') {
+            text += span.textElement.textContent || '';
+        } else if (nodeName === 'w:tab') {
+            text += '\t';
+        } else if (nodeName === 'w:br' || nodeName === 'w:cr') {
+            text += '\n';
+        } else if (nodeName === 'w:noBreakHyphen') {
+            text += '\u2011';
+        }
+    }
+    return text;
+}
+
+/**
+ * Finds a paragraph info entry that matches the provided text.
+ */
+function findMatchingParagraphInfo(paragraphInfos, originalText) {
+    if (!originalText) return null;
+
+    const normalizedOriginal = normalizeParagraphComparisonText(originalText);
+    const normalizedTrim = normalizedOriginal.trim();
+    if (!normalizedTrim) return null;
+
+    for (const info of paragraphInfos) {
+        const candidate = normalizeParagraphComparisonText(info.text);
+        if (candidate === normalizedOriginal) {
+            return info;
+        }
+    }
+
+    for (const info of paragraphInfos) {
+        const candidate = normalizeParagraphComparisonText(info.text);
+        if (candidate.trim() === normalizedTrim) {
+            return info;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Walks up the DOM to find the containing paragraph for a run.
+ */
+function getContainingParagraph(node) {
+    let current = node;
+    while (current) {
+        if (current.nodeName === 'w:p') return current;
+        current = current.parentNode;
+    }
+    return null;
+}
+
+/**
+ * Normalizes paragraph text for comparisons (handles carriage returns and NBSP).
+ */
+function normalizeParagraphComparisonText(text) {
+    if (!text) return '';
+    return text
+        .replace(/\r/g, '\n')
+        .replace(/\u00a0/g, ' ');
 }
 
 /**

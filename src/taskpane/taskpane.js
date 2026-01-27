@@ -734,6 +734,10 @@ function loadSystemMessage() {
 }
 
 function loadRedlineSetting() {
+  const toggle = document.getElementById("redline-toggle");
+  if (toggle) {
+    return toggle.checked;
+  }
   const storedSetting = localStorage.getItem("redlineEnabled");
   return storedSetting !== null ? storedSetting === "true" : true; // Default to true (enabled)
 }
@@ -755,6 +759,7 @@ function saveRedlineAuthor(author) {
     localStorage.setItem("redlineAuthor", author.toString());
   }
 }
+
 
 /**
  * Fetches the document's author from Word properties.
@@ -2521,47 +2526,47 @@ Return ONLY the JSON array, nothing else:`;
         }
       }
 
-      // Load paragraphs to map indices
-      const paragraphs = context.document.body.paragraphs;
-      paragraphs.load("items");
-      await context.sync();
+        // Load paragraphs to map indices
+        const paragraphs = context.document.body.paragraphs;
+        paragraphs.load("items");
+        await context.sync();
 
-      // Track the current paragraph count (may change as we add/remove paragraphs)
-      let currentParagraphCount = paragraphs.items.length;
+        // Track the current paragraph count (may change as we add/remove paragraphs)
+        let currentParagraphCount = paragraphs.items.length;
 
-      for (const change of aiChanges) {
-        try {
-          console.log("Processing change:", JSON.stringify(change));
+        for (const change of aiChanges) {
+          try {
+            console.log("Processing change:", JSON.stringify(change));
 
-          const pIndex = change.paragraphIndex - 1; // 0-based index
+            const pIndex = change.paragraphIndex - 1; // 0-based index
 
-          // Check if this is an insertion at the end (index equals or exceeds paragraph count)
-          // We're lenient here - any index beyond current count is treated as an append
-          const isInsertAtEnd = pIndex >= currentParagraphCount;
+            // Check if this is an insertion at the end (index equals or exceeds paragraph count)
+            // We're lenient here - any index beyond current count is treated as an append
+            const isInsertAtEnd = pIndex >= currentParagraphCount;
 
-          // Only reject negative indices - positive ones that exceed count are handled as appends
-          if (pIndex < 0) {
-            console.warn(`Invalid paragraph index (negative): ${change.paragraphIndex}`);
-            continue;
-          }
-
-          // For out-of-bounds indices, reload paragraphs and check again
-          if (pIndex >= paragraphs.items.length) {
-            // Reload paragraphs collection to get any newly added ones
-            paragraphs.load("items");
-            await context.sync();
-            currentParagraphCount = paragraphs.items.length;
-
-            // If still out of bounds after reload, treat as append to last paragraph
-            if (pIndex >= paragraphs.items.length) {
-              console.log(`Paragraph index ${change.paragraphIndex} exceeds count (${paragraphs.items.length}), treating as append`);
+            // Only reject negative indices - positive ones that exceed count are handled as appends
+            if (pIndex < 0) {
+              console.warn(`Invalid paragraph index (negative): ${change.paragraphIndex}`);
+              continue;
             }
-          }
 
-          // For insertions at the end, use the last paragraph as reference
-          const targetParagraph = (pIndex >= paragraphs.items.length)
-            ? paragraphs.items[paragraphs.items.length - 1]
-            : paragraphs.items[pIndex];
+            // For out-of-bounds indices, reload paragraphs and check again
+            if (pIndex >= paragraphs.items.length) {
+              // Reload paragraphs collection to get any newly added ones
+              paragraphs.load("items");
+              await context.sync();
+              currentParagraphCount = paragraphs.items.length;
+
+              // If still out of bounds after reload, treat as append to last paragraph
+              if (pIndex >= paragraphs.items.length) {
+                console.log(`Paragraph index ${change.paragraphIndex} exceeds count (${paragraphs.items.length}), treating as append`);
+              }
+            }
+
+            // For insertions at the end, use the last paragraph as reference
+            const targetParagraph = (pIndex >= paragraphs.items.length)
+              ? paragraphs.items[paragraphs.items.length - 1]
+              : paragraphs.items[pIndex];
 
           if (change.operation === "edit_paragraph") {
             console.log(`Editing Paragraph ${change.paragraphIndex} with DMP`);
@@ -3284,8 +3289,8 @@ Return ONLY the JSON array, nothing else:`;
         }
       }
 
-      // Final sync (should usually be a no-op now, but kept for safety)
-      await context.sync();
+        // Final sync (should usually be a no-op now, but kept for safety)
+        await context.sync();
 
       // Restore track changes only if we enabled it
       if (redlineEnabled && changeTrackingAvailable && originalChangeTrackingMode !== Word.ChangeTrackingMode.trackAll) {
@@ -4514,6 +4519,8 @@ async function routeChangeOperation(change, targetParagraph, context) {
       await context.sync();
     }
 
+    let successfulSurgicalChanges = 0;
+
     try {
       const paragraphRange = targetParagraph.getRange();
       paragraphRange.load('text');
@@ -4533,19 +4540,24 @@ async function routeChangeOperation(change, targetParagraph, context) {
 
           if (searchResults.items.length > 0) {
             // Replace at range level - NOT paragraph level
-            const targetRange = searchResults.items[0];
-            targetRange.insertOoxml(change.replacementOoxml, 'Replace');
-            await context.sync();
-            console.log(`[OxmlEngine] ✅ Surgical replacement applied for "${change.searchText}"`);
-          } else {
-            console.warn(`[OxmlEngine] Text not found for surgical replacement: "${change.searchText}"`);
-          }
-        } catch (changeError) {
-          console.warn(`[OxmlEngine] Failed to apply surgical change: ${changeError.message}`);
+          const targetRange = searchResults.items[0];
+          targetRange.insertOoxml(change.replacementOoxml, 'Replace');
+          await context.sync();
+          console.log(`[OxmlEngine] ✅ Surgical replacement applied for "${change.searchText}"`);
+          successfulSurgicalChanges++;
+        } else {
+          console.warn(`[OxmlEngine] Text not found for surgical replacement: "${change.searchText}"`);
         }
+      } catch (changeError) {
+        console.warn(`[OxmlEngine] Failed to apply surgical change: ${changeError.message}`);
       }
+    }
 
-      console.log("✅ Surgical format changes completed");
+      if (successfulSurgicalChanges === result.surgicalChanges.length) {
+        console.log("✅ Surgical format changes completed");
+      } else {
+        console.warn(`[OxmlEngine] Surgical replacements applied: ${successfulSurgicalChanges}/${result.surgicalChanges.length}`);
+      }
     } finally {
       // Restore track changes mode
       if (originalMode !== Word.ChangeTrackingMode.off) {
@@ -4553,6 +4565,12 @@ async function routeChangeOperation(change, targetParagraph, context) {
         await context.sync();
       }
     }
+
+    if (successfulSurgicalChanges === result.surgicalChanges.length) {
+      return;
+    }
+
+    console.warn("[OxmlEngine] Surgical format removal incomplete; no fallback configured");
     return;
   }
 
