@@ -307,11 +307,17 @@ export class ReconciliationPipeline {
         const numberingXml = this.numberingService.generateNumberingXml();
 
         const finalOoxml = results.join('');
-        console.log(`[ListGen] ✅ Generated OOXML for ${results.length} list items, total length: ${finalOoxml.length}`);
-        console.log(`[ListGen] First 200 chars: ${finalOoxml.substring(0, 200)}...`);
+
+        // CRITICAL FIX: Append a blank paragraph after the list to prevent Word from
+        // canceling the list formatting on the last item
+        const blankParagraph = '<w:p><w:pPr></w:pPr></w:p>';
+        const oxmlWithSpacing = finalOoxml + blankParagraph;
+
+        console.log(`[ListGen] ✅ Generated OOXML for ${results.length} list items, total length: ${oxmlWithSpacing.length}`);
+        console.log(`[ListGen] First 200 chars: ${oxmlWithSpacing.substring(0, 200)}...`);
 
         return {
-            ooxml: finalOoxml,
+            ooxml: oxmlWithSpacing,
             isValid: true,
             warnings: ['Paragraph expanded to list fragment'],
             type: 'fragment',

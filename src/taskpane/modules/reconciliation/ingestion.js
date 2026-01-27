@@ -267,26 +267,23 @@ function processRun(runElement, startOffset) {
         runElement.getElementsByTagName('w:rPr')[0];
     const rPrXml = rPr ? new XMLSerializer().serializeToString(rPr) : '';
 
-    // Extract text content
     let text = '';
-    const textNodes = runElement.getElementsByTagNameNS(NS_W, 't');
-    if (textNodes.length === 0) {
-        // Try without namespace
-        const tNodes = runElement.getElementsByTagName('w:t');
-        for (const t of tNodes) {
-            text += t.textContent || '';
-        }
-    } else {
-        for (const t of textNodes) {
-            text += t.textContent || '';
+
+    // Iterate children in order to preserve sequence of text, breaks, and tabs
+    for (const child of runElement.childNodes) {
+        const nodeName = child.nodeName; // In standard DOM, this includes namespace prefix usually
+
+        // Handle namespaced and non-namespaced variants
+        if (nodeName.endsWith(':t') || nodeName === 't') {
+            text += child.textContent || '';
+        } else if (nodeName.endsWith(':br') || nodeName === 'br' || nodeName.endsWith(':cr') || nodeName === 'cr') {
+            text += '\n';
+        } else if (nodeName.endsWith(':tab') || nodeName === 'tab') {
+            text += '\t';
+        } else if (nodeName.endsWith(':noBreakHyphen') || nodeName === 'noBreakHyphen') {
+            text += '\u2011';
         }
     }
-
-    // Handle tabs and breaks
-    const tabs = runElement.getElementsByTagNameNS(NS_W, 'tab');
-    const breaks = runElement.getElementsByTagNameNS(NS_W, 'br');
-    if (tabs.length > 0) text += '\t'.repeat(tabs.length);
-    if (breaks.length > 0) text += '\n'.repeat(breaks.length);
 
     if (!text) return null;
 

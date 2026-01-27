@@ -250,17 +250,24 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     }
 
     // Format REMOVAL: text is unchanged, no new hints, but original has formatting to strip
+    // Use native Font API instead of OOXML insertion - Word's insertOoxml doesn't surface w:rPrChange as track changes
     if (needsFormatRemoval) {
-        console.log(`[OxmlEngine] Format REMOVAL detected: stripping ${existingFormatHints.length} format ranges`);
-        const result = applyFormatRemovalWithSpans(xmlDoc, textSpans, existingFormatHints, serializer, author, generateRedlines);
+        console.log(`[OxmlEngine] Format REMOVAL detected: returning for native Font API handling`);
 
-        // Check if we're in table cell context - strip table wrapper if so
-        const tableCellCtx = detectTableCellContext(xmlDoc, originalText);
-        if (tableCellCtx.hasTableWrapper && result.hasChanges && tableCellCtx.targetParagraph) {
-            console.log('[OxmlEngine] Stripping table wrapper for table cell paragraph');
-            return { oxml: serializeParagraphOnly(xmlDoc, tableCellCtx.targetParagraph, serializer), hasChanges: true };
-        }
-        return result;
+        // Convert existing format hints to removal hints (format flags indicate what to REMOVE)
+        const formatRemovalHints = existingFormatHints.map(hint => ({
+            start: hint.start,
+            end: hint.end,
+            removeFormat: { ...hint.format } // These formats should be removed
+        }));
+
+        // Return with useNativeApi flag so taskpane.js uses Font API
+        return {
+            hasChanges: true,
+            useNativeApi: true,
+            formatRemovalHints,
+            originalText
+        };
     }
 
     // Format-only change: text is the same but we have formatting to apply
@@ -276,12 +283,13 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
             applyFormatToSingleParagraph(xmlDoc, tableCellCtx.targetParagraph, formatHints, author, generateRedlines);
 
             console.log('[OxmlEngine] Stripping table wrapper for table cell paragraph (format-only)');
-            return { oxml: serializeParagraphOnly(xmlDoc, tableCellCtx.targetParagraph, serializer), hasChanges: true };
+            return { oxml: serializeParagraphOnly(xmlDoc, tableCellCtx.targetParagraph, serializer), hasChanges: true, isFormatOnly: true };
         }
 
         // Standard path for non-table paragraphs
         const result = applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, author, generateRedlines);
-        return result;
+        // Mark as format-only so Word's track changes can surface the w:rPrChange
+        return { ...result, isFormatOnly: true };
     }
 
     // Check for tables to decide mode
@@ -542,12 +550,6 @@ function applyFormatRemovalWithSpans(xmlDoc, textSpans, existingFormatHints, ser
             if (pToRemove.length > 0) {
                 hasAnyChanges = true;
                 console.log(`[OxmlEngine] Removing paragraph-level formatting: ${pToRemove.map(e => e.nodeName).join(', ')}`);
-
-                // Add track change for paragraph properties
-                if (generateRedlines) {
-                    createPPrChange(xmlDoc, pPr, author || 'Gemini AI');
-                }
-
                 for (const el of pToRemove) {
                     pRPr.removeChild(el);
                 }
@@ -564,12 +566,154 @@ function applyFormatRemovalWithSpans(xmlDoc, textSpans, existingFormatHints, ser
         if (processedRuns.has(run)) continue;
         processedRuns.add(run);
 
-        console.log(`[OxmlEngine] Processing format removal for hint: rPr=${rPr ? 'exists' : 'null'}`);
+        console.log(`[OxmlEngine] Processing format hint: bold=${hint.format.bold}, italic=${hint.format.italic}, rPr=${rPr ? 'exists' : 'null'}`);
 
-        // For removal, target format is all properties OFF
-        const targetFormat = { bold: false, italic: false, underline: false, strikethrough: false };
-        addFormattingToRun(xmlDoc, run, targetFormat, author, generateRedlines);
-        hasAnyChanges = true;
+        // Case 1: Run has rPr - check for direct formatting OR style-based formatting
+        if (rPr && rPr.parentNode) {
+            const toRemove = [];
+            let hasStyleRef = false;
+
+            for (const child of Array.from(rPr.childNodes)) {
+                if (['w:b', 'w:i', 'w:u', 'w:strike'].includes(child.nodeName)) {
+                    toRemove.push(child);
+                }
+                if (child.nodeName === 'w:rStyle') {
+                    hasStyleRef = true;
+                }
+            }
+
+            // Case 1a: Direct formatting tags exist - remove them
+            if (toRemove.length > 0) {
+                hasAnyChanges = true;
+                console.log(`[OxmlEngine] Removing direct formatting from run: ${toRemove.map(e => e.nodeName).join(', ')}`);
+
+                // Create rPrChange for track changes
+                if (generateRedlines) {
+                    let rPrChange = null;
+                    for (const child of rPr.childNodes) {
+                        if (child.nodeName === 'w:rPrChange') {
+                            rPrChange = child;
+                            break;
+                        }
+                    }
+
+                    if (!rPrChange) {
+                        rPrChange = xmlDoc.createElement('w:rPrChange');
+                        rPrChange.setAttribute('w:author', author || 'Gemini AI');
+                        rPrChange.setAttribute('w:date', new Date().toISOString());
+
+                        const originalRPr = xmlDoc.createElement('w:rPr');
+                        for (const child of rPr.childNodes) {
+                            if (child.nodeName !== 'w:rPrChange') {
+                                originalRPr.appendChild(child.cloneNode(true));
+                            }
+                        }
+                        rPrChange.appendChild(originalRPr);
+                        rPr.appendChild(rPrChange);
+                    }
+                }
+
+                for (const el of toRemove) {
+                    rPr.removeChild(el);
+                }
+            }
+            // Case 1b: No direct tags but formatting detected (from style or paragraph) - add overrides
+            else if (hint.format.hasFormatting) {
+                hasAnyChanges = true;
+                console.log(`[OxmlEngine] Adding format overrides for style-based/inherited formatting (rPr exists)`);
+
+                // Create rPrChange before modifying
+                if (generateRedlines) {
+                    let rPrChange = null;
+                    for (const child of rPr.childNodes) {
+                        if (child.nodeName === 'w:rPrChange') {
+                            rPrChange = child;
+                            break;
+                        }
+                    }
+
+                    if (!rPrChange) {
+                        rPrChange = xmlDoc.createElement('w:rPrChange');
+                        rPrChange.setAttribute('w:author', author || 'Gemini AI');
+                        rPrChange.setAttribute('w:date', new Date().toISOString());
+
+                        const originalRPr = xmlDoc.createElement('w:rPr');
+                        for (const child of rPr.childNodes) {
+                            if (child.nodeName !== 'w:rPrChange') {
+                                originalRPr.appendChild(child.cloneNode(true));
+                            }
+                        }
+                        rPrChange.appendChild(originalRPr);
+                        rPr.appendChild(rPrChange);
+                    }
+                }
+
+                // Add explicit override elements to turn OFF the formatting
+                if (hint.format.bold) {
+                    const b = xmlDoc.createElement('w:b');
+                    b.setAttribute('w:val', '0');
+                    rPr.insertBefore(b, rPr.firstChild);
+                }
+                if (hint.format.italic) {
+                    const i = xmlDoc.createElement('w:i');
+                    i.setAttribute('w:val', '0');
+                    rPr.insertBefore(i, rPr.firstChild);
+                }
+                if (hint.format.underline) {
+                    const u = xmlDoc.createElement('w:u');
+                    u.setAttribute('w:val', 'none');
+                    rPr.insertBefore(u, rPr.firstChild);
+                }
+                if (hint.format.strikethrough) {
+                    const strike = xmlDoc.createElement('w:strike');
+                    strike.setAttribute('w:val', '0');
+                    rPr.insertBefore(strike, rPr.firstChild);
+                }
+            }
+        }
+        // Case 2: Run has no rPr but inherits formatting - add override elements
+        else if (!rPr && hint.format.hasFormatting) {
+            hasAnyChanges = true;
+            console.log(`[OxmlEngine] Adding format overrides for inherited formatting`);
+
+            // Create rPr for this run
+            rPr = xmlDoc.createElement('w:rPr');
+
+            // Add override elements to turn OFF inherited formatting
+            if (hint.format.bold) {
+                const b = xmlDoc.createElement('w:b');
+                b.setAttribute('w:val', '0');
+                rPr.appendChild(b);
+            }
+            if (hint.format.italic) {
+                const i = xmlDoc.createElement('w:i');
+                i.setAttribute('w:val', '0');
+                rPr.appendChild(i);
+            }
+            if (hint.format.underline) {
+                const u = xmlDoc.createElement('w:u');
+                u.setAttribute('w:val', 'none');
+                rPr.appendChild(u);
+            }
+            if (hint.format.strikethrough) {
+                const strike = xmlDoc.createElement('w:strike');
+                strike.setAttribute('w:val', '0');
+                rPr.appendChild(strike);
+            }
+
+            // Create rPrChange for track changes (previous state was empty)
+            if (generateRedlines) {
+                const rPrChange = xmlDoc.createElement('w:rPrChange');
+                rPrChange.setAttribute('w:author', author || 'Gemini AI');
+                rPrChange.setAttribute('w:date', new Date().toISOString());
+                const emptyOriginalRPr = xmlDoc.createElement('w:rPr');
+                rPrChange.appendChild(emptyOriginalRPr);
+                rPr.appendChild(rPrChange);
+            }
+
+            // Insert rPr as first child of run
+            run.insertBefore(rPr, run.firstChild);
+        }
     }
 
     if (hasAnyChanges) {
@@ -731,16 +875,18 @@ function applyFormatHintsToSpansRobust(xmlDoc, textSpans, formatHints, author, g
         currentSpans = nextPassSpans;
     }
 
-    // 3. Apply formatting to each span based on all applicable hints
+    // 3. Apply formatting ONLY to spans that have applicable hints
+    // Spans without hints are LEFT UNTOUCHED to preserve existing formatting
     for (const span of currentSpans) {
         const applicableHints = formatHints.filter(h => h.start < span.charEnd && h.end > span.charStart);
 
-        // Full Synchronization: Apply target if hints exist, otherwise OFF if doc had formatting
-        const targetFormat = applicableHints.length > 0 ?
-            mergeFormats(...applicableHints.map(h => h.format)) :
-            { bold: false, italic: false, underline: false, strikethrough: false };
-
-        addFormattingToRun(xmlDoc, span.runElement, targetFormat, author, generateRedlines);
+        // Only apply formatting if there are hints for this span
+        // This preserves existing formatting on spans not targeted by AI
+        if (applicableHints.length > 0) {
+            const targetFormat = mergeFormats(...applicableHints.map(h => h.format));
+            addFormattingToRun(xmlDoc, span.runElement, targetFormat, author, generateRedlines);
+        }
+        // If no hints apply, leave the span unchanged (preserve original formatting)
     }
 }
 
@@ -1008,13 +1154,13 @@ function applySurgicalMode(xmlDoc, originalText, modifiedText, serializer, autho
 
         Array.from(p.childNodes).forEach(child => {
             if (child.nodeName === 'w:r') {
-                processRunElement(child, p, container, fullText, textSpans);
+                processRunElement(child, p, container, fullText.length, textSpans);
                 fullText = getUpdatedFullText(child, fullText);
             } else if (child.nodeName === 'w:hyperlink') {
                 // Process runs inside hyperlink
                 Array.from(child.childNodes).forEach(hc => {
                     if (hc.nodeName === 'w:r') {
-                        processRunElement(hc, p, container, fullText, textSpans);
+                        processRunElement(hc, p, container, fullText.length, textSpans);
                         fullText = getUpdatedFullText(hc, fullText);
                     }
                 });
@@ -1039,53 +1185,58 @@ function applySurgicalMode(xmlDoc, originalText, modifiedText, serializer, autho
     const diffs = charsToWords(charDiffs, wordArray);
 
     // Process deletions and insertions
-    let currentPos = 0;
-    let insertOffset = 0; // Track position in new text for format hints
+    let originalPos = 0;
+    let newPos = 0;
     const processedSpans = new Set();
 
     for (const [op, text] of diffs) {
         if (op === 0) {
             // EQUAL - reconcile formatting
-            const startPos = currentPos;
-            const endPos = currentPos + text.length;
+            const len = text.length;
+            const startPos = originalPos;
+            const endPos = originalPos + len;
 
-            // Find spans covered by this equal text
+            // Find spans covered by this equal text in original document
             const affectedSpans = textSpans.filter(s =>
                 s.charEnd > startPos && s.charStart < endPos
             );
+            // console.log(`[SurgicalDebug] Equal affected spans: ${affectedSpans.length}`);
 
             for (const span of affectedSpans) {
-                // Calculate overlap
-                const overlapStart = Math.max(span.charStart, startPos);
-                const overlapEnd = Math.min(span.charEnd, endPos);
+                // Calculate overlap in original coordinates
+                const overlapStartOriginal = Math.max(span.charStart, startPos);
+                const overlapEndOriginal = Math.min(span.charEnd, endPos);
 
-                // Get format hints applicable to this overlap (adjusted relative to modified text start)
-                // Note: formatHints use indices relative to the FULL modified text
-                const localOffset = currentPos; // diff text position matches modifiedText position for Equal/Insert ops
+                // Calculate length of this segment
+                const segmentLen = overlapEndOriginal - overlapStartOriginal;
 
-                // Oops, wait. formatHints are relative to the CLEAN MODIFIED TEXT.
-                // In Surgical Mode, `modifiedText` passed to this function IS the clean modified text.
-                // So currentPos tracks the position in clean modified text correctly.
+                // Calculate corresponding start in NEW text coordinates for formatting
+                // relative offset from start of this EQUAL block
+                const relativeOffset = overlapStartOriginal - startPos;
+                const overlapStartNew = newPos + relativeOffset;
+                const overlapEndNew = overlapStartNew + segmentLen;
 
-                // Check if any hints apply to this overlap
-                const applicableHints = getApplicableFormatHints(formatHints, overlapStart, overlapEnd);
+                // Check if any hints apply to this overlap using NEW coordinates
+                const applicableHints = getApplicableFormatHints(formatHints, overlapStartNew, overlapEndNew);
 
                 // Reconcile formatting for this span segment
-                reconcileFormattingForTextSpan(xmlDoc, span, overlapStart, overlapEnd, applicableHints, author, generateRedlines);
+                reconcileFormattingForTextSpan(xmlDoc, span, overlapStartOriginal, overlapEndOriginal, applicableHints, author, generateRedlines);
             }
 
-            currentPos += text.length;
+            originalPos += len;
+            newPos += len;
         } else if (op === -1) {
             // DELETE
-            processDelete(xmlDoc, textSpans, currentPos, currentPos + text.length, processedSpans, author, generateRedlines);
-            // Delete does not advance position in new text
+            processDelete(xmlDoc, textSpans, originalPos, originalPos + text.length, processedSpans, author, generateRedlines);
+            originalPos += text.length;
         } else if (op === 1) {
             // INSERT - convert newlines to spaces for surgical mode
             const textWithoutNewlines = text.replace(/\n/g, ' ');
             if (textWithoutNewlines.trim().length > 0) {
-                processInsert(xmlDoc, textSpans, currentPos, textWithoutNewlines, processedSpans, author, formatHints, currentPos, generateRedlines);
+                // Insert at current ORIGINAL position, but use NEW position for format hints
+                processInsert(xmlDoc, textSpans, originalPos, textWithoutNewlines, processedSpans, author, formatHints, newPos, generateRedlines);
             }
-            currentPos += text.length;
+            newPos += text.length;
         }
     }
 
@@ -1195,6 +1346,39 @@ function processRunElement(r, p, container, currentOffset, textSpans) {
                 });
                 localOffset += text.length;
             }
+        } else if (rc.nodeName === 'w:br' || rc.nodeName === 'w:cr') {
+            textSpans.push({
+                charStart: localOffset,
+                charEnd: localOffset + 1,
+                textElement: rc, // Use the element itself as the target
+                runElement: r,
+                paragraph: p,
+                container,
+                rPr
+            });
+            localOffset += 1;
+        } else if (rc.nodeName === 'w:tab') {
+            textSpans.push({
+                charStart: localOffset,
+                charEnd: localOffset + 1,
+                textElement: rc,
+                runElement: r,
+                paragraph: p,
+                container,
+                rPr
+            });
+            localOffset += 1;
+        } else if (rc.nodeName === 'w:noBreakHyphen') {
+            textSpans.push({
+                charStart: localOffset,
+                charEnd: localOffset + 1,
+                textElement: rc,
+                runElement: r,
+                paragraph: p,
+                container,
+                rPr
+            });
+            localOffset += 1;
         }
     });
     return localOffset;
@@ -1208,6 +1392,12 @@ function getUpdatedFullText(r, currentFullText) {
     Array.from(r.childNodes).forEach(rc => {
         if (rc.nodeName === 'w:t') {
             fullText += rc.textContent || '';
+        } else if (rc.nodeName === 'w:br' || rc.nodeName === 'w:cr') {
+            fullText += '\n';
+        } else if (rc.nodeName === 'w:tab') {
+            fullText += '\t';
+        } else if (rc.nodeName === 'w:noBreakHyphen') {
+            fullText += '\u2011';
         }
     });
     return fullText;
@@ -1253,25 +1443,32 @@ function processDelete(xmlDoc, textSpans, startPos, endPos, processedSpans, auth
             }
             parent.removeChild(span.runElement);
         } else {
-            // Partial deletion - split the run
+            const oldRun = span.runElement;
+
             if (beforeText.length > 0) {
                 const beforeRun = createTextRun(xmlDoc, beforeText, span.rPr, false);
-                parent.insertBefore(beforeRun, span.runElement);
+                parent.insertBefore(beforeRun, oldRun);
             }
 
             const delRun = createTextRun(xmlDoc, deletedText, span.rPr, true);
             if (generateRedlines) {
                 const delWrapper = createTrackChange(xmlDoc, 'del', delRun, author);
-                parent.insertBefore(delWrapper, span.runElement);
+                parent.insertBefore(delWrapper, oldRun);
             }
             // If no redlines, we just don't insert the delWrapper. The text is gone implicitly.
 
             if (afterText.length > 0) {
                 const afterRun = createTextRun(xmlDoc, afterText, span.rPr, false);
-                parent.insertBefore(afterRun, span.runElement);
+                parent.insertBefore(afterRun, oldRun);
+
+                // CRITICAL: Update the span to point to the new 'after' run
+                // This ensures subsequent operations (like Insert) targeting this span
+                // find a valid DOM node, not the detached 'oldRun'.
+                span.runElement = afterRun;
+                span.textElement = afterRun.getElementsByTagName('w:t')[0] || afterRun.getElementsByTagName('t')[0];
             }
 
-            parent.removeChild(span.runElement);
+            parent.removeChild(oldRun);
         }
 
         processedSpans.add(span.textElement);
@@ -1313,14 +1510,19 @@ function processInsert(xmlDoc, textSpans, pos, text, processedSpans, author, for
         // If there are format hints, we need to apply them
         const parent = targetSpan.runElement.parentNode;
         if (parent) {
+            // Determine reference node for insertion
+            // If pos matches Start of span, insert BEFORE. Otherwise default to AFTER (nextSibling).
+            // This handles cases where we insert at the boundary of a run (common in diffs).
+            const referenceNode = (pos === targetSpan.charStart) ? targetSpan.runElement : targetSpan.runElement.nextSibling;
+
             if (applicableHints.length === 0) {
                 // No special formatting - use base rPr
                 const insRun = createTextRun(xmlDoc, text, baseRPr, false);
                 if (generateRedlines) {
                     const insWrapper = createTrackChange(xmlDoc, 'ins', insRun, author);
-                    parent.insertBefore(insWrapper, targetSpan.runElement.nextSibling);
+                    parent.insertBefore(insWrapper, referenceNode);
                 } else {
-                    parent.insertBefore(insRun, targetSpan.runElement.nextSibling);
+                    parent.insertBefore(insRun, referenceNode);
                 }
             } else {
                 // Apply format hints - may need to split text into multiple runs
@@ -1329,9 +1531,9 @@ function processInsert(xmlDoc, textSpans, pos, text, processedSpans, author, for
                 if (generateRedlines) {
                     const insWrapper = createTrackChange(xmlDoc, 'ins', null, author);
                     runs.forEach(run => insWrapper.appendChild(run));
-                    parent.insertBefore(insWrapper, targetSpan.runElement.nextSibling);
+                    parent.insertBefore(insWrapper, referenceNode);
                 } else {
-                    runs.forEach(run => parent.insertBefore(run, targetSpan.runElement.nextSibling));
+                    runs.forEach(run => parent.insertBefore(run, referenceNode));
                 }
             }
         }
@@ -1599,8 +1801,17 @@ function processRunForReconstruction(r, originalFullText, propertyMap, sentinelM
                 });
                 fullText += textContent;
             }
-        } else if (['w:drawing', 'w:pict', 'w:object', 'w:fldChar', 'w:instrText'].includes(rc.nodeName)) {
-            // Sentinel for embedded objects
+        } else if (rc.nodeName === 'w:br' || rc.nodeName === 'w:cr') {
+            fullText += '\n';
+            propertyMap.push({ start: fullText.length - 1, end: fullText.length, rPr });
+        } else if (rc.nodeName === 'w:tab') {
+            fullText += '\t';
+            propertyMap.push({ start: fullText.length - 1, end: fullText.length, rPr });
+        } else if (rc.nodeName === 'w:noBreakHyphen') {
+            fullText += '\u2011';
+            propertyMap.push({ start: fullText.length - 1, end: fullText.length, rPr });
+        } else if (['w:drawing', 'w:pict', 'w:object', 'w:fldChar', 'w:instrText', 'w:sym'].includes(rc.nodeName)) {
+            // Sentinel for embedded objects and special inline characters
             const rcElement = rc;
             const txbxContent = rcElement.getElementsByTagName ? rcElement.getElementsByTagName('w:txbxContent')[0] : null;
             const hasTextBox = rc.nodeName === 'w:pict' && !!txbxContent;

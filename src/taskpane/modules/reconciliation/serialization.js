@@ -386,6 +386,7 @@ export function wrapInDocumentFragment(paragraphXml, options = {}) {
       <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
         <w:body>
           ${paragraphXml}
+          <w:p><w:pPr></w:pPr></w:p>
         </w:body>
       </w:document>
     </pkg:xmlData>

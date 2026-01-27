@@ -2690,13 +2690,22 @@ Return ONLY the JSON array, nothing else:`;
             if (listData && listData.type !== 'text') {
               console.log(`Detected ${listData.type} list in replace_paragraph, using OOXML pipeline`);
               try {
-                // Get original paragraph info for proper diff/redlines
+                // Get original paragraph info for proper diff/redlines and font inheritance
                 // Only get original text if we're REPLACING (not appending)
                 let originalTextForDeletion = '';
+                let paragraphFont = null;
                 if (!isInsertAtEnd) {
-                  const originalText = targetParagraph.text;
+                  targetParagraph.load("text,font");
                   await context.sync();
-                  originalTextForDeletion = originalText;
+                  originalTextForDeletion = targetParagraph.text;
+
+                  // Get font info for inheritance
+                  if (targetParagraph.font) {
+                    targetParagraph.font.load("name,size");
+                    await context.sync();
+                    paragraphFont = targetParagraph.font.name;
+                    console.log(`[ListGen] Inheriting font from original paragraph: ${paragraphFont} ${targetParagraph.font.size}pt`);
+                  }
                 }
 
                 // Create reconciliation pipeline with redline settings
@@ -2705,7 +2714,7 @@ Return ONLY the JSON array, nothing else:`;
                 const pipeline = new ReconciliationPipeline({
                   generateRedlines: redlineEnabled,
                   author: redlineAuthor,
-                  font: cachedDocumentFont // Ensure font consistency
+                  font: paragraphFont || 'Calibri' // Inherit font from original paragraph
                 });
 
                 // Execute list generation - this creates OOXML with w:ins/w:del track changes
@@ -2745,40 +2754,45 @@ Return ONLY the JSON array, nothing else:`;
                     await context.sync();
                     console.log(`✅ OOXML list generation successful`);
 
+                    // TEMP: Spacing workaround disabled - causes GeneralException
+                    // Will investigate OOXML structure instead
+                    /*
                     // WORKAROUND: Insert a dummy spacing paragraph after the list, then remove it
                     // This forces Word to properly re-evaluate and link the list structure
                     try {
                       // Get all paragraphs to find the newly inserted list items
                       const paragraphs = context.document.body.paragraphs;
                       paragraphs.load("items");
+                      targetParagraph.load("index");
                       await context.sync();
-
+                      
                       // Find the paragraph at the target index (after replacement/insertion)
-                      const targetIdx = targetParagraph.index || paragraphIndex;
-
+                      const targetIdx = targetParagraph.index;
+                      
                       // Calculate how many list items were inserted
                       const listItemCount = listData.items.length;
-
+                      
                       // Insert dummy paragraph after the last list item
                       if (targetIdx + listItemCount - 1 < paragraphs.items.length) {
                         const lastListItem = paragraphs.items[targetIdx + listItemCount - 1];
                         const dummyPara = lastListItem.insertParagraph("", "After");
                         await context.sync();
-
+                        
                         console.log(`[ListGen] Inserted dummy spacing paragraph after ${listItemCount} list items`);
-
+                        
                         // Force Word to re-evaluate
                         await context.sync();
-
-                        // Delete the dummy paragraph
-                        dummyPara.delete();
-                        await context.sync();
-
-                        console.log(`[ListGen] Removed dummy spacing paragraph`);
+                        
+                        // TEMP: Leave dummy paragraph to test if it fixes formatting
+                        // dummyPara.delete();
+                        // await context.sync();
+                        
+                        console.log(`[ListGen] Left dummy spacing paragraph for testing`);
                       }
                     } catch (spacingError) {
                       console.warn(`[ListGen] Spacing workaround failed (non-critical):`, spacingError.message);
                     }
+                    */
 
                     changesApplied++;
                   } finally {
@@ -3542,7 +3556,7 @@ JSON ARRAY OF HIGHLIGHTS:`;
     console.error("Error in executeHighlight:", error);
     return {
       message: `Error highlighting text: ${error.message}`,
-      showToUser: false  // Silent error - let the model handle it
+      showToUser: false
     };
   }
 }
@@ -3699,7 +3713,7 @@ async function searchWithFallback(targetParagraph, searchText, context, onSucces
       console.log(`Retrying with shorter search: "${shorterText}"`);
 
       try {
-        const retryResults = targetParagraph.search(shorterText, { matchCase: false });
+        const retryResults = targetParagraph.search(shorterText, { matchCase: true });
         retryResults.load("items");
         await context.sync();
 
@@ -4184,6 +4198,70 @@ async function applyFormatHintsToRanges(paragraph, text, formatHints, context) {
 }
 
 /**
+ * Removes formatting from specific text ranges using Word's native Font API.
+ * This is used when the AI sends plain text to remove formatting (e.g., unbold).
+ * Using the native Font API allows Word to properly track format changes.
+ * 
+ * @param {Word.Paragraph} paragraph - Target paragraph
+ * @param {string} text - The text content
+ * @param {Array} formatRemovalHints - Array of hints with start/end/removeFormat
+ * @param {Word.RequestContext} context - Word context
+ */
+async function applyFormatRemovalToRanges(paragraph, text, formatRemovalHints, context) {
+  // Load paragraph as range
+  const paragraphRange = paragraph.getRange();
+  paragraphRange.load('text');
+  await context.sync();
+
+  console.log(`[FontAPI] Applying format removal to ${formatRemovalHints.length} ranges`);
+
+  for (const hint of formatRemovalHints) {
+    try {
+      // Calculate the text to search for based on the hint offsets
+      const hintText = text.substring(hint.start, hint.end);
+      if (!hintText || hintText.trim().length === 0) continue;
+
+      console.log(`[FontAPI] Searching for "${hintText}" to remove format:`, hint.removeFormat);
+
+      // Search for the text within the paragraph
+      const searchResults = paragraphRange.search(hintText, { matchCase: true, matchWholeWord: false });
+      searchResults.load('items');
+      await context.sync();
+
+      if (searchResults.items.length > 0) {
+        // Apply format removal to the first match
+        const targetRange = searchResults.items[0];
+
+        // Remove formatting by setting to false
+        if (hint.removeFormat.bold) {
+          targetRange.font.bold = false;
+          console.log(`[FontAPI] Set bold=false for "${hintText}"`);
+        }
+        if (hint.removeFormat.italic) {
+          targetRange.font.italic = false;
+          console.log(`[FontAPI] Set italic=false for "${hintText}"`);
+        }
+        if (hint.removeFormat.underline) {
+          targetRange.font.underline = Word.UnderlineType.none;
+          console.log(`[FontAPI] Set underline=none for "${hintText}"`);
+        }
+        if (hint.removeFormat.strikethrough) {
+          targetRange.font.strikeThrough = false;
+          console.log(`[FontAPI] Set strikeThrough=false for "${hintText}"`);
+        }
+
+        await context.sync();
+        console.log(`[FontAPI] Successfully removed formatting from "${hintText}"`);
+      } else {
+        console.warn(`[FontAPI] Text not found: "${hintText}"`);
+      }
+    } catch (formatError) {
+      console.warn(`Could not remove formatting at ${hint.start}-${hint.end}:`, formatError);
+    }
+  }
+}
+
+/**
  * Inserts text at a range, using HTML insertion if markdown formatting is detected
  * This ensures **bold**, *italic*, etc. are properly rendered instead of literal
  */
@@ -4410,7 +4488,7 @@ async function routeChangeOperation(change, targetParagraph, context) {
     return;
   }
 
-  // Handle native API formatting for table cells
+  // Handle native API formatting for table cells (format addition)
   if (result.useNativeApi && result.formatHints) {
     console.log("[OxmlEngine] Using native Font API for table cell formatting");
     await applyFormatHintsToRanges(targetParagraph, result.originalText, result.formatHints, context);
@@ -4418,21 +4496,33 @@ async function routeChangeOperation(change, targetParagraph, context) {
     return;
   }
 
+  // Handle native API format REMOVAL (e.g., unbold, unitalicize)
+  // This uses Word's Font API which properly tracks format changes
+  if (result.useNativeApi && result.formatRemovalHints) {
+    console.log("[OxmlEngine] Using native Font API for format removal");
+    await applyFormatRemovalToRanges(targetParagraph, result.originalText, result.formatRemovalHints, context);
+    console.log("✅ Native API format removal successful");
+    return;
+  }
+
   console.log("[OxmlEngine] Generated OOXML with track changes, length:", result.oxml.length);
 
   try {
     // The hybrid engine embeds w:ins/w:del directly in the DOM structure
-    // We still need to disable Word's track changes to prevent double-tracking
+    // For TEXT changes (w:ins/w:del), we disable Word's track changes to prevent double-tracking
+    // For FORMAT-ONLY changes (w:rPrChange), we KEEP track changes ON so Word surfaces our markers
     const doc = context.document;
     doc.load("changeTrackingMode");
     await context.sync();
 
     const originalMode = doc.changeTrackingMode;
-    console.log(`[OxmlEngine] Current track changes mode: ${originalMode}, redlineEnabled: ${redlineEnabled}`);
+    const shouldDisableTracking = !result.isFormatOnly && originalMode !== Word.ChangeTrackingMode.off;
+    console.log(`[OxmlEngine] Current track changes mode: ${originalMode}, redlineEnabled: ${redlineEnabled}, isFormatOnly: ${result.isFormatOnly}, shouldDisableTracking: ${shouldDisableTracking}`);
 
-    // Disable track changes temporarily - our w:ins/w:del ARE the track changes
-    if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
-      console.log("[OxmlEngine] Temporarily disabling Word track changes for OOXML insertion");
+    // Only disable track changes for TEXT changes (with w:ins/w:del)
+    // Keep track changes ON for format-only changes so Word surfaces w:rPrChange
+    if (shouldDisableTracking) {
+      console.log("[OxmlEngine] Temporarily disabling Word track changes for text-based OOXML insertion");
       doc.changeTrackingMode = Word.ChangeTrackingMode.off;
       await context.sync();
     }
@@ -4474,11 +4564,11 @@ async function routeChangeOperation(change, targetParagraph, context) {
               // Force Word to re-evaluate
               await context.sync();
 
-              // Delete the dummy paragraph
-              dummyPara.delete();
-              await context.sync();
+              // TEMP: Leave dummy paragraph to test if it fixes formatting
+              // dummyPara.delete();
+              // await context.sync();
 
-              console.log(`[OxmlEngine] Removed dummy spacing paragraph`);
+              console.log(`[OxmlEngine] Left dummy spacing paragraph for testing`);
             }
           }
         } catch (spacingError) {
@@ -4486,8 +4576,8 @@ async function routeChangeOperation(change, targetParagraph, context) {
         }
       }
     } finally {
-      // Restore track changes mode
-      if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+      // Restore track changes mode (only if we disabled it)
+      if (shouldDisableTracking) {
         console.log(`[OxmlEngine] Restoring track changes mode to: ${originalMode}`);
         doc.changeTrackingMode = originalMode;
         await context.sync();
@@ -5058,7 +5148,7 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
             <pkg:xmlData>
               <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
                 <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
-              </Relationships>
+                </Relationships>
             </pkg:xmlData>
           </pkg:part>
           <pkg:part pkg:name="/word/numbering.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml">
@@ -5129,11 +5219,11 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
             // Force Word to re-evaluate by syncing again
             await context.sync();
 
-            // Now delete the dummy paragraph
-            dummyPara.delete();
-            await context.sync();
+            // TEMP: Leave dummy paragraph to test if it fixes formatting
+            // dummyPara.delete();
+            // await context.sync();
 
-            console.log(`[executeEditList] Removed dummy spacing paragraph`);
+            console.log(`[executeEditList] Left dummy spacing paragraph for testing`);
           }
         } catch (spacingError) {
           console.warn(`[executeEditList] Spacing workaround failed (non-critical):`, spacingError.message);
