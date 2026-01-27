@@ -760,6 +760,45 @@ function saveRedlineAuthor(author) {
   }
 }
 
+async function setChangeTrackingForAi(context, redlineEnabled, sourceLabel = "AI") {
+  let originalMode = null;
+  let changed = false;
+  let available = false;
+
+  try {
+    const doc = context.document;
+    doc.load("changeTrackingMode");
+    await context.sync();
+
+    available = true;
+    originalMode = doc.changeTrackingMode;
+    const desiredMode = redlineEnabled ? Word.ChangeTrackingMode.trackAll : Word.ChangeTrackingMode.off;
+
+    if (originalMode !== desiredMode) {
+      doc.changeTrackingMode = desiredMode;
+      await context.sync();
+      changed = true;
+    }
+  } catch (error) {
+    console.warn(`[ChangeTracking] ${sourceLabel}: unavailable`, error);
+  }
+
+  return { available, originalMode, changed };
+}
+
+async function restoreChangeTracking(context, trackingState, sourceLabel = "AI") {
+  if (!trackingState || !trackingState.available || !trackingState.changed || trackingState.originalMode === null) {
+    return;
+  }
+
+  try {
+    context.document.changeTrackingMode = trackingState.originalMode;
+    await context.sync();
+  } catch (error) {
+    console.warn(`[ChangeTracking] ${sourceLabel}: restore failed`, error);
+  }
+}
+
 
 /**
  * Fetches the document's author from Word properties.
@@ -2498,33 +2537,12 @@ Return ONLY the JSON array, nothing else:`;
     }
 
     let changesApplied = 0;
-    let changeTrackingAvailable = false;
     const redlineEnabled = loadRedlineSetting();
 
     // 3. Apply changes in Word
     await Word.run(async (context) => {
-      // Enable Track Changes only if redline setting is enabled
-      let originalChangeTrackingMode = null;
-      changeTrackingAvailable = false;
-
-      if (redlineEnabled) {
-        try {
-          const doc = context.document;
-          doc.load("changeTrackingMode");
-          await context.sync();
-
-          changeTrackingAvailable = true;
-          originalChangeTrackingMode = doc.changeTrackingMode;
-
-          if (originalChangeTrackingMode !== Word.ChangeTrackingMode.trackAll) {
-            doc.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
-            await context.sync();
-          }
-        } catch (trackError) {
-          console.error("Track Changes not available:", trackError);
-          changeTrackingAvailable = false;
-        }
-      }
+      const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeRedline");
+      try {
 
         // Load paragraphs to map indices
         const paragraphs = context.document.body.paragraphs;
@@ -3291,15 +3309,8 @@ Return ONLY the JSON array, nothing else:`;
 
         // Final sync (should usually be a no-op now, but kept for safety)
         await context.sync();
-
-      // Restore track changes only if we enabled it
-      if (redlineEnabled && changeTrackingAvailable && originalChangeTrackingMode !== Word.ChangeTrackingMode.trackAll) {
-        try {
-          context.document.changeTrackingMode = originalChangeTrackingMode;
-          await context.sync();
-        } catch (restoreError) {
-          console.error("Could not restore track changes state:", restoreError);
-        }
+      } finally {
+        await restoreChangeTracking(context, trackingState, "executeRedline");
       }
     });
 
@@ -3539,6 +3550,9 @@ JSON ARRAY OF HIGHLIGHTS:`;
     let highlightsApplied = 0;
 
     await Word.run(async (context) => {
+      const redlineEnabled = loadRedlineSetting();
+      const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeHighlight");
+      try {
       const paragraphs = context.document.body.paragraphs;
       paragraphs.load("items");
       await context.sync();
@@ -3552,6 +3566,9 @@ JSON ARRAY OF HIGHLIGHTS:`;
           match.font.highlightColor = normalizedColor;
         });
         highlightsApplied += count;
+      }
+      } finally {
+        await restoreChangeTracking(context, trackingState, "executeHighlight");
       }
     });
 
@@ -4686,26 +4703,9 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
 
   try {
     await Word.run(async (context) => {
-      // Enable track changes if redline setting is enabled
       const redlineEnabled = loadRedlineSetting();
-      let originalChangeTrackingMode = null;
-
-      if (redlineEnabled) {
-        try {
-          const doc = context.document;
-          doc.load("changeTrackingMode");
-          await context.sync();
-
-          originalChangeTrackingMode = doc.changeTrackingMode;
-          if (originalChangeTrackingMode !== Word.ChangeTrackingMode.trackAll) {
-            doc.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
-            await context.sync();
-            console.log("[executeInsertListItem] Track changes enabled");
-          }
-        } catch (trackError) {
-          console.warn("[executeInsertListItem] Could not enable track changes:", trackError);
-        }
-      }
+      const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeInsertListItem");
+      try {
 
       const paragraphs = context.document.body.paragraphs;
       paragraphs.load("items");
@@ -4742,13 +4742,6 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
         console.log("[executeInsertListItem] Adjacent paragraph is not a list item, inserting plain paragraph");
         adjacentPara.insertParagraph(text, "After");
         await context.sync();
-
-        // Restore tracking mode
-        if (redlineEnabled && originalChangeTrackingMode !== null &&
-          originalChangeTrackingMode !== Word.ChangeTrackingMode.trackAll) {
-          context.document.changeTrackingMode = originalChangeTrackingMode;
-          await context.sync();
-        }
         return;
       }
 
@@ -4851,13 +4844,8 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
       }
 
       console.log(`[executeInsertListItem] Successfully inserted list item (numId=${numId}, ilvl=${newIlvl})`);
-
-
-      // Restore original tracking mode if we changed it
-      if (redlineEnabled && originalChangeTrackingMode !== null &&
-        originalChangeTrackingMode !== Word.ChangeTrackingMode.trackAll) {
-        context.document.changeTrackingMode = originalChangeTrackingMode;
-        await context.sync();
+      } finally {
+        await restoreChangeTracking(context, trackingState, "executeInsertListItem");
       }
     });
 
@@ -4901,28 +4889,9 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
       // Detect document font for consistent HTML insertion
       await detectDocumentFont();
 
-      // Enable track changes if redline setting is enabled (same pattern as executeRedline)
       const redlineEnabled = loadRedlineSetting();
-      let originalChangeTrackingMode = null;
-
-      if (redlineEnabled) {
-        try {
-          const doc = context.document;
-          doc.load("changeTrackingMode");
-          await context.sync();
-
-          originalChangeTrackingMode = doc.changeTrackingMode;
-
-          // Force enable track changes
-          if (originalChangeTrackingMode !== Word.ChangeTrackingMode.trackAll) {
-            doc.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
-            await context.sync();
-            console.log("Track changes enabled for list edit");
-          }
-        } catch (trackError) {
-          console.warn("Could not enable track changes:", trackError);
-        }
-      }
+      const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeEditList");
+      try {
 
       const paragraphs = context.document.body.paragraphs;
       paragraphs.load("items");
@@ -5319,11 +5288,8 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
         await context.sync();
       }
 
-      // Restore original tracking mode if we changed it
-      if (redlineEnabled && originalChangeTrackingMode !== null &&
-        originalChangeTrackingMode !== Word.ChangeTrackingMode.trackAll) {
-        context.document.changeTrackingMode = originalChangeTrackingMode;
-        await context.sync();
+      } finally {
+        await restoreChangeTracking(context, trackingState, "executeEditList");
       }
 
       console.log(`\n[executeEditList] ✅ SUCCESSFULLY COMPLETED`);
@@ -5362,25 +5328,9 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
 
   try {
     await Word.run(async (context) => {
-      // Enable track changes if redline setting is enabled
       const redlineEnabled = loadRedlineSetting();
-      let originalChangeTrackingMode = null;
-
-      if (redlineEnabled) {
-        try {
-          const doc = context.document;
-          doc.load("changeTrackingMode");
-          await context.sync();
-
-          originalChangeTrackingMode = doc.changeTrackingMode;
-          if (originalChangeTrackingMode !== Word.ChangeTrackingMode.trackAll) {
-            doc.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
-            await context.sync();
-          }
-        } catch (trackError) {
-          console.warn("Could not enable track changes:", trackError);
-        }
-      }
+      const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeConvertHeadersToList");
+      try {
 
       const paragraphs = context.document.body.paragraphs;
       paragraphs.load("items");
@@ -5484,11 +5434,8 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
         }
       }
 
-      // Restore tracking mode
-      if (redlineEnabled && originalChangeTrackingMode !== null &&
-        originalChangeTrackingMode !== Word.ChangeTrackingMode.trackAll) {
-        context.document.changeTrackingMode = originalChangeTrackingMode;
-        await context.sync();
+      } finally {
+        await restoreChangeTracking(context, trackingState, "executeConvertHeadersToList");
       }
 
       console.log(`Successfully converted ${sortedIndices.length} headers to numbered list`);
@@ -5518,25 +5465,9 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
 async function executeEditTable(paragraphIndex, action, content, targetRow, targetColumn) {
   try {
     await Word.run(async (context) => {
-      // Enable track changes if redline setting is enabled
       const redlineEnabled = loadRedlineSetting();
-      let originalChangeTrackingMode = null;
-
-      if (redlineEnabled) {
-        try {
-          const doc = context.document;
-          doc.load("changeTrackingMode");
-          await context.sync();
-
-          originalChangeTrackingMode = doc.changeTrackingMode;
-          if (originalChangeTrackingMode !== Word.ChangeTrackingMode.trackAll) {
-            doc.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
-            await context.sync();
-          }
-        } catch (trackError) {
-          console.warn("Could not enable track changes:", trackError);
-        }
-      }
+      const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeEditTable");
+      try {
 
       const paragraphs = context.document.body.paragraphs;
       paragraphs.load("items");
@@ -5640,6 +5571,9 @@ async function executeEditTable(paragraphIndex, action, content, targetRow, targ
       } else {
         throw new Error(`Unknown table action: ${action}`);
       }
+      } finally {
+        await restoreChangeTracking(context, trackingState, "executeEditTable");
+      }
     });
 
     return {
@@ -5667,25 +5601,9 @@ async function executeEditSection(sectionHeaderIndex, newHeaderText, newBodyPara
     let editCount = 0;
 
     await Word.run(async (context) => {
-      // Enable track changes if redline setting is enabled
       const redlineEnabled = loadRedlineSetting();
-      let originalChangeTrackingMode = null;
-
-      if (redlineEnabled) {
-        try {
-          const doc = context.document;
-          doc.load("changeTrackingMode");
-          await context.sync();
-
-          originalChangeTrackingMode = doc.changeTrackingMode;
-          if (originalChangeTrackingMode !== Word.ChangeTrackingMode.trackAll) {
-            doc.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
-            await context.sync();
-          }
-        } catch (trackError) {
-          console.warn("Could not enable track changes:", trackError);
-        }
-      }
+      const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeEditSection");
+      try {
 
       const paragraphs = context.document.body.paragraphs;
       paragraphs.load("items");
@@ -5770,6 +5688,9 @@ async function executeEditSection(sectionHeaderIndex, newHeaderText, newBodyPara
       }
 
       await context.sync();
+      } finally {
+        await restoreChangeTracking(context, trackingState, "executeEditSection");
+      }
     });
 
     if (editCount === 0) {

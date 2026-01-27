@@ -8,6 +8,8 @@ This document describes the diff/reconciliation system for the Word Add-in. The 
 
 The **OOXML Engine** (`oxml-engine.js`) acts as the central router/dispatcher. It analyzes the incoming request (original text vs. new text) and the document state (tables, lists) to select the most robust strategy.
 
+**Track changes source of truth**: The taskpane **Redlines toggle** controls whether changes are tracked. The engine passes `generateRedlines` based on that UI setting and temporarily enables/disables Word change tracking accordingly. Word’s internal `changeTrackingMode` is not used to override the user’s toggle.
+
 ```mermaid
 graph TD
     A[Input: Original OOXML + New Text] --> B{OxmlEngine Router}
@@ -168,7 +170,9 @@ Formatting in Word isn't always direct tags on a run. It can be:
 > [!IMPORTANT]
 > **Additive-Only vs. Synchronization**: Early versions of the engine only knew how to *add* tags. If a run was already bold (via style), adding `<w:b/>` did nothing, but *removing* the `**` markers didn't explicitly turn off the bold.
 >
-> **Solution**: The engine now performs **Full Synchronization**. For every format property (bold, italic, etc.), it explicitly emits either an "ON" tag or an "OFF" tag (e.g., `<w:b w:val="0"/>` or `<w:u w:val="none"/>`). This ensures that removing markdown markers Reliably removes the corresponding Word formatting.
+> **Solution**: The engine now performs **Full Synchronization**. For every format property (bold, italic, etc.), it explicitly emits either an "ON" tag or an "OFF" tag (e.g., `<w:b w:val="0"/>` or `<w:u w:val="none"/>`). This ensures that removing markdown markers reliably removes the corresponding Word formatting, even when the formatting is inherited from styles.
+
+> **Pure OOXML**: Formatting removal is handled entirely via OOXML manipulation (no Word Font API). This keeps the pipeline portable outside the add-in host.
 
 ### Three-Step Reconciliation Logic
 
@@ -207,9 +211,9 @@ graph TD
 
 ### Tracked Changes for Formatting
 
-All formatting changes (addition or removal) are wrapped in track change markers:
-- **Run Level**: `w:rPrChange` captures the delta for specific runs.
-- **Paragraph Level**: `w:pPrChange` ensures that when an entire paragraph's formatting is modified (e.g., bolding a whole line), the redline appears correctly in the sidebar.
+- **Format additions**: Uses `w:rPrChange` (and `w:pPrChange` when needed) so Word displays formatting redlines.
+- **Format removals**: Uses a **surgical replacement** in the OOXML DOM: the original run is wrapped in `w:del`, and an inserted run with explicit “off” overrides (`w:b w:val="0"`, `w:u w:val="none"`, etc.) is wrapped in `w:ins`. This avoids Word ignoring `w:rPrChange` on insert and reliably shows tracked formatting removal when redlines are enabled.
+- **Redlines disabled**: The engine writes the explicit overrides directly into the run’s `w:rPr` without any `w:ins/w:del`, resulting in a clean, untracked formatting change.
 
 
 ---
