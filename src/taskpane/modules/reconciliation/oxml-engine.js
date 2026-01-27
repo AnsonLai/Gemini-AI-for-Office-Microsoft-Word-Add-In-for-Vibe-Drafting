@@ -456,6 +456,18 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
         return { oxml, hasChanges: false };
     }
 
+    // If Word returned a full table for a table-cell paragraph, isolate the target paragraph
+    // before diffing to avoid offset drift across the full table wrapper.
+    const initialTableCellContext = detectTableCellContext(xmlDoc, originalText);
+    if (initialTableCellContext.hasTableWrapper && initialTableCellContext.targetParagraph && !options._isolatedTableCell) {
+        console.log('[OxmlEngine] Isolating table-cell paragraph before diff');
+        const isolatedOxml = serializeParagraphOnly(xmlDoc, initialTableCellContext.targetParagraph, serializer);
+        return applyRedlineToOxml(isolatedOxml, originalText, modifiedText, {
+            ...options,
+            _isolatedTableCell: true
+        });
+    }
+
     // Sanitize and preprocess markdown from modified text
     const sanitizedText = sanitizeAiResponse(modifiedText);
     const { cleanText: cleanModifiedText, formatHints } = preprocessMarkdown(sanitizedText);
@@ -554,7 +566,7 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     const isTargetList = cleanModifiedText.includes('\n') && markersRegex.test(cleanModifiedText.trim());
 
     // Detect table cell context early
-    const tableCellContext = detectTableCellContext(xmlDoc, originalText);
+    const tableCellContext = initialTableCellContext;
 
     console.log(`[OxmlEngine] Mode: ${hasTables ? 'SURGICAL' : 'RECONSTRUCTION'}, formatHints: ${formatHints.length}, isMarkdownTable: ${isMarkdownTable}, isTargetList: ${isTargetList}, isTableCellParagraph: ${tableCellContext.isTableCellParagraph}`);
 
@@ -567,7 +579,22 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     if (hasTables && isMarkdownTable) {
         return applyTableReconciliation(xmlDoc, cleanModifiedText, serializer, author, formatHints, generateRedlines);
     } else if (hasTables) {
-        const result = applySurgicalMode(xmlDoc, originalText, cleanModifiedText, serializer, author, formatHints, generateRedlines);
+        const surgicalTarget = tableCellContext.hasTableWrapper && tableCellContext.targetParagraph
+            ? tableCellContext.targetParagraph
+            : null;
+        if (surgicalTarget) {
+            console.log('[OxmlEngine] Table cell edit: scoping surgical mode to target paragraph');
+        }
+        const result = applySurgicalMode(
+            xmlDoc,
+            originalText,
+            cleanModifiedText,
+            serializer,
+            author,
+            formatHints,
+            generateRedlines,
+            surgicalTarget
+        );
 
         // For table cell edits, return only the target paragraph without table wrapper
         if (tableCellContext.hasTableWrapper && result.hasChanges && tableCellContext.targetParagraph) {
@@ -1714,11 +1741,13 @@ function applyTextToTableTransformation(xmlDoc, modifiedText, serializer, author
  * Surgical mode: Modifies existing runs in-place without changing paragraph structure.
  * Safe for tables and complex layouts.
  */
-function applySurgicalMode(xmlDoc, originalText, modifiedText, serializer, author, formatHints, generateRedlines = true) {
+function applySurgicalMode(xmlDoc, originalText, modifiedText, serializer, author, formatHints, generateRedlines = true, targetParagraph = null) {
     let fullText = '';
     const textSpans = [];
 
-    const allParagraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
+    const allParagraphs = targetParagraph
+        ? [targetParagraph]
+        : Array.from(xmlDoc.getElementsByTagName('w:p'));
 
     // Build text span map
     allParagraphs.forEach((p, pIndex) => {
