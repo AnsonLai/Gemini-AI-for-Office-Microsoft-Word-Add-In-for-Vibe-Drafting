@@ -4496,6 +4496,66 @@ async function routeChangeOperation(change, targetParagraph, context) {
     return;
   }
 
+  // Handle SURGICAL format changes (pure OOXML at range level, not paragraph level)
+  // This searches for specific text and replaces just that range with OOXML
+  if (result.isSurgicalFormatChange && result.surgicalChanges) {
+    console.log(`[OxmlEngine] Applying ${result.surgicalChanges.length} surgical format changes`);
+
+    const doc = context.document;
+    doc.load("changeTrackingMode");
+    await context.sync();
+
+    const originalMode = doc.changeTrackingMode;
+
+    // Disable track changes - our OOXML has embedded w:del/w:ins
+    if (originalMode !== Word.ChangeTrackingMode.off) {
+      console.log("[OxmlEngine] Temporarily disabling track changes for surgical OOXML");
+      doc.changeTrackingMode = Word.ChangeTrackingMode.off;
+      await context.sync();
+    }
+
+    try {
+      const paragraphRange = targetParagraph.getRange();
+      paragraphRange.load('text');
+      await context.sync();
+
+      for (const change of result.surgicalChanges) {
+        try {
+          console.log(`[OxmlEngine] Surgical: searching for "${change.searchText}"`);
+
+          // Search for the specific text within the paragraph
+          const searchResults = paragraphRange.search(change.searchText, {
+            matchCase: true,
+            matchWholeWord: false
+          });
+          searchResults.load('items');
+          await context.sync();
+
+          if (searchResults.items.length > 0) {
+            // Replace at range level - NOT paragraph level
+            const targetRange = searchResults.items[0];
+            targetRange.insertOoxml(change.replacementOoxml, 'Replace');
+            await context.sync();
+            console.log(`[OxmlEngine] ✅ Surgical replacement applied for "${change.searchText}"`);
+          } else {
+            console.warn(`[OxmlEngine] Text not found for surgical replacement: "${change.searchText}"`);
+          }
+        } catch (changeError) {
+          console.warn(`[OxmlEngine] Failed to apply surgical change: ${changeError.message}`);
+        }
+      }
+
+      console.log("✅ Surgical format changes completed");
+    } finally {
+      // Restore track changes mode
+      if (originalMode !== Word.ChangeTrackingMode.off) {
+        doc.changeTrackingMode = originalMode;
+        await context.sync();
+      }
+    }
+    return;
+  }
+
   // Handle native API format REMOVAL (e.g., unbold, unitalicize)
   // This uses Word's Font API which properly tracks format changes
   if (result.useNativeApi && result.formatRemovalHints) {

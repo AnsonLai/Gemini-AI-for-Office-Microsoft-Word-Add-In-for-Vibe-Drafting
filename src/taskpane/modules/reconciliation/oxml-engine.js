@@ -59,6 +59,94 @@ import { NS_W } from './types.js';
  */
 
 // ============================================================================
+// SURGICAL OOXML BUILDERS
+// ============================================================================
+
+/**
+ * Builds minimal OOXML for a surgical text replacement with track changes.
+ * Creates a document fragment with w:del (old formatted text) + w:ins (new unformatted text).
+ * 
+ * @param {Element} originalRun - The original run element with formatting
+ * @param {string} textContent - The text content
+ * @param {string} author - Author name for track changes
+ * @param {string} dateStr - ISO date string
+ * @returns {string} OOXML fragment string
+ */
+function buildSurgicalReplacementOoxml(originalRun, textContent, author, dateStr) {
+    const authorName = author || 'Gemini AI';
+    const delId = Math.floor(Math.random() * 1000000);
+    const insId = Math.floor(Math.random() * 1000000);
+
+    // Build the deleted run (keeps original formatting)
+    let rPrXml = '';
+    const rPr = originalRun.getElementsByTagName('w:rPr')[0];
+    if (rPr) {
+        // Serialize the original rPr
+        const serializer = new XMLSerializer();
+        rPrXml = serializer.serializeToString(rPr);
+    }
+
+    // Escape text for XML
+    const escapedText = textContent
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    // Build OOXML fragment with proper namespace declarations
+    const ooxmlFragment = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
+<pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">
+<pkg:xmlData>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
+            xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<w:body>
+<w:p>
+<w:del w:id="${delId}" w:author="${authorName}" w:date="${dateStr}">
+<w:r>${rPrXml}<w:delText xml:space="preserve">${escapedText}</w:delText></w:r>
+</w:del>
+<w:ins w:id="${insId}" w:author="${authorName}" w:date="${dateStr}">
+<w:r><w:t xml:space="preserve">${escapedText}</w:t></w:r>
+</w:ins>
+</w:p>
+</w:body>
+</w:document>
+</pkg:xmlData>
+</pkg:part>
+</pkg:package>`;
+
+    return ooxmlFragment;
+}
+
+/**
+ * Builds minimal OOXML for an unformatted run (no track changes).
+ * 
+ * @param {string} textContent - The text content
+ * @returns {string} OOXML fragment string
+ */
+function buildUnformattedRunOoxml(textContent) {
+    const escapedText = textContent
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
+<pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">
+<pkg:xmlData>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body>
+<w:p>
+<w:r><w:t xml:space="preserve">${escapedText}</w:t></w:r>
+</w:p>
+</w:body>
+</w:document>
+</pkg:xmlData>
+</pkg:part>
+</pkg:package>`;
+}
+
+
+// ============================================================================
 // TABLE CELL CONTEXT DETECTION
 // ============================================================================
 
@@ -250,24 +338,55 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     }
 
     // Format REMOVAL: text is unchanged, no new hints, but original has formatting to strip
-    // Use native Font API instead of OOXML insertion - Word's insertOoxml doesn't surface w:rPrChange as track changes
+    // Use surgical range-level replacement instead of paragraph-level replacement
     if (needsFormatRemoval) {
-        console.log(`[OxmlEngine] Format REMOVAL detected: returning for native Font API handling`);
+        console.log(`[OxmlEngine] Format REMOVAL detected: preparing surgical range changes`);
 
-        // Convert existing format hints to removal hints (format flags indicate what to REMOVE)
-        const formatRemovalHints = existingFormatHints.map(hint => ({
-            start: hint.start,
-            end: hint.end,
-            removeFormat: { ...hint.format } // These formats should be removed
-        }));
+        // Build surgical change descriptors for each formatted range
+        const surgicalChanges = [];
+        const dateStr = new Date().toISOString();
 
-        // Return with useNativeApi flag so taskpane.js uses Font API
-        return {
-            hasChanges: true,
-            useNativeApi: true,
-            formatRemovalHints,
-            originalText
-        };
+        for (const hint of existingFormatHints) {
+            const run = hint.run;
+            if (!run || !run.parentNode) continue;
+
+            // Get the text content from this run
+            let textContent = '';
+            for (const child of run.childNodes) {
+                if (child.nodeName === 'w:t') {
+                    textContent += child.textContent || '';
+                }
+            }
+
+            if (!textContent || textContent.trim().length === 0) continue;
+
+            // Build minimal OOXML for just the surgical replacement (w:del + w:ins)
+            let surgicalOoxml;
+            if (generateRedlines) {
+                surgicalOoxml = buildSurgicalReplacementOoxml(run, textContent, author, dateStr);
+            } else {
+                surgicalOoxml = buildUnformattedRunOoxml(textContent);
+            }
+
+            surgicalChanges.push({
+                searchText: textContent,
+                replacementOoxml: surgicalOoxml,
+                format: hint.format
+            });
+
+            console.log(`[OxmlEngine] Prepared surgical change for "${textContent}"`);
+        }
+
+        if (surgicalChanges.length > 0) {
+            return {
+                hasChanges: true,
+                isSurgicalFormatChange: true,
+                surgicalChanges,
+                originalText
+            };
+        }
+
+        return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
     }
 
     // Format-only change: text is the same but we have formatting to apply
@@ -503,6 +622,146 @@ function processRunForFormatting(run, paragraph, charOffset, textSpans, formatHi
     }
 
     return currentOffset;
+}
+
+/**
+ * Format REMOVAL via surgical text replacement (pure OOXML approach).
+ * Instead of using w:rPrChange (which Word ignores via insertOoxml),
+ * we treat format removal as a text replacement:
+ * - Original formatted run → wrapped in w:del
+ * - New unformatted run → wrapped in w:ins
+ * 
+ * This appears as a surgical text replacement in track changes,
+ * which Word properly honors.
+ */
+function applyFormatRemovalAsSurgicalReplacement(xmlDoc, textSpans, existingFormatHints, serializer, author, generateRedlines = true) {
+    let hasAnyChanges = false;
+    const processedRuns = new Set();
+    const dateStr = new Date().toISOString();
+
+    console.log(`[OxmlEngine] Surgical format removal: ${existingFormatHints.length} hints to process`);
+
+    for (const hint of existingFormatHints) {
+        const run = hint.run;
+
+        // Skip if already processed this run
+        if (processedRuns.has(run)) continue;
+        processedRuns.add(run);
+
+        // Skip if run has no parent (already removed)
+        if (!run.parentNode) continue;
+
+        console.log(`[OxmlEngine] Processing run for surgical format removal, format:`, hint.format);
+
+        // Get the text content from this run
+        let textContent = '';
+        for (const child of run.childNodes) {
+            if (child.nodeName === 'w:t') {
+                textContent += child.textContent || '';
+            }
+        }
+
+        if (!textContent) {
+            console.log('[OxmlEngine] Skipping run with no text content');
+            continue;
+        }
+
+        const parentNode = run.parentNode;
+
+        if (generateRedlines) {
+            // Create w:del container with the original formatted run
+            const delContainer = xmlDoc.createElement('w:del');
+            delContainer.setAttribute('w:id', Math.floor(Math.random() * 1000000).toString());
+            delContainer.setAttribute('w:author', author || 'Gemini AI');
+            delContainer.setAttribute('w:date', dateStr);
+
+            // Clone the run for deletion (keeps original formatting)
+            const deletedRun = run.cloneNode(true);
+
+            // Convert w:t to w:delText in the deleted run
+            const tElements = deletedRun.getElementsByTagName('w:t');
+            const tArray = Array.from(tElements);
+            for (const t of tArray) {
+                const delText = xmlDoc.createElement('w:delText');
+                delText.setAttribute('xml:space', 'preserve');
+                delText.textContent = t.textContent;
+                t.parentNode.replaceChild(delText, t);
+            }
+
+            delContainer.appendChild(deletedRun);
+
+            // Create w:ins container with unformatted run
+            const insContainer = xmlDoc.createElement('w:ins');
+            insContainer.setAttribute('w:id', Math.floor(Math.random() * 1000000).toString());
+            insContainer.setAttribute('w:author', author || 'Gemini AI');
+            insContainer.setAttribute('w:date', dateStr);
+
+            // Create new unformatted run
+            const newRun = xmlDoc.createElement('w:r');
+
+            // Copy rPr but remove formatting elements
+            const originalRPr = run.getElementsByTagName('w:rPr')[0];
+            if (originalRPr) {
+                const newRPr = originalRPr.cloneNode(true);
+                // Remove formatting elements
+                const toRemove = [];
+                for (const child of newRPr.childNodes) {
+                    if (['w:b', 'w:i', 'w:u', 'w:strike', 'w:rPrChange'].includes(child.nodeName)) {
+                        toRemove.push(child);
+                    }
+                }
+                for (const el of toRemove) {
+                    newRPr.removeChild(el);
+                }
+                // Only add rPr if it still has children (like rStyle, rFonts, etc.)
+                if (newRPr.childNodes.length > 0) {
+                    newRun.appendChild(newRPr);
+                }
+            }
+
+            // Add the text element
+            const newT = xmlDoc.createElement('w:t');
+            newT.setAttribute('xml:space', 'preserve');
+            newT.textContent = textContent;
+            newRun.appendChild(newT);
+
+            insContainer.appendChild(newRun);
+
+            // Insert w:del before the original run, then w:ins after w:del
+            parentNode.insertBefore(delContainer, run);
+            parentNode.insertBefore(insContainer, run);
+
+            // Remove the original run
+            parentNode.removeChild(run);
+
+            console.log(`[OxmlEngine] Created surgical replacement for "${textContent}"`);
+        } else {
+            // Without redlines, just remove formatting from the run directly
+            const rPr = run.getElementsByTagName('w:rPr')[0];
+            if (rPr) {
+                const toRemove = [];
+                for (const child of rPr.childNodes) {
+                    if (['w:b', 'w:i', 'w:u', 'w:strike'].includes(child.nodeName)) {
+                        toRemove.push(child);
+                    }
+                }
+                for (const el of toRemove) {
+                    rPr.removeChild(el);
+                }
+            }
+            console.log(`[OxmlEngine] Removed formatting directly (no redlines) for "${textContent}"`);
+        }
+
+        hasAnyChanges = true;
+    }
+
+    if (hasAnyChanges) {
+        console.log('[OxmlEngine] Surgical format removal completed successfully');
+        return { oxml: serializer.serializeToString(xmlDoc), hasChanges: true };
+    }
+
+    console.log('[OxmlEngine] No format changes were applied');
+    return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
 }
 
 /**
