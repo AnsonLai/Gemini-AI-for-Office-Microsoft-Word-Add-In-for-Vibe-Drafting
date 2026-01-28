@@ -665,6 +665,26 @@ function showMainView() {
 
 
 function refreshChat() {
+  // Cancel any ongoing request
+  if (currentRequestController) {
+    currentRequestController.abort();
+    currentRequestController = null;
+    console.log("Active request cancelled by refresh.");
+  }
+
+  // Immediately unlock UI (in case it was locked by an active request)
+  const chatInput = document.getElementById("chat-input");
+  const sendButton = document.getElementById("send-button");
+  const thinkButton = document.getElementById("think-button");
+
+  if (chatInput) {
+    chatInput.disabled = false;
+    chatInput.value = "";
+    chatInput.focus();
+  }
+  if (sendButton) sendButton.disabled = false;
+  if (thinkButton) thinkButton.disabled = false;
+
   // Clear chat history
   chatHistory = [];
 
@@ -734,10 +754,6 @@ function loadSystemMessage() {
 }
 
 function loadRedlineSetting() {
-  const toggle = document.getElementById("redline-toggle");
-  if (toggle) {
-    return toggle.checked;
-  }
   const storedSetting = localStorage.getItem("redlineEnabled");
   return storedSetting !== null ? storedSetting === "true" : true; // Default to true (enabled)
 }
@@ -2586,452 +2602,90 @@ Return ONLY the JSON array, nothing else:`;
               ? paragraphs.items[paragraphs.items.length - 1]
               : paragraphs.items[pIndex];
 
-          if (change.operation === "edit_paragraph") {
-            console.log(`Editing Paragraph ${change.paragraphIndex} with DMP`);
+            if (change.operation === "edit_paragraph") {
+              console.log(`Editing Paragraph ${change.paragraphIndex} with DMP`);
 
-            if (!change.newContent) {
-              console.warn("No newContent provided for edit_paragraph. Skipping.");
-              continue;
-            }
-
-            try {
-              // If inserting at end, insert new paragraph instead of editing
-              if (isInsertAtEnd) {
-                console.log(`Inserting new paragraph after paragraph ${paragraphs.items.length}`);
-                targetParagraph.insertParagraph(change.newContent, "After");
-                await context.sync(); // Sync immediately to ensure tracked changes captures the insertion
-                changesApplied++;
-              } else {
-                // Route through our smart operation router
-                await routeChangeOperation(change, targetParagraph, context);
-                changesApplied++;
+              if (!change.newContent) {
+                console.warn("No newContent provided for edit_paragraph. Skipping.");
+                continue;
               }
-            } catch (error) {
-              console.error(`Error editing paragraph ${change.paragraphIndex}:`, error);
-              // Fallback to old modify_text approach if DMP fails
-            }
-
-          } else if (change.operation === "replace_paragraph") {
-            console.log(`Replacing Paragraph ${change.paragraphIndex}`);
-
-            if (change.content === null || change.content === undefined) {
-              console.warn("Content is null/undefined for replace_paragraph. Skipping.");
-              continue;
-            }
-
-            // Normalize content: Convert literal escape sequences to actual characters
-            // This handles cases where the AI returns "\\n" as a two-character string instead of actual newlines
-            let normalizedContent = normalizeContentEscapes(change.content || "");
-
-            // --- NEW: Detect if target paragraph is already a list item ---
-            // If so, we need to preserve its numId/ilvl when replacing content
-            let targetIsListItem = false;
-            let targetListContext = null;
-
-            if (!isInsertAtEnd) {
-              try {
-                const targetOoxmlResult = targetParagraph.getOoxml();
-                await context.sync();
-
-                // Check for w:numPr in the paragraph's OOXML
-                const numPrMatch = targetOoxmlResult.value.match(/<w:numPr>.*?<w:ilvl w:val="(\d+)".*?<w:numId w:val="(\d+)".*?<\/w:numPr>/s);
-                if (numPrMatch) {
-                  targetIsListItem = true;
-                  targetListContext = {
-                    ooxml: targetOoxmlResult.value,
-                    ilvl: numPrMatch[1],
-                    numId: numPrMatch[2]
-                  };
-                  console.log(`[replace_paragraph] Target P${change.paragraphIndex} is list item: numId=${targetListContext.numId}, ilvl=${targetListContext.ilvl}`);
-                }
-              } catch (ooxmlError) {
-                console.warn("[replace_paragraph] Could not check list context:", ooxmlError);
-              }
-            }
-
-            // If target is a list item and content is plain text (no list markers), 
-            // use OOXML reconciliation to preserve list formatting
-            const contentHasListMarkers = /^(\s*)([-*•]|\d+\.|[a-zA-Z]\.|[ivxlcIVXLC]+\.|\d+\.\d+\.?)\s+/m.test(normalizedContent);
-            console.log(`[replace_paragraph] contentHasListMarkers: ${contentHasListMarkers}`);
-
-            if (targetIsListItem && !contentHasListMarkers) {
-              console.log(`[replace_paragraph] Preserving list context for plain text edit`);
 
               try {
-                const redlineEnabled = loadRedlineSetting();
-                const redlineAuthor = loadRedlineAuthor();
-
-                // Get original text for diffing
-                const originalText = targetParagraph.text;
-                await context.sync();
-
-                // Use OOXML reconciliation to preserve numPr
-                const result = await applyRedlineToOxml(
-                  targetListContext.ooxml,
-                  originalText,
-                  normalizedContent,
-                  {
-                    author: redlineEnabled ? redlineAuthor : undefined,
-                    generateRedlines: redlineEnabled
-                  }
-                );
-
-                if (result.oxml && result.hasChanges) {
-                  const doc = context.document;
-                  doc.load("changeTrackingMode");
-                  await context.sync();
-
-                  const originalMode = doc.changeTrackingMode;
-                  if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
-                    doc.changeTrackingMode = Word.ChangeTrackingMode.off;
-                    await context.sync();
-                  }
-
-                  try {
-                    targetParagraph.insertOoxml(result.oxml, "Replace");
-                    await context.sync();
-                    console.log("✅ OOXML list-preserving edit successful");
-                    changesApplied++;
-                  } finally {
-                    if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
-                      doc.changeTrackingMode = originalMode;
-                      await context.sync();
-                    }
-                  }
-                  continue; // Skip other handlers
-                }
-              } catch (listPreserveError) {
-                console.warn("[replace_paragraph] List preservation failed, falling back:", listPreserveError);
-                // Fall through to standard handlers
-              }
-            }
-            // --- END NEW ---
-
-            // Check if this is a list - use OOXML pipeline for proper redlines
-            const listData = parseMarkdownList(normalizedContent);
-            console.log(`[replace_paragraph] listData result: type=${listData?.type}, items=${listData?.items?.length}`);
-            if (listData && listData.type !== 'text') {
-              console.log(`Detected ${listData.type} list in replace_paragraph, using OOXML pipeline`);
-              try {
-                // Get original paragraph info for proper diff/redlines and font inheritance
-                // Only get original text if we're REPLACING (not appending)
-                let originalTextForDeletion = '';
-                let paragraphFont = null;
-                if (!isInsertAtEnd) {
-                  targetParagraph.load("text,font");
-                  await context.sync();
-                  originalTextForDeletion = targetParagraph.text;
-
-                  // Get font info for inheritance
-                  if (targetParagraph.font) {
-                    targetParagraph.font.load("name,size");
-                    await context.sync();
-                    paragraphFont = targetParagraph.font.name;
-                    console.log(`[ListGen] Inheriting font from original paragraph: ${paragraphFont} ${targetParagraph.font.size}pt`);
-                  }
-                }
-
-                // Create reconciliation pipeline with redline settings
-                const redlineEnabled = loadRedlineSetting();
-                const redlineAuthor = loadRedlineAuthor();
-                const pipeline = new ReconciliationPipeline({
-                  generateRedlines: redlineEnabled,
-                  author: redlineAuthor,
-                  font: paragraphFont || 'Calibri' // Inherit font from original paragraph
-                });
-
-                // Execute list generation - this creates OOXML with w:ins/w:del track changes
-                const result = await pipeline.executeListGeneration(
-                  normalizedContent,
-                  null, // numberingContext - let pipeline determine
-                  null, // originalRunModel - not available here
-                  originalTextForDeletion // Only pass original text if replacing, not appending
-                );
-
-                console.log(`[ListGen] Generated ${result.ooxml.length} bytes of OOXML, isInsertAtEnd=${isInsertAtEnd}`);
-
-                if (result.ooxml && result.isValid) {
-                  // Wrap in document fragment for insertOoxml
-                  const wrappedOoxml = wrapInDocumentFragment(result.ooxml, {
-                    includeNumbering: true,
-                    numberingXml: result.numberingXml // Crucial for A, B, C styles
-                  });
-
-                  // Temporarily disable Word's track changes to avoid double-tracking
-                  // Our w:ins/w:del ARE the track changes
-                  const doc = context.document;
-                  doc.load("changeTrackingMode");
-                  await context.sync();
-
-                  const originalMode = doc.changeTrackingMode;
-                  if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
-                    doc.changeTrackingMode = Word.ChangeTrackingMode.off;
-                    await context.sync();
-                  }
-
-                  try {
-                    // Use 'After' if appending at end, 'Replace' if replacing existing paragraph
-                    const insertMode = isInsertAtEnd ? 'After' : 'Replace';
-                    console.log(`[ListGen] Using insert mode: ${insertMode}`);
-                    targetParagraph.insertOoxml(wrappedOoxml, insertMode);
-                    await context.sync();
-                    console.log(`✅ OOXML list generation successful`);
-
-                    // TEMP: Spacing workaround disabled - causes GeneralException
-                    // Will investigate OOXML structure instead
-                    /*
-                    // WORKAROUND: Insert a dummy spacing paragraph after the list, then remove it
-                    // This forces Word to properly re-evaluate and link the list structure
-                    try {
-                      // Get all paragraphs to find the newly inserted list items
-                      const paragraphs = context.document.body.paragraphs;
-                      paragraphs.load("items");
-                      targetParagraph.load("index");
-                      await context.sync();
-                      
-                      // Find the paragraph at the target index (after replacement/insertion)
-                      const targetIdx = targetParagraph.index;
-                      
-                      // Calculate how many list items were inserted
-                      const listItemCount = listData.items.length;
-                      
-                      // Insert dummy paragraph after the last list item
-                      if (targetIdx + listItemCount - 1 < paragraphs.items.length) {
-                        const lastListItem = paragraphs.items[targetIdx + listItemCount - 1];
-                        const dummyPara = lastListItem.insertParagraph("", "After");
-                        await context.sync();
-                        
-                        console.log(`[ListGen] Inserted dummy spacing paragraph after ${listItemCount} list items`);
-                        
-                        // Force Word to re-evaluate
-                        await context.sync();
-                        
-                        // TEMP: Leave dummy paragraph to test if it fixes formatting
-                        // dummyPara.delete();
-                        // await context.sync();
-                        
-                        console.log(`[ListGen] Left dummy spacing paragraph for testing`);
-                      }
-                    } catch (spacingError) {
-                      console.warn(`[ListGen] Spacing workaround failed (non-critical):`, spacingError.message);
-                    }
-                    */
-
-                    changesApplied++;
-                  } finally {
-                    // Restore track changes mode
-                    if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
-                      doc.changeTrackingMode = originalMode;
-                      await context.sync();
-                    }
-                  }
+                // If inserting at end, insert new paragraph instead of editing
+                if (isInsertAtEnd) {
+                  console.log(`Inserting new paragraph after paragraph ${paragraphs.items.length}`);
+                  targetParagraph.insertParagraph(change.newContent, "After");
+                  await context.sync(); // Sync immediately to ensure tracked changes captures the insertion
+                  changesApplied++;
                 } else {
-                  console.warn('[ListGen] Pipeline returned invalid result, falling back to HTML');
-                  const htmlContent = markdownToWordHtml(normalizedContent);
-                  const insertLocation = isInsertAtEnd ? "After" : "Replace";
-                  targetParagraph.insertHtml(htmlContent, insertLocation);
+                  // Route through our smart operation router
+                  await routeChangeOperation(change, targetParagraph, context);
                   changesApplied++;
                 }
-              } catch (listError) {
-                console.error(`Error in OOXML list generation:`, listError);
-                // Fallback to HTML if OOXML fails
-                const htmlContent = markdownToWordHtml(normalizedContent);
-                const insertLocation = isInsertAtEnd ? "After" : "Replace";
-                targetParagraph.insertHtml(htmlContent, insertLocation);
-                changesApplied++;
-              }
-              // Skip the rest of replace_paragraph handling
-              continue;
-            }
-
-            // Check if this is a table - use OOXML pipeline
-            const matchedTable = normalizedContent.includes('|');
-            if (matchedTable) {
-              const tableData = parseTable(normalizedContent);
-              if (tableData.rows.length > 0 || tableData.headers.length > 0) {
-                console.log(`Detected table in replace_paragraph, using OOXML pipeline`);
-                try {
-                  // Create reconciliation pipeline with redline settings
-                  const redlineEnabled = loadRedlineSetting();
-                  const redlineAuthor = loadRedlineAuthor();
-                  const pipeline = new ReconciliationPipeline({
-                    generateRedlines: redlineEnabled,
-                    author: redlineAuthor
-                  });
-
-                  // Execute table generation - this creates OOXML with w:tbl and optional w:ins
-                  const result = pipeline.executeTableGeneration(normalizedContent);
-
-                  if (result.ooxml && result.isValid) {
-                    // Wrap in document fragment
-                    const wrappedOoxml = wrapInDocumentFragment(result.ooxml, {
-                      includeNumbering: false
-                    });
-
-                    // Disable track changes temporarily
-                    const doc = context.document;
-                    doc.load("changeTrackingMode");
-                    await context.sync();
-
-                    const originalMode = doc.changeTrackingMode;
-                    if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
-                      doc.changeTrackingMode = Word.ChangeTrackingMode.off;
-                      await context.sync();
-                    }
-
-                    try {
-                      const insertMode = isInsertAtEnd ? 'After' : 'Replace';
-                      console.log(`[TableGen] Using insert mode: ${insertMode}`);
-                      targetParagraph.insertOoxml(wrappedOoxml, insertMode);
-                      await context.sync();
-                      console.log(`✅ OOXML table generation successful`);
-                      changesApplied++;
-                    } finally {
-                      if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
-                        doc.changeTrackingMode = originalMode;
-                        await context.sync();
-                      }
-                    }
-                  } else {
-                    console.warn('[TableGen] Pipeline failed, falling back to HTML');
-                    const htmlContent = markdownToWordHtml(normalizedContent);
-                    targetParagraph.insertHtml(htmlContent, isInsertAtEnd ? "After" : "Replace");
-                    changesApplied++;
-                  }
-                } catch (tableError) {
-                  console.error(`Error in OOXML table generation:`, tableError);
-                  const htmlContent = markdownToWordHtml(normalizedContent);
-                  targetParagraph.insertHtml(htmlContent, isInsertAtEnd ? "After" : "Replace");
-                  changesApplied++;
-                }
-                // Skip the rest of replace_paragraph handling
-                continue;
-              }
-            }
-
-            // Convert Markdown to Word-compatible HTML for regular content
-            let htmlContent = "";
-            try {
-              htmlContent = markdownToWordHtml(normalizedContent);
-            } catch (markedError) {
-              console.error("Error parsing markdown:", markedError);
-              htmlContent = normalizedContent; // Fallback to raw text
-            }
-
-            // Strip wrapping <p> if present to avoid double paragraphs if Word handles it
-            // But only if it's a single simple paragraph (no block elements inside)
-            const trimmed = htmlContent.trim();
-            const hasSingleParagraph = trimmed.startsWith('<p>') && trimmed.endsWith('</p>') &&
-              trimmed.indexOf('</p>', 3) === trimmed.length - 4 &&
-              !trimmed.includes('<ul>') && !trimmed.includes('<ol>') &&
-              !trimmed.includes('<table') && !trimmed.includes('<h');
-
-            if (hasSingleParagraph) {
-              htmlContent = trimmed.substring(3, trimmed.length - 4);
-            }
-
-            try {
-              // If inserting at end, use insertParagraph to add new content after
-              if (isInsertAtEnd) {
-                console.log(`Inserting new paragraph after paragraph ${paragraphs.items.length}`);
-                // Use insertParagraph to add new paragraph after the last one
-                const newPara = targetParagraph.insertParagraph(normalizedContent, "After");
-                await context.sync(); // Sync immediately to ensure tracked changes captures the insertion
-                changesApplied++;
-              } else {
-                targetParagraph.insertHtml(htmlContent, "Replace");
-                changesApplied++;
-              }
-            } catch (wordError) {
-              console.error(`Error replacing paragraph ${change.paragraphIndex}:`, wordError);
-            }
-
-          } else if (change.operation === "replace_range") {
-            const endIndex = change.endParagraphIndex - 1;
-            if (endIndex < 0 || endIndex >= paragraphs.items.length || endIndex < pIndex) {
-              console.warn(`Invalid end paragraph index: ${change.endParagraphIndex}`);
-              continue;
-            }
-
-            console.log(`Replacing Range from P${change.paragraphIndex} to P${change.endParagraphIndex}`);
-
-            try {
-              const startPara = paragraphs.items[pIndex];
-              const endPara = paragraphs.items[endIndex];
-
-              // Check if we are inside a table - wrap in try/catch for safety
-              let startHasTable = false;
-              let endHasTable = false;
-              try {
-                startPara.load("parentTable/id");
-                endPara.load("parentTable/id");
-                await context.sync();
-                startHasTable = !startPara.parentTable.isNullObject;
-                endHasTable = !endPara.parentTable.isNullObject;
-              } catch (tableCheckError) {
-                console.warn("Could not check for table context:", tableCheckError);
-                // Continue without table detection
+              } catch (error) {
+                console.error(`Error editing paragraph ${change.paragraphIndex}:`, error);
+                // Fallback to old modify_text approach if DMP fails
               }
 
-              let targetRange = null;
-              let isTableReplacement = false;
-              let tableToDelete = null;
+            } else if (change.operation === "replace_paragraph") {
+              console.log(`Replacing Paragraph ${change.paragraphIndex}`);
 
-              // If both start and end are in the same table
-              if (startHasTable && endHasTable) {
-                try {
-                  const startTable = startPara.parentTable;
-                  const endTable = endPara.parentTable;
-
-                  if (startTable.id === endTable.id) {
-                    console.log("Detected same table context. Will replace entire table.");
-                    // Strategy: Insert AFTER the table, then delete the table.
-                    // This avoids GeneralException when replacing complex structures directly.
-                    targetRange = startTable.getRange();
-                    isTableReplacement = true;
-                    tableToDelete = startTable;
-                  } else {
-                    console.warn("Start and End paragraphs are in DIFFERENT tables. Falling back to standard range expansion.");
-                    targetRange = startPara.getRange().expandTo(endPara.getRange());
-                  }
-                } catch (tableError) {
-                  console.warn("Error handling table replacement, falling back to range:", tableError);
-                  targetRange = startPara.getRange().expandTo(endPara.getRange());
-                }
-              } else {
-                // Create a range covering both
-                targetRange = startPara.getRange().expandTo(endPara.getRange());
-              }
-
-              // Use 'content' field for replace_range (not replacementText)
-              const contentToParse = change.content || change.replacementText || "";
-
-              if (!contentToParse || contentToParse.trim().length === 0) {
-                console.warn("Empty content for replace_range. Skipping.");
+              if (change.content === null || change.content === undefined) {
+                console.warn("Content is null/undefined for replace_paragraph. Skipping.");
                 continue;
               }
 
-              // --- NEW: Detect list structures and use OOXML engine for proper numPr ---
-              const hasListMarkers = /^(\s*)([-*•]|\d+\.|[a-zA-Z]\.|[ivxlcIVXLC]+\.|\d+\.\d+\.?)\s+/m.test(contentToParse);
+              // Normalize content: Convert literal escape sequences to actual characters
+              // This handles cases where the AI returns "\\n" as a two-character string instead of actual newlines
+              let normalizedContent = normalizeContentEscapes(change.content || "");
 
-              if (hasListMarkers && !isTableReplacement) {
-                console.log("[replace_range] Detected list markers, using OOXML reconciliation");
+              // --- NEW: Detect if target paragraph is already a list item ---
+              // If so, we need to preserve its numId/ilvl when replacing content
+              let targetIsListItem = false;
+              let targetListContext = null;
 
+              if (!isInsertAtEnd) {
                 try {
-                  // Get the original text from the range for diffing
-                  targetRange.load("text");
-                  const originalOoxmlResult = startPara.getOoxml(); // Get OOXML from first paragraph
+                  const targetOoxmlResult = targetParagraph.getOoxml();
                   await context.sync();
 
-                  const originalText = targetRange.text || "";
+                  // Check for w:numPr in the paragraph's OOXML
+                  const numPrMatch = targetOoxmlResult.value.match(/<w:numPr>.*?<w:ilvl w:val="(\d+)".*?<w:numId w:val="(\d+)".*?<\/w:numPr>/s);
+                  if (numPrMatch) {
+                    targetIsListItem = true;
+                    targetListContext = {
+                      ooxml: targetOoxmlResult.value,
+                      ilvl: numPrMatch[1],
+                      numId: numPrMatch[2]
+                    };
+                    console.log(`[replace_paragraph] Target P${change.paragraphIndex} is list item: numId=${targetListContext.numId}, ilvl=${targetListContext.ilvl}`);
+                  }
+                } catch (ooxmlError) {
+                  console.warn("[replace_paragraph] Could not check list context:", ooxmlError);
+                }
+              }
+
+              // If target is a list item and content is plain text (no list markers), 
+              // use OOXML reconciliation to preserve list formatting
+              const contentHasListMarkers = /^(\s*)([-*•]|\d+\.|[a-zA-Z]\.|[ivxlcIVXLC]+\.|\d+\.\d+\.?)\s+/m.test(normalizedContent);
+              console.log(`[replace_paragraph] contentHasListMarkers: ${contentHasListMarkers}`);
+
+              if (targetIsListItem && !contentHasListMarkers) {
+                console.log(`[replace_paragraph] Preserving list context for plain text edit`);
+
+                try {
                   const redlineEnabled = loadRedlineSetting();
                   const redlineAuthor = loadRedlineAuthor();
 
-                  // Use the OOXML engine for proper list generation
+                  // Get original text for diffing
+                  const originalText = targetParagraph.text;
+                  await context.sync();
+
+                  // Use OOXML reconciliation to preserve numPr
                   const result = await applyRedlineToOxml(
-                    originalOoxmlResult.value,
+                    targetListContext.ooxml,
                     originalText,
-                    contentToParse,
+                    normalizedContent,
                     {
                       author: redlineEnabled ? redlineAuthor : undefined,
                       generateRedlines: redlineEnabled
@@ -3039,7 +2693,6 @@ Return ONLY the JSON array, nothing else:`;
                   );
 
                   if (result.oxml && result.hasChanges) {
-                    // Temporarily disable track changes to avoid double-tracking
                     const doc = context.document;
                     doc.load("changeTrackingMode");
                     await context.sync();
@@ -3051,234 +2704,478 @@ Return ONLY the JSON array, nothing else:`;
                     }
 
                     try {
-                      targetRange.insertOoxml(result.oxml, "Replace");
+                      targetParagraph.insertOoxml(result.oxml, "Replace");
                       await context.sync();
+                      console.log("✅ OOXML list-preserving edit successful");
                       changesApplied++;
-                      console.log("✅ OOXML list reconciliation successful for replace_range");
                     } finally {
                       if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
                         doc.changeTrackingMode = originalMode;
                         await context.sync();
                       }
                     }
-                    continue; // Skip HTML fallback
+                    continue; // Skip other handlers
                   }
-                } catch (ooxmlError) {
-                  console.warn("[replace_range] OOXML reconciliation failed, falling back to HTML:", ooxmlError);
-                  // Fall through to HTML path
+                } catch (listPreserveError) {
+                  console.warn("[replace_paragraph] List preservation failed, falling back:", listPreserveError);
+                  // Fall through to standard handlers
                 }
               }
               // --- END NEW ---
 
-              // Convert Markdown to Word-compatible HTML (fallback for non-list or table content)
-              let htmlContent = "";
-              try {
-                htmlContent = markdownToWordHtml(contentToParse);
-              } catch (markedError) {
-                console.error("Error parsing markdown for range:", markedError);
-                htmlContent = contentToParse;
-              }
-
-              if (isTableReplacement && tableToDelete) {
-                // Insert AFTER the table
-                if (htmlContent && htmlContent.trim().length > 0) {
-                  targetRange.insertHtml(htmlContent, "After");
-                }
-                // Delete the old table
-                tableToDelete.delete();
-                changesApplied++;
-              } else if (targetRange) {
-                // Standard replacement
+              // Check if this is a list - use OOXML pipeline for proper redlines
+              const listData = parseMarkdownList(normalizedContent);
+              console.log(`[replace_paragraph] listData result: type=${listData?.type}, items=${listData?.items?.length}`);
+              if (listData && listData.type !== 'text') {
+                console.log(`Detected ${listData.type} list in replace_paragraph, using OOXML pipeline`);
                 try {
-                  targetRange.insertHtml(htmlContent, "Replace");
-                  changesApplied++;
-                } catch (replaceError) {
-                  console.warn("Standard insertHtml failed. Trying fallback (Clear + InsertStart).", replaceError);
-                  // Fallback: Clear and insert at start
-                  try {
-                    targetRange.clear(); // Clears content but keeps range
-                    targetRange.insertHtml(htmlContent, "Start");
-                    changesApplied++;
-                  } catch (fallbackError) {
-                    console.warn("Fallback (Clear+InsertStart) failed. Trying Nuclear Option (InsertText+InsertHtml).", fallbackError);
-                    // Fallback 2: Nuke with text first to reset formatting
-                    try {
-                      // Replace with a placeholder to reset structure
-                      const tempRange = targetRange.insertText(" ", "Replace");
-                      tempRange.insertHtml(htmlContent, "Replace");
-                      changesApplied++;
-                    } catch (nuclearError) {
-                      console.error("Replacement failed:", nuclearError);
+                  // Get original paragraph info for proper diff/redlines and font inheritance
+                  // Only get original text if we're REPLACING (not appending)
+                  let originalTextForDeletion = '';
+                  let paragraphFont = null;
+                  if (!isInsertAtEnd) {
+                    targetParagraph.load("text,font");
+                    await context.sync();
+                    originalTextForDeletion = targetParagraph.text;
+
+                    // Get font info for inheritance
+                    if (targetParagraph.font) {
+                      targetParagraph.font.load("name,size");
+                      await context.sync();
+                      paragraphFont = targetParagraph.font.name;
+                      console.log(`[ListGen] Inheriting font from original paragraph: ${paragraphFont} ${targetParagraph.font.size}pt`);
                     }
                   }
+
+                  // Create reconciliation pipeline with redline settings
+                  const redlineEnabled = loadRedlineSetting();
+                  const redlineAuthor = loadRedlineAuthor();
+                  const pipeline = new ReconciliationPipeline({
+                    generateRedlines: redlineEnabled,
+                    author: redlineAuthor,
+                    font: paragraphFont || 'Calibri' // Inherit font from original paragraph
+                  });
+
+                  // Execute list generation - this creates OOXML with w:ins/w:del track changes
+                  const result = await pipeline.executeListGeneration(
+                    normalizedContent,
+                    null, // numberingContext - let pipeline determine
+                    null, // originalRunModel - not available here
+                    originalTextForDeletion // Only pass original text if replacing, not appending
+                  );
+
+                  console.log(`[ListGen] Generated ${result.ooxml.length} bytes of OOXML, isInsertAtEnd=${isInsertAtEnd}`);
+
+                  if (result.ooxml && result.isValid) {
+                    // Wrap in document fragment for insertOoxml
+                    const wrappedOoxml = wrapInDocumentFragment(result.ooxml, {
+                      includeNumbering: true,
+                      numberingXml: result.numberingXml // Crucial for A, B, C styles
+                    });
+
+                    // Temporarily disable Word's track changes to avoid double-tracking
+                    // Our w:ins/w:del ARE the track changes
+                    const doc = context.document;
+                    doc.load("changeTrackingMode");
+                    await context.sync();
+
+                    const originalMode = doc.changeTrackingMode;
+                    if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+                      doc.changeTrackingMode = Word.ChangeTrackingMode.off;
+                      await context.sync();
+                    }
+
+                    try {
+                      // Use 'After' if appending at end, 'Replace' if replacing existing paragraph
+                      const insertMode = isInsertAtEnd ? 'After' : 'Replace';
+                      console.log(`[ListGen] Using insert mode: ${insertMode}`);
+                      targetParagraph.insertOoxml(wrappedOoxml, insertMode);
+                      await context.sync();
+                      console.log(`✅ OOXML list generation successful`);
+
+                      // TEMP: Spacing workaround disabled - causes GeneralException
+                      // Will investigate OOXML structure instead
+                      /*
+                      // WORKAROUND: Insert a dummy spacing paragraph after the list, then remove it
+                      // This forces Word to properly re-evaluate and link the list structure
+                      try {
+                        // Get all paragraphs to find the newly inserted list items
+                        const paragraphs = context.document.body.paragraphs;
+                        paragraphs.load("items");
+                        targetParagraph.load("index");
+                        await context.sync();
+                        
+                        // Find the paragraph at the target index (after replacement/insertion)
+                        const targetIdx = targetParagraph.index;
+                        
+                        // Calculate how many list items were inserted
+                        const listItemCount = listData.items.length;
+                        
+                        // Insert dummy paragraph after the last list item
+                        if (targetIdx + listItemCount - 1 < paragraphs.items.length) {
+                          const lastListItem = paragraphs.items[targetIdx + listItemCount - 1];
+                          const dummyPara = lastListItem.insertParagraph("", "After");
+                          await context.sync();
+                          
+                          console.log(`[ListGen] Inserted dummy spacing paragraph after ${listItemCount} list items`);
+                          
+                          // Force Word to re-evaluate
+                          await context.sync();
+                          
+                          // TEMP: Leave dummy paragraph to test if it fixes formatting
+                          // dummyPara.delete();
+                          // await context.sync();
+                          
+                          console.log(`[ListGen] Left dummy spacing paragraph for testing`);
+                        }
+                      } catch (spacingError) {
+                        console.warn(`[ListGen] Spacing workaround failed (non-critical):`, spacingError.message);
+                      }
+                      */
+
+                      changesApplied++;
+                    } finally {
+                      // Restore track changes mode
+                      if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+                        doc.changeTrackingMode = originalMode;
+                        await context.sync();
+                      }
+                    }
+                  } else {
+                    console.warn('[ListGen] Pipeline returned invalid result, falling back to HTML');
+                    const htmlContent = markdownToWordHtml(normalizedContent);
+                    const insertLocation = isInsertAtEnd ? "After" : "Replace";
+                    targetParagraph.insertHtml(htmlContent, insertLocation);
+                    changesApplied++;
+                  }
+                } catch (listError) {
+                  console.error(`Error in OOXML list generation:`, listError);
+                  // Fallback to HTML if OOXML fails
+                  const htmlContent = markdownToWordHtml(normalizedContent);
+                  const insertLocation = isInsertAtEnd ? "After" : "Replace";
+                  targetParagraph.insertHtml(htmlContent, insertLocation);
+                  changesApplied++;
                 }
+                // Skip the rest of replace_paragraph handling
+                continue;
               }
-            } catch (rangeError) {
-              console.error(`Error replacing range P${change.paragraphIndex}-P${change.endParagraphIndex}:`, rangeError);
-            }
-          } else if (change.operation === "modify_text") {
-            console.log(`Modifying text in Paragraph ${change.paragraphIndex}: "${change.originalText}" -> "${change.replacementText}"`);
 
-            // Safety check for search string length - Word API has strict limits
-            const fullOriginalText = change.originalText;
-            if (!fullOriginalText || fullOriginalText.length === 0) {
-              console.warn(`Empty search text for modify_text in Paragraph ${change.paragraphIndex}. Skipping.`);
-              continue;
-            }
-
-            // Word's search API has a practical limit of around 80 characters
-            const MAX_SEARCH_LENGTH = 80;
-            const needsRangeExpansion = fullOriginalText.length > MAX_SEARCH_LENGTH;
-            const searchText = needsRangeExpansion
-              ? fullOriginalText.substring(0, MAX_SEARCH_LENGTH)
-              : fullOriginalText;
-
-            if (needsRangeExpansion) {
-              console.warn(`Search text too long (${fullOriginalText.length} chars), using range expansion strategy.`);
-            }
-
-            try {
-              // Search ONLY within this paragraph
-              const searchResults = targetParagraph.search(searchText, { matchCase: true });
-              searchResults.load("items");
-              await context.sync();
-
-              if (searchResults.items.length > 0) {
-                // Apply to first match only when using range expansion (to avoid ambiguity)
-                const matchesToProcess = needsRangeExpansion ? [searchResults.items[0]] : searchResults.items;
-
-                for (const item of matchesToProcess) {
-                  const replacementText = change.replacementText || "";
-                  let htmlReplacement = "";
+              // Check if this is a table - use OOXML pipeline
+              const matchedTable = normalizedContent.includes('|');
+              if (matchedTable) {
+                const tableData = parseTable(normalizedContent);
+                if (tableData.rows.length > 0 || tableData.headers.length > 0) {
+                  console.log(`Detected table in replace_paragraph, using OOXML pipeline`);
                   try {
-                    // Use inline parsing for modify_text to avoid wrapping in <p> tags
-                    // unless the content has block elements
-                    htmlReplacement = markdownToWordHtmlInline(replacementText);
-                  } catch (markedError) {
-                    console.error("Error parsing markdown for modify_text:", markedError);
-                    htmlReplacement = replacementText;
-                  }
+                    // Create reconciliation pipeline with redline settings
+                    const redlineEnabled = loadRedlineSetting();
+                    const redlineAuthor = loadRedlineAuthor();
+                    const pipeline = new ReconciliationPipeline({
+                      generateRedlines: redlineEnabled,
+                      author: redlineAuthor
+                    });
 
-                  // Strip wrapping <p> for simple inline content
-                  const trimmed = htmlReplacement.trim();
-                  const hasSingleParagraph = trimmed.startsWith('<p>') && trimmed.endsWith('</p>') &&
-                    trimmed.indexOf('</p>', 3) === trimmed.length - 4 &&
-                    !trimmed.includes('<ul>') && !trimmed.includes('<ol>') &&
-                    !trimmed.includes('<table') && !trimmed.includes('<h');
+                    // Execute table generation - this creates OOXML with w:tbl and optional w:ins
+                    const result = pipeline.executeTableGeneration(normalizedContent);
 
-                  if (hasSingleParagraph) {
-                    htmlReplacement = trimmed.substring(3, trimmed.length - 4);
-                  }
+                    if (result.ooxml && result.isValid) {
+                      // Wrap in document fragment
+                      const wrappedOoxml = wrapInDocumentFragment(result.ooxml, {
+                        includeNumbering: false
+                      });
 
-                  try {
-                    if (needsRangeExpansion) {
-                      // Expand the range to cover the full original text length
-                      // Strategy: Find a short suffix from the END of the original text,
-                      // then expand the range from prefix start to suffix end
-                      const foundRange = item.getRange();
+                      // Disable track changes temporarily
+                      const doc = context.document;
+                      doc.load("changeTrackingMode");
+                      await context.sync();
+
+                      const originalMode = doc.changeTrackingMode;
+                      if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+                        doc.changeTrackingMode = Word.ChangeTrackingMode.off;
+                        await context.sync();
+                      }
 
                       try {
-                        // Take the LAST 60 chars of the original text as our suffix search
-                        // This must be short enough for Word's search API
-                        const SUFFIX_LENGTH = 60;
-                        const suffixStart = Math.max(0, fullOriginalText.length - SUFFIX_LENGTH);
-                        const suffixText = fullOriginalText.substring(suffixStart);
-
-                        console.log(`Range expansion: searching for suffix "${suffixText.substring(0, 30)}..." (${suffixText.length} chars)`);
-
-                        if (suffixText.length >= 5 && suffixText.length <= 80) {
-                          const suffixResults = targetParagraph.search(suffixText, { matchCase: true });
-                          suffixResults.load("items");
-                          await context.sync();
-
-                          if (suffixResults.items.length > 0) {
-                            // Find the suffix match that comes after our prefix match
-                            // by expanding from the found prefix to each suffix candidate
-                            let expandedSuccessfully = false;
-
-                            for (const suffixMatch of suffixResults.items) {
-                              try {
-                                // Expand from found prefix start to suffix end
-                                const expandedRange = foundRange.expandTo(suffixMatch.getRange("End"));
-                                expandedRange.load("text");
-                                await context.sync();
-
-                                // Verify the expanded range roughly matches the original length
-                                // Allow some tolerance for whitespace differences
-                                const expandedLength = expandedRange.text.length;
-                                const originalLength = fullOriginalText.length;
-                                const tolerance = Math.max(10, originalLength * 0.1);
-
-                                if (Math.abs(expandedLength - originalLength) <= tolerance) {
-                                  console.log(`Expanded range matches: ${expandedLength} chars (original: ${originalLength})`);
-                                  // Use insertHtml with "Replace" for atomic replacement (avoids stale range bug)
-                                  expandedRange.insertHtml(htmlReplacement || "", "Replace");
-                                  changesApplied++;
-                                  expandedSuccessfully = true;
-                                  break;
-                                } else {
-                                  console.log(`Expanded range length mismatch: ${expandedLength} vs ${originalLength}, trying next suffix match`);
-                                }
-                              } catch (expandError) {
-                                console.warn("Could not expand to this suffix match:", expandError.message);
-                              }
-                            }
-
-                            if (!expandedSuccessfully) {
-                              // None of the suffix matches worked, fall back to prefix only
-                              console.warn("No valid suffix match found, falling back to prefix-only replacement");
-                              // Use insertHtml with "Replace" for atomic replacement
-                              item.insertHtml(htmlReplacement || "", "Replace");
-                              changesApplied++;
-                            }
-                          } else {
-                            // Suffix not found, fall back to just the found range
-                            console.warn("Could not find suffix for range expansion, applying to found range only");
-                            // Use insertHtml with "Replace" for atomic replacement
-                            item.insertHtml(htmlReplacement || "", "Replace");
-                            changesApplied++;
-                          }
-                        } else {
-                          // Suffix invalid length, fall back to just the found range
-                          console.warn(`Suffix length invalid (${suffixText.length}), applying to found range only`);
-                          // Use insertHtml with "Replace" for atomic replacement
-                          item.insertHtml(htmlReplacement || "", "Replace");
-                          changesApplied++;
-                        }
-                      } catch (expandError) {
-                        console.warn("Range expansion failed, applying to found range only:", expandError.message);
-                        // Use insertHtml with "Replace" for atomic replacement
-                        item.insertHtml(htmlReplacement || "", "Replace");
+                        const insertMode = isInsertAtEnd ? 'After' : 'Replace';
+                        console.log(`[TableGen] Using insert mode: ${insertMode}`);
+                        targetParagraph.insertOoxml(wrappedOoxml, insertMode);
+                        await context.sync();
+                        console.log(`✅ OOXML table generation successful`);
                         changesApplied++;
+                      } finally {
+                        if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+                          doc.changeTrackingMode = originalMode;
+                          await context.sync();
+                        }
                       }
                     } else {
-                      // Standard case: exact match, delete then insert for clean redline
-                      // Use insertHtml with "Replace" for atomic replacement
-                      item.insertHtml(htmlReplacement || "", "Replace");
+                      console.warn('[TableGen] Pipeline failed, falling back to HTML');
+                      const htmlContent = markdownToWordHtml(normalizedContent);
+                      targetParagraph.insertHtml(htmlContent, isInsertAtEnd ? "After" : "Replace");
                       changesApplied++;
                     }
-                  } catch (modifyError) {
-                    console.error("Error applying modify_text:", modifyError);
+                  } catch (tableError) {
+                    console.error(`Error in OOXML table generation:`, tableError);
+                    const htmlContent = markdownToWordHtml(normalizedContent);
+                    targetParagraph.insertHtml(htmlContent, isInsertAtEnd ? "After" : "Replace");
+                    changesApplied++;
+                  }
+                  // Skip the rest of replace_paragraph handling
+                  continue;
+                }
+              }
+
+              // Convert Markdown to Word-compatible HTML for regular content
+              let htmlContent = "";
+              try {
+                htmlContent = markdownToWordHtml(normalizedContent);
+              } catch (markedError) {
+                console.error("Error parsing markdown:", markedError);
+                htmlContent = normalizedContent; // Fallback to raw text
+              }
+
+              // Strip wrapping <p> if present to avoid double paragraphs if Word handles it
+              // But only if it's a single simple paragraph (no block elements inside)
+              const trimmed = htmlContent.trim();
+              const hasSingleParagraph = trimmed.startsWith('<p>') && trimmed.endsWith('</p>') &&
+                trimmed.indexOf('</p>', 3) === trimmed.length - 4 &&
+                !trimmed.includes('<ul>') && !trimmed.includes('<ol>') &&
+                !trimmed.includes('<table') && !trimmed.includes('<h');
+
+              if (hasSingleParagraph) {
+                htmlContent = trimmed.substring(3, trimmed.length - 4);
+              }
+
+              try {
+                // If inserting at end, use insertParagraph to add new content after
+                if (isInsertAtEnd) {
+                  console.log(`Inserting new paragraph after paragraph ${paragraphs.items.length}`);
+                  // Use insertParagraph to add new paragraph after the last one
+                  const newPara = targetParagraph.insertParagraph(normalizedContent, "After");
+                  await context.sync(); // Sync immediately to ensure tracked changes captures the insertion
+                  changesApplied++;
+                } else {
+                  targetParagraph.insertHtml(htmlContent, "Replace");
+                  changesApplied++;
+                }
+              } catch (wordError) {
+                console.error(`Error replacing paragraph ${change.paragraphIndex}:`, wordError);
+              }
+
+            } else if (change.operation === "replace_range") {
+              const endIndex = change.endParagraphIndex - 1;
+              if (endIndex < 0 || endIndex >= paragraphs.items.length || endIndex < pIndex) {
+                console.warn(`Invalid end paragraph index: ${change.endParagraphIndex}`);
+                continue;
+              }
+
+              console.log(`Replacing Range from P${change.paragraphIndex} to P${change.endParagraphIndex}`);
+
+              try {
+                const startPara = paragraphs.items[pIndex];
+                const endPara = paragraphs.items[endIndex];
+
+                // Check if we are inside a table - wrap in try/catch for safety
+                let startHasTable = false;
+                let endHasTable = false;
+                try {
+                  startPara.load("parentTable/id");
+                  endPara.load("parentTable/id");
+                  await context.sync();
+                  startHasTable = !startPara.parentTable.isNullObject;
+                  endHasTable = !endPara.parentTable.isNullObject;
+                } catch (tableCheckError) {
+                  console.warn("Could not check for table context:", tableCheckError);
+                  // Continue without table detection
+                }
+
+                let targetRange = null;
+                let isTableReplacement = false;
+                let tableToDelete = null;
+
+                // If both start and end are in the same table
+                if (startHasTable && endHasTable) {
+                  try {
+                    const startTable = startPara.parentTable;
+                    const endTable = endPara.parentTable;
+
+                    if (startTable.id === endTable.id) {
+                      console.log("Detected same table context. Will replace entire table.");
+                      // Strategy: Insert AFTER the table, then delete the table.
+                      // This avoids GeneralException when replacing complex structures directly.
+                      targetRange = startTable.getRange();
+                      isTableReplacement = true;
+                      tableToDelete = startTable;
+                    } else {
+                      console.warn("Start and End paragraphs are in DIFFERENT tables. Falling back to standard range expansion.");
+                      targetRange = startPara.getRange().expandTo(endPara.getRange());
+                    }
+                  } catch (tableError) {
+                    console.warn("Error handling table replacement, falling back to range:", tableError);
+                    targetRange = startPara.getRange().expandTo(endPara.getRange());
+                  }
+                } else {
+                  // Create a range covering both
+                  targetRange = startPara.getRange().expandTo(endPara.getRange());
+                }
+
+                // Use 'content' field for replace_range (not replacementText)
+                const contentToParse = change.content || change.replacementText || "";
+
+                if (!contentToParse || contentToParse.trim().length === 0) {
+                  console.warn("Empty content for replace_range. Skipping.");
+                  continue;
+                }
+
+                // --- NEW: Detect list structures and use OOXML engine for proper numPr ---
+                const hasListMarkers = /^(\s*)([-*•]|\d+\.|[a-zA-Z]\.|[ivxlcIVXLC]+\.|\d+\.\d+\.?)\s+/m.test(contentToParse);
+
+                if (hasListMarkers && !isTableReplacement) {
+                  console.log("[replace_range] Detected list markers, using OOXML reconciliation");
+
+                  try {
+                    // Get the original text from the range for diffing
+                    targetRange.load("text");
+                    const originalOoxmlResult = startPara.getOoxml(); // Get OOXML from first paragraph
+                    await context.sync();
+
+                    const originalText = targetRange.text || "";
+                    const redlineEnabled = loadRedlineSetting();
+                    const redlineAuthor = loadRedlineAuthor();
+
+                    // Use the OOXML engine for proper list generation
+                    const result = await applyRedlineToOxml(
+                      originalOoxmlResult.value,
+                      originalText,
+                      contentToParse,
+                      {
+                        author: redlineEnabled ? redlineAuthor : undefined,
+                        generateRedlines: redlineEnabled
+                      }
+                    );
+
+                    if (result.oxml && result.hasChanges) {
+                      // Temporarily disable track changes to avoid double-tracking
+                      const doc = context.document;
+                      doc.load("changeTrackingMode");
+                      await context.sync();
+
+                      const originalMode = doc.changeTrackingMode;
+                      if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+                        doc.changeTrackingMode = Word.ChangeTrackingMode.off;
+                        await context.sync();
+                      }
+
+                      try {
+                        targetRange.insertOoxml(result.oxml, "Replace");
+                        await context.sync();
+                        changesApplied++;
+                        console.log("✅ OOXML list reconciliation successful for replace_range");
+                      } finally {
+                        if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+                          doc.changeTrackingMode = originalMode;
+                          await context.sync();
+                        }
+                      }
+                      continue; // Skip HTML fallback
+                    }
+                  } catch (ooxmlError) {
+                    console.warn("[replace_range] OOXML reconciliation failed, falling back to HTML:", ooxmlError);
+                    // Fall through to HTML path
                   }
                 }
-              } else {
-                console.warn(`Could not find text "${searchText}" in Paragraph ${change.paragraphIndex}`);
-              }
-            } catch (searchError) {
-              console.warn(`Search failed for modify_text "${searchText}" in Paragraph ${change.paragraphIndex}:`, searchError.message);
+                // --- END NEW ---
 
-              // Fallback: Try with a shorter search string
-              if (searchText.length > 30) {
-                const shorterText = searchText.substring(0, 30);
-                console.log(`Retrying modify_text with shorter search: "${shorterText}"`);
+                // Convert Markdown to Word-compatible HTML (fallback for non-list or table content)
+                let htmlContent = "";
                 try {
-                  const retryResults = targetParagraph.search(shorterText, { matchCase: true });
-                  retryResults.load("items");
-                  await context.sync();
+                  htmlContent = markdownToWordHtml(contentToParse);
+                } catch (markedError) {
+                  console.error("Error parsing markdown for range:", markedError);
+                  htmlContent = contentToParse;
+                }
 
-                  if (retryResults.items.length > 0) {
+                if (isTableReplacement && tableToDelete) {
+                  // Insert AFTER the table
+                  if (htmlContent && htmlContent.trim().length > 0) {
+                    targetRange.insertHtml(htmlContent, "After");
+                  }
+                  // Delete the old table
+                  tableToDelete.delete();
+                  changesApplied++;
+                } else if (targetRange) {
+                  // Standard replacement
+                  try {
+                    targetRange.insertHtml(htmlContent, "Replace");
+                    changesApplied++;
+                  } catch (replaceError) {
+                    console.warn("Standard insertHtml failed. Trying fallback (Clear + InsertStart).", replaceError);
+                    // Fallback: Clear and insert at start
+                    try {
+                      targetRange.clear(); // Clears content but keeps range
+                      targetRange.insertHtml(htmlContent, "Start");
+                      changesApplied++;
+                    } catch (fallbackError) {
+                      console.warn("Fallback (Clear+InsertStart) failed. Trying Nuclear Option (InsertText+InsertHtml).", fallbackError);
+                      // Fallback 2: Nuke with text first to reset formatting
+                      try {
+                        // Replace with a placeholder to reset structure
+                        const tempRange = targetRange.insertText(" ", "Replace");
+                        tempRange.insertHtml(htmlContent, "Replace");
+                        changesApplied++;
+                      } catch (nuclearError) {
+                        console.error("Replacement failed:", nuclearError);
+                      }
+                    }
+                  }
+                }
+              } catch (rangeError) {
+                console.error(`Error replacing range P${change.paragraphIndex}-P${change.endParagraphIndex}:`, rangeError);
+              }
+            } else if (change.operation === "modify_text") {
+              console.log(`Modifying text in Paragraph ${change.paragraphIndex}: "${change.originalText}" -> "${change.replacementText}"`);
+
+              // Safety check for search string length - Word API has strict limits
+              const fullOriginalText = change.originalText;
+              if (!fullOriginalText || fullOriginalText.length === 0) {
+                console.warn(`Empty search text for modify_text in Paragraph ${change.paragraphIndex}. Skipping.`);
+                continue;
+              }
+
+              // Word's search API has a practical limit of around 80 characters
+              const MAX_SEARCH_LENGTH = 80;
+              const needsRangeExpansion = fullOriginalText.length > MAX_SEARCH_LENGTH;
+              const searchText = needsRangeExpansion
+                ? fullOriginalText.substring(0, MAX_SEARCH_LENGTH)
+                : fullOriginalText;
+
+              if (needsRangeExpansion) {
+                console.warn(`Search text too long (${fullOriginalText.length} chars), using range expansion strategy.`);
+              }
+
+              try {
+                // Search ONLY within this paragraph
+                const searchResults = targetParagraph.search(searchText, { matchCase: true });
+                searchResults.load("items");
+                await context.sync();
+
+                if (searchResults.items.length > 0) {
+                  // Apply to first match only when using range expansion (to avoid ambiguity)
+                  const matchesToProcess = needsRangeExpansion ? [searchResults.items[0]] : searchResults.items;
+
+                  for (const item of matchesToProcess) {
                     const replacementText = change.replacementText || "";
-                    let htmlReplacement = markdownToWordHtmlInline(replacementText);
+                    let htmlReplacement = "";
+                    try {
+                      // Use inline parsing for modify_text to avoid wrapping in <p> tags
+                      // unless the content has block elements
+                      htmlReplacement = markdownToWordHtmlInline(replacementText);
+                    } catch (markedError) {
+                      console.error("Error parsing markdown for modify_text:", markedError);
+                      htmlReplacement = replacementText;
+                    }
+
+                    // Strip wrapping <p> for simple inline content
                     const trimmed = htmlReplacement.trim();
                     const hasSingleParagraph = trimmed.startsWith('<p>') && trimmed.endsWith('</p>') &&
                       trimmed.indexOf('</p>', 3) === trimmed.length - 4 &&
@@ -3288,24 +3185,143 @@ Return ONLY the JSON array, nothing else:`;
                     if (hasSingleParagraph) {
                       htmlReplacement = trimmed.substring(3, trimmed.length - 4);
                     }
-                    // Use insertHtml with "Replace" for atomic replacement
-                    retryResults.items[0].insertHtml(htmlReplacement || "", "Replace");
-                    changesApplied++;
+
+                    try {
+                      if (needsRangeExpansion) {
+                        // Expand the range to cover the full original text length
+                        // Strategy: Find a short suffix from the END of the original text,
+                        // then expand the range from prefix start to suffix end
+                        const foundRange = item.getRange();
+
+                        try {
+                          // Take the LAST 60 chars of the original text as our suffix search
+                          // This must be short enough for Word's search API
+                          const SUFFIX_LENGTH = 60;
+                          const suffixStart = Math.max(0, fullOriginalText.length - SUFFIX_LENGTH);
+                          const suffixText = fullOriginalText.substring(suffixStart);
+
+                          console.log(`Range expansion: searching for suffix "${suffixText.substring(0, 30)}..." (${suffixText.length} chars)`);
+
+                          if (suffixText.length >= 5 && suffixText.length <= 80) {
+                            const suffixResults = targetParagraph.search(suffixText, { matchCase: true });
+                            suffixResults.load("items");
+                            await context.sync();
+
+                            if (suffixResults.items.length > 0) {
+                              // Find the suffix match that comes after our prefix match
+                              // by expanding from the found prefix to each suffix candidate
+                              let expandedSuccessfully = false;
+
+                              for (const suffixMatch of suffixResults.items) {
+                                try {
+                                  // Expand from found prefix start to suffix end
+                                  const expandedRange = foundRange.expandTo(suffixMatch.getRange("End"));
+                                  expandedRange.load("text");
+                                  await context.sync();
+
+                                  // Verify the expanded range roughly matches the original length
+                                  // Allow some tolerance for whitespace differences
+                                  const expandedLength = expandedRange.text.length;
+                                  const originalLength = fullOriginalText.length;
+                                  const tolerance = Math.max(10, originalLength * 0.1);
+
+                                  if (Math.abs(expandedLength - originalLength) <= tolerance) {
+                                    console.log(`Expanded range matches: ${expandedLength} chars (original: ${originalLength})`);
+                                    // Use insertHtml with "Replace" for atomic replacement (avoids stale range bug)
+                                    expandedRange.insertHtml(htmlReplacement || "", "Replace");
+                                    changesApplied++;
+                                    expandedSuccessfully = true;
+                                    break;
+                                  } else {
+                                    console.log(`Expanded range length mismatch: ${expandedLength} vs ${originalLength}, trying next suffix match`);
+                                  }
+                                } catch (expandError) {
+                                  console.warn("Could not expand to this suffix match:", expandError.message);
+                                }
+                              }
+
+                              if (!expandedSuccessfully) {
+                                // None of the suffix matches worked, fall back to prefix only
+                                console.warn("No valid suffix match found, falling back to prefix-only replacement");
+                                // Use insertHtml with "Replace" for atomic replacement
+                                item.insertHtml(htmlReplacement || "", "Replace");
+                                changesApplied++;
+                              }
+                            } else {
+                              // Suffix not found, fall back to just the found range
+                              console.warn("Could not find suffix for range expansion, applying to found range only");
+                              // Use insertHtml with "Replace" for atomic replacement
+                              item.insertHtml(htmlReplacement || "", "Replace");
+                              changesApplied++;
+                            }
+                          } else {
+                            // Suffix invalid length, fall back to just the found range
+                            console.warn(`Suffix length invalid (${suffixText.length}), applying to found range only`);
+                            // Use insertHtml with "Replace" for atomic replacement
+                            item.insertHtml(htmlReplacement || "", "Replace");
+                            changesApplied++;
+                          }
+                        } catch (expandError) {
+                          console.warn("Range expansion failed, applying to found range only:", expandError.message);
+                          // Use insertHtml with "Replace" for atomic replacement
+                          item.insertHtml(htmlReplacement || "", "Replace");
+                          changesApplied++;
+                        }
+                      } else {
+                        // Standard case: exact match, delete then insert for clean redline
+                        // Use insertHtml with "Replace" for atomic replacement
+                        item.insertHtml(htmlReplacement || "", "Replace");
+                        changesApplied++;
+                      }
+                    } catch (modifyError) {
+                      console.error("Error applying modify_text:", modifyError);
+                    }
                   }
-                } catch (retryError) {
-                  console.warn(`Retry search also failed for modify_text:`, retryError.message);
+                } else {
+                  console.warn(`Could not find text "${searchText}" in Paragraph ${change.paragraphIndex}`);
+                }
+              } catch (searchError) {
+                console.warn(`Search failed for modify_text "${searchText}" in Paragraph ${change.paragraphIndex}:`, searchError.message);
+
+                // Fallback: Try with a shorter search string
+                if (searchText.length > 30) {
+                  const shorterText = searchText.substring(0, 30);
+                  console.log(`Retrying modify_text with shorter search: "${shorterText}"`);
+                  try {
+                    const retryResults = targetParagraph.search(shorterText, { matchCase: true });
+                    retryResults.load("items");
+                    await context.sync();
+
+                    if (retryResults.items.length > 0) {
+                      const replacementText = change.replacementText || "";
+                      let htmlReplacement = markdownToWordHtmlInline(replacementText);
+                      const trimmed = htmlReplacement.trim();
+                      const hasSingleParagraph = trimmed.startsWith('<p>') && trimmed.endsWith('</p>') &&
+                        trimmed.indexOf('</p>', 3) === trimmed.length - 4 &&
+                        !trimmed.includes('<ul>') && !trimmed.includes('<ol>') &&
+                        !trimmed.includes('<table') && !trimmed.includes('<h');
+
+                      if (hasSingleParagraph) {
+                        htmlReplacement = trimmed.substring(3, trimmed.length - 4);
+                      }
+                      // Use insertHtml with "Replace" for atomic replacement
+                      retryResults.items[0].insertHtml(htmlReplacement || "", "Replace");
+                      changesApplied++;
+                    }
+                  } catch (retryError) {
+                    console.warn(`Retry search also failed for modify_text:`, retryError.message);
+                  }
                 }
               }
             }
-          }
 
-          // Ensure any queued operations for this change are executed here,
-          // so errors are caught per-change instead of bubbling as one big GeneralException.
-          await context.sync();
-        } catch (changeError) {
-          console.error("Error applying change:", changeError);
+            // Ensure any queued operations for this change are executed here,
+            // so errors are caught per-change instead of bubbling as one big GeneralException.
+            await context.sync();
+          } catch (changeError) {
+            console.error("Error applying change:", changeError);
+          }
         }
-      }
 
         // Final sync (should usually be a no-op now, but kept for safety)
         await context.sync();
@@ -3553,20 +3569,20 @@ JSON ARRAY OF HIGHLIGHTS:`;
       const redlineEnabled = loadRedlineSetting();
       const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeHighlight");
       try {
-      const paragraphs = context.document.body.paragraphs;
-      paragraphs.load("items");
-      await context.sync();
+        const paragraphs = context.document.body.paragraphs;
+        paragraphs.load("items");
+        await context.sync();
 
-      for (const item of aiHighlights) {
-        const pIndex = item.paragraphIndex - 1;
-        if (pIndex < 0 || pIndex >= paragraphs.items.length) continue;
+        for (const item of aiHighlights) {
+          const pIndex = item.paragraphIndex - 1;
+          if (pIndex < 0 || pIndex >= paragraphs.items.length) continue;
 
-        const targetParagraph = paragraphs.items[pIndex];
-        const count = await searchWithFallback(targetParagraph, item.textToFind, context, async (match) => {
-          match.font.highlightColor = normalizedColor;
-        });
-        highlightsApplied += count;
-      }
+          const targetParagraph = paragraphs.items[pIndex];
+          const count = await searchWithFallback(targetParagraph, item.textToFind, context, async (match) => {
+            match.font.highlightColor = normalizedColor;
+          });
+          highlightsApplied += count;
+        }
       } finally {
         await restoreChangeTracking(context, trackingState, "executeHighlight");
       }
@@ -4622,18 +4638,18 @@ async function routeChangeOperation(change, targetParagraph, context) {
 
           if (searchResults.items.length > 0) {
             // Replace at range level - NOT paragraph level
-          const targetRange = searchResults.items[0];
-          targetRange.insertOoxml(change.replacementOoxml, 'Replace');
-          await context.sync();
-          console.log(`[OxmlEngine] ✅ Surgical replacement applied for "${change.searchText}"`);
-          successfulSurgicalChanges++;
-        } else {
-          console.warn(`[OxmlEngine] Text not found for surgical replacement: "${change.searchText}"`);
+            const targetRange = searchResults.items[0];
+            targetRange.insertOoxml(change.replacementOoxml, 'Replace');
+            await context.sync();
+            console.log(`[OxmlEngine] ✅ Surgical replacement applied for "${change.searchText}"`);
+            successfulSurgicalChanges++;
+          } else {
+            console.warn(`[OxmlEngine] Text not found for surgical replacement: "${change.searchText}"`);
+          }
+        } catch (changeError) {
+          console.warn(`[OxmlEngine] Failed to apply surgical change: ${changeError.message}`);
         }
-      } catch (changeError) {
-        console.warn(`[OxmlEngine] Failed to apply surgical change: ${changeError.message}`);
       }
-    }
 
       if (successfulSurgicalChanges === result.surgicalChanges.length) {
         console.log("✅ Surgical format changes completed");
@@ -4772,73 +4788,73 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
       const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeInsertListItem");
       try {
 
-      const paragraphs = context.document.body.paragraphs;
-      paragraphs.load("items");
-      await context.sync();
-
-      const paraIdx = afterParagraphIndex - 1; // Convert to 0-based
-      if (paraIdx < 0 || paraIdx >= paragraphs.items.length) {
-        throw new Error(`Paragraph index ${afterParagraphIndex} out of range (1-${paragraphs.items.length})`);
-      }
-
-      const adjacentPara = paragraphs.items[paraIdx];
-
-      // Read the adjacent paragraph's OOXML to get its numId and ilvl
-      const adjacentOoxml = adjacentPara.getOoxml();
-      await context.sync();
-
-      const numIdMatch = adjacentOoxml.value.match(/w:numId w:val="(\d+)"/);
-      const ilvlMatch = adjacentOoxml.value.match(/w:ilvl w:val="(\d+)"/);
-
-      // Debug: Log the numbering definition info if available
-      const lvlTextMatch = adjacentOoxml.value.match(/w:lvlText w:val="([^"]*)"/);
-      if (lvlTextMatch) {
-        console.log(`[executeInsertListItem] Adjacent lvlText format: "${lvlTextMatch[1]}"`);
-      }
-
-      // Log a snippet of the OOXML for debugging numbering structure
-      const numPrSection = adjacentOoxml.value.match(/<w:numPr[\s\S]*?<\/w:numPr>/);
-      if (numPrSection) {
-        console.log(`[executeInsertListItem] Adjacent numPr: ${numPrSection[0]}`);
-      }
-
-      if (!numIdMatch) {
-        // Adjacent paragraph is not a list item - just insert plain paragraph
-        console.log("[executeInsertListItem] Adjacent paragraph is not a list item, inserting plain paragraph");
-        adjacentPara.insertParagraph(text, "After");
+        const paragraphs = context.document.body.paragraphs;
+        paragraphs.load("items");
         await context.sync();
-        return;
-      }
 
-      const numId = numIdMatch[1];
-      const baseIlvl = ilvlMatch ? parseInt(ilvlMatch[1], 10) : 0;
-      const newIlvl = Math.max(0, Math.min(8, baseIlvl + indentLevel)); // Clamp to 0-8
-
-      console.log(`[executeInsertListItem] Adjacent numId=${numId}, ilvl=${baseIlvl}, newIlvl=${newIlvl}`);
-
-      // Extract run properties (rPr) from adjacent paragraph to preserve font styling
-      // Look for the first w:rPr in the paragraph's OOXML
-      let rPrBlock = '';
-      const rPrMatch = adjacentOoxml.value.match(/<w:rPr[^>]*>([\s\S]*?)<\/w:rPr>/);
-      if (rPrMatch) {
-        rPrBlock = rPrMatch[0];
-        console.log(`[executeInsertListItem] Extracted rPr from adjacent paragraph`);
-      } else {
-        // No rPr found, try to at least get the font from pPr
-        const fontMatch = adjacentOoxml.value.match(/<w:rFonts[^>]*\/>/);
-        if (fontMatch) {
-          rPrBlock = `<w:rPr>${fontMatch[0]}</w:rPr>`;
-          console.log(`[executeInsertListItem] Extracted rFonts from adjacent paragraph`);
+        const paraIdx = afterParagraphIndex - 1; // Convert to 0-based
+        if (paraIdx < 0 || paraIdx >= paragraphs.items.length) {
+          throw new Error(`Paragraph index ${afterParagraphIndex} out of range (1-${paragraphs.items.length})`);
         }
-      }
 
-      // Build OOXML for the new list item
-      const escapedText = text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
+        const adjacentPara = paragraphs.items[paraIdx];
 
-      const oxmlPara = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        // Read the adjacent paragraph's OOXML to get its numId and ilvl
+        const adjacentOoxml = adjacentPara.getOoxml();
+        await context.sync();
+
+        const numIdMatch = adjacentOoxml.value.match(/w:numId w:val="(\d+)"/);
+        const ilvlMatch = adjacentOoxml.value.match(/w:ilvl w:val="(\d+)"/);
+
+        // Debug: Log the numbering definition info if available
+        const lvlTextMatch = adjacentOoxml.value.match(/w:lvlText w:val="([^"]*)"/);
+        if (lvlTextMatch) {
+          console.log(`[executeInsertListItem] Adjacent lvlText format: "${lvlTextMatch[1]}"`);
+        }
+
+        // Log a snippet of the OOXML for debugging numbering structure
+        const numPrSection = adjacentOoxml.value.match(/<w:numPr[\s\S]*?<\/w:numPr>/);
+        if (numPrSection) {
+          console.log(`[executeInsertListItem] Adjacent numPr: ${numPrSection[0]}`);
+        }
+
+        if (!numIdMatch) {
+          // Adjacent paragraph is not a list item - just insert plain paragraph
+          console.log("[executeInsertListItem] Adjacent paragraph is not a list item, inserting plain paragraph");
+          adjacentPara.insertParagraph(text, "After");
+          await context.sync();
+          return;
+        }
+
+        const numId = numIdMatch[1];
+        const baseIlvl = ilvlMatch ? parseInt(ilvlMatch[1], 10) : 0;
+        const newIlvl = Math.max(0, Math.min(8, baseIlvl + indentLevel)); // Clamp to 0-8
+
+        console.log(`[executeInsertListItem] Adjacent numId=${numId}, ilvl=${baseIlvl}, newIlvl=${newIlvl}`);
+
+        // Extract run properties (rPr) from adjacent paragraph to preserve font styling
+        // Look for the first w:rPr in the paragraph's OOXML
+        let rPrBlock = '';
+        const rPrMatch = adjacentOoxml.value.match(/<w:rPr[^>]*>([\s\S]*?)<\/w:rPr>/);
+        if (rPrMatch) {
+          rPrBlock = rPrMatch[0];
+          console.log(`[executeInsertListItem] Extracted rPr from adjacent paragraph`);
+        } else {
+          // No rPr found, try to at least get the font from pPr
+          const fontMatch = adjacentOoxml.value.match(/<w:rFonts[^>]*\/>/);
+          if (fontMatch) {
+            rPrBlock = `<w:rPr>${fontMatch[0]}</w:rPr>`;
+            console.log(`[executeInsertListItem] Extracted rFonts from adjacent paragraph`);
+          }
+        }
+
+        // Build OOXML for the new list item
+        const escapedText = text
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+
+        const oxmlPara = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
         <pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
           <pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
             <pkg:xmlData>
@@ -4870,45 +4886,45 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
           </pkg:part>
         </pkg:package>`;
 
-      // Insert the paragraph with text, then apply list formatting
-      const insertedPara = adjacentPara.insertParagraph(text, "After");
-      await context.sync();
-
-      // Try to apply the same list formatting using Word's list API
-      // The insertedPara should inherit some formatting, but we need to set the list explicitly
-      try {
-        // Load the inserted paragraph to access its list properties
-        insertedPara.load("listItem");
+        // Insert the paragraph with text, then apply list formatting
+        const insertedPara = adjacentPara.insertParagraph(text, "After");
         await context.sync();
 
-        // If it has a listItem, we can adjust its level
-        if (insertedPara.listItem && !insertedPara.listItem.isNullObject) {
-          // The list item exists - try to adjust level
-          console.log(`[executeInsertListItem] Inserted paragraph has listItem, adjusting level to ${newIlvl}`);
-          insertedPara.listItem.level = newIlvl;
-          await context.sync();
-        } else {
-          // No listItem - need to add it to a list
-          // Use the same numId as adjacent paragraph via OOXML
-          console.log(`[executeInsertListItem] No listItem found, applying list via OOXML`);
-
-          const paraRange = insertedPara.getRange("Whole");
-          paraRange.insertOoxml(oxmlPara, "Replace");
-          await context.sync();
-        }
-      } catch (listError) {
-        console.warn(`[executeInsertListItem] Could not apply list format via API: ${listError.message}`);
-        // Fallback: try OOXML replacement
+        // Try to apply the same list formatting using Word's list API
+        // The insertedPara should inherit some formatting, but we need to set the list explicitly
         try {
-          const paraRange = insertedPara.getRange("Whole");
-          paraRange.insertOoxml(oxmlPara, "Replace");
+          // Load the inserted paragraph to access its list properties
+          insertedPara.load("listItem");
           await context.sync();
-        } catch (oxmlError) {
-          console.warn(`[executeInsertListItem] OOXML fallback also failed: ${oxmlError.message}`);
-        }
-      }
 
-      console.log(`[executeInsertListItem] Successfully inserted list item (numId=${numId}, ilvl=${newIlvl})`);
+          // If it has a listItem, we can adjust its level
+          if (insertedPara.listItem && !insertedPara.listItem.isNullObject) {
+            // The list item exists - try to adjust level
+            console.log(`[executeInsertListItem] Inserted paragraph has listItem, adjusting level to ${newIlvl}`);
+            insertedPara.listItem.level = newIlvl;
+            await context.sync();
+          } else {
+            // No listItem - need to add it to a list
+            // Use the same numId as adjacent paragraph via OOXML
+            console.log(`[executeInsertListItem] No listItem found, applying list via OOXML`);
+
+            const paraRange = insertedPara.getRange("Whole");
+            paraRange.insertOoxml(oxmlPara, "Replace");
+            await context.sync();
+          }
+        } catch (listError) {
+          console.warn(`[executeInsertListItem] Could not apply list format via API: ${listError.message}`);
+          // Fallback: try OOXML replacement
+          try {
+            const paraRange = insertedPara.getRange("Whole");
+            paraRange.insertOoxml(oxmlPara, "Replace");
+            await context.sync();
+          } catch (oxmlError) {
+            console.warn(`[executeInsertListItem] OOXML fallback also failed: ${oxmlError.message}`);
+          }
+        }
+
+        console.log(`[executeInsertListItem] Successfully inserted list item (numId=${numId}, ilvl=${newIlvl})`);
       } finally {
         await restoreChangeTracking(context, trackingState, "executeInsertListItem");
       }
@@ -4958,188 +4974,188 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
       const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeEditList");
       try {
 
-      const paragraphs = context.document.body.paragraphs;
-      paragraphs.load("items");
-      await context.sync();
-
-      let startIdx = startIndex - 1; // Convert to 0-based
-      let endIdx = endIndex - 1;
-
-      // Handle out-of-range paragraph indices gracefully
-      // The AI may reference paragraphs that don't exist (e.g., after list expansion)
-      const paragraphCount = paragraphs.items.length;
-
-      if (paragraphCount === 0) {
-        throw new Error("Document has no paragraphs");
-      }
-
-      // If start is beyond document, append at end
-      if (startIdx >= paragraphCount) {
-        console.log(`Start index ${startIndex} exceeds document (${paragraphCount} paragraphs), treating as append`);
-        startIdx = paragraphCount - 1;
-        endIdx = paragraphCount - 1;
-      }
-
-      // Clamp start to valid range
-      if (startIdx < 0) {
-        startIdx = 0;
-      }
-
-      // Clamp end to valid range
-      if (endIdx >= paragraphCount) {
-        console.log(`End index ${endIndex} exceeds document (${paragraphCount} paragraphs), clamping to ${paragraphCount}`);
-        endIdx = paragraphCount - 1;
-      }
-
-      // Ensure start <= end
-      if (startIdx > endIdx) {
-        startIdx = endIdx;
-      }
-
-      console.log(`Adjusted range: P${startIdx + 1} to P${endIdx + 1} (original: ${startIndex} to ${endIndex})`);
-
-      // Get the range covering all paragraphs to replace
-      const firstPara = paragraphs.items[startIdx];
-      const lastPara = paragraphs.items[endIdx];
-
-      // Try to read the existing list's numId from the first paragraph's OOXML
-      let existingNumId = null;
-      let existingBaseIlvl = 0;
-      try {
-        const firstParaOoxml = firstPara.getOoxml();
+        const paragraphs = context.document.body.paragraphs;
+        paragraphs.load("items");
         await context.sync();
 
-        const numIdMatch = firstParaOoxml.value.match(/w:numId w:val="(\d+)"/);
-        const ilvlMatch = firstParaOoxml.value.match(/w:ilvl w:val="(\d+)"/);
+        let startIdx = startIndex - 1; // Convert to 0-based
+        let endIdx = endIndex - 1;
 
-        if (numIdMatch) {
-          existingNumId = numIdMatch[1];
-          existingBaseIlvl = ilvlMatch ? parseInt(ilvlMatch[1], 10) : 0;
-          console.log(`[executeEditList] Found existing numId: ${existingNumId}, base ilvl: ${existingBaseIlvl}`);
+        // Handle out-of-range paragraph indices gracefully
+        // The AI may reference paragraphs that don't exist (e.g., after list expansion)
+        const paragraphCount = paragraphs.items.length;
+
+        if (paragraphCount === 0) {
+          throw new Error("Document has no paragraphs");
         }
-      } catch (oxmlError) {
-        console.warn(`[executeEditList] Could not read existing OOXML:`, oxmlError.message);
-      }
 
-      // Get ranges to create a combined range
-      const startRange = firstPara.getRange("Start");
-      const endRange = lastPara.getRange("End");
-      const fullRange = startRange.expandTo(endRange);
+        // If start is beyond document, append at end
+        if (startIdx >= paragraphCount) {
+          console.log(`Start index ${startIndex} exceeds document (${paragraphCount} paragraphs), treating as append`);
+          startIdx = paragraphCount - 1;
+          endIdx = paragraphCount - 1;
+        }
 
-      await context.sync();
+        // Clamp start to valid range
+        if (startIdx < 0) {
+          startIdx = 0;
+        }
 
-      // Build HTML list
-      const listTag = listType === "numbered" ? "ol" : "ul";
+        // Clamp end to valid range
+        if (endIdx >= paragraphCount) {
+          console.log(`End index ${endIndex} exceeds document (${paragraphCount} paragraphs), clamping to ${paragraphCount}`);
+          endIdx = paragraphCount - 1;
+        }
 
-      // Map numbering style to CSS list-style-type
-      let cssListStyleType = "disc"; // default for bullet
-      if (listType === "numbered") {
-        const styleMap = {
+        // Ensure start <= end
+        if (startIdx > endIdx) {
+          startIdx = endIdx;
+        }
+
+        console.log(`Adjusted range: P${startIdx + 1} to P${endIdx + 1} (original: ${startIndex} to ${endIndex})`);
+
+        // Get the range covering all paragraphs to replace
+        const firstPara = paragraphs.items[startIdx];
+        const lastPara = paragraphs.items[endIdx];
+
+        // Try to read the existing list's numId from the first paragraph's OOXML
+        let existingNumId = null;
+        let existingBaseIlvl = 0;
+        try {
+          const firstParaOoxml = firstPara.getOoxml();
+          await context.sync();
+
+          const numIdMatch = firstParaOoxml.value.match(/w:numId w:val="(\d+)"/);
+          const ilvlMatch = firstParaOoxml.value.match(/w:ilvl w:val="(\d+)"/);
+
+          if (numIdMatch) {
+            existingNumId = numIdMatch[1];
+            existingBaseIlvl = ilvlMatch ? parseInt(ilvlMatch[1], 10) : 0;
+            console.log(`[executeEditList] Found existing numId: ${existingNumId}, base ilvl: ${existingBaseIlvl}`);
+          }
+        } catch (oxmlError) {
+          console.warn(`[executeEditList] Could not read existing OOXML:`, oxmlError.message);
+        }
+
+        // Get ranges to create a combined range
+        const startRange = firstPara.getRange("Start");
+        const endRange = lastPara.getRange("End");
+        const fullRange = startRange.expandTo(endRange);
+
+        await context.sync();
+
+        // Build HTML list
+        const listTag = listType === "numbered" ? "ol" : "ul";
+
+        // Map numbering style to CSS list-style-type
+        let cssListStyleType = "disc"; // default for bullet
+        if (listType === "numbered") {
+          const styleMap = {
+            "decimal": "decimal",
+            "lowerAlpha": "lower-alpha",
+            "upperAlpha": "upper-alpha",
+            "lowerRoman": "lower-roman",
+            "upperRoman": "upper-roman"
+          };
+          cssListStyleType = styleMap[numberingStyle] || "decimal";
+        }
+
+        const listStyle = `style="list-style-type: ${cssListStyleType}; margin-left: 0; padding-left: 40px;"`;
+
+        // Map numberingStyle to OOXML numFmt values for direct OOXML insertion
+        const numFmtMap = {
           "decimal": "decimal",
-          "lowerAlpha": "lower-alpha",
-          "upperAlpha": "upper-alpha",
-          "lowerRoman": "lower-roman",
-          "upperRoman": "upper-roman"
+          "lowerAlpha": "lowerLetter",
+          "upperAlpha": "upperLetter",
+          "lowerRoman": "lowerRoman",
+          "upperRoman": "upperRoman"
         };
-        cssListStyleType = styleMap[numberingStyle] || "decimal";
-      }
+        const numFmt = numFmtMap[numberingStyle] || "decimal";
 
-      const listStyle = `style="list-style-type: ${cssListStyleType}; margin-left: 0; padding-left: 40px;"`;
-
-      // Map numberingStyle to OOXML numFmt values for direct OOXML insertion
-      const numFmtMap = {
-        "decimal": "decimal",
-        "lowerAlpha": "lowerLetter",
-        "upperAlpha": "upperLetter",
-        "lowerRoman": "lowerRoman",
-        "upperRoman": "upperRoman"
-      };
-      const numFmt = numFmtMap[numberingStyle] || "decimal";
-
-      // Determine template numId when creating a new list (no existing numId)
-      // We'll use numId 100+ for custom styles to avoid conflicts
-      let templateNumId = existingNumId;
-      if (!templateNumId) {
-        if (listType === "bullet") {
-          templateNumId = "1"; // Default bullet
-        } else {
-          // For numbered lists, use numId 2 (default decimal) - the numFmt will override display
-          templateNumId = "2";
+        // Determine template numId when creating a new list (no existing numId)
+        // We'll use numId 100+ for custom styles to avoid conflicts
+        let templateNumId = existingNumId;
+        if (!templateNumId) {
+          if (listType === "bullet") {
+            templateNumId = "1"; // Default bullet
+          } else {
+            // For numbered lists, use numId 2 (default decimal) - the numFmt will override display
+            templateNumId = "2";
+          }
+          console.log(`[executeEditList] No existing numId, using template: ${templateNumId}, numFmt: ${numFmt}`);
         }
-        console.log(`[executeEditList] No existing numId, using template: ${templateNumId}, numFmt: ${numFmt}`);
-      }
-      // Detect hierarchy from leading whitespace indentation (4 spaces = 1 level)
-      // Also strip any leading list markers from items to avoid doubled numbering
-      const markersRegex = /^((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s*)/;
+        // Detect hierarchy from leading whitespace indentation (4 spaces = 1 level)
+        // Also strip any leading list markers from items to avoid doubled numbering
+        const markersRegex = /^((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s*)/;
 
-      // Analyze items for hierarchy based on leading whitespace
-      const itemsWithLevels = newItems.map(item => {
-        // Count leading spaces/tabs
-        const indentMatch = item.match(/^(\s*)/);
-        const indentSize = indentMatch ? indentMatch[1].length : 0;
-        const level = Math.floor(indentSize / 4); // 4 spaces per level
+        // Analyze items for hierarchy based on leading whitespace
+        const itemsWithLevels = newItems.map(item => {
+          // Count leading spaces/tabs
+          const indentMatch = item.match(/^(\s*)/);
+          const indentSize = indentMatch ? indentMatch[1].length : 0;
+          const level = Math.floor(indentSize / 4); // 4 spaces per level
 
-        // Strip leading whitespace
-        let stripped = item.trim();
+          // Strip leading whitespace
+          let stripped = item.trim();
 
-        // Also strip any list markers (1., a., -, etc.)
-        const markerMatch = stripped.match(markersRegex);
-        if (markerMatch) {
-          stripped = stripped.replace(markersRegex, '');
-          console.log(`[executeEditList] Stripped marker: "${markerMatch[1].trim()}" from item`);
-        }
+          // Also strip any list markers (1., a., -, etc.)
+          const markerMatch = stripped.match(markersRegex);
+          if (markerMatch) {
+            stripped = stripped.replace(markersRegex, '');
+            console.log(`[executeEditList] Stripped marker: "${markerMatch[1].trim()}" from item`);
+          }
 
-        console.log(`[executeEditList] Level: ${level}, Text: "${stripped.substring(0, 40)}..."`);
+          console.log(`[executeEditList] Level: ${level}, Text: "${stripped.substring(0, 40)}..."`);
 
-        return { text: stripped.trim(), level };
-      });
+          return { text: stripped.trim(), level };
+        });
 
-      // SURGICAL APPROACH: Edit existing paragraphs in place
-      // This preserves the document's existing formatting better than bulk replacement
-      const existingCount = endIdx - startIdx + 1;
-      const newCount = itemsWithLevels.length;
+        // SURGICAL APPROACH: Edit existing paragraphs in place
+        // This preserves the document's existing formatting better than bulk replacement
+        const existingCount = endIdx - startIdx + 1;
+        const newCount = itemsWithLevels.length;
 
-      console.log(`[executeEditList] Surgical mode: ${existingCount} existing → ${newCount} new items`);
+        console.log(`[executeEditList] Surgical mode: ${existingCount} existing → ${newCount} new items`);
 
-      // PHASE 1: Edit existing paragraphs with new text (keeping their style)
-      const editLimit = Math.min(existingCount, newCount);
-      for (let i = 0; i < editLimit; i++) {
-        const para = paragraphs.items[startIdx + i];
-        const item = itemsWithLevels[i];
+        // PHASE 1: Edit existing paragraphs with new text (keeping their style)
+        const editLimit = Math.min(existingCount, newCount);
+        for (let i = 0; i < editLimit; i++) {
+          const para = paragraphs.items[startIdx + i];
+          const item = itemsWithLevels[i];
 
-        // Get the paragraph's current text and OOXML for debugging
-        para.load("text");
-        const paraOoxml = para.getOoxml();
-        await context.sync();
+          // Get the paragraph's current text and OOXML for debugging
+          para.load("text");
+          const paraOoxml = para.getOoxml();
+          await context.sync();
 
-        const originalText = para.text.trim();
-        console.log(`[executeEditList] P${startIdx + i + 1} BEFORE: "${originalText.substring(0, 50)}..."`);
-        console.log(`[executeEditList] P${startIdx + i + 1} NEW: "${item.text.substring(0, 50)}..."`);
+          const originalText = para.text.trim();
+          console.log(`[executeEditList] P${startIdx + i + 1} BEFORE: "${originalText.substring(0, 50)}..."`);
+          console.log(`[executeEditList] P${startIdx + i + 1} NEW: "${item.text.substring(0, 50)}..."`);
 
-        const numIdMatch = paraOoxml.value.match(/w:numId w:val="(\d+)"/);
-        const ilvlMatch = paraOoxml.value.match(/w:ilvl w:val="(\d+)"/);
-        const currentNumId = numIdMatch ? numIdMatch[1] : (existingNumId || '1');
-        const currentIlvl = ilvlMatch ? ilvlMatch[1] : '0';
-        const newIlvl = existingBaseIlvl + item.level;
+          const numIdMatch = paraOoxml.value.match(/w:numId w:val="(\d+)"/);
+          const ilvlMatch = paraOoxml.value.match(/w:ilvl w:val="(\d+)"/);
+          const currentNumId = numIdMatch ? numIdMatch[1] : (existingNumId || '1');
+          const currentIlvl = ilvlMatch ? ilvlMatch[1] : '0';
+          const newIlvl = existingBaseIlvl + item.level;
 
-        console.log(`[executeEditList] P${startIdx + i + 1} numId=${currentNumId}, ilvl: ${currentIlvl} → ${newIlvl}`);
+          console.log(`[executeEditList] P${startIdx + i + 1} numId=${currentNumId}, ilvl: ${currentIlvl} → ${newIlvl}`);
 
-        // Build OOXML that preserves the paragraph's numbering but updates text and ilvl
-        const escapedText = item.text
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
+          // Build OOXML that preserves the paragraph's numbering but updates text and ilvl
+          const escapedText = item.text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
 
-        // Use templateNumId when paragraph doesn't have existing numbering
-        const numIdForPara = currentNumId === (existingNumId || '1') && !existingNumId ? templateNumId : currentNumId;
+          // Use templateNumId when paragraph doesn't have existing numbering
+          const numIdForPara = currentNumId === (existingNumId || '1') && !existingNumId ? templateNumId : currentNumId;
 
-        // Build the numbering.xml part if creating a new list with custom style
-        let numberingPart = '';
-        if (!existingNumId && listType === "numbered" && numFmt !== 'decimal') {
-          // Include a complete numbering definition for custom styles
-          // Use a high numId to avoid conflicts (100+)
-          const customNumId = '100';
-          numberingPart = `
+          // Build the numbering.xml part if creating a new list with custom style
+          let numberingPart = '';
+          if (!existingNumId && listType === "numbered" && numFmt !== 'decimal') {
+            // Include a complete numbering definition for custom styles
+            // Use a high numId to avoid conflicts (100+)
+            const customNumId = '100';
+            numberingPart = `
             <pkg:part pkg:name="/word/_rels/document.xml.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
               <pkg:xmlData>
                 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
@@ -5166,10 +5182,10 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
                 </w:numbering>
               </pkg:xmlData>
             </pkg:part>`;
-          // Use this custom numId for the paragraph
-        }
+            // Use this custom numId for the paragraph
+          }
 
-        const oxmlPara = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          const oxmlPara = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
           <pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
             <pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
               <pkg:xmlData>
@@ -5200,44 +5216,44 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
             </pkg:part>
           </pkg:package>`;
 
-        // Use the paragraph's range for replacement (not the paragraph object)
-        const paraRange = para.getRange("Whole");
-        paraRange.insertOoxml(oxmlPara, "Replace");
-        console.log(`[executeEditList] Replaced P${startIdx + i + 1} range with OOXML`);
-      }
-      await context.sync();
-
-      // PHASE 2: Insert new paragraphs if more items than existing
-      if (newCount > existingCount) {
-        console.log(`[executeEditList] Phase 2: Inserting ${newCount - existingCount} new paragraphs`);
-
-        // Reload paragraphs after Phase 1 edits
-        paragraphs.load("items");
+          // Use the paragraph's range for replacement (not the paragraph object)
+          const paraRange = para.getRange("Whole");
+          paraRange.insertOoxml(oxmlPara, "Replace");
+          console.log(`[executeEditList] Replaced P${startIdx + i + 1} range with OOXML`);
+        }
         await context.sync();
 
-        // Get the last edited paragraph to insert after
-        const lastEditedIdx = startIdx + existingCount - 1;
-        const insertAfterPara = paragraphs.items[lastEditedIdx];
+        // PHASE 2: Insert new paragraphs if more items than existing
+        if (newCount > existingCount) {
+          console.log(`[executeEditList] Phase 2: Inserting ${newCount - existingCount} new paragraphs`);
 
-        console.log(`[executeEditList] Will insert after P${lastEditedIdx + 1}`);
+          // Reload paragraphs after Phase 1 edits
+          paragraphs.load("items");
+          await context.sync();
 
-        // Build all new paragraphs into a single OOXML package
-        const newParagraphsXml = [];
+          // Get the last edited paragraph to insert after
+          const lastEditedIdx = startIdx + existingCount - 1;
+          const insertAfterPara = paragraphs.items[lastEditedIdx];
 
-        for (let i = existingCount; i < newCount; i++) {
-          const item = itemsWithLevels[i];
-          const ilvl = existingBaseIlvl + item.level;
-          const numIdForPhase2 = (!existingNumId && listType === "numbered" && numFmt !== 'decimal') ? '100' : (existingNumId || templateNumId);
+          console.log(`[executeEditList] Will insert after P${lastEditedIdx + 1}`);
 
-          console.log(`[executeEditList] Building paragraph ${i + 1}: "${item.text.substring(0, 30)}..." at ilvl=${ilvl}`);
+          // Build all new paragraphs into a single OOXML package
+          const newParagraphsXml = [];
 
-          const escapedText = item.text
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;');
+          for (let i = existingCount; i < newCount; i++) {
+            const item = itemsWithLevels[i];
+            const ilvl = existingBaseIlvl + item.level;
+            const numIdForPhase2 = (!existingNumId && listType === "numbered" && numFmt !== 'decimal') ? '100' : (existingNumId || templateNumId);
 
-          // Build paragraph XML (without full package wrapper)
-          newParagraphsXml.push(`
+            console.log(`[executeEditList] Building paragraph ${i + 1}: "${item.text.substring(0, 30)}..." at ilvl=${ilvl}`);
+
+            const escapedText = item.text
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;');
+
+            // Build paragraph XML (without full package wrapper)
+            newParagraphsXml.push(`
                       <w:p>
                         <w:pPr>
                           <w:pStyle w:val="ListParagraph"/>
@@ -5250,12 +5266,12 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
                           <w:t xml:space="preserve">${escapedText}</w:t>
                         </w:r>
                       </w:p>`);
-        }
+          }
 
-        // Include numbering.xml part if using custom style
-        let phase2NumberingPart = '';
-        if (!existingNumId && listType === "numbered" && numFmt !== 'decimal') {
-          phase2NumberingPart = `
+          // Include numbering.xml part if using custom style
+          let phase2NumberingPart = '';
+          if (!existingNumId && listType === "numbered" && numFmt !== 'decimal') {
+            phase2NumberingPart = `
           <pkg:part pkg:name="/word/_rels/document.xml.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
             <pkg:xmlData>
               <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
@@ -5282,10 +5298,10 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
               </w:numbering>
             </pkg:xmlData>
           </pkg:part>`;
-        }
+          }
 
-        // Combine all paragraphs into a single OOXML package
-        const combinedOxml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          // Combine all paragraphs into a single OOXML package
+          const combinedOxml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
           <pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
             <pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
               <pkg:xmlData>
@@ -5305,53 +5321,53 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
             </pkg:part>
           </pkg:package>`;
 
-        // Insert all new paragraphs at once
-        const insertRange = insertAfterPara.getRange("End");
-        insertRange.insertOoxml(combinedOxml, "After");
-        await context.sync();
-
-        console.log(`[executeEditList] Inserted ${newCount - existingCount} new paragraphs via single OOXML package`);
-
-        // WORKAROUND: Insert a dummy spacing paragraph after the list, then remove it
-        // This forces Word to properly re-evaluate and link the list structure
-        try {
-          // Reload paragraphs to get the newly inserted ones
-          paragraphs.load("items");
+          // Insert all new paragraphs at once
+          const insertRange = insertAfterPara.getRange("End");
+          insertRange.insertOoxml(combinedOxml, "After");
           await context.sync();
 
-          // Insert a blank paragraph after the last list item
-          const lastListItemIdx = startIdx + newCount - 1;
-          if (lastListItemIdx < paragraphs.items.length) {
-            const lastListItem = paragraphs.items[lastListItemIdx];
-            const dummyPara = lastListItem.insertParagraph("", "After");
+          console.log(`[executeEditList] Inserted ${newCount - existingCount} new paragraphs via single OOXML package`);
+
+          // WORKAROUND: Insert a dummy spacing paragraph after the list, then remove it
+          // This forces Word to properly re-evaluate and link the list structure
+          try {
+            // Reload paragraphs to get the newly inserted ones
+            paragraphs.load("items");
             await context.sync();
 
-            console.log(`[executeEditList] Inserted dummy spacing paragraph`);
+            // Insert a blank paragraph after the last list item
+            const lastListItemIdx = startIdx + newCount - 1;
+            if (lastListItemIdx < paragraphs.items.length) {
+              const lastListItem = paragraphs.items[lastListItemIdx];
+              const dummyPara = lastListItem.insertParagraph("", "After");
+              await context.sync();
 
-            // Force Word to re-evaluate by syncing again
-            await context.sync();
+              console.log(`[executeEditList] Inserted dummy spacing paragraph`);
 
-            // TEMP: Leave dummy paragraph to test if it fixes formatting
-            // dummyPara.delete();
-            // await context.sync();
+              // Force Word to re-evaluate by syncing again
+              await context.sync();
 
-            console.log(`[executeEditList] Left dummy spacing paragraph for testing`);
+              // TEMP: Leave dummy paragraph to test if it fixes formatting
+              // dummyPara.delete();
+              // await context.sync();
+
+              console.log(`[executeEditList] Left dummy spacing paragraph for testing`);
+            }
+          } catch (spacingError) {
+            console.warn(`[executeEditList] Spacing workaround failed (non-critical):`, spacingError.message);
           }
-        } catch (spacingError) {
-          console.warn(`[executeEditList] Spacing workaround failed (non-critical):`, spacingError.message);
         }
-      }
 
-      // PHASE 3: Delete excess paragraphs if fewer new items
-      if (newCount < existingCount) {
-        // Delete from the end to avoid index shifting
-        for (let i = existingCount - 1; i >= newCount; i--) {
-          const paraToDelete = paragraphs.items[startIdx + i];
-          paraToDelete.delete();
-          console.log(`[executeEditList] Deleted excess P${startIdx + i + 1}`);
+        // PHASE 3: Delete excess paragraphs if fewer new items
+        if (newCount < existingCount) {
+          // Delete from the end to avoid index shifting
+          for (let i = existingCount - 1; i >= newCount; i--) {
+            const paraToDelete = paragraphs.items[startIdx + i];
+            paraToDelete.delete();
+            console.log(`[executeEditList] Deleted excess P${startIdx + i + 1}`);
+          }
+          await context.sync();
         }
-        await context.sync();
-      }
 
       } finally {
         await restoreChangeTracking(context, trackingState, "executeEditList");
@@ -5397,107 +5413,107 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
       const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeConvertHeadersToList");
       try {
 
-      const paragraphs = context.document.body.paragraphs;
-      paragraphs.load("items");
-      await context.sync();
+        const paragraphs = context.document.body.paragraphs;
+        paragraphs.load("items");
+        await context.sync();
 
-      // Sort indices to process in order
-      const sortedIndices = [...paragraphIndices].sort((a, b) => a - b);
+        // Sort indices to process in order
+        const sortedIndices = [...paragraphIndices].sort((a, b) => a - b);
 
-      // Validate all indices
-      for (const idx of sortedIndices) {
-        const pIdx = idx - 1;
-        if (pIdx < 0 || pIdx >= paragraphs.items.length) {
-          throw new Error(`Invalid paragraph index: ${idx}`);
+        // Validate all indices
+        for (const idx of sortedIndices) {
+          const pIdx = idx - 1;
+          if (pIdx < 0 || pIdx >= paragraphs.items.length) {
+            throw new Error(`Invalid paragraph index: ${idx}`);
+          }
         }
-      }
 
-      // Get the first header paragraph and start a new list
-      const firstIdx = sortedIndices[0] - 1;
-      const firstPara = paragraphs.items[firstIdx];
-      firstPara.load("text");
-      await context.sync();
-
-      // Strip manual numbering from the first header if present
-      let firstText = firstPara.text || "";
-      const numberPattern = /^\s*\d+[.\)]\s*/;
-      firstText = firstText.replace(numberPattern, "").trim();
-
-      // Use new text if provided
-      if (newHeaderTexts && newHeaderTexts.length > 0) {
-        firstText = newHeaderTexts[0];
-      }
-
-      // Clear and replace the paragraph content
-      firstPara.clear();
-      firstPara.insertText(firstText, Word.InsertLocation.start);
-      await context.sync();
-
-      // Start a new list on this paragraph
-      const list = firstPara.startNewList();
-      await context.sync();
-
-      // Load the list to set its numbering format
-      list.load("id, levelTypes");
-      await context.sync();
-
-      // Map format string to Word.ListNumbering constant
-      const numberingMap = {
-        "arabic": Word.ListNumbering.arabic,
-        "lowerLetter": Word.ListNumbering.lowerLetter,
-        "upperLetter": Word.ListNumbering.upperLetter,
-        "lowerRoman": Word.ListNumbering.lowerRoman,
-        "upperRoman": Word.ListNumbering.upperRoman
-      };
-
-      const wordNumbering = numberingMap[format] || Word.ListNumbering.arabic;
-
-      // Set the list to use the specified numbering format
-      try {
-        list.setLevelNumbering(0, wordNumbering);
-        await context.sync();
-        console.log(`Set list numbering to ${format}`);
-      } catch (numError) {
-        console.warn("Could not set level numbering, trying style approach:", numError);
-        // Fallback: apply numbered list style
-        firstPara.styleBuiltIn = Word.BuiltInStyleName.listNumber;
-        await context.sync();
-      }
-
-      console.log(`Started new numbered list on paragraph ${sortedIndices[0]}`);
-
-      // For remaining headers, attach them to the same list
-      for (let i = 1; i < sortedIndices.length; i++) {
-        const pIdx = sortedIndices[i] - 1;
-        const para = paragraphs.items[pIdx];
-        para.load("text");
+        // Get the first header paragraph and start a new list
+        const firstIdx = sortedIndices[0] - 1;
+        const firstPara = paragraphs.items[firstIdx];
+        firstPara.load("text");
         await context.sync();
 
-        // Strip manual numbering
-        let paraText = para.text || "";
-        paraText = paraText.replace(numberPattern, "").trim();
+        // Strip manual numbering from the first header if present
+        let firstText = firstPara.text || "";
+        const numberPattern = /^\s*\d+[.\)]\s*/;
+        firstText = firstText.replace(numberPattern, "").trim();
 
         // Use new text if provided
-        if (newHeaderTexts && newHeaderTexts.length > i) {
-          paraText = newHeaderTexts[i];
+        if (newHeaderTexts && newHeaderTexts.length > 0) {
+          firstText = newHeaderTexts[0];
         }
 
         // Clear and replace the paragraph content
-        para.clear();
-        para.insertText(paraText, Word.InsertLocation.start);
+        firstPara.clear();
+        firstPara.insertText(firstText, Word.InsertLocation.start);
         await context.sync();
 
-        // Attach to the list
+        // Start a new list on this paragraph
+        const list = firstPara.startNewList();
+        await context.sync();
+
+        // Load the list to set its numbering format
+        list.load("id, levelTypes");
+        await context.sync();
+
+        // Map format string to Word.ListNumbering constant
+        const numberingMap = {
+          "arabic": Word.ListNumbering.arabic,
+          "lowerLetter": Word.ListNumbering.lowerLetter,
+          "upperLetter": Word.ListNumbering.upperLetter,
+          "lowerRoman": Word.ListNumbering.lowerRoman,
+          "upperRoman": Word.ListNumbering.upperRoman
+        };
+
+        const wordNumbering = numberingMap[format] || Word.ListNumbering.arabic;
+
+        // Set the list to use the specified numbering format
         try {
-          para.attachToList(list.id, 0); // level 0
+          list.setLevelNumbering(0, wordNumbering);
           await context.sync();
-          console.log(`Attached paragraph ${sortedIndices[i]} to list`);
-        } catch (attachError) {
-          console.warn(`Could not attach paragraph ${sortedIndices[i]}, using style:`, attachError);
-          para.styleBuiltIn = Word.BuiltInStyleName.listNumber;
+          console.log(`Set list numbering to ${format}`);
+        } catch (numError) {
+          console.warn("Could not set level numbering, trying style approach:", numError);
+          // Fallback: apply numbered list style
+          firstPara.styleBuiltIn = Word.BuiltInStyleName.listNumber;
           await context.sync();
         }
-      }
+
+        console.log(`Started new numbered list on paragraph ${sortedIndices[0]}`);
+
+        // For remaining headers, attach them to the same list
+        for (let i = 1; i < sortedIndices.length; i++) {
+          const pIdx = sortedIndices[i] - 1;
+          const para = paragraphs.items[pIdx];
+          para.load("text");
+          await context.sync();
+
+          // Strip manual numbering
+          let paraText = para.text || "";
+          paraText = paraText.replace(numberPattern, "").trim();
+
+          // Use new text if provided
+          if (newHeaderTexts && newHeaderTexts.length > i) {
+            paraText = newHeaderTexts[i];
+          }
+
+          // Clear and replace the paragraph content
+          para.clear();
+          para.insertText(paraText, Word.InsertLocation.start);
+          await context.sync();
+
+          // Attach to the list
+          try {
+            para.attachToList(list.id, 0); // level 0
+            await context.sync();
+            console.log(`Attached paragraph ${sortedIndices[i]} to list`);
+          } catch (attachError) {
+            console.warn(`Could not attach paragraph ${sortedIndices[i]}, using style:`, attachError);
+            para.styleBuiltIn = Word.BuiltInStyleName.listNumber;
+            await context.sync();
+          }
+        }
 
       } finally {
         await restoreChangeTracking(context, trackingState, "executeConvertHeadersToList");
@@ -5534,108 +5550,108 @@ async function executeEditTable(paragraphIndex, action, content, targetRow, targ
       const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeEditTable");
       try {
 
-      const paragraphs = context.document.body.paragraphs;
-      paragraphs.load("items");
-      await context.sync();
-
-      const pIdx = paragraphIndex - 1;
-      if (pIdx < 0 || pIdx >= paragraphs.items.length) {
-        throw new Error(`Invalid paragraph index: ${paragraphIndex}`);
-      }
-
-      const targetPara = paragraphs.items[pIdx];
-      targetPara.load("parentTableOrNullObject");
-      await context.sync();
-
-      if (targetPara.parentTableOrNullObject.isNullObject) {
-        throw new Error(`Paragraph ${paragraphIndex} is not inside a table`);
-      }
-
-      const table = targetPara.parentTableOrNullObject;
-      table.load("rowCount, rows");
-      await context.sync();
-
-      if (action === "replace_content") {
-        // content should be 2D array [[row1cells], [row2cells], ...]
-        if (!content || !Array.isArray(content)) {
-          throw new Error("replace_content requires a 2D array of content");
-        }
-
-        // Load all rows and cells
-        table.rows.load("items");
+        const paragraphs = context.document.body.paragraphs;
+        paragraphs.load("items");
         await context.sync();
 
-        for (let r = 0; r < content.length && r < table.rows.items.length; r++) {
-          const row = table.rows.items[r];
+        const pIdx = paragraphIndex - 1;
+        if (pIdx < 0 || pIdx >= paragraphs.items.length) {
+          throw new Error(`Invalid paragraph index: ${paragraphIndex}`);
+        }
+
+        const targetPara = paragraphs.items[pIdx];
+        targetPara.load("parentTableOrNullObject");
+        await context.sync();
+
+        if (targetPara.parentTableOrNullObject.isNullObject) {
+          throw new Error(`Paragraph ${paragraphIndex} is not inside a table`);
+        }
+
+        const table = targetPara.parentTableOrNullObject;
+        table.load("rowCount, rows");
+        await context.sync();
+
+        if (action === "replace_content") {
+          // content should be 2D array [[row1cells], [row2cells], ...]
+          if (!content || !Array.isArray(content)) {
+            throw new Error("replace_content requires a 2D array of content");
+          }
+
+          // Load all rows and cells
+          table.rows.load("items");
+          await context.sync();
+
+          for (let r = 0; r < content.length && r < table.rows.items.length; r++) {
+            const row = table.rows.items[r];
+            row.cells.load("items");
+            await context.sync();
+
+            for (let c = 0; c < content[r].length && c < row.cells.items.length; c++) {
+              const cell = row.cells.items[c];
+              const cellBody = cell.body;
+              cellBody.clear();
+              cellBody.insertText(content[r][c], Word.InsertLocation.start);
+            }
+          }
+          await context.sync();
+
+        } else if (action === "add_row") {
+          // content should be array of cell values for the new row
+          if (!content || !Array.isArray(content)) {
+            throw new Error("add_row requires an array of cell values");
+          }
+
+          const insertAt = targetRow !== undefined ? targetRow : table.rowCount;
+          const newRow = table.addRows(Word.InsertLocation.end, 1, [content]);
+          await context.sync();
+
+        } else if (action === "delete_row") {
+          if (targetRow === undefined) {
+            throw new Error("delete_row requires targetRow");
+          }
+
+          table.rows.load("items");
+          await context.sync();
+
+          if (targetRow < 0 || targetRow >= table.rows.items.length) {
+            throw new Error(`Invalid row index: ${targetRow}`);
+          }
+
+          table.rows.items[targetRow].delete();
+          await context.sync();
+
+        } else if (action === "update_cell") {
+          if (targetRow === undefined || targetColumn === undefined) {
+            throw new Error("update_cell requires targetRow and targetColumn");
+          }
+          if (!content || content.length === 0) {
+            throw new Error("update_cell requires content");
+          }
+
+          table.rows.load("items");
+          await context.sync();
+
+          if (targetRow < 0 || targetRow >= table.rows.items.length) {
+            throw new Error(`Invalid row index: ${targetRow}`);
+          }
+
+          const row = table.rows.items[targetRow];
           row.cells.load("items");
           await context.sync();
 
-          for (let c = 0; c < content[r].length && c < row.cells.items.length; c++) {
-            const cell = row.cells.items[c];
-            const cellBody = cell.body;
-            cellBody.clear();
-            cellBody.insertText(content[r][c], Word.InsertLocation.start);
+          if (targetColumn < 0 || targetColumn >= row.cells.items.length) {
+            throw new Error(`Invalid column index: ${targetColumn}`);
           }
+
+          const cell = row.cells.items[targetColumn];
+          const cellBody = cell.body;
+          cellBody.clear();
+          cellBody.insertText(content[0], Word.InsertLocation.start);
+          await context.sync();
+
+        } else {
+          throw new Error(`Unknown table action: ${action}`);
         }
-        await context.sync();
-
-      } else if (action === "add_row") {
-        // content should be array of cell values for the new row
-        if (!content || !Array.isArray(content)) {
-          throw new Error("add_row requires an array of cell values");
-        }
-
-        const insertAt = targetRow !== undefined ? targetRow : table.rowCount;
-        const newRow = table.addRows(Word.InsertLocation.end, 1, [content]);
-        await context.sync();
-
-      } else if (action === "delete_row") {
-        if (targetRow === undefined) {
-          throw new Error("delete_row requires targetRow");
-        }
-
-        table.rows.load("items");
-        await context.sync();
-
-        if (targetRow < 0 || targetRow >= table.rows.items.length) {
-          throw new Error(`Invalid row index: ${targetRow}`);
-        }
-
-        table.rows.items[targetRow].delete();
-        await context.sync();
-
-      } else if (action === "update_cell") {
-        if (targetRow === undefined || targetColumn === undefined) {
-          throw new Error("update_cell requires targetRow and targetColumn");
-        }
-        if (!content || content.length === 0) {
-          throw new Error("update_cell requires content");
-        }
-
-        table.rows.load("items");
-        await context.sync();
-
-        if (targetRow < 0 || targetRow >= table.rows.items.length) {
-          throw new Error(`Invalid row index: ${targetRow}`);
-        }
-
-        const row = table.rows.items[targetRow];
-        row.cells.load("items");
-        await context.sync();
-
-        if (targetColumn < 0 || targetColumn >= row.cells.items.length) {
-          throw new Error(`Invalid column index: ${targetColumn}`);
-        }
-
-        const cell = row.cells.items[targetColumn];
-        const cellBody = cell.body;
-        cellBody.clear();
-        cellBody.insertText(content[0], Word.InsertLocation.start);
-        await context.sync();
-
-      } else {
-        throw new Error(`Unknown table action: ${action}`);
-      }
       } finally {
         await restoreChangeTracking(context, trackingState, "executeEditTable");
       }
@@ -5670,89 +5686,89 @@ async function executeEditSection(sectionHeaderIndex, newHeaderText, newBodyPara
       const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeEditSection");
       try {
 
-      const paragraphs = context.document.body.paragraphs;
-      paragraphs.load("items");
-      await context.sync();
+        const paragraphs = context.document.body.paragraphs;
+        paragraphs.load("items");
+        await context.sync();
 
-      const headerIdx = sectionHeaderIndex - 1;
-      if (headerIdx < 0 || headerIdx >= paragraphs.items.length) {
-        throw new Error(`Invalid section header index: ${sectionHeaderIndex}`);
-      }
-
-      // Load properties to understand section structure
-      for (const para of paragraphs.items) {
-        para.load("text, listItemOrNullObject");
-      }
-      await context.sync();
-
-      // Load list levels
-      for (const para of paragraphs.items) {
-        if (!para.listItemOrNullObject.isNullObject) {
-          para.listItemOrNullObject.load("level");
+        const headerIdx = sectionHeaderIndex - 1;
+        if (headerIdx < 0 || headerIdx >= paragraphs.items.length) {
+          throw new Error(`Invalid section header index: ${sectionHeaderIndex}`);
         }
-      }
-      await context.sync();
 
-      const headerPara = paragraphs.items[headerIdx];
-
-      // Check that header is a list item (section header)
-      if (headerPara.listItemOrNullObject.isNullObject) {
-        throw new Error(`Paragraph ${sectionHeaderIndex} is not a section header (not a list item)`);
-      }
-
-      const headerLevel = headerPara.listItemOrNullObject.level || 0;
-
-      // Find the end of this section (next list item at same or higher level)
-      let sectionEndIdx = paragraphs.items.length - 1;
-      for (let i = headerIdx + 1; i < paragraphs.items.length; i++) {
-        const para = paragraphs.items[i];
-        if (!para.listItemOrNullObject.isNullObject) {
-          const level = para.listItemOrNullObject.level || 0;
-          if (level <= headerLevel) {
-            // Found next section at same or higher level
-            sectionEndIdx = i - 1;
-            break;
-          } else if (preserveSubsections) {
-            // Found a subsection - stop here if preserving
-            sectionEndIdx = i - 1;
-            break;
-          }
-        }
-      }
-
-      // Update header text if provided
-      if (newHeaderText !== undefined && newHeaderText !== null) {
-        // Extract the list number/letter prefix from current text
-        const currentText = headerPara.text || "";
-        const numberMatch = currentText.match(/^(\d+\.?\s*|\([a-z]\)\s*|[a-z]\.\s*|[ivxlcdm]+\.\s*)/i);
-
-        if (numberMatch) {
-          // Preserve the numbering prefix
-          headerPara.insertText(numberMatch[1] + newHeaderText, Word.InsertLocation.replace);
-        } else {
-          headerPara.insertText(newHeaderText, Word.InsertLocation.replace);
-        }
-        editCount++;
-      }
-
-      // Replace body paragraphs if provided
-      if (newBodyParagraphs && newBodyParagraphs.length > 0) {
-        // Delete existing body paragraphs (from end to start)
-        for (let i = sectionEndIdx; i > headerIdx; i--) {
-          paragraphs.items[i].delete();
+        // Load properties to understand section structure
+        for (const para of paragraphs.items) {
+          para.load("text, listItemOrNullObject");
         }
         await context.sync();
 
-        // Insert new body paragraphs after header
-        let insertAfter = headerPara;
-        for (const bodyText of newBodyParagraphs) {
-          const newPara = insertAfter.insertParagraph(bodyText, Word.InsertLocation.after);
-          insertAfter = newPara;
+        // Load list levels
+        for (const para of paragraphs.items) {
+          if (!para.listItemOrNullObject.isNullObject) {
+            para.listItemOrNullObject.load("level");
+          }
+        }
+        await context.sync();
+
+        const headerPara = paragraphs.items[headerIdx];
+
+        // Check that header is a list item (section header)
+        if (headerPara.listItemOrNullObject.isNullObject) {
+          throw new Error(`Paragraph ${sectionHeaderIndex} is not a section header (not a list item)`);
+        }
+
+        const headerLevel = headerPara.listItemOrNullObject.level || 0;
+
+        // Find the end of this section (next list item at same or higher level)
+        let sectionEndIdx = paragraphs.items.length - 1;
+        for (let i = headerIdx + 1; i < paragraphs.items.length; i++) {
+          const para = paragraphs.items[i];
+          if (!para.listItemOrNullObject.isNullObject) {
+            const level = para.listItemOrNullObject.level || 0;
+            if (level <= headerLevel) {
+              // Found next section at same or higher level
+              sectionEndIdx = i - 1;
+              break;
+            } else if (preserveSubsections) {
+              // Found a subsection - stop here if preserving
+              sectionEndIdx = i - 1;
+              break;
+            }
+          }
+        }
+
+        // Update header text if provided
+        if (newHeaderText !== undefined && newHeaderText !== null) {
+          // Extract the list number/letter prefix from current text
+          const currentText = headerPara.text || "";
+          const numberMatch = currentText.match(/^(\d+\.?\s*|\([a-z]\)\s*|[a-z]\.\s*|[ivxlcdm]+\.\s*)/i);
+
+          if (numberMatch) {
+            // Preserve the numbering prefix
+            headerPara.insertText(numberMatch[1] + newHeaderText, Word.InsertLocation.replace);
+          } else {
+            headerPara.insertText(newHeaderText, Word.InsertLocation.replace);
+          }
           editCount++;
         }
-      }
 
-      await context.sync();
+        // Replace body paragraphs if provided
+        if (newBodyParagraphs && newBodyParagraphs.length > 0) {
+          // Delete existing body paragraphs (from end to start)
+          for (let i = sectionEndIdx; i > headerIdx; i--) {
+            paragraphs.items[i].delete();
+          }
+          await context.sync();
+
+          // Insert new body paragraphs after header
+          let insertAfter = headerPara;
+          for (const bodyText of newBodyParagraphs) {
+            const newPara = insertAfter.insertParagraph(bodyText, Word.InsertLocation.after);
+            insertAfter = newPara;
+            editCount++;
+          }
+        }
+
+        await context.sync();
       } finally {
         await restoreChangeTracking(context, trackingState, "executeEditSection");
       }
