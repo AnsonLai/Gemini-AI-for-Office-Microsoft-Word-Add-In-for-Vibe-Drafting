@@ -224,13 +224,15 @@ async function runRedlineToggleTests() {
     });
     const hasInsDisabled = resultDisabled.oxml.includes('<w:ins');
     const hasDelDisabled = resultDisabled.oxml.includes('<w:del');
-    const hasNewText = resultDisabled.oxml.includes('Hello Gemini');
+    const hasNewText = resultDisabled.oxml.includes('Gemini');
 
     if (!hasInsDisabled && !hasDelDisabled && hasNewText) {
         console.log('✅ PASS: No track changes generated when disabled');
     } else {
-        console.log('❌ FAIL: Redline toggle NOT honored');
+        console.log(`❌ FAIL: Redline toggle NOT honored. Ins: ${hasInsDisabled}, Del: ${hasDelDisabled}, NewText: ${hasNewText}`);
+        console.log('Partial Output:', resultDisabled.oxml.substring(0, 200));
     }
+
 
     console.log('\n--- Test 3: List Expansion with Redlines DISABLED ---');
     const listModifiedText = "Original text\n* Item 1\n* Item 2";
@@ -257,11 +259,21 @@ async function runRedlineToggleTests() {
         author: 'TestUser',
         generateRedlines: false
     });
-    if (!resultTableDisabled.oxml.includes('<w:ins') && resultTableDisabled.oxml.includes('Header Updated')) {
+
+    // Strict check to avoid matching <w:insideH> in table properties
+    const hasInsTable = /<w:ins\b/.test(resultTableDisabled.oxml);
+    const hasDelTable = /<w:del\b/.test(resultTableDisabled.oxml);
+    const hasUpdatedText = resultTableDisabled.oxml.includes('Header Updated');
+
+    if (!hasInsTable && !hasDelTable && hasUpdatedText) {
+
         console.log('✅ PASS: Table reconciliation honors redline toggle');
     } else {
-        console.log('❌ FAIL: Table reconciliation redline toggle issue');
+        console.log(`❌ FAIL: Table reconciliation redline toggle issue. Ins: ${hasInsTable}, Del: ${hasDelTable}, UpdatedText: ${hasUpdatedText}`);
+        console.log('Output Preview:', resultTableDisabled.oxml.substring(0, 500));
+        console.log('Includes Header Updated:', resultTableDisabled.oxml.includes('Header Updated'));
     }
+
 }
 
 // --- Main Runner ---

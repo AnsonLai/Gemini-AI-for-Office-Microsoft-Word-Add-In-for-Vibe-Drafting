@@ -435,6 +435,8 @@ function wrapParagraphInPackage(paragraphXml) {
 export async function applyRedlineToOxml(oxml, originalText, modifiedText, options = {}) {
     // Default generateRedlines to true for backward compatibility
     const generateRedlines = options.generateRedlines ?? true;
+
+
     // Format author name: sanitize and default. If redlines disabled, author doesn't matter as much but good to have.
     const author = options.author || 'Gemini AI';
 
@@ -1644,7 +1646,8 @@ function applyTableReconciliation(xmlDoc, modifiedText, serializer, author, form
 function applyTextToTableTransformation(xmlDoc, modifiedText, serializer, author, generateRedlines) {
     const tableData = parseTable(modifiedText);
 
-    if (!tableData || tableData.rows.length === 0) {
+    if (!tableData || (tableData.rows.length === 0 && tableData.headers.length === 0)) {
+
         console.log('[OxmlEngine] Failed to parse table data from Markdown');
         return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
     }
