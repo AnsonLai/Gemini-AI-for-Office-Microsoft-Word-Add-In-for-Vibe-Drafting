@@ -4487,16 +4487,81 @@ async function routeChangeOperation(change, targetParagraph, context) {
   // Get original text and paragraph OOXML
   // Get original text (preserve whitespace for exact diffing) and paragraph OOXML
   const paragraphOriginalText = targetParagraph.text;
-  const paragraphOoxmlResult = targetParagraph.getOoxml();
-  await context.sync();
+  let paragraphOoxmlResult = null;
+  let paragraphOoxmlValue = null;
+  try {
+    paragraphOoxmlResult = targetParagraph.getOoxml();
+    await context.sync();
+    paragraphOoxmlValue = paragraphOoxmlResult.value;
+  } catch (ooxmlError) {
+    console.warn("[OxmlEngine] Paragraph.getOoxml failed, trying range.getOoxml", ooxmlError);
+    try {
+      const paragraphRange = targetParagraph.getRange();
+      paragraphOoxmlResult = paragraphRange.getOoxml();
+      await context.sync();
+      paragraphOoxmlValue = paragraphOoxmlResult.value;
+    } catch (rangeError) {
+      console.warn("[OxmlEngine] Range.getOoxml failed for paragraph", rangeError);
+      // Try parent table cell or table as a last resort (pure OOXML path)
+      try {
+        targetParagraph.load("parentTableCellOrNullObject, parentTableOrNullObject");
+        await context.sync();
+
+        if (targetParagraph.parentTableCellOrNullObject && !targetParagraph.parentTableCellOrNullObject.isNullObject) {
+          try {
+            console.warn("[OxmlEngine] Trying parent table cell getOoxml");
+            paragraphOoxmlResult = targetParagraph.parentTableCellOrNullObject.getOoxml();
+            await context.sync();
+            paragraphOoxmlValue = paragraphOoxmlResult.value;
+          } catch (cellError) {
+            console.warn("[OxmlEngine] Parent table cell getOoxml failed, trying cell range", cellError);
+            try {
+              const cellRange = targetParagraph.parentTableCellOrNullObject.getRange();
+              paragraphOoxmlResult = cellRange.getOoxml();
+              await context.sync();
+              paragraphOoxmlValue = paragraphOoxmlResult.value;
+            } catch (cellRangeError) {
+              console.warn("[OxmlEngine] Parent table cell range getOoxml failed", cellRangeError);
+            }
+          }
+        }
+
+        if (!paragraphOoxmlValue && targetParagraph.parentTableOrNullObject && !targetParagraph.parentTableOrNullObject.isNullObject) {
+          try {
+            console.warn("[OxmlEngine] Trying parent table getOoxml");
+            paragraphOoxmlResult = targetParagraph.parentTableOrNullObject.getOoxml();
+            await context.sync();
+            paragraphOoxmlValue = paragraphOoxmlResult.value;
+          } catch (tableError) {
+            console.warn("[OxmlEngine] Parent table getOoxml failed, trying table range", tableError);
+            try {
+              const tableRange = targetParagraph.parentTableOrNullObject.getRange();
+              paragraphOoxmlResult = tableRange.getOoxml();
+              await context.sync();
+              paragraphOoxmlValue = paragraphOoxmlResult.value;
+            } catch (tableRangeError) {
+              console.warn("[OxmlEngine] Parent table range getOoxml failed", tableRangeError);
+            }
+          }
+        }
+      } catch (tableError) {
+        console.warn("[OxmlEngine] Table OOXML fallback failed", tableError);
+      }
+    }
+  }
+
+  if (!paragraphOoxmlValue) {
+    console.warn("[OxmlEngine] Unable to retrieve OOXML for paragraph; skipping OOXML edit");
+    return;
+  }
 
   console.log("[OxmlEngine] Original text:", paragraphOriginalText.substring(0, 100));
-  console.log("[OxmlEngine] Paragraph OOXML length:", paragraphOoxmlResult.value.length);
+  console.log("[OxmlEngine] Paragraph OOXML length:", paragraphOoxmlValue.length);
 
   // Apply redlines using hybrid engine (DOM manipulation approach)
   const redlineAuthor = loadRedlineAuthor();
   const result = await applyRedlineToOxml(
-    paragraphOoxmlResult.value,
+    paragraphOoxmlValue,
     paragraphOriginalText,
     newContent,
     {
