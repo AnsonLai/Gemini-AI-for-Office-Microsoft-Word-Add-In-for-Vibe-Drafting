@@ -437,7 +437,7 @@ Return ONLY the JSON array, nothing else:`;
                     }
                   } else {
                     console.warn('[ListGen] Pipeline returned invalid result, falling back to HTML');
-                    const htmlContent = markdownToWordHtml(normalizedContent);
+                    const htmlContent = buildListFallbackHtml(normalizedContent, listData);
                     const insertLocation = isInsertAtEnd ? "After" : "Replace";
                     targetParagraph.insertHtml(htmlContent, insertLocation);
                     changesApplied++;
@@ -445,7 +445,7 @@ Return ONLY the JSON array, nothing else:`;
                 } catch (listError) {
                   console.error(`Error in OOXML list generation:`, listError);
                   // Fallback to HTML if OOXML fails
-                  const htmlContent = markdownToWordHtml(normalizedContent);
+                  const htmlContent = buildListFallbackHtml(normalizedContent, listData);
                   const insertLocation = isInsertAtEnd ? "After" : "Replace";
                   targetParagraph.insertHtml(htmlContent, insertLocation);
                   changesApplied++;
@@ -1797,6 +1797,103 @@ async function routeChangeOperation(change, targetParagraph, context) {
     targetParagraph.insertText(newContent, "Replace");
     await context.sync();
   }
+}
+
+function buildListFallbackHtml(normalizedContent, listData) {
+  const listHtml = buildHtmlFromListData(listData);
+  if (listHtml) {
+    return markdownToWordHtml(listHtml);
+  }
+  return markdownToWordHtml(normalizedContent);
+}
+
+function buildHtmlFromListData(listData) {
+  if (!listData || !Array.isArray(listData.items) || listData.items.length === 0) {
+    return "";
+  }
+
+  const root = { type: "root", children: [] };
+  const listStack = [];
+
+  const renderInline = (text) => markdownToWordHtmlInline(text || "");
+
+  for (const item of listData.items) {
+    if (item.type === "text") {
+      listStack.length = 0;
+      if (item.text && item.text.trim().length > 0) {
+        root.children.push({ type: "p", html: renderInline(item.text) });
+      }
+      continue;
+    }
+
+    const level = Math.max(0, item.level || 0);
+    while (listStack.length > level) {
+      listStack.pop();
+    }
+
+    const parent = level === 0 ? root : (listStack[level - 1]?.lastItem || root);
+    if (!parent.children) parent.children = [];
+
+    const tag = item.type === "bullet" ? "ul" : "ol";
+    const styleType = item.type === "bullet"
+      ? getBulletListStyle(level)
+      : getNumberedListStyle(item.marker);
+
+    let listNode = parent.children[parent.children.length - 1];
+    if (!listNode || listNode.type !== "list" || listNode.tag !== tag || listNode.styleType !== styleType) {
+      listNode = { type: "list", tag, styleType, items: [] };
+      parent.children.push(listNode);
+    }
+
+    const listItem = { type: "li", html: renderInline(item.text || ""), children: [] };
+    listNode.items.push(listItem);
+
+    listStack.length = level;
+    listStack[level] = { listNode, lastItem: listItem };
+  }
+
+  return renderNodes(root.children);
+}
+
+function renderNodes(nodes) {
+  if (!nodes || nodes.length === 0) return "";
+  return nodes.map(renderNode).join("");
+}
+
+function renderNode(node) {
+  if (!node) return "";
+  if (node.type === "p") {
+    return `<p>${node.html}</p>`;
+  }
+  if (node.type === "list") {
+    const style = `style="list-style-type: ${node.styleType}; margin-left: 0; padding-left: 40px; margin-bottom: 10px;"`;
+    const items = node.items.map(renderListItem).join("");
+    return `<${node.tag} ${style}>${items}</${node.tag}>`;
+  }
+  return "";
+}
+
+function renderListItem(item) {
+  const children = renderNodes(item.children);
+  return `<li style="margin-bottom: 5px;">${item.html}${children}</li>`;
+}
+
+function getBulletListStyle(level) {
+  const styles = ["disc", "circle", "square"];
+  return styles[level % styles.length];
+}
+
+function getNumberedListStyle(marker) {
+  const raw = (marker || "").trim();
+  if (!raw) return "decimal";
+
+  const cleaned = raw.replace(/^\(|\)$/g, "").replace(/\.$/, "").trim();
+  if (/^\d+(\.\d+)*$/.test(cleaned)) return "decimal";
+  if (/^[A-Z]$/.test(cleaned)) return "upper-alpha";
+  if (/^[a-z]$/.test(cleaned)) return "lower-alpha";
+  if (/^[IVXLCDM]+$/.test(cleaned)) return "upper-roman";
+  if (/^[ivxlcdm]+$/.test(cleaned)) return "lower-roman";
+  return "decimal";
 }
 
 /**
