@@ -1724,8 +1724,32 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
       }
 
       if (parts.length === 0) {
-        console.error("Gemini candidate missing content.parts:", candidate);
-        throw new Error("Gemini response was missing content.parts (possibly blocked by safety settings or malformed).");
+        // Handle empty STOP responses gracefully (silent success)
+        if (candidate.finishReason === "STOP") {
+          console.log("Gemini returned empty parts with finishReason: STOP. Treating as silent success.");
+          parts = [{ text: "Task completed successfully." }];
+        } else {
+          console.error("Gemini candidate missing content.parts:", candidate);
+
+          let diagnosticInfo = `Finish Reason: ${candidate.finishReason || 'NOT_FOUND'}`;
+
+          // Check for safety ratings that might have triggered an empty response
+          if (candidate.safetyRatings && Array.isArray(candidate.safetyRatings)) {
+            const highRatings = candidate.safetyRatings.filter(r => r.probability !== "NEGLIGIBLE");
+            if (highRatings.length > 0) {
+              diagnosticInfo += ` | Safety: ${highRatings.map(r => `${r.category}:${r.probability}`).join(', ')}`;
+            }
+          }
+
+          // Check for specific finish reasons like SAFETY or RECITATION
+          if (candidate.finishReason === "SAFETY") {
+            diagnosticInfo += " | Content blocked by safety filters.";
+          } else if (candidate.finishReason === "RECITATION") {
+            diagnosticInfo += " | Content blocked due to copyright/recitation filters.";
+          }
+
+          throw new Error(`Gemini response was missing content.parts. ${diagnosticInfo}`);
+        }
       }
 
       console.log("Gemini chat content.parts:", parts);
