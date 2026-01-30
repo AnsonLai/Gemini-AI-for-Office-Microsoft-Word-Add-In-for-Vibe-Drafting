@@ -296,6 +296,59 @@ async function verifyListFixes() {
     }
 }
 
+// --- Test 6: Kitchen Sink Markdown (Headings + Lists + Table) ---
+async function testKitchenSinkMarkdown() {
+    console.log('\n=== Test: Kitchen Sink Markdown ===');
+
+    const pipeline = new ReconciliationPipeline({
+        generateRedlines: false,
+        author: 'KitchenSink',
+        numberingService: new NumberingService(),
+        font: 'Calibri'
+    });
+
+    const modifiedText = `### Liquidation Instructions
+Intro line for context.
+1. **Securities:** Sell all stocks.
+2. *Cash/Cash Equivalents:* Consolidate balances.
+| Account | Number |
+|---|---|
+| Brokerage | 123 |
+| Savings | 456 |
+#### Payout Notes
+1. **Recipient Bank:** [Bank Name]
+2. **ABA/Routing Number:** [Routing Number]`;
+
+    try {
+        const result = await pipeline.executeListGeneration(modifiedText, null, null, "Placeholder");
+        const ooxml = result.ooxml || '';
+
+        const hasHeading3 = ooxml.includes('w:pStyle w:val="Heading3"');
+        const hasHeading4 = ooxml.includes('w:pStyle w:val="Heading4"');
+        const hasTable = ooxml.includes('<w:tbl');
+        const hasList = ooxml.includes('<w:numPr>');
+        const hasBold = /<w:b(?:\s|\/)/.test(ooxml);
+        const hasItalic = /<w:i(?:\s|\/)/.test(ooxml);
+        const hasTableData = ooxml.includes('Brokerage') && ooxml.includes('Savings');
+
+        if (hasHeading3 && hasHeading4 && hasTable && hasList && hasBold && hasItalic && hasTableData) {
+            console.log('✅ PASS: Headings, lists, tables, and inline formatting rendered.');
+        } else {
+            console.log('❌ FAIL: Missing expected elements.', {
+                hasHeading3,
+                hasHeading4,
+                hasTable,
+                hasList,
+                hasBold,
+                hasItalic,
+                hasTableData
+            });
+        }
+    } catch (e) {
+        console.error('❌ ERROR:', e);
+    }
+}
+
 // --- Main Runner ---
 (async () => {
     console.log('STARTING LIST TESTS...');
@@ -305,12 +358,13 @@ async function verifyListFixes() {
     await testReproListIssue();
     await verifyFixedListConversion();
     await verifyListFixes();
+    await testKitchenSinkMarkdown();
     testMixedContentParsing();
 
     console.log('\nALL LIST TESTS COMPLETE.');
 })();
 
-// --- Test 6: Mixed Content Parsing (from test_mixed_content_parsing.mjs) ---
+// --- Test 7: Mixed Content Parsing (from test_mixed_content_parsing.mjs) ---
 function testMixedContentParsing() {
     console.log('\n=== Test: Mixed Content Parsing ===');
 

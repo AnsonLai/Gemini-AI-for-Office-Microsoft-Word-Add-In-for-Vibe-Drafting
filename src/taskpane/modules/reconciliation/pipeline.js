@@ -230,8 +230,48 @@ export class ReconciliationPipeline {
         const { format: defaultFormat } = this.numberingService.detectNumberingFormat(firstMarker);
         console.log(`[ListGen] Detected primary marker: "${firstMarker}", format: ${defaultFormat}`);
 
+        const isTableLine = (line) => /^\s*\|/.test(line);
+        const isTableSeparator = (line) => /^\s*\|?[\s:-]*-[-\s|:]*\|?\s*$/.test(line);
+
         for (let i = 0; i < rawLines.length; i++) {
             const line = rawLines[i];
+
+            // Detect markdown table blocks and generate table OOXML in-line
+            if (
+                isTableLine(line) &&
+                i + 1 < rawLines.length &&
+                isTableLine(rawLines[i + 1]) &&
+                isTableSeparator(rawLines[i + 1])
+            ) {
+                const tableLines = [];
+                let j = i;
+                while (j < rawLines.length && isTableLine(rawLines[j])) {
+                    tableLines.push(rawLines[j]);
+                    j++;
+                }
+
+                const tableText = tableLines.join('\n');
+                const tableData = parseTable(tableText);
+
+                if (tableData.headers.length > 0 || tableData.rows.length > 0) {
+                    if (this.generateRedlines && results.length === 0 && deletionRuns.length > 0) {
+                        const deletionOnlyOoxml = serializeToOoxml(deletionRuns, null, [], {
+                            author: this.author,
+                            generateRedlines: this.generateRedlines,
+                            font: this.font
+                        });
+                        results.push(deletionOnlyOoxml);
+                    }
+
+                    const tableOoxml = generateTableOoxml(tableData, {
+                        generateRedlines: this.generateRedlines,
+                        author: this.author
+                    });
+                    results.push(tableOoxml);
+                    i = j - 1;
+                    continue;
+                }
+            }
 
             // Extract the marker for THIS line
             const markerMatch = line.match(markerRegex);
@@ -240,7 +280,21 @@ export class ReconciliationPipeline {
             let pPrXml = '';
             let segmentText = '';
 
-            if (currentMarker) {
+            // Check for Markdown Headers (e.g. ### Header)
+            const headerMatch = line.match(/^\s*(#{1,9})\s+(.*)/);
+
+            if (headerMatch) {
+                // --- HEADER ---
+                const level = Math.min(headerMatch[1].length, 9); // 1 to 9
+                const outlineLevel = Math.min(level - 1, 8);
+                const headingSizes = [32, 28, 26, 24, 22, 20, 20, 20, 20]; // half-points
+                const headingSize = headingSizes[level - 1] || headingSizes[headingSizes.length - 1];
+                segmentText = headerMatch[2].trim();
+                // Create pPr with Heading style + outline level, with a size/bold fallback
+                pPrXml = `<w:pPr><w:pStyle w:val="Heading${level}"/><w:outlineLvl w:val="${outlineLevel}"/><w:rPr><w:b/><w:sz w:val="${headingSize}"/><w:szCs w:val="${headingSize}"/></w:rPr></w:pPr>`;
+
+                // Intentionally do NOT process as list item (omit numPr)
+            } else if (currentMarker) {
                 // --- LIST ITEM ---
                 // If marker exists, detect its specific format (supports mixed lists)
                 const lineFormatInfo = this.numberingService.detectNumberingFormat(currentMarker);

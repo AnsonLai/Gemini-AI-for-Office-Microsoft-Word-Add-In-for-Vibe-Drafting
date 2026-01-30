@@ -252,12 +252,17 @@ Return ONLY the JSON array, nothing else:`;
                 }
               }
 
-              // If target is a list item and content is plain text (no list markers), 
+              const hasHeadingMarkdown = /^\s*#{1,9}\s+/m.test(normalizedContent);
+              const hasMarkdownTable = /^\s*\|.*\|/m.test(normalizedContent) && normalizedContent.includes('\n');
+              const hasMixedTable = hasMarkdownTable && normalizedContent.replace(/^\s*\|.*$/gm, '').trim().length > 0;
+
+              // If target is a list item and content is plain text (no list markers),
               // use OOXML reconciliation to preserve list formatting
               const contentHasListMarkers = /^(\s*)([-*•]|\d+\.|[a-zA-Z]\.|[ivxlcIVXLC]+\.|\d+\.\d+\.?)\s+/m.test(normalizedContent);
+              const contentHasStructuralMarkers = contentHasListMarkers || hasHeadingMarkdown || hasMarkdownTable;
               console.log(`[replace_paragraph] contentHasListMarkers: ${contentHasListMarkers}`);
 
-              if (targetIsListItem && !contentHasListMarkers) {
+              if (targetIsListItem && !contentHasStructuralMarkers) {
                 console.log(`[replace_paragraph] Preserving list context for plain text edit`);
 
                 try {
@@ -310,11 +315,13 @@ Return ONLY the JSON array, nothing else:`;
               }
               // --- END NEW ---
 
-              // Check if this is a list - use OOXML pipeline for proper redlines
+              // Check if this is a list or block content with headings/tables - use OOXML pipeline for proper redlines
               const listData = parseMarkdownList(normalizedContent);
               console.log(`[replace_paragraph] listData result: type=${listData?.type}, items=${listData?.items?.length}`);
-              if (listData && listData.type !== 'text') {
-                console.log(`Detected ${listData.type} list in replace_paragraph, using OOXML pipeline`);
+              const shouldUseBlockPipeline = (listData && listData.type !== 'text') || hasMixedTable;
+              if (shouldUseBlockPipeline) {
+                const listLabel = listData && listData.type !== 'text' ? listData.type : 'block';
+                console.log(`Detected ${listLabel} content in replace_paragraph, using OOXML pipeline`);
                 try {
                   // Get original paragraph info for proper diff/redlines and font inheritance
                   // Only get original text if we're REPLACING (not appending)
@@ -343,7 +350,7 @@ Return ONLY the JSON array, nothing else:`;
                     font: paragraphFont || 'Calibri' // Inherit font from original paragraph
                   });
 
-                  // Execute list generation - this creates OOXML with w:ins/w:del track changes
+                  // Execute block generation (list/table/headings) - this creates OOXML with w:ins/w:del track changes
                   const result = await pipeline.executeListGeneration(
                     normalizedContent,
                     null, // numberingContext - let pipeline determine

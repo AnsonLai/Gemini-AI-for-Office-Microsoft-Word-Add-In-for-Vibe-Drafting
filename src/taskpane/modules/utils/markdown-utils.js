@@ -44,6 +44,10 @@ function markdownToWordHtml(markdown) {
 
   // Pre-process underline and strikethrough (marked native GFM might be disabled or fail in some environments)
   const processedMarkdown = markdown
+    .replace(/^\s*(#{7,9})\s+(.*)$/gm, (match, hashes, text) => {
+      const level = Math.min(hashes.length, 9);
+      return `<p style="mso-style-name:'Heading ${level}'; mso-style-id:Heading${level}; font-weight:bold;">${escapeHtml(text.trim())}</p>`;
+    })
     .replace(/\+\+(.+?)\+\+/g, '<u>$1</u>')
     .replace(/~~(.+?)~~/g, '<s>$1</s>');
 
@@ -99,9 +103,10 @@ function markdownToWordHtml(markdown) {
   html = html.replace(/<\/ul>/g, '</ul><p>&nbsp;</p>');
 
   // === FONT CONSISTENCY ===
-  // Wrap with explicit font-family using cached document font
-  // This ensures inserted content matches the document's existing font
-  html = `<span style="font-family: '${cachedDocumentFont}', Calibri, sans-serif;">${html}</span>`;
+  // Use a block wrapper when content includes block elements to avoid invalid HTML
+  const hasBlockHtml = /<(p|ul|ol|table|h[1-6]|div|blockquote)\b/i.test(html);
+  const wrapperTag = hasBlockHtml ? 'div' : 'span';
+  html = `<${wrapperTag} style="font-family: '${cachedDocumentFont}', Calibri, sans-serif;">${html}</${wrapperTag}>`;
 
   return html;
 }
@@ -115,7 +120,7 @@ function markdownToWordHtmlInline(markdown) {
 
   // Use parseInline to avoid wrapping in <p> tags for simple text
   // But if there are block elements (lists, tables), use full parse
-  const hasBlockElements = /(\n[-*+]\s|\n\d+\.\s|\|.*\|.*\n|^#{1,6}\s)/m.test(markdown);
+  const hasBlockElements = /(\n[-*+]\s|\n\d+\.\s|\|.*\|.*\n|^#{1,9}\s)/m.test(markdown);
 
   if (hasBlockElements) {
     return markdownToWordHtml(markdown);
@@ -151,7 +156,7 @@ function hasBlockElements(content) {
   const hasTable = /\|.*\|.*\n/.test(content);
 
   // Detect headings: lines starting with # symbols
-  const hasHeading = /^#{1,6}\s/m.test(content);
+  const hasHeading = /^#{1,9}\s/m.test(content);
 
   // Detect paragraph breaks (multiple consecutive newlines)
   const hasMultipleLineBreaks = content.includes('\n\n');
@@ -404,3 +409,12 @@ export {
   parseMarkdownList,
   normalizeContentEscapes
 };
+
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
