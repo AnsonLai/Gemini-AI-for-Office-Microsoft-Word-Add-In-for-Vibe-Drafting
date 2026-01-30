@@ -287,6 +287,92 @@ function applyFormatOverridesToRPr(xmlDoc, rPr, formatToRemove) {
     }
 }
 
+/**
+ * Adds formatting tags to rPr for the specified flags without forcing other flags off.
+ */
+function applyFormatAdditionsToRPr(xmlDoc, rPr, formatToAdd) {
+    if (!rPr || !formatToAdd) return;
+
+    const addBold = !!formatToAdd.bold;
+    const addItalic = !!formatToAdd.italic;
+    const addUnderline = !!formatToAdd.underline;
+    const addStrike = !!formatToAdd.strikethrough;
+
+    const removalSet = new Set();
+    if (addBold) {
+        removalSet.add('w:b');
+        removalSet.add('w:bCs');
+    }
+    if (addItalic) {
+        removalSet.add('w:i');
+        removalSet.add('w:iCs');
+    }
+    if (addUnderline) removalSet.add('w:u');
+    if (addStrike) removalSet.add('w:strike');
+
+    if (removalSet.size > 0) {
+        const toRemove = [];
+        for (const child of Array.from(rPr.childNodes)) {
+            if (removalSet.has(child.nodeName)) {
+                toRemove.push(child);
+            }
+        }
+        for (const el of toRemove) {
+            rPr.removeChild(el);
+        }
+    }
+
+    if (addBold) {
+        const b = xmlDoc.createElement('w:b');
+        b.setAttribute('w:val', '1');
+        insertRPrChildInOrder(rPr, b);
+
+        const bCs = xmlDoc.createElement('w:bCs');
+        bCs.setAttribute('w:val', '1');
+        insertRPrChildInOrder(rPr, bCs);
+    }
+    if (addItalic) {
+        const i = xmlDoc.createElement('w:i');
+        i.setAttribute('w:val', '1');
+        insertRPrChildInOrder(rPr, i);
+
+        const iCs = xmlDoc.createElement('w:iCs');
+        iCs.setAttribute('w:val', '1');
+        insertRPrChildInOrder(rPr, iCs);
+    }
+    if (addUnderline) {
+        const u = xmlDoc.createElement('w:u');
+        u.setAttribute('w:val', 'single');
+        insertRPrChildInOrder(rPr, u);
+    }
+    if (addStrike) {
+        const strike = xmlDoc.createElement('w:strike');
+        strike.setAttribute('w:val', '1');
+        insertRPrChildInOrder(rPr, strike);
+    }
+}
+
+function stripRPrChangeNodes(rPr) {
+    if (!rPr) return;
+    const toRemove = [];
+    for (const child of Array.from(rPr.childNodes)) {
+        if (child.nodeName === 'w:rPrChange') {
+            toRemove.push(child);
+        }
+    }
+    for (const el of toRemove) {
+        rPr.removeChild(el);
+    }
+}
+
+function buildAddedFormatRPr(xmlDoc, originalRun, formatToAdd) {
+    const baseRPr = originalRun.getElementsByTagName('w:rPr')[0] || null;
+    const rPr = baseRPr ? baseRPr.cloneNode(true) : xmlDoc.createElement('w:rPr');
+    stripRPrChangeNodes(rPr);
+    applyFormatAdditionsToRPr(xmlDoc, rPr, formatToAdd);
+    return rPr;
+}
+
 
 // ============================================================================
 // TABLE CELL CONTEXT DETECTION
@@ -547,16 +633,29 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
             console.log('[OxmlEngine] Table cell context: applying formatting to target paragraph only');
 
             // Apply formatting to ONLY the target paragraph (not all paragraphs)
-            applyFormatToSingleParagraph(xmlDoc, tableCellCtx.targetParagraph, formatHints, author, generateRedlines);
+            const formatResult = applyFormatOnlyChangesSurgical(
+                xmlDoc,
+                originalText,
+                formatHints,
+                serializer,
+                author,
+                generateRedlines,
+                textSpans
+            );
+
+            if (formatResult.useNativeApi) {
+                return formatResult;
+            }
 
             console.log('[OxmlEngine] Stripping table wrapper for table cell paragraph (format-only)');
-            return { oxml: serializeParagraphOnly(xmlDoc, tableCellCtx.targetParagraph, serializer), hasChanges: true, isFormatOnly: true };
+            return {
+                oxml: serializeParagraphOnly(xmlDoc, tableCellCtx.targetParagraph, serializer),
+                hasChanges: formatResult.hasChanges
+            };
         }
 
         // Standard path for non-table paragraphs
-        const result = applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, author, generateRedlines, textSpans);
-        // Mark as format-only so Word's track changes can surface the w:rPrChange
-        return { ...result, isFormatOnly: true };
+        return applyFormatOnlyChangesSurgical(xmlDoc, originalText, formatHints, serializer, author, generateRedlines, textSpans);
     }
 
     // Check for tables to decide mode
@@ -911,6 +1010,124 @@ function applyFormatRemovalAsSurgicalReplacement(xmlDoc, textSpans, existingForm
 
     console.log('[OxmlEngine] No format changes were applied');
     return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
+}
+
+/**
+ * Format ADDITION via surgical text replacement (pure OOXML approach).
+ * Wraps the original run in w:del and inserts a formatted w:ins run.
+ */
+function applyFormatAdditionsAsSurgicalReplacement(xmlDoc, textSpans, formatHints, serializer, author, generateRedlines = true) {
+    let hasAnyChanges = false;
+    const processedRuns = new Set();
+    const dateStr = new Date().toISOString();
+
+    if (!textSpans || textSpans.length === 0) {
+        return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
+    }
+
+    const boundaries = new Set();
+    for (const hint of formatHints) {
+        boundaries.add(hint.start);
+        boundaries.add(hint.end);
+    }
+    const sortedBoundaries = Array.from(boundaries).sort((a, b) => a - b);
+
+    let currentSpans = [...textSpans];
+    let splitsOccurred = true;
+    while (splitsOccurred) {
+        splitsOccurred = false;
+        const nextPassSpans = [];
+        for (const span of currentSpans) {
+            let splitThisSpan = false;
+            for (const boundary of sortedBoundaries) {
+                if (boundary > span.charStart && boundary < span.charEnd) {
+                    const splitResult = splitSpanAtOffset(xmlDoc, span, boundary);
+                    if (splitResult) {
+                        nextPassSpans.push(splitResult[0], splitResult[1]);
+                        splitsOccurred = true;
+                        splitThisSpan = true;
+                        break;
+                    }
+                }
+            }
+            if (!splitThisSpan) {
+                nextPassSpans.push(span);
+            }
+        }
+        currentSpans = nextPassSpans;
+    }
+
+    for (const span of currentSpans) {
+        if (!span || !span.textElement || span.textElement.nodeName !== 'w:t') continue;
+
+        const applicableHints = formatHints.filter(h => h.start < span.charEnd && h.end > span.charStart);
+        if (applicableHints.length === 0) continue;
+
+        const desiredFormat = mergeFormats(...applicableHints.map(h => h.format));
+        const existingFormat = span.format || extractFormatFromRPr(span.rPr);
+
+        const formatsToCheck = ['bold', 'italic', 'underline', 'strikethrough'];
+        const needsAdd = formatsToCheck.some(f => desiredFormat[f] && !existingFormat[f]);
+        if (!needsAdd) continue;
+
+        if (processedRuns.has(span.runElement)) continue;
+        processedRuns.add(span.runElement);
+
+        const textContent = span.textElement.textContent || '';
+        if (!textContent) continue;
+
+        const parentNode = span.runElement.parentNode;
+        if (!parentNode) continue;
+
+        if (generateRedlines) {
+            const delContainer = xmlDoc.createElement('w:del');
+            delContainer.setAttribute('w:id', Math.floor(Math.random() * 1000000).toString());
+            delContainer.setAttribute('w:author', author || 'Gemini AI');
+            delContainer.setAttribute('w:date', dateStr);
+
+            const deletedRun = span.runElement.cloneNode(true);
+            const tElements = deletedRun.getElementsByTagName('w:t');
+            const tArray = Array.from(tElements);
+            for (const t of tArray) {
+                const delText = xmlDoc.createElement('w:delText');
+                delText.setAttribute('xml:space', 'preserve');
+                delText.textContent = t.textContent;
+                t.parentNode.replaceChild(delText, t);
+            }
+            delContainer.appendChild(deletedRun);
+
+            const insContainer = xmlDoc.createElement('w:ins');
+            insContainer.setAttribute('w:id', Math.floor(Math.random() * 1000000).toString());
+            insContainer.setAttribute('w:author', author || 'Gemini AI');
+            insContainer.setAttribute('w:date', dateStr);
+
+            const newRun = xmlDoc.createElement('w:r');
+            const newRPr = buildAddedFormatRPr(xmlDoc, span.runElement, desiredFormat);
+            if (newRPr && newRPr.childNodes.length > 0) {
+                newRun.appendChild(newRPr);
+            }
+            const newT = xmlDoc.createElement('w:t');
+            newT.setAttribute('xml:space', 'preserve');
+            newT.textContent = textContent;
+            newRun.appendChild(newT);
+            insContainer.appendChild(newRun);
+
+            parentNode.insertBefore(delContainer, span.runElement);
+            parentNode.insertBefore(insContainer, span.runElement);
+            parentNode.removeChild(span.runElement);
+        } else {
+            let rPr = span.runElement.getElementsByTagName('w:rPr')[0] || null;
+            if (!rPr) {
+                rPr = xmlDoc.createElement('w:rPr');
+                span.runElement.insertBefore(rPr, span.runElement.firstChild);
+            }
+            applyFormatAdditionsToRPr(xmlDoc, rPr, desiredFormat);
+        }
+
+        hasAnyChanges = true;
+    }
+
+    return { oxml: serializer.serializeToString(xmlDoc), hasChanges: hasAnyChanges };
 }
 
 /**
@@ -1325,6 +1542,121 @@ function applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, a
     applyFormatHintsToSpansRobust(xmlDoc, localizedSpans, adjustedHints, author, generateRedlines);
 
     return { oxml: serializer.serializeToString(xmlDoc), hasChanges: true };
+}
+
+function applyFormatOnlyChangesSurgical(xmlDoc, originalText, formatHints, serializer, author, generateRedlines = true, precomputedSpans = null) {
+    const allParagraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
+
+    let textSpans = Array.isArray(precomputedSpans) ? precomputedSpans : [];
+
+    if (!Array.isArray(precomputedSpans)) {
+        textSpans = [];
+        let currentOffset = 0;
+        allParagraphs.forEach((p, pIndex) => {
+            const container = p.parentNode;
+            Array.from(p.childNodes).forEach(child => {
+                if (child.nodeName === 'w:r') {
+                    currentOffset = processRunElement(child, p, container, currentOffset, textSpans);
+                } else if (child.nodeName === 'w:hyperlink') {
+                    Array.from(child.childNodes).forEach(hc => {
+                        if (hc.nodeName === 'w:r') {
+                            currentOffset = processRunElement(hc, p, container, currentOffset, textSpans);
+                        }
+                    });
+                }
+            });
+            if (pIndex < allParagraphs.length - 1) {
+                currentOffset++; // For \n between paragraphs
+            }
+        });
+    }
+
+    if (!textSpans || textSpans.length === 0) {
+        console.warn('[OxmlEngine] No spans available for surgical format-only change; deferring to native API');
+        return {
+            hasChanges: true,
+            useNativeApi: true,
+            formatHints,
+            originalText
+        };
+    }
+
+    if (!formatHints || formatHints.length === 0) {
+        return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
+    }
+
+    const paragraphInfos = buildParagraphInfos(xmlDoc, allParagraphs, textSpans);
+    const normalizedOriginalFull = normalizeParagraphComparisonText(originalText);
+    const normalizedOriginalTrim = normalizedOriginalFull.trim();
+
+    let targetInfo = null;
+    let matchOffset = 0;
+
+    for (const info of paragraphInfos) {
+        const candidateFull = normalizeParagraphComparisonText(info.text);
+        if (candidateFull === normalizedOriginalFull) {
+            targetInfo = info;
+            break;
+        }
+    }
+
+    if (!targetInfo && normalizedOriginalTrim.length > 0) {
+        for (const info of paragraphInfos) {
+            const candidateFull = normalizeParagraphComparisonText(info.text);
+            if (candidateFull.trim() === normalizedOriginalTrim) {
+                targetInfo = info;
+                break;
+            }
+        }
+    }
+
+    if (!targetInfo && normalizedOriginalTrim.length > 0) {
+        const docPlain = paragraphInfos.map(info => normalizeParagraphComparisonText(info.text)).join('\n');
+        const idx = docPlain.indexOf(normalizedOriginalTrim);
+        if (idx !== -1) {
+            for (const info of paragraphInfos) {
+                const start = info.startOffset;
+                const length = normalizeParagraphComparisonText(info.text).length;
+                if (idx >= start && idx <= start + length) {
+                    targetInfo = info;
+                    matchOffset = idx - start;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!targetInfo || !targetInfo.spans || targetInfo.spans.length === 0) {
+        console.warn('[OxmlEngine] Unable to pinpoint target paragraph for surgical format-only change; deferring to native API');
+        return {
+            hasChanges: true,
+            useNativeApi: true,
+            formatHints,
+            originalText
+        };
+    }
+
+    const baseOffset = targetInfo.spans[0].charStart;
+    const localizedSpans = targetInfo.spans.map(span => ({
+        ...span,
+        charStart: span.charStart - baseOffset,
+        charEnd: span.charEnd - baseOffset
+    }));
+
+    const adjustedHints = formatHints.map(hint => ({
+        ...hint,
+        start: hint.start + matchOffset,
+        end: hint.end + matchOffset
+    }));
+
+    return applyFormatAdditionsAsSurgicalReplacement(
+        xmlDoc,
+        localizedSpans,
+        adjustedHints,
+        serializer,
+        author,
+        generateRedlines
+    );
 }
 
 /**
