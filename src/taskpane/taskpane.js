@@ -1730,6 +1730,13 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
 
       console.log("Gemini chat content.parts:", parts);
 
+      // --- Thought Signature Handling ---
+      // Check for thought/reasoning parts to potentially log or handle separately
+      const thinkingPart = parts.find(p => p.thought || p.thought_signature || p.thoughtSignature);
+      if (thinkingPart) {
+        console.log("Model Reasoning detected:", thinkingPart.thought || thinkingPart.thought_signature || thinkingPart.thoughtSignature);
+      }
+
       // Check for ALL function calls in the response
       const functionCallParts = parts.filter((part) => part.functionCall);
 
@@ -2019,7 +2026,9 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
 
       } else {
         // Normal text response - this ends the loop
-        const aiResponse = parts[0].text;
+        // Robustly find the text part, skipping thought/thinking parts for the UI
+        const textPart = parts.find(p => p.text && !p.thought);
+        const aiResponse = textPart ? textPart.text : "Response generated (see document for changes).";
 
         // Add model response to history with proper structure
         chatHistory.push({
