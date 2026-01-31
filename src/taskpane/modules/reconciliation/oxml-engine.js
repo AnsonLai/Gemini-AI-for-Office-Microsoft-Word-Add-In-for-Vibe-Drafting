@@ -2656,6 +2656,7 @@ function applyReconstructionMode(xmlDoc, originalText, modifiedText, serializer,
                     formatHints, currentInsertOffset, generateRedlines
                 );
 
+                currentInsertOffset += length;
                 offset += length;
             }
             currentOriginalIndex += text.length;
@@ -2888,7 +2889,9 @@ function appendTextToCurrent(
                 }
             }
             localBaseIndex++;
-            localInsertOffset++;
+            if (type !== 'delete') {
+                localInsertOffset++;
+            }
         } else if (part === '\uFFFC') {
             // Re-insert sentinel/embedded object
             const sentinel = sentinelMap.find(s => s.start === localBaseIndex);
@@ -2904,7 +2907,9 @@ function appendTextToCurrent(
                 localParagraph.appendChild(clone);
             }
             localBaseIndex++;
-            localInsertOffset++;
+            if (type !== 'delete') {
+                localInsertOffset++;
+            }
         } else if (referenceMap.has(part)) {
             // Re-insert reference
             if (type !== 'delete') {
@@ -2918,7 +2923,9 @@ function appendTextToCurrent(
                 }
             }
             localBaseIndex++;
-            localInsertOffset++;
+            if (type !== 'delete') {
+                localInsertOffset++;
+            }
         } else if (part.length > 0) {
             // Normal text
             let parent = localParagraph;
@@ -2960,8 +2967,10 @@ function appendTextToCurrent(
                 const runs = createFormattedRuns(xmlDoc, part, rPr, applicableHints, localInsertOffset, author, generateRedlines);
                 runs.forEach(run => parent.appendChild(run));
             }
+            if (type !== 'delete') {
+                localInsertOffset += part.length;
+            }
             localBaseIndex += part.length;
-            localInsertOffset += part.length;
         }
     });
 }
@@ -3001,7 +3010,8 @@ function createTextRun(xmlDoc, text, rPr, isDelete) {
 
 /**
  * Creates an array of runs with formatting applied based on format hints.
- * Splits text at format boundaries and applies appropriate formatting.
+ * Splits text into elementary segments wherever any hint starts or ends,
+ * merging all applicable formats for each segment.
  * 
  * @param {Document} xmlDoc - The XML document
  * @param {string} text - Text to format
@@ -3009,43 +3019,47 @@ function createTextRun(xmlDoc, text, rPr, isDelete) {
  * @param {Array} formatHints - Array of {start, end, format} hints
  * @param {number} baseOffset - Base offset for position calculations
  * @param {string} [author] - Optional author for track changes
+ * @param {boolean} [generateRedlines] - Whether to generate redlines
  * @returns {Element[]} Array of w:r elements
  */
 function createFormattedRuns(xmlDoc, text, baseRPr, formatHints, baseOffset, author, generateRedlines) {
-    const runs = [];
-    let pos = 0;
+    if (!text) return [];
 
-    // Sort hints by start position
-    const sortedHints = [...formatHints].sort((a, b) => a.start - b.start);
-
-    for (const hint of sortedHints) {
+    // Find all unique boundaries within this text chunk
+    const breaks = new Set([0, text.length]);
+    for (const hint of formatHints) {
         const localStart = Math.max(0, hint.start - baseOffset);
         const localEnd = Math.min(text.length, hint.end - baseOffset);
-
-        // Skip if hint doesn't apply to this text range
-        if (localStart >= text.length || localEnd <= 0) continue;
-
-        // Text before the formatted section - explicitly apply "plain" formatting
-        // which will strip any original bold/italic if not in a hint.
-        if (localStart > pos) {
-            const beforeText = text.slice(pos, localStart);
-            const formattedRPr = injectFormattingToRPr(xmlDoc, baseRPr, null, author, generateRedlines);
-            runs.push(createTextRunWithRPrElement(xmlDoc, beforeText, formattedRPr, false));
-        }
-
-        // Formatted text
-        const formattedText = text.slice(localStart, localEnd);
-        const formattedRPr = injectFormattingToRPr(xmlDoc, baseRPr, hint.format, author, generateRedlines);
-        runs.push(createTextRunWithRPrElement(xmlDoc, formattedText, formattedRPr, false));
-
-        pos = localEnd;
+        if (localStart >= 0 && localStart < text.length) breaks.add(localStart);
+        if (localEnd > 0 && localEnd <= text.length) breaks.add(localEnd);
     }
 
-    // Remaining text after last format hint - explicitly apply "plain" formatting
-    if (pos < text.length) {
-        const afterText = text.slice(pos);
-        const formattedRPr = injectFormattingToRPr(xmlDoc, baseRPr, null, author, generateRedlines);
-        runs.push(createTextRunWithRPrElement(xmlDoc, afterText, formattedRPr, false));
+    const sortedBreaks = Array.from(breaks).sort((a, b) => a - b);
+    const runs = [];
+
+    for (let i = 0; i < sortedBreaks.length - 1; i++) {
+        const start = sortedBreaks[i];
+        const end = sortedBreaks[i + 1];
+        const segment = text.slice(start, end);
+        if (!segment) continue;
+
+        const segmentBaseOffset = baseOffset + start;
+        const segmentEndOffset = baseOffset + end;
+
+        // Find ALL hints that cover this entire elementary segment
+        const applicableHints = formatHints.filter(h =>
+            h.start <= segmentBaseOffset && h.end >= segmentEndOffset
+        );
+
+        // Merge formats from all applicable hints
+        // If no hints, combinedFormat will be empty, leading to "plain" synchronization (unbolding)
+        const combinedFormat = {};
+        applicableHints.forEach(h => {
+            if (h.format) Object.assign(combinedFormat, h.format);
+        });
+
+        const formattedRPr = injectFormattingToRPr(xmlDoc, baseRPr, combinedFormat, author, generateRedlines);
+        runs.push(createTextRunWithRPrElement(xmlDoc, segment, formattedRPr, false));
     }
 
     return runs;
@@ -3129,12 +3143,13 @@ function injectFormattingToRPr(xmlDoc, baseRPr, format, author, generateRedlines
     };
 
     // Synchronize properties - explicitly support subtraction
-    syncElement('w:b', !!activeFormat.bold);
-    syncElement('w:bCs', !!activeFormat.bold);
-    syncElement('w:i', !!activeFormat.italic);
-    syncElement('w:iCs', !!activeFormat.italic);
+    // Using explicit '1' for application ensures better compatibility than just adding the tag
+    syncElement('w:b', !!activeFormat.bold, '1', '0');
+    syncElement('w:bCs', !!activeFormat.bold, '1', '0');
+    syncElement('w:i', !!activeFormat.italic, '1', '0');
+    syncElement('w:iCs', !!activeFormat.italic, '1', '0');
     syncElement('w:u', !!activeFormat.underline, 'single', 'none');
-    syncElement('w:strike', !!activeFormat.strikethrough);
+    syncElement('w:strike', !!activeFormat.strikethrough, '1', '0');
 
     return rPr;
 }

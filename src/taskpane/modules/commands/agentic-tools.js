@@ -1609,8 +1609,8 @@ async function routeChangeOperation(change, targetParagraph, context) {
     return;
   }
 
-  console.log("[OxmlEngine] Original text:", paragraphOriginalText.substring(0, 100));
-  console.log("[OxmlEngine] Paragraph OOXML length:", paragraphOoxmlValue.length);
+  console.log("[OxmlEngine] Original text:", paragraphOriginalText.length > 500 ? paragraphOriginalText.substring(0, 500) + "..." : paragraphOriginalText);
+  console.log("[OxmlEngine] Original text length:", paragraphOriginalText.length);
 
   // Apply redlines using hybrid engine (DOM manipulation approach)
   const redlineAuthor = loadRedlineAuthor();
