@@ -2196,6 +2196,59 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
 
         console.log(`Adjusted range: P${startIdx + 1} to P${endIdx + 1} (original: ${startIndex} to ${endIndex})`);
 
+        // Pre-process: Split paragraphs with soft breaks (\v) if we have more new items than paragraphs
+        // This prevents deleting a multi-line paragraph just to re-insert it as list items
+        if (newItems.length > (endIdx - startIdx + 1)) {
+          let splitsPerformed = 0;
+
+          // Check relevant paragraphs for soft breaks
+          const initialEndIdx = endIdx;
+          for (let i = startIdx; i <= initialEndIdx; i++) {
+            const para = paragraphs.items[i];
+            para.load("text");
+          }
+          await context.sync();
+
+          // We iterate through the originally identified paragraphs
+          // Note: references to paragraphs.items[i] remain valid for operation even if others split?
+          // Actually, let's grab the object references safely
+          const parasToCheck = [];
+          for (let i = startIdx; i <= initialEndIdx; i++) {
+            parasToCheck.push(paragraphs.items[i]);
+          }
+
+          for (const para of parasToCheck) {
+            if (para.text && para.text.includes('\u000b')) {
+              console.log(`[executeEditList] Found soft breaks in matched paragraph, splitting...`);
+              const ranges = para.search("\u000b"); // Search for vertical tab
+              ranges.load("items");
+              await context.sync();
+
+              let paraSplits = 0;
+              // Iterate backwards to keep ranges valid during modification
+              for (let j = ranges.items.length - 1; j >= 0; j--) {
+                ranges.items[j].insertParagraph("", "After");
+                ranges.items[j].delete();
+                paraSplits++;
+              }
+
+              if (paraSplits > 0) {
+                await context.sync(); // Commit the splits for this paragraph
+                splitsPerformed += paraSplits;
+              }
+            }
+          }
+
+          if (splitsPerformed > 0) {
+            console.log(`[executeEditList] Performed ${splitsPerformed} splits. Reloading paragraphs.`);
+            endIdx += splitsPerformed; // Extend the range to include new paragraphs
+
+            // Reload paragraphs for the main logic as indices have shifted
+            paragraphs.load("items");
+            await context.sync();
+          }
+        }
+
         // Get the range covering all paragraphs to replace
         const firstPara = paragraphs.items[startIdx];
         const lastPara = paragraphs.items[endIdx];
