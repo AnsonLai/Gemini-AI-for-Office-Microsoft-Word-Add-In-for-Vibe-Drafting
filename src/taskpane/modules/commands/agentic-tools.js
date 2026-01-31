@@ -1,7 +1,6 @@
 /* global Word */
 
 import { applyRedlineToOxml, ReconciliationPipeline, wrapInDocumentFragment, parseTable } from '../reconciliation/index.js';
-import { applyHighlightToOoxml } from '../../ooxml-formatting-removal.js';
 import {
   detectDocumentFont,
   markdownToWordHtml,
@@ -1158,10 +1157,8 @@ JSON ARRAY OF HIGHLIGHTS:`;
     let highlightsApplied = 0;
 
     await Word.run(async (context) => {
-      // No need to disable tracking for highlights usually, but safety first if we wanted to
-      // const redlineEnabled = loadRedlineSetting();
-      // const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeHighlight");
-
+      const redlineEnabled = loadRedlineSetting();
+      const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeHighlight");
       try {
         const paragraphs = context.document.body.paragraphs;
         paragraphs.load("items");
@@ -1172,36 +1169,13 @@ JSON ARRAY OF HIGHLIGHTS:`;
           if (pIndex < 0 || pIndex >= paragraphs.items.length) continue;
 
           const targetParagraph = paragraphs.items[pIndex];
-
-          try {
-            // Get the paragraph's OOXML
-            const paragraphOoxml = targetParagraph.getOoxml();
-            await context.sync();
-
-            const originalOoxml = paragraphOoxml.value;
-            if (!originalOoxml) {
-              console.warn(`Could not get OOXML for paragraph ${item.paragraphIndex}`);
-              continue;
-            }
-
-            // Apply highlight via pure OOXML manipulation
-            const modifiedOoxml = applyHighlightToOoxml(originalOoxml, item.textToFind, normalizedColor);
-
-            // Only insert if something changed
-            if (modifiedOoxml && modifiedOoxml !== originalOoxml) {
-              targetParagraph.insertOoxml(modifiedOoxml, Word.InsertLocation.replace);
-              await context.sync();
-              highlightsApplied++;
-              console.log(`[OOXML Highlight] Applied ${normalizedColor} highlight to "${item.textToFind}" in P${item.paragraphIndex}`);
-            } else {
-              console.warn(`[OOXML Highlight] No matching text found for "${item.textToFind}" in P${item.paragraphIndex}`);
-            }
-          } catch (highlightError) {
-            console.warn(`Failed to highlight "${item.textToFind}":`, highlightError.message);
-          }
+          const count = await searchWithFallback(targetParagraph, item.textToFind, context, async (match) => {
+            match.font.highlightColor = normalizedColor;
+          });
+          highlightsApplied += count;
         }
       } finally {
-        // await restoreChangeTracking(context, trackingState, "executeHighlight");
+        await restoreChangeTracking(context, trackingState, "executeHighlight");
       }
     });
 
