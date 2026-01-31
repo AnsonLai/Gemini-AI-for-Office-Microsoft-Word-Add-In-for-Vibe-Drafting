@@ -59,6 +59,33 @@ import { NS_W } from './types.js';
  */
 
 // ============================================================================
+// PARAGRAPH FILTERING UTILITIES
+// ============================================================================
+
+/**
+ * Returns only document body paragraphs, excluding those inside comments, footnotes, or endnotes.
+ * This prevents comment text from leaking into document edits.
+ * 
+ * @param {Document} xmlDoc - The XML document to search
+ * @returns {Element[]} Array of w:p elements that are part of the main document body
+ */
+function getDocumentParagraphs(xmlDoc) {
+    const excludedContainers = ['w:comment', 'w:footnote', 'w:endnote'];
+    const allParagraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
+
+    return allParagraphs.filter(p => {
+        let node = p.parentNode;
+        while (node && node.nodeName) {
+            if (excludedContainers.includes(node.nodeName)) {
+                return false; // Paragraph is inside an excluded container
+            }
+            node = node.parentNode;
+        }
+        return true;
+    });
+}
+
+// ============================================================================
 // SURGICAL OOXML BUILDERS
 // ============================================================================
 
@@ -393,8 +420,8 @@ function detectTableCellContext(xmlDoc, originalText) {
         return { hasTableWrapper: false, isTableCellParagraph: false, paragraphs: [], paragraph: null, tableElement: null };
     }
 
-    // Get all paragraphs inside table cells
-    const allParagraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
+    // Get all paragraphs inside table cells (excluding comments/footnotes/endnotes)
+    const allParagraphs = getDocumentParagraphs(xmlDoc);
     const paragraphsInCells = allParagraphs.filter(p => {
         let parent = p.parentNode;
         while (parent) {
@@ -588,7 +615,7 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
         let targetParagraph = tableCellCtx.targetParagraph || null;
 
         if (!targetParagraph) {
-            const allParagraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
+            const allParagraphs = getDocumentParagraphs(xmlDoc);
             const paragraphInfos = buildParagraphInfos(xmlDoc, allParagraphs, textSpans);
             const matchedInfo = findMatchingParagraphInfo(paragraphInfos, originalText);
             if (matchedInfo) {
@@ -746,8 +773,8 @@ function extractFormattingFromOoxml(xmlDoc) {
     const textSpans = [];
     let charOffset = 0;
 
-    // Only process runs inside paragraphs (not styles)
-    const allParagraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
+    // Only process runs inside document paragraphs (not styles, comments, footnotes, or endnotes)
+    const allParagraphs = getDocumentParagraphs(xmlDoc);
 
     for (const p of allParagraphs) {
         // 1. Find pPr and its rPr (paragraph-level default run properties)
@@ -1430,7 +1457,7 @@ function applyFormatToSingleParagraph(xmlDoc, paragraph, formatHints, author, ge
  * Used when markdown formatting is applied to unchanged text.
  */
 function applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, author, generateRedlines = true, precomputedSpans = null) {
-    const allParagraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
+    const allParagraphs = getDocumentParagraphs(xmlDoc);
 
     // Reuse precomputed spans when available to keep character offsets aligned
     let textSpans = Array.isArray(precomputedSpans) ? precomputedSpans : [];
@@ -1545,7 +1572,7 @@ function applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, a
 }
 
 function applyFormatOnlyChangesSurgical(xmlDoc, originalText, formatHints, serializer, author, generateRedlines = true, precomputedSpans = null) {
-    const allParagraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
+    const allParagraphs = getDocumentParagraphs(xmlDoc);
 
     let textSpans = Array.isArray(precomputedSpans) ? precomputedSpans : [];
 
@@ -2082,7 +2109,7 @@ function applySurgicalMode(xmlDoc, originalText, modifiedText, serializer, autho
 
     const allParagraphs = targetParagraph
         ? [targetParagraph]
-        : Array.from(xmlDoc.getElementsByTagName('w:p'));
+        : getDocumentParagraphs(xmlDoc);
 
     // Build text span map
     allParagraphs.forEach((p, pIndex) => {
@@ -2487,7 +2514,7 @@ function processInsert(xmlDoc, textSpans, pos, text, processedSpans, author, for
 function applyReconstructionMode(xmlDoc, originalText, modifiedText, serializer, author, formatHints, generateRedlines = true) {
     const rootElement = xmlDoc.documentElement;
     const isBodyRoot = rootElement.nodeName === 'w:body' || rootElement.nodeName.endsWith(':package');
-    const paragraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
+    const paragraphs = getDocumentParagraphs(xmlDoc);
 
     // Determine the actual container for paragraphs
     // If root is a paragraph, the container for reconstruction should be the DOCUMENT itself
@@ -2715,6 +2742,10 @@ function processChildNode(child, originalFullText, propertyMap, sentinelMap, ref
     } else if (['w:sdt', 'w:oMath', 'm:oMath', 'w:bookmarkStart', 'w:bookmarkEnd'].includes(child.nodeName)) {
         sentinelMap.push({ start: originalFullText.length, node: child });
         return originalFullText + '\uFFFC';
+    } else if (['w:commentRangeStart', 'w:commentRangeEnd'].includes(child.nodeName)) {
+        // Comment markers are position markers, not content - store without adding sentinel char
+        sentinelMap.push({ start: originalFullText.length, node: child, isCommentMarker: true });
+        return originalFullText; // No sentinel char - preserves text offset alignment
     }
     return originalFullText;
 }
@@ -2773,6 +2804,10 @@ function processRunForReconstruction(r, originalFullText, propertyMap, sentinelM
                 fullText += char;
                 propertyMap.push({ start: fullText.length - 1, end: fullText.length, rPr });
             }
+        } else if (rc.nodeName === 'w:commentReference') {
+            // Comment reference is a zero-width marker - store without adding sentinel char
+            sentinelMap.push({ start: fullText.length, node: rc, isCommentMarker: true });
+            // No sentinel char and no property entry - preserves text offset alignment
         }
     });
 
@@ -2823,6 +2858,24 @@ function appendTextToCurrent(
 ) {
     // This is a simplified version - full implementation would need to track
     // currentParagraph as a mutable reference. For now, we process in-line.
+
+    // Insert any zero-width comment markers at this position FIRST
+    // These are stored without sentinel chars to preserve text offset alignment
+    const commentMarkers = sentinelMap.filter(
+        s => s.isCommentMarker && s.start === baseIndex
+    );
+    commentMarkers.forEach(marker => {
+        // Comment markers go directly into the paragraph (not inside runs)
+        // w:commentRangeStart and w:commentRangeEnd are paragraph-level elements
+        // w:commentReference should be wrapped in a run
+        if (marker.node.nodeName === 'w:commentReference') {
+            const run = xmlDoc.createElement('w:r');
+            run.appendChild(marker.node.cloneNode(true));
+            currentParagraphRef.appendChild(run);
+        } else {
+            currentParagraphRef.appendChild(marker.node.cloneNode(true));
+        }
+    });
 
     const parts = text.split(/([\n\uFFFC]|[\uE000-\uF8FF])/);
 
