@@ -1456,6 +1456,10 @@ async function executeResearch(query) {
  * Uses native Word APIs for lists/tables, DMP for text edits
  */
 async function routeChangeOperation(change, targetParagraph, context) {
+  // IMPORTANT: Load text property before accessing to ensure complete data
+  targetParagraph.load("text");
+  await context.sync();
+
   const originalText = targetParagraph.text;
   let newContent = change.newContent || change.content || "";
 
@@ -1532,7 +1536,10 @@ async function routeChangeOperation(change, targetParagraph, context) {
   const redlineEnabled = loadRedlineSetting();
 
   // Get original text and paragraph OOXML
-  // Get original text (preserve whitespace for exact diffing) and paragraph OOXML
+  // IMPORTANT: Must load 'text' property explicitly before accessing it
+  targetParagraph.load("text");
+  await context.sync();
+
   const paragraphOriginalText = targetParagraph.text;
   let paragraphOoxmlResult = null;
   let paragraphOoxmlValue = null;

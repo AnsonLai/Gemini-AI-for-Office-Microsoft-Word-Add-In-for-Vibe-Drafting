@@ -2856,48 +2856,42 @@ function appendTextToCurrent(
     replacementContainers, getParagraphInfo, createNewParagraph, author,
     formatHints = [], insertOffset = 0, generateRedlines = true
 ) {
-    // This is a simplified version - full implementation would need to track
-    // currentParagraph as a mutable reference. For now, we process in-line.
-
-    // Insert any zero-width comment markers at this position FIRST
-    // These are stored without sentinel chars to preserve text offset alignment
-    const commentMarkers = sentinelMap.filter(
-        s => s.isCommentMarker && s.start === baseIndex
-    );
-    commentMarkers.forEach(marker => {
-        // Comment markers go directly into the paragraph (not inside runs)
-        // w:commentRangeStart and w:commentRangeEnd are paragraph-level elements
-        // w:commentReference should be wrapped in a run
-        if (marker.node.nodeName === 'w:commentReference') {
-            const run = xmlDoc.createElement('w:r');
-            run.appendChild(marker.node.cloneNode(true));
-            currentParagraphRef.appendChild(run);
-        } else {
-            currentParagraphRef.appendChild(marker.node.cloneNode(true));
-        }
-    });
+    let localBaseIndex = baseIndex;
+    let localInsertOffset = insertOffset;
+    let localParagraph = currentParagraphRef;
 
     const parts = text.split(/([\n\uFFFC]|[\uE000-\uF8FF])/);
 
     parts.forEach(part => {
+        // 1. Insert any zero-width markers at the current position BEFORE this part
+        // These include comment markers which were stored without sentinel chars
+        const markers = sentinelMap.filter(s => s.isCommentMarker && s.start === localBaseIndex);
+        markers.forEach(marker => {
+            if (marker.node.nodeName === 'w:commentReference') {
+                const run = xmlDoc.createElement('w:r');
+                run.appendChild(marker.node.cloneNode(true));
+                localParagraph.appendChild(run);
+            } else {
+                localParagraph.appendChild(marker.node.cloneNode(true));
+            }
+        });
+
         if (part === '\n') {
             // Handle newline by creating a new paragraph
             if (type !== 'delete') {
-                const info = getParagraphInfo(baseIndex);
+                const info = getParagraphInfo(localBaseIndex);
                 const nextParagraph = createNewParagraph(info.pPr);
                 const fragment = containerFragments.get(info.container);
                 if (fragment) {
                     fragment.appendChild(nextParagraph);
-                    // Update the reference for subsequent text
-                    currentParagraphRef.appendChild(xmlDoc.createTextNode('')); // Dummy for reference handling
-                    // This is a bit hacky because JS doesn't have pointers, but let's assume
-                    // the caller handles the updated currentParagraph.
-                    // In a real implementation, we'd return the new paragraph or update a state object.
+                    localParagraph = nextParagraph;
                 }
             }
+            localBaseIndex++;
+            localInsertOffset++;
         } else if (part === '\uFFFC') {
             // Re-insert sentinel/embedded object
-            const sentinel = sentinelMap.find(s => s.start === baseIndex);
+            const sentinel = sentinelMap.find(s => s.start === localBaseIndex);
             if (sentinel) {
                 const clone = sentinel.node.cloneNode(true);
                 if (sentinel.isTextBox && sentinel.originalContainer) {
@@ -2907,9 +2901,10 @@ function appendTextToCurrent(
                         replacementContainers.set(sentinel.originalContainer, newContainer);
                     }
                 }
-                // Append to current paragraph
-                currentParagraphRef.appendChild(clone);
+                localParagraph.appendChild(clone);
             }
+            localBaseIndex++;
+            localInsertOffset++;
         } else if (referenceMap.has(part)) {
             // Re-insert reference
             if (type !== 'delete') {
@@ -2919,16 +2914,18 @@ function appendTextToCurrent(
                     const run = xmlDoc.createElement('w:r');
                     if (rPr) run.appendChild(rPr.cloneNode(true));
                     run.appendChild(clone);
-                    currentParagraphRef.appendChild(run);
+                    localParagraph.appendChild(run);
                 }
             }
+            localBaseIndex++;
+            localInsertOffset++;
         } else if (part.length > 0) {
-            // Normal text - check if we need to apply format hints for insertions
-            let parent = currentParagraphRef;
+            // Normal text
+            let parent = localParagraph;
             if (wrapper) {
                 const wrapperClone = wrapper.cloneNode(false);
                 parent = wrapperClone;
-                currentParagraphRef.appendChild(wrapperClone);
+                localParagraph.appendChild(wrapperClone);
             }
 
             if (type === 'delete') {
@@ -2943,53 +2940,28 @@ function appendTextToCurrent(
                     const del = createTrackChange(xmlDoc, 'del', run, author);
                     parent.appendChild(del);
                 } else {
-                    // No redlines: just don't add the deleted text at all? 
-                    // In RECONSTRUCTION mode, we are building a NEW structure.
-                    // If we want to delete text, we simply DO NOT append it.
-                    // So we do NOTHING.
+                    // In reconstruction mode, delete means don't add
                 }
             } else if (type === 'insert') {
-                // Check for applicable format hints
-                const applicableHints = getApplicableFormatHints(formatHints, insertOffset, insertOffset + part.length);
+                const applicableHints = getApplicableFormatHints(formatHints, localInsertOffset, localInsertOffset + part.length);
+                const runs = createFormattedRuns(xmlDoc, part, rPr, applicableHints, localInsertOffset, author, generateRedlines);
 
-                if (applicableHints.length === 0) {
-                    // No formatting - simple insert
-                    const run = xmlDoc.createElement('w:r');
-                    if (rPr) run.appendChild(rPr.cloneNode(true));
-                    const t = xmlDoc.createElement('w:t');
-                    t.setAttribute('xml:space', 'preserve');
-                    t.textContent = part;
-                    run.appendChild(t);
-
-                    if (generateRedlines) {
-                        const ins = createTrackChange(xmlDoc, 'ins', run, author);
-                        parent.appendChild(ins);
-                    } else {
-                        // Direct insert
-                        parent.appendChild(run);
-                    }
+                if (generateRedlines) {
+                    const ins = createTrackChange(xmlDoc, 'ins', null, author);
+                    runs.forEach(run => ins.appendChild(run));
+                    parent.appendChild(ins);
                 } else {
-                    // Apply format hints
-                    const runs = createFormattedRuns(xmlDoc, part, rPr, applicableHints, insertOffset, author, generateRedlines);
-
-                    if (generateRedlines) {
-                        const ins = createTrackChange(xmlDoc, 'ins', null, author);
-                        runs.forEach(run => ins.appendChild(run));
-                        parent.appendChild(ins);
-                    } else {
-                        runs.forEach(run => parent.appendChild(run));
-                    }
+                    runs.forEach(run => parent.appendChild(run));
                 }
             } else {
-                // Equal - no track change wrapper
-                const run = xmlDoc.createElement('w:r');
-                if (rPr) run.appendChild(rPr.cloneNode(true));
-                const t = xmlDoc.createElement('w:t');
-                t.setAttribute('xml:space', 'preserve');
-                t.textContent = part;
-                run.appendChild(t);
-                parent.appendChild(run);
+                // Equal - apply format hints even if text is unchanged
+                // This allows unbolding/formatting changes to trigger in reconstruction mode
+                const applicableHints = getApplicableFormatHints(formatHints, localInsertOffset, localInsertOffset + part.length);
+                const runs = createFormattedRuns(xmlDoc, part, rPr, applicableHints, localInsertOffset, author, generateRedlines);
+                runs.forEach(run => parent.appendChild(run));
             }
+            localBaseIndex += part.length;
+            localInsertOffset += part.length;
         }
     });
 }
@@ -3053,10 +3025,12 @@ function createFormattedRuns(xmlDoc, text, baseRPr, formatHints, baseOffset, aut
         // Skip if hint doesn't apply to this text range
         if (localStart >= text.length || localEnd <= 0) continue;
 
-        // Text before the formatted section
+        // Text before the formatted section - explicitly apply "plain" formatting
+        // which will strip any original bold/italic if not in a hint.
         if (localStart > pos) {
             const beforeText = text.slice(pos, localStart);
-            runs.push(createTextRun(xmlDoc, beforeText, baseRPr, false));
+            const formattedRPr = injectFormattingToRPr(xmlDoc, baseRPr, null, author, generateRedlines);
+            runs.push(createTextRunWithRPrElement(xmlDoc, beforeText, formattedRPr, false));
         }
 
         // Formatted text
@@ -3067,9 +3041,11 @@ function createFormattedRuns(xmlDoc, text, baseRPr, formatHints, baseOffset, aut
         pos = localEnd;
     }
 
-    // Remaining text after last format hint
+    // Remaining text after last format hint - explicitly apply "plain" formatting
     if (pos < text.length) {
-        runs.push(createTextRun(xmlDoc, text.slice(pos), baseRPr, false));
+        const afterText = text.slice(pos);
+        const formattedRPr = injectFormattingToRPr(xmlDoc, baseRPr, null, author, generateRedlines);
+        runs.push(createTextRunWithRPrElement(xmlDoc, afterText, formattedRPr, false));
     }
 
     return runs;
@@ -3095,16 +3071,9 @@ function createTextRunWithRPrElement(xmlDoc, text, rPrElement, isDelete) {
  * 
  * @param {Document} xmlDoc - The XML document
  * @param {Element|null} baseRPr - Base run properties to inherit (will be cloned)
- * @param {Object} format - Format flags {bold, italic, underline, strikethrough}
- * @returns {Element} New w:rPr element with formatting applied
- */
-/**
- * Injects formatting into run properties, creating new w:rPr element with formatting.
- * 
- * @param {Document} xmlDoc - The XML document
- * @param {Element|null} baseRPr - Base run properties to inherit (will be cloned)
- * @param {Object} format - Format flags {bold, italic, underline, strikethrough}
+ * @param {Object|null} format - Format flags {bold, italic, underline, strikethrough}
  * @param {string} [author] - Optional author for track changes
+ * @param {boolean} [generateRedlines] - Whether to generate rPrChange redlines
  * @returns {Element} New w:rPr element with formatting applied
  */
 function injectFormattingToRPr(xmlDoc, baseRPr, format, author, generateRedlines) {
@@ -3121,9 +3090,8 @@ function injectFormattingToRPr(xmlDoc, baseRPr, format, author, generateRedlines
         });
     }
 
-    if (!format) {
-        return rPr;
-    }
+    // If format is missing, we assume "plain" (all core flags false) for reconstruction subtraction
+    const activeFormat = format || { bold: false, italic: false, underline: false, strikethrough: false };
 
     // Add track change info if author provided AND enabled
     if (author && generateRedlines) {
@@ -3161,16 +3129,12 @@ function injectFormattingToRPr(xmlDoc, baseRPr, format, author, generateRedlines
     };
 
     // Synchronize properties - explicitly support subtraction
-    syncElement('w:b', !!format.bold);
-    // Also sync complex scripts bold
-    syncElement('w:bCs', !!format.bold);
-
-    syncElement('w:i', !!format.italic);
-    syncElement('w:iCs', !!format.italic);
-
-    syncElement('w:u', !!format.underline, 'single', 'none');
-
-    syncElement('w:strike', !!format.strikethrough);
+    syncElement('w:b', !!activeFormat.bold);
+    syncElement('w:bCs', !!activeFormat.bold);
+    syncElement('w:i', !!activeFormat.italic);
+    syncElement('w:iCs', !!activeFormat.italic);
+    syncElement('w:u', !!activeFormat.underline, 'single', 'none');
+    syncElement('w:strike', !!activeFormat.strikethrough);
 
     return rPr;
 }
