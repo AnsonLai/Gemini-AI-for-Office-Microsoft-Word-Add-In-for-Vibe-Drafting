@@ -1,6 +1,6 @@
 /* global Word */
 
-import { applyRedlineToOxml, ReconciliationPipeline, wrapInDocumentFragment, parseTable } from '../reconciliation/index.js';
+import { applyRedlineToOxml, ReconciliationPipeline, wrapInDocumentFragment, parseTable, getAuthorForTracking } from '../reconciliation/index.js';
 import { applyHighlightToOoxml } from '../../ooxml-formatting-removal.js';
 import {
   detectDocumentFont,
@@ -1158,9 +1158,12 @@ JSON ARRAY OF HIGHLIGHTS:`;
     let highlightsApplied = 0;
 
     await Word.run(async (context) => {
-      // No need to disable tracking for highlights usually, but safety first if we wanted to
-      // const redlineEnabled = loadRedlineSetting();
-      // const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeHighlight");
+      // Load redline settings
+      const redlineEnabled = loadRedlineSetting();
+      const authorName = getAuthorForTracking();
+
+      // We don't need setChangeTrackingForAi for OOXML highlights as we generate w:rPrChange manually,
+      // but if we were using Word API we would.
 
       try {
         const paragraphs = context.document.body.paragraphs;
@@ -1184,8 +1187,11 @@ JSON ARRAY OF HIGHLIGHTS:`;
               continue;
             }
 
-            // Apply highlight via pure OOXML manipulation
-            const modifiedOoxml = applyHighlightToOoxml(originalOoxml, item.textToFind, normalizedColor);
+            // Apply highlight via pure OOXML manipulation with Redline Support
+            const modifiedOoxml = applyHighlightToOoxml(originalOoxml, item.textToFind, normalizedColor, {
+              generateRedlines: redlineEnabled,
+              author: authorName
+            });
 
             // Only insert if something changed
             if (modifiedOoxml && modifiedOoxml !== originalOoxml) {

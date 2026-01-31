@@ -103,7 +103,7 @@ export function shouldUseOoxmlReconciliation(change) {
 export function getAuthorForTracking() {
     // Try to get from settings, fallback to 'Gemini AI'
     try {
-        const stored = localStorage.getItem('gemini_author_name');
+        const stored = localStorage.getItem('redlineAuthor');
         return stored || 'Gemini AI';
     } catch {
         return 'Gemini AI';
