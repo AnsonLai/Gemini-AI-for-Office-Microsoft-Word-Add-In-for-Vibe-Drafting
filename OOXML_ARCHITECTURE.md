@@ -7,7 +7,7 @@ This document outlines the architecture of the **OOXML Reconciliation Engine**, 
 The system operates in two distinct modes depending on the complexity of the operation:
 
 1.  **Reconstruction Pipeline** (Standard): Parses original OOXML, diffs against new text, and rebuilds the paragraph from scratch. Used for standard text edits and list generation.
-2.  **Surgical Hybrid Engine** (Complex): Direct DOM manipulation. Used for Tables (to preserve cell structure) and specific "Format Removal" operations.
+2.  **Surgical Hybrid Engine** (Complex): Direct DOM manipulation. Used for Tables (to preserve cell structure) and specific "Highlight" and "Format Removal" operations.
 
 ```mermaid
 graph TD
@@ -61,9 +61,14 @@ Parses raw OOXML string into a `RunModel`, a linear representation of the docume
 ]
 ```
 
+### Stage 1.5: Tracked Characters & Sentinels
+*   **Position Continuity**: Formatting offsets are tracked via `currentInsertOffset`.
+*   **Drift Prevention**: The engine correctly increments this offset for kept (EQUAL) text but skips it for DELETED text. This prevents "formatting drift" where bolding would shift to random parts of the paragraph after an edit.
+
 ### Stage 2: Markdown Pre-processing (`markdown-processor.js`)
 *   Strips Markdown symbols (`**`, `__`) from the new text to create a "Clean" string for comparison.
 *   Generates **Format Hints**: An overlay of formatting instructions derived from the Markdown.
+*   **Source of Truth**: In Reconstruction Mode, these hints are treated as the definitive state. Existing formatting is synchronized to match them (allowing both bolding and unbolding).
     *   `{ start: 0, end: 5, format: { bold: true } }`
 
 ### Stage 3: Diffing (`diff-engine.js`)
@@ -86,6 +91,11 @@ Applies the diff operations to the `RunModel`.
 *   **Insertions** inherit style from the surrounding context.
     *   If appending to a word (`Hello` -> `Hello World`), it inherits from `Hello`.
     *   If prepending, it inherits from the following word.
+
+**Serialization strategy: Elementary Segment Splitting**
+*   To support nested or overlapping formatting, the engine splits text into "elementary segments" at every hint boundary.
+*   Each segment is then assigned the union of all overlapping formatting hints.
+*   **Explicit Attributes**: Uses `w:val="1"` (for bold/italic) which ensures Word applies the format explicitly rather than relying on implicit toggles.
 
 ### Stage 5: Serialization (`serialization.js`)
 *   Converts the modified `RunModel` back into valid OOXML XML strings.
@@ -116,12 +126,21 @@ To reconcile tables, the engine converts the hierarchical XML (`w:tr` -> `w:tc`)
     *   When user edits a paragraph provided by `context.document.body.paragraphs`, Word sometimes returns the *entire table* OOXML if the paragraph is in a cell.
     *   The engine detects `<w:tbl>`, finds the target specific paragraph by text match (`originalText`), and performs operations *only* on that node.
 
+*   **Highlight Injection**:
+    *   The `applyHighlightToOoxml` function (in `ooxml-formatting-removal.js`) performs targeted XML modification to inject `w:highlight` tags into specific runs.
+    *   This bypasses the reconstruction pipeline for high-speed, structural-preserving formatting updates.
+
 *   **Format Removal Workaround**:
     *   Word's `insertOoxml` ignores `<w:rPrChange>` (formatting track changes).
     *   **Workaround**: To "Redline" a format removal (e.g., un-bolding), the engine treats it as a text replacement:
         *   `<w:del><strong>Text</strong></w:del>`
         *   `<w:ins>Text</w:ins>`
     *   This forces Word to show the change visibly as a deletion of the bold text and insertion of plain text.
+
+### Comment & Range Preservation
+*   **Position Markers**: Elements like `w:commentRangeStart/End` are treated as zero-width position markers during ingestion.
+*   **Offset Alignment**: They are stored in a `sentinelMap` without adding character sentinels to the primary comparison string. 
+*   **Re-insertion**: During reconstruction, the engine checks the `baseIndex` at every step and re-inserts these markers at their exact original offsets, ensuring comments stay pinned to the correct text even after edits.
 
 ---
 
@@ -140,6 +159,7 @@ Handled within `pipeline.js` (`executeListGeneration`).
 *   **`numbering-service.js`**: Manages `numId` and `abstractNumId` generation to create valid Word lists on the fly.
 *   **`types.js`**: Defines the `RunModel`, `DiffOp` enums, and XML Namespaces (`NS_W`).
 *   **`integration.js`**: Bridges the pure logic with the Office.js environment (helper functions for checking availability).
+*   **`ooxml-formatting-removal.js`**: Provides surgical utilities for adding/removing specific formatting tags from OOXML runs (e.g., highlights).
 
 ## 5. Critical Data Structures
 

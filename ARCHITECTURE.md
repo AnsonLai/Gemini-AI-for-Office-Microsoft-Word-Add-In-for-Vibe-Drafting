@@ -38,6 +38,7 @@ The `taskpane.js` file is the entry point and main controller. It manages the UI
 
 2.  **Context Extraction (`extractEnhancedDocumentContext`)**:
     *   Before every API call, the system "reads" the document.
+    *   **Reliable Extraction**: Always calls `paragraph.load("text")` before processing. This avoids character truncation issues found in some Word API versions, ensuring the OOXML Engine has a full, accurate string for diffing.
     *   **Enhanced Notation**: It converts Word paragraphs into a metadata-rich textual format for the LLM:
         *   `[P#|Style] Text...`
         *   `[P#|ListNumber|L:1] Item...` (Captures list structure)
@@ -79,6 +80,7 @@ The primary tool for modifying document content. It accepts instructions and del
 ### Other Tools
 *   **`insert_comment`**: Adds comments to specific paragraphs.
 *   **`highlight_text`**: altering background color.
+    *   **Strategy**: Uses pure OOXML manipulation via `applyHighlightToOoxml`. This is preferred over the Word JS API to maintain state consistency and avoid broad document searches.
 *   **`edit_list` / `edit_table`**: Specialized structural editing tools that bypass generic text processing for higher reliability.
 
 ---
@@ -93,7 +95,7 @@ The system allows the AI to write in Markdown, which is then converted to Word-n
     1.  **Parse**: Regex-based parsing of Markdown symbols (`**bold**`, `*italic*`, `~~strike~~`, `++underline++`).
     2.  **Strip**: Returns `cleanText` (plain text without markers).
     3.  **Hints**: Returns an array of `FormatHints` (`{ start, end, format: { bold: true } }`).
-*   **Usage**: The OOXML engine generates the plain text XML, then effectively "paints" these format hints onto the run properties (`<w:rPr>`).
+*   **Usage**: The OOXML engine generates the plain text XML, then "paints" these format hints using an **Elementary Segment Splitting** strategy. This ensures that overlapping formats (e.g., ***Bold+Italic***) are handled correctly.
 
 ### Markdown Utils (`markdown-utils.js`)
 *   **Purpose**: Pre-processing for the **HTML Fallback** path.
@@ -119,5 +121,5 @@ The system allows the AI to write in Markdown, which is then converted to Word-n
 1.  **Input**: AI generates `newContent` with Markdown (e.g., `Hello **World**`).
 2.  **Detection**: `agentic-tools` detects Markdown markers.
 3.  **Path Selection**:
-    *   *Complex (Nested Lists)?* -> **OOXML Pipeline** -> `markdown-processor` extracts hints -> Builds `<w:p><w:r><w:t>Hello </w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>World</w:t></w:r></w:p>`
+    *   *Complex (Nested Lists/Direct Bold)?* -> **OOXML Pipeline** -> `markdown-processor` extracts hints -> **Reconstruction Mode** splits the text into pieces where format changes, applying explicit `w:val="1"` attributes.
     *   *Simple?* -> **HTML Fallback** -> `markdown-utils` -> `Hello <strong>World</strong>` -> `paragraph.insertHtml()`.

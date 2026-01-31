@@ -3234,3 +3234,19 @@ export function sanitizeAiResponse(text) {
     return cleaned;
 }
 
+/**
+ * Helper to parse OOXML string into DOM
+ */
+export function parseOoxml(ooxmlString) {
+    const parser = new DOMParser();
+    return parser.parseFromString(ooxmlString, 'application/xml');
+}
+
+/**
+ * Helper to serialize DOM back to OOXML string
+ */
+export function serializeOoxml(doc) {
+    const serializer = new XMLSerializer();
+    return serializer.serializeToString(doc);
+}
+
