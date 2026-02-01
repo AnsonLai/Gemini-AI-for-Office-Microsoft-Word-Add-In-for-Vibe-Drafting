@@ -915,20 +915,15 @@ function processRunForFormatting(run, paragraph, charOffset, textSpans, formatHi
 
 /**
  * Format REMOVAL via surgical text replacement (pure OOXML approach).
- * Instead of using w:rPrChange (which Word ignores via insertOoxml),
- * we treat format removal as a text replacement:
- * - Original formatted run → wrapped in w:del
- * - New unformatted run → wrapped in w:ins
- * 
- * This appears as a surgical text replacement in track changes,
- * which Word properly honors.
+ * UPDATED: Uses w:rPr modification with w:rPrChange instead of text replacement (w:del/w:ins).
+ * This prevents the "strikeout + new text" visualization and shows a proper formatting change.
  */
 function applyFormatRemovalAsSurgicalReplacement(xmlDoc, textSpans, existingFormatHints, serializer, author, generateRedlines = true) {
     let hasAnyChanges = false;
     const processedRuns = new Set();
     const dateStr = new Date().toISOString();
 
-    console.log(`[OxmlEngine] Surgical format removal: ${existingFormatHints.length} hints to process`);
+    console.log(`[OxmlEngine] Surgical format removal: ${existingFormatHints.length} hints to process (using w:rPrChange)`);
 
     for (const hint of existingFormatHints) {
         const run = hint.run;
@@ -942,96 +937,54 @@ function applyFormatRemovalAsSurgicalReplacement(xmlDoc, textSpans, existingForm
 
         console.log(`[OxmlEngine] Processing run for surgical format removal, format:`, hint.format);
 
-        // Get the text content from this run
-        let textContent = '';
-        for (const child of run.childNodes) {
-            if (child.nodeName === 'w:t') {
-                textContent += child.textContent || '';
-            }
+        // Get or create w:rPr
+        let rPr = run.getElementsByTagName('w:rPr')[0];
+        if (!rPr) {
+            rPr = xmlDoc.createElement('w:rPr');
+            run.insertBefore(rPr, run.firstChild);
         }
 
-        if (!textContent) {
-            console.log('[OxmlEngine] Skipping run with no text content');
-            continue;
-        }
-
-        const parentNode = run.parentNode;
-
+        // If generating redlines, track the change
         if (generateRedlines) {
-            // Create w:del container with the original formatted run
-            const delContainer = xmlDoc.createElement('w:del');
-            delContainer.setAttribute('w:id', Math.floor(Math.random() * 1000000).toString());
-            delContainer.setAttribute('w:author', author || 'Gemini AI');
-            delContainer.setAttribute('w:date', dateStr);
+            // Check if there's already a track change on this run's properties
+            // If so, we append to it or replace is tricky. Simple approach: Add new w:rPrChange.
+            // But OOXML usually expects one w:rPrChange.
 
-            // Clone the run for deletion (keeps original formatting)
-            const deletedRun = run.cloneNode(true);
+            // Format: <w:rPr> ... <w:rPrChange ...> <w:rPr>...original...</w:rPr> </w:rPrChange> </w:rPr>
 
-            // Convert w:t to w:delText in the deleted run
-            const tElements = deletedRun.getElementsByTagName('w:t');
-            const tArray = Array.from(tElements);
-            for (const t of tArray) {
-                const delText = xmlDoc.createElement('w:delText');
-                delText.setAttribute('xml:space', 'preserve');
-                delText.textContent = t.textContent;
-                t.parentNode.replaceChild(delText, t);
+            // 1. Create w:rPrChange element
+            const rPrChange = xmlDoc.createElement('w:rPrChange');
+            rPrChange.setAttribute('w:id', Math.floor(Math.random() * 1000000).toString());
+            rPrChange.setAttribute('w:author', author || 'Gemini AI');
+            rPrChange.setAttribute('w:date', dateStr);
+
+            // 2. Snapshot current rPr state (excluding any existing rPrChange)
+            const originalRPrSnapshot = xmlDoc.createElement('w:rPr');
+            for (const child of Array.from(rPr.childNodes)) {
+                if (child.nodeName !== 'w:rPrChange') {
+                    originalRPrSnapshot.appendChild(child.cloneNode(true));
+                }
+            }
+            rPrChange.appendChild(originalRPrSnapshot);
+
+            // 3. Remove any existing w:rPrChange to avoid duplicates strings
+            const existingChange = rPr.getElementsByTagName('w:rPrChange')[0];
+            if (existingChange) {
+                rPr.removeChild(existingChange);
             }
 
-            delContainer.appendChild(deletedRun);
-
-            // Create w:ins container with unformatted run
-            const insContainer = xmlDoc.createElement('w:ins');
-            insContainer.setAttribute('w:id', Math.floor(Math.random() * 1000000).toString());
-            insContainer.setAttribute('w:author', author || 'Gemini AI');
-            insContainer.setAttribute('w:date', dateStr);
-
-            // Create new run with explicit format overrides
-            const newRun = xmlDoc.createElement('w:r');
-
-            const originalRPr = run.getElementsByTagName('w:rPr')[0];
-            const newRPr = originalRPr ? originalRPr.cloneNode(true) : xmlDoc.createElement('w:rPr');
-
-            // Remove formatting elements and add explicit overrides
-            applyFormatOverridesToRPr(xmlDoc, newRPr, hint.format);
-
-            if (newRPr.childNodes.length > 0) {
-                newRun.appendChild(newRPr);
-            }
-
-            // Add the text element
-            const newT = xmlDoc.createElement('w:t');
-            newT.setAttribute('xml:space', 'preserve');
-            newT.textContent = textContent;
-            newRun.appendChild(newT);
-
-            insContainer.appendChild(newRun);
-
-            // Insert w:del before the original run, then w:ins after w:del
-            parentNode.insertBefore(delContainer, run);
-            parentNode.insertBefore(insContainer, run);
-
-            // Remove the original run
-            parentNode.removeChild(run);
-
-            console.log(`[OxmlEngine] Created surgical replacement for "${textContent}"`);
-        } else {
-            // Without redlines, remove formatting by explicit overrides on the run
-            let rPr = run.getElementsByTagName('w:rPr')[0];
-            if (!rPr) {
-                rPr = xmlDoc.createElement('w:rPr');
-                run.insertBefore(rPr, run.firstChild);
-            }
-
-            applyFormatOverridesToRPr(xmlDoc, rPr, hint.format);
-
-            console.log(`[OxmlEngine] Removed formatting via overrides (no redlines) for "${textContent}"`);
+            // 4. Append new w:rPrChange to rPr (usually last child of rPr)
+            rPr.appendChild(rPrChange);
         }
+
+        // Apply format overrides (unbold, unitalic, etc.)
+        applyFormatOverridesToRPr(xmlDoc, rPr, hint.format);
 
         hasAnyChanges = true;
     }
 
     if (hasAnyChanges) {
-        console.log('[OxmlEngine] Surgical format removal completed successfully');
+        console.log('[OxmlEngine] Surgical format removal completed successfully (Pure Format Mode)');
         return { oxml: serializer.serializeToString(xmlDoc), hasChanges: true };
     }
 
@@ -1041,7 +994,8 @@ function applyFormatRemovalAsSurgicalReplacement(xmlDoc, textSpans, existingForm
 
 /**
  * Format ADDITION via surgical text replacement (pure OOXML approach).
- * Wraps the original run in w:del and inserts a formatted w:ins run.
+ * UPDATED: Uses w:rPr modification with w:rPrChange instead of text replacement (w:del/w:ins).
+ * This prevents the "strikeout + new text" visualization and shows a proper formatting change.
  */
 function applyFormatAdditionsAsSurgicalReplacement(xmlDoc, textSpans, formatHints, serializer, author, generateRedlines = true) {
     let hasAnyChanges = false;
@@ -1106,50 +1060,50 @@ function applyFormatAdditionsAsSurgicalReplacement(xmlDoc, textSpans, formatHint
         const parentNode = span.runElement.parentNode;
         if (!parentNode) continue;
 
-        if (generateRedlines) {
-            const delContainer = xmlDoc.createElement('w:del');
-            delContainer.setAttribute('w:id', Math.floor(Math.random() * 1000000).toString());
-            delContainer.setAttribute('w:author', author || 'Gemini AI');
-            delContainer.setAttribute('w:date', dateStr);
+        // PURE FORMAT CHANGE LOGIC (New)
+        const run = span.runElement;
 
-            const deletedRun = span.runElement.cloneNode(true);
-            const tElements = deletedRun.getElementsByTagName('w:t');
-            const tArray = Array.from(tElements);
-            for (const t of tArray) {
-                const delText = xmlDoc.createElement('w:delText');
-                delText.setAttribute('xml:space', 'preserve');
-                delText.textContent = t.textContent;
-                t.parentNode.replaceChild(delText, t);
-            }
-            delContainer.appendChild(deletedRun);
-
-            const insContainer = xmlDoc.createElement('w:ins');
-            insContainer.setAttribute('w:id', Math.floor(Math.random() * 1000000).toString());
-            insContainer.setAttribute('w:author', author || 'Gemini AI');
-            insContainer.setAttribute('w:date', dateStr);
-
-            const newRun = xmlDoc.createElement('w:r');
-            const newRPr = buildAddedFormatRPr(xmlDoc, span.runElement, desiredFormat);
-            if (newRPr && newRPr.childNodes.length > 0) {
-                newRun.appendChild(newRPr);
-            }
-            const newT = xmlDoc.createElement('w:t');
-            newT.setAttribute('xml:space', 'preserve');
-            newT.textContent = textContent;
-            newRun.appendChild(newT);
-            insContainer.appendChild(newRun);
-
-            parentNode.insertBefore(delContainer, span.runElement);
-            parentNode.insertBefore(insContainer, span.runElement);
-            parentNode.removeChild(span.runElement);
-        } else {
-            let rPr = span.runElement.getElementsByTagName('w:rPr')[0] || null;
-            if (!rPr) {
-                rPr = xmlDoc.createElement('w:rPr');
-                span.runElement.insertBefore(rPr, span.runElement.firstChild);
-            }
-            applyFormatAdditionsToRPr(xmlDoc, rPr, desiredFormat);
+        // Get or create w:rPr
+        let rPr = run.getElementsByTagName('w:rPr')[0];
+        if (!rPr) {
+            rPr = xmlDoc.createElement('w:rPr');
+            run.insertBefore(rPr, run.firstChild);
         }
+
+        // If generating redlines, track the change
+        if (generateRedlines) {
+            // Check if there's already a track change on this run's properties (avoid duplicates)
+            // If one exists, we ideally merge, but replacing the whole rPrChange logic is cleaner
+            // for "State A -> State B" transition.
+
+            // 1. Create w:rPrChange element
+            const rPrChange = xmlDoc.createElement('w:rPrChange');
+            rPrChange.setAttribute('w:id', Math.floor(Math.random() * 1000000).toString());
+            rPrChange.setAttribute('w:author', author || 'Gemini AI');
+            rPrChange.setAttribute('w:date', dateStr);
+
+            // 2. Snapshot current rPr state (excluding any existing rPrChange)
+            const originalRPrSnapshot = xmlDoc.createElement('w:rPr');
+            for (const child of Array.from(rPr.childNodes)) {
+                if (child.nodeName !== 'w:rPrChange') {
+                    originalRPrSnapshot.appendChild(child.cloneNode(true));
+                }
+            }
+            rPrChange.appendChild(originalRPrSnapshot);
+
+            // 3. Remove any existing w:rPrChange
+            const existingChange = rPr.getElementsByTagName('w:rPrChange')[0];
+            if (existingChange) {
+                rPr.removeChild(existingChange);
+            }
+
+            // 4. Append new w:rPrChange to rPr
+            rPr.appendChild(rPrChange);
+        }
+
+        // Apply format additions (merging with existing)
+        // Helper function should correctly add w:b, w:i, etc. while respecting rPrChange position
+        applyFormatAdditionsToRPr(xmlDoc, rPr, desiredFormat);
 
         hasAnyChanges = true;
     }
