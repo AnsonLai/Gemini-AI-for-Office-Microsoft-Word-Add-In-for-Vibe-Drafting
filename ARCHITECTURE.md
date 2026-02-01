@@ -16,12 +16,10 @@ graph TD
     Gemini --Function Call--> Taskpane
     Taskpane --> Agentic[Agentic Tools]
     Agentic --> Logic[Decision Logic]
-    Logic --Simple Text--> HTML[HTML Insertion]
-    Logic --Complex/List--> OOXML[OOXML Engine]
-    Logic --Surgical--> Search[Search & Replace]
-    HTML --> Word
+    Logic --Text/List/Table--> OOXML[OOXML Engine]
+    Logic --Surgical Format--> rPrChange[w:rPrChange Engine]
     OOXML --> Word
-    Search --> Word
+    rPrChange --> Word
 ```
 
 ## Current State: Hybrid Architecture with Migration Path
@@ -30,25 +28,26 @@ The system currently operates in a **hybrid mode**, using both Word JS API and O
 
 ### Word JS API Dependencies (Current)
 
-The following areas still rely on Word JS API:
+The following areas still rely on Word JS API for logic:
 
 1. **Context Extraction**: `extractEnhancedDocumentContext()` uses `Word.run()` and `paragraph.load()`
 2. **Document Navigation**: `executeNavigate()` uses `paragraph.select()`
 3. **Comment Operations**: `executeComment()` uses `match.insertComment()`
 4. **Track Changes Management**: `setChangeTrackingForAi()` and `restoreChangeTracking()`
-5. **List Operations**: `executeConvertHeadersToList()` uses Word's list API
-6. **Table Operations**: `executeEditTable()` uses Word's table API
+5. **List Conversion**: `executeConvertHeadersToList()` still uses Word's list API
+6. **Table Operations**: `executeEditTable()` uses Word's table API for some operations
 7. **Search Operations**: `searchWithFallback()` uses `paragraph.search()`
 
 ### OOXML Capabilities (Current)
 
-The following areas already use pure OOXML:
+The following areas are fully managed via the pure OOXML engine:
 
 1. **Text Editing**: `applyRedlineToOxml()` for paragraph-level edits
-2. **Highlighting**: `applyHighlightToOoxml()` for surgical highlighting
-3. **List Generation**: OOXML pipeline for complex list structures
-4. **Table Generation**: OOXML pipeline for table creation
-5. **Checkpoint System**: Stores entire document body as OOXML
+2. **Pure Formatting Changes**: `w:rPrChange` engine for surgical Bold, Italic, etc.
+3. **Highlighting**: `applyHighlightToOoxml()` for surgical highlighting
+4. **List Generation/Editing**: OOXML pipeline for complex structures and `executeEditList`
+5. **Table Generation**: OOXML pipeline for table creation
+6. **Checkpoint System**: Stores entire document body as OOXML
 
 ---
 
@@ -111,8 +110,9 @@ The system currently uses a hybrid approach with both Word JS API and OOXML:
 
 1. **`executeRedline()`**: Uses `applyRedlineToOxml()` for text editing
 2. **`executeHighlight()`**: Uses `applyHighlightToOoxml()` for highlighting
-3. **`executeEditList()`**: Uses OOXML pipeline for list generation
+3. **`executeEditList()`**: Uses OOXML pipeline for list generation and replacement
 4. **`executeInsertListItem()`**: Uses OOXML for surgical list item insertion
+5. **Pure Formatting**: Surgical `w:rPrChange` for redlining formatting changes
 
 ### Migration Strategy
 
@@ -167,8 +167,7 @@ The system allows the AI to write in Markdown, which is then converted to Word-n
 3.  **Path Selection**:
     *   **Pure Formatting Mode (Surgical)**: For formatting-only changes (Bold, Italic, U, Strike), the engine modifies `w:rPr` in place and uses `w:rPrChange` for redlines. This is the **preferred high-fidelity path**.
     *   **Reconstruction Mode**: For combined text and formatting edits, or complex list/table generation. It reconstructs paragraphs and applies explicit `w:val="1"` attributes.
-    *   **HTML Fallback (Deprecated)**: Used for simple text updates. 
-    *   **Migration Target**: Fully eliminate HTML fallback and rely on Pure Formatting and Reconstruction modes for all edits.
+    *   **Migration Target**: Fully eliminate deprecated fallback methods and rely on Pure Formatting and Reconstruction modes for all edits.
 
 ## 6. Migration Plan to Pure OOXML
 
@@ -202,10 +201,9 @@ The system allows the AI to write in Markdown, which is then converted to Word-n
 - **Target**: Implement OOXML text parsing and search
 - **Benefit**: Portable text search functionality
 
-### Phase 7: Replace HTML Fallback
-- **Current**: Uses `markdown-utils` and `insertHtml`
-- **Target**: Use pure OOXML generation for all text formatting
-- **Benefit**: Consistent formatting across all environments
+### Phase 7: Finalize Pure OOXML Integration
+- **Target**: Ensure all operations use the OOXML engine and eliminate legacy range manipulation
+- **Benefit**: Consistent behavior and 100% portability of the core engine
 
 ## 7. Benefits of Pure OOXML Approach
 

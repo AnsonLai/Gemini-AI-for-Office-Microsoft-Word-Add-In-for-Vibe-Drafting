@@ -141,43 +141,42 @@ This document identifies all current dependencies on the Word JavaScript API in 
 - Parse OOXML to find text locations
 - Replace Word search API with OOXML text search
 
-### 8. Text Editing Fallbacks
+### 8. Text Editing Fallbacks (Legacy)
 
-**Location**: `src/taskpane/modules/commands/agentic-tools.js` - Various functions
+**Status**: ✅ Logic Migrated to OOXML
+
+**Location**: `src/taskpane/modules/commands/agentic-tools.js` - `executeEditList()` and others
 
 **Dependencies**:
-- `targetParagraph.insertHtml(htmlContent, insertLocation)`
-- `targetParagraph.insertText(text, insertLocation)`
-- `targetParagraph.insertParagraph(text, insertLocation)`
-- `targetRange.insertHtml(htmlContent, "Replace")`
-- `targetRange.clear()`
-- `targetRange.insertText(text, "Replace")`
+- `targetParagraph.insertHtml(htmlContent, insertLocation)` (Deprecated)
+- `targetParagraph.insertText(text, insertLocation)` (Deprecated)
 
-**Purpose**: Fallback text insertion methods when OOXML operations fail
-
-**Migration Strategy**:
-- Replace all HTML/text insertion with pure OOXML generation
-- Ensure OOXML approach handles all edge cases
-- Remove HTML fallback methods
+**Migration Status**:
+- `executeEditList()` has been migrated from HTML insertion to pure OOXML generation using `pkg:package` wrapping.
+- Most other text operations now go through `applyRedlineToOxml`.
+- Final `insertOoxml` is still used for document application.
 
 ### 9. Range Operations
 
 **Location**: `src/taskpane/modules/commands/agentic-tools.js` - Various functions
 
 **Dependencies**:
-- `targetParagraph.getRange()`
-- `targetParagraph.getRange("Whole")`
-- `targetParagraph.getRange("Start")`
-- `targetParagraph.getRange("End")`
-- `startPara.getRange().expandTo(endPara.getRange())`
 - `targetRange.insertOoxml(oxml, insertMode)`
 
-**Purpose**: Range-based operations for text replacement and OOXML insertion
+**Migration Status**:
+- Core logic for text replacement, list creation, and formatting has been moved to pure OOXML generation.
+- `insertOoxml` remains the primary integration point between the OOXML engine and the Word document.
+- Standalone decoupling is achieved by ensuring the OOXML engine itself has no Word JS dependencies.
 
-**Migration Strategy**:
-- Implement pure OOXML range operations
-- Parse and modify OOXML directly for range operations
-- Replace Word range API with OOXML range manipulation
+### 10. Pure Formatting Changes
+
+**Status**: ✅ Fully Migrated
+
+**Location**: `src/taskpane/modules/reconciliation/oxml-engine.js`
+
+**Logic**:
+- Uses `w:rPrChange` elements to generate native-looking track changes for format-only edits.
+- Bypasses reconstruction mode for high-fidelity surgical updates.
 
 ## Migration Priority Analysis
 

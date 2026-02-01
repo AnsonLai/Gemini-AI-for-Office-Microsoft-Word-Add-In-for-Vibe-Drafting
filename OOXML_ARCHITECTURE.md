@@ -13,7 +13,8 @@ The system operates in two distinct modes depending on the complexity of the ope
 graph TD
     Input[OOXML + Markdown Input] --> Router{OxmlEngine Router}
     
-    Router --Tables/Surgical--> Hybrid[Hybrid Engine\n(In-Place DOM)]
+    Router --Tables--> Hybrid[Hybrid Engine\n(In-Place DOM)]
+    Router --Pure Formatting--> rPrChange[w:rPrChange Engine\n(Property DOM)]
     Router --Lists/Text--> Pipeline[Reconciliation Pipeline\n(Reconstruction)]
     
     subgraph "Reconciliation Pipeline"
@@ -28,8 +29,14 @@ graph TD
         Replace --> Wrap[Fragment Wrapping]
     end
 
+    subgraph "w:rPrChange Engine"
+        rPrSnap[Take rPr Snapshot] --> rPrApply[Apply Formatting]
+        rPrApply --> rPrWrap[Inject w:rPrChange]
+    end
+
     Pipeline --> Output[Final OOXML]
     Hybrid --> Output
+    rPrChange --> Output
 ```
 
 ## Current OOXML Capabilities
@@ -163,9 +170,10 @@ To reconcile tables, the engine converts the hierarchical XML (`w:tr` -> `w:tc`)
 
 *   **Pure Formatting Changes**:
     *   To ensure formatting changes (e.g., adding or removing Bold) appear as native "Formatting" edits in Word rather than "Delete + Insert" redlines, the engine uses **Surgical Property Modification**.
-    *   **Mechanism**: Directly modifies the `<w:rPr>` element and injects a `<w:rPrChange>` snapshot.
-    *   **High Fidelity**: This allows Word to display clean formatting signals in the Track Changes pane.
-    *   **Functions**: `applyFormatAdditionsAsSurgicalReplacement` and `applyFormatRemovalAsSurgicalReplacement`.
+    *   **Mechanism**: Directly modifies the `<w:rPr>` element to set the new state (e.g., `<w:b w:val="1"/>`) and injects a `<w:rPrChange>` element as a child of `<w:rPr>`.
+    *   **w:rPrChange Content**: This element contains a "snapshot" of the `<w:rPr>` state *before* the change. Word uses this to show the "Formatted: Bold" comment in the margin.
+    *   **High Fidelity**: This path bypasses the standard reconstruction pipeline to ensure that non-changed properties (like complex fonts or spacing) are preserved with 100% accuracy.
+    *   **Functions**: `applyFormatAdditionsAsSurgicalReplacement` and `applyFormatRemovalAsSurgicalReplacement` in `oxml-engine.js`.
 
 ### Comment & Range Preservation
 *   **Position Markers**: Elements like `w:commentRangeStart/End` are treated as zero-width position markers during ingestion.
@@ -231,8 +239,9 @@ Overlay objects derived from Markdown.
 
 ### 🚧 In Progress
 
-1. **List Conversion**: Partial migration, some operations still use Word API
-2. **Table Editing**: Partial migration, complex operations still use Word API
+1. **List Conversion**: `executeConvertHeadersToList()` still uses Word list API for complex multi-paragraph conversion.
+2. **Table Editing**: `executeEditTable()` uses Word table API for advanced row/column insertion in existing tables.
+3. **Comment Operations**: `executeComment()` still uses Word selection-based search and `insertComment()`.
 
 ### 📋 Planned Migrations
 
