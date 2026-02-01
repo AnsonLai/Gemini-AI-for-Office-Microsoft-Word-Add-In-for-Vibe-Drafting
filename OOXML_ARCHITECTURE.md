@@ -32,6 +32,36 @@ graph TD
     Hybrid --> Output
 ```
 
+## Current OOXML Capabilities
+
+The OOXML engine currently handles the following operations without Word JS API dependencies:
+
+### ✅ Fully OOXML-Based Operations
+
+1. **Text Editing**: `applyRedlineToOxml()` for paragraph-level text modifications
+2. **Highlighting**: `applyHighlightToOoxml()` for surgical highlighting with redline support
+3. **List Generation**: Complex nested lists with custom numbering styles
+4. **Table Generation**: Complete table creation and modification
+5. **Format Preservation**: Maintains existing document formatting during edits
+6. **Track Changes**: Generates proper `w:ins`/`w:del` elements for redlines
+7. **Comment Preservation**: Maintains comment positions during text edits
+
+### 🚧 Hybrid Operations (Partial OOXML)
+
+1. **List Conversion**: `executeConvertHeadersToList()` still uses Word list API
+2. **Table Editing**: `executeEditTable()` uses Word table API for some operations
+3. **Navigation**: `executeNavigate()` uses Word selection API
+4. **Comments**: `executeComment()` uses Word comment API
+
+### 🎯 Migration Targets
+
+The following areas need to be migrated from Word JS API to pure OOXML:
+
+1. **List Conversion**: Replace Word list API with OOXML list generation
+2. **Table Editing**: Replace Word table API with OOXML table manipulation
+3. **Navigation**: Implement OOXML-based position tracking
+4. **Comments**: Implement OOXML comment injection
+
 ---
 
 ## 1. The Reconciliation Pipeline (`pipeline.js`)
@@ -49,7 +79,7 @@ Parses raw OOXML string into a `RunModel`, a linear representation of the docume
 **The RunModel Structure:**
 ```javascript
 [
-  { 
+  {
     kind: 'text',           // RunKind (TEXT, CONTAINER_START, HYPERLINK, etc.)
     text: 'Hello',          // The actual content contributing to the document text
     startOffset: 0,         // Absolute character start position
@@ -149,7 +179,7 @@ To reconcile tables, the engine converts the hierarchical XML (`w:tr` -> `w:tc`)
 Handled within `pipeline.js` (`executeListGeneration`).
 
 *   **Measurement**: Detects the indentation step of the user's input (2 spaces vs 4 spaces vs tabs) to correctly calculate hierarchy levels.
-*   **Numbering Service (`numbering-service.js`)**:
+*   **Numbering Service (`numbering-service.js`):**
     *   Manages `abstractNum` and `num` definitions.
     *   Generates a virtual `numbering.xml` structure to support custom formats (Legal `1.1.1`, Outline `I. A. 1.`, etc.).
     *   Matches Markdown markers (`1.`, `-`, `A.`) to Word's internal numbering ID system.
@@ -186,3 +216,50 @@ Overlay objects derived from Markdown.
   format: { bold: true, italic: false }
 }
 ```
+
+---
+
+## Migration Status and Roadmap
+
+### ✅ Completed Migrations
+
+1. **Text Editing**: Fully migrated to OOXML pipeline
+2. **Highlighting**: Fully migrated to OOXML surgical engine
+3. **List Generation**: Fully migrated to OOXML pipeline
+4. **Table Generation**: Fully migrated to OOXML pipeline
+5. **Checkpoint System**: Always used OOXML
+
+### 🚧 In Progress
+
+1. **List Conversion**: Partial migration, some operations still use Word API
+2. **Table Editing**: Partial migration, complex operations still use Word API
+
+### 📋 Planned Migrations
+
+1. **Comment Operations**: Replace Word comment API with OOXML comment injection
+2. **Navigation**: Replace Word selection API with OOXML position tracking
+3. **Search Operations**: Replace Word search API with OOXML text parsing
+
+### Migration Strategy
+
+1. **Identify Word API Dependencies**: Audit all code for Word JS API calls
+2. **Implement OOXML Alternatives**: Create pure OOXML implementations
+3. **Test Thoroughly**: Ensure OOXML approach works across different document structures
+4. **Replace and Remove**: Replace Word API calls with OOXML calls, remove deprecated code
+5. **Update Documentation**: Keep architecture docs current with migration status
+
+### Benefits of Pure OOXML Approach
+
+1. **Portability**: Code can run outside Word add-in environment
+2. **Consistency**: Same behavior across different Word versions
+3. **Maintainability**: Single approach for all document operations
+4. **Testability**: Easier to test with mock OOXML documents
+5. **Future-proof**: Independent of Word JS API changes
+
+### Implementation Guidelines
+
+1. **Always use OOXML first** for any new document manipulation features
+2. **Avoid Word JS API** unless absolutely necessary and document exceptions
+3. **Create migration tickets** for any remaining Word JS API usage
+4. **Test with complex documents** to ensure OOXML approach handles edge cases
+5. **Update architecture documentation** to reflect migration progress
