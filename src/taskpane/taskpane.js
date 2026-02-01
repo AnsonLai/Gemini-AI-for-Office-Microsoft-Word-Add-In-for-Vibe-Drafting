@@ -112,13 +112,7 @@ async function extractEnhancedDocumentContext(context) {
   const paragraphs = body.paragraphs;
 
   // Load all relevant paragraph properties
-  paragraphs.load("items");
-  await context.sync();
-
-  // Load detailed properties for each paragraph
-  for (const para of paragraphs.items) {
-    para.load("text, style, listItemOrNullObject, parentTableOrNullObject, parentTableCellOrNullObject");
-  }
+  paragraphs.load("items/text, items/style, items/listItemOrNullObject, items/parentTableOrNullObject, items/parentTableCellOrNullObject");
   await context.sync();
 
   // Load list details for paragraphs that are list items
@@ -568,7 +562,7 @@ function loadModel(type = 'fast') {
     return storedModel;
   }
   // Defaults
-  return type === 'slow' ? "gemini-2.5-pro" : "gemini-flash-latest";
+  return type === 'slow' ? "gemini-pro-latest" : "gemini-flash-latest";
 }
 
 function loadSystemMessage() {
@@ -1183,13 +1177,13 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
 
         // Fetch comments
         const comments = context.document.comments;
-        comments.load("content, authorName, creationDate");
+        comments.load("items/content, items/authorName, items/creationDate");
 
         // Fetch tracked changes (redlines)
         let trackedChanges = null;
         try {
           trackedChanges = body.getTrackedChanges();
-          trackedChanges.load("type, text, author, date");
+          trackedChanges.load("items/type, items/text, items/author, items/date");
         } catch (e) {
           console.warn("Tracked changes API not supported or failed:", e);
         }
@@ -1205,7 +1199,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
           console.warn("Enhanced context extraction failed, falling back to simple extraction:", enhancedError);
           // Fallback to simple extraction
           const paragraphs = body.paragraphs;
-          paragraphs.load("text");
+          paragraphs.load("items/text");
           await context.sync();
           docText = paragraphs.items.map((p, index) => `[P${index + 1}] ${p.text}`).join("\n");
         }
