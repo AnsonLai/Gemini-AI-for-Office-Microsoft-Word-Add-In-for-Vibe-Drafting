@@ -38,3 +38,6 @@ diff_output.txt
 
 # Marketing assets (PSD source files, marketplace screenshots)
 assets/marketplace/
+
+.agent/
+.agent/skills/skills.md

@@ -4,10 +4,10 @@ async function debugDocumentStructure() {
     await Word.run(async (context) => {
         const body = context.document.body;
         const paragraphs = body.paragraphs;
-        paragraphs.load("text, tableNestingLevel");
+        paragraphs.load("items/text, items/tableNestingLevel");
 
         const tables = body.tables;
-        tables.load("items");
+        tables.load("items/rowCount");
 
         await context.sync();
 

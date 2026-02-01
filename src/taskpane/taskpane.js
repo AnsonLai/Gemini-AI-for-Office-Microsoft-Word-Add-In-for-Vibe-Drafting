@@ -111,19 +111,9 @@ async function extractEnhancedDocumentContext(context) {
   const body = context.document.body;
   const paragraphs = body.paragraphs;
 
-  // Load all relevant paragraph properties
-  paragraphs.load("items/text, items/style, items/listItemOrNullObject, items/parentTableOrNullObject, items/parentTableCellOrNullObject");
-  await context.sync();
-
-  // Load list details for paragraphs that are list items
-  for (const para of paragraphs.items) {
-    if (!para.listItemOrNullObject.isNullObject) {
-      para.listItemOrNullObject.load("level, listString");
-    }
-    if (!para.parentTableCellOrNullObject.isNullObject) {
-      para.parentTableCellOrNullObject.load("rowIndex, cellIndex");
-    }
-  }
+  // Load all relevant paragraph properties with path-based loading to avoid per-paragraph syncs
+  // Word Online strictly requires "items/" prefix for collection properties
+  paragraphs.load("items/text, items/style, items/listItemOrNullObject/level, items/listItemOrNullObject/listString, items/parentTableOrNullObject, items/parentTableCellOrNullObject/rowIndex, items/parentTableCellOrNullObject/cellIndex");
   await context.sync();
 
   // Build enhanced paragraph data

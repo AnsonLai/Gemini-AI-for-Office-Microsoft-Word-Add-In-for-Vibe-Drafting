@@ -14,7 +14,7 @@ async function detectDocumentFont() {
   try {
     await Word.run(async (context) => {
       const paragraphs = context.document.body.paragraphs;
-      paragraphs.load("items");
+      paragraphs.load("items/font/name");
       await context.sync();
 
       if (paragraphs.items.length > 0) {
@@ -233,7 +233,7 @@ async function applyFormatHintsToRanges(paragraph, text, formatHints, context) {
 
       // Search for the text within the paragraph
       const searchResults = paragraphRange.search(hintText, { matchCase: true, matchWholeWord: false });
-      searchResults.load('items');
+      searchResults.load('items/text');
       await context.sync();
 
       if (searchResults.items.length > 0) {
@@ -289,7 +289,7 @@ async function applyFormatRemovalToRanges(paragraph, text, formatRemovalHints, c
 
       // Search for the text within the paragraph
       const searchResults = paragraphRange.search(hintText, { matchCase: true, matchWholeWord: false });
-      searchResults.load('items');
+      searchResults.load('items/text');
       await context.sync();
 
       if (searchResults.items.length > 0) {

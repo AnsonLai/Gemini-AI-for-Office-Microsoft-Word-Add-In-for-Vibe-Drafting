@@ -148,9 +148,9 @@ Return ONLY the JSON array, nothing else:`;
       const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeRedline");
       try {
 
-        // Load paragraphs to map indices
+        // Load paragraphs to map indices with text pre-loaded to reduce syncs
         const paragraphs = context.document.body.paragraphs;
-        paragraphs.load("items");
+        paragraphs.load("items/text");
         await context.sync();
 
         // Track the current paragraph count (may change as we add/remove paragraphs)
@@ -175,7 +175,8 @@ Return ONLY the JSON array, nothing else:`;
             // For out-of-bounds indices, reload paragraphs and check again
             if (pIndex >= paragraphs.items.length) {
               // Reload paragraphs collection to get any newly added ones
-              paragraphs.load("items");
+              // Reload paragraphs collection with text to maintain performance
+              paragraphs.load("items/text");
               await context.sync();
               currentParagraphCount = paragraphs.items.length;
 
@@ -238,7 +239,8 @@ Return ONLY the JSON array, nothing else:`;
                   await context.sync();
 
                   // Check for w:numPr in the paragraph's OOXML
-                  const numPrMatch = targetOoxmlResult.value.match(/<w:numPr>.*?<w:ilvl w:val="(\d+)".*?<w:numId w:val="(\d+)".*?<\/w:numPr>/s);
+                  // Check for w:numPr in the paragraph's OOXML - use robust regex for different XML serializations
+                  const numPrMatch = targetOoxmlResult.value.match(/<w:numPr>[\s\S]*?<w:ilvl\s+w:val="(\d+)"[\s\S]*?<w:numId\s+w:val="(\d+)"[\s\S]*?<\/w:numPr>/i);
                   if (numPrMatch) {
                     targetIsListItem = true;
                     targetListContext = {
@@ -396,7 +398,7 @@ Return ONLY the JSON array, nothing else:`;
                       try {
                         // Get all paragraphs to find the newly inserted list items
                         const paragraphs = context.document.body.paragraphs;
-                        paragraphs.load("items");
+                        paragraphs.load("items/text");
                         targetParagraph.load("index");
                         await context.sync();
                         
@@ -751,7 +753,7 @@ Return ONLY the JSON array, nothing else:`;
               try {
                 // Search ONLY within this paragraph
                 const searchResults = targetParagraph.search(searchText, { matchCase: true });
-                searchResults.load("items");
+                searchResults.load("items/text");
                 await context.sync();
 
                 if (searchResults.items.length > 0) {
@@ -799,7 +801,7 @@ Return ONLY the JSON array, nothing else:`;
 
                           if (suffixText.length >= 5 && suffixText.length <= 80) {
                             const suffixResults = targetParagraph.search(suffixText, { matchCase: true });
-                            suffixResults.load("items");
+                            suffixResults.load("items/text");
                             await context.sync();
 
                             if (suffixResults.items.length > 0) {
@@ -884,7 +886,7 @@ Return ONLY the JSON array, nothing else:`;
                   console.log(`Retrying modify_text with shorter search: "${shorterText}"`);
                   try {
                     const retryResults = targetParagraph.search(shorterText, { matchCase: true });
-                    retryResults.load("items");
+                    retryResults.load("items/text");
                     await context.sync();
 
                     if (retryResults.items.length > 0) {
@@ -1079,7 +1081,7 @@ JSON ARRAY OF COMMENTS:`;
 
     await Word.run(async (context) => {
       const paragraphs = context.document.body.paragraphs;
-      paragraphs.load("items");
+      paragraphs.load("items/text");
       await context.sync();
 
       for (const item of aiComments) {
@@ -1167,7 +1169,7 @@ JSON ARRAY OF HIGHLIGHTS:`;
 
       try {
         const paragraphs = context.document.body.paragraphs;
-        paragraphs.load("items");
+        paragraphs.load("items/text");
         await context.sync();
 
         for (const item of aiHighlights) {
@@ -1265,7 +1267,7 @@ JSON RESPONSE:`;
 
     await Word.run(async (context) => {
       const paragraphs = context.document.body.paragraphs;
-      paragraphs.load("items");
+      paragraphs.load("items/text");
       await context.sync();
 
       const pIndex = navigationResult.paragraphIndex - 1;
@@ -1353,7 +1355,7 @@ async function searchWithFallback(targetParagraph, searchText, context, onSucces
 
   try {
     const searchResults = targetParagraph.search(searchText, { matchCase: false });
-    searchResults.load("items");
+    searchResults.load("items/text");
     await context.sync();
 
     if (searchResults.items.length > 0) {
@@ -1373,7 +1375,7 @@ async function searchWithFallback(targetParagraph, searchText, context, onSucces
 
       try {
         const retryResults = targetParagraph.search(shorterText, { matchCase: true });
-        retryResults.load("items");
+        retryResults.load("items/text");
         await context.sync();
 
         if (retryResults.items.length > 0) {
@@ -1703,7 +1705,7 @@ async function routeChangeOperation(change, targetParagraph, context) {
             matchCase: true,
             matchWholeWord: false
           });
-          searchResults.load('items');
+          searchResults.load('items/text');
           await context.sync();
 
           if (searchResults.items.length > 0) {
@@ -1793,7 +1795,7 @@ async function routeChangeOperation(change, targetParagraph, context) {
           if (pCount > 1) {
             // Reload paragraphs to get the newly inserted ones
             const paragraphs = context.document.body.paragraphs;
-            paragraphs.load("items");
+            paragraphs.load("items/text");
             await context.sync();
 
             // Find the target paragraph index
@@ -1962,7 +1964,7 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
       try {
 
         const paragraphs = context.document.body.paragraphs;
-        paragraphs.load("items");
+        paragraphs.load("items/text");
         await context.sync();
 
         const paraIdx = afterParagraphIndex - 1; // Convert to 0-based
@@ -1976,17 +1978,17 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
         const adjacentOoxml = adjacentPara.getOoxml();
         await context.sync();
 
-        const numIdMatch = adjacentOoxml.value.match(/w:numId w:val="(\d+)"/);
-        const ilvlMatch = adjacentOoxml.value.match(/w:ilvl w:val="(\d+)"/);
+        const numIdMatch = adjacentOoxml.value.match(/w:numId\s+w:val="(\d+)"/i);
+        const ilvlMatch = adjacentOoxml.value.match(/w:ilvl\s+w:val="(\d+)"/i);
 
         // Debug: Log the numbering definition info if available
-        const lvlTextMatch = adjacentOoxml.value.match(/w:lvlText w:val="([^"]*)"/);
+        const lvlTextMatch = adjacentOoxml.value.match(/w:lvlText\s+w:val="([^"]*)"/i);
         if (lvlTextMatch) {
           console.log(`[executeInsertListItem] Adjacent lvlText format: "${lvlTextMatch[1]}"`);
         }
 
         // Log a snippet of the OOXML for debugging numbering structure
-        const numPrSection = adjacentOoxml.value.match(/<w:numPr[\s\S]*?<\/w:numPr>/);
+        const numPrSection = adjacentOoxml.value.match(/<w:numPr[\s\S]*?<\/w:numPr>/i);
         if (numPrSection) {
           console.log(`[executeInsertListItem] Adjacent numPr: ${numPrSection[0]}`);
         }
@@ -2157,7 +2159,7 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
       try {
 
         const paragraphs = context.document.body.paragraphs;
-        paragraphs.load("items");
+        paragraphs.load("items/text");
         await context.sync();
 
         let startIdx = startIndex - 1; // Convert to 0-based
@@ -2221,7 +2223,7 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
             if (para.text && para.text.includes('\u000b')) {
               console.log(`[executeEditList] Found soft breaks in matched paragraph, splitting...`);
               const ranges = para.search("\u000b"); // Search for vertical tab
-              ranges.load("items");
+              ranges.load("items/text");
               await context.sync();
 
               let paraSplits = 0;
@@ -2244,7 +2246,7 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
             endIdx += splitsPerformed; // Extend the range to include new paragraphs
 
             // Reload paragraphs for the main logic as indices have shifted
-            paragraphs.load("items");
+            paragraphs.load("items/text");
             await context.sync();
           }
         }
@@ -2354,21 +2356,27 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
 
         // PHASE 1: Edit existing paragraphs with new text (keeping their style)
         const editLimit = Math.min(existingCount, newCount);
+
+        // OPTIMIZATION: Pre-load text and OOXML for all paragraphs to avoid per-paragraph syncs
+        const ooxmlResults = [];
+        for (let i = 0; i < editLimit; i++) {
+          const para = paragraphs.items[startIdx + i];
+          para.load("text");
+          ooxmlResults.push(para.getOoxml());
+        }
+        await context.sync();
+
         for (let i = 0; i < editLimit; i++) {
           const para = paragraphs.items[startIdx + i];
           const item = itemsWithLevels[i];
-
-          // Get the paragraph's current text and OOXML for debugging
-          para.load("text");
-          const paraOoxml = para.getOoxml();
-          await context.sync();
 
           const originalText = para.text.trim();
           console.log(`[executeEditList] P${startIdx + i + 1} BEFORE: "${originalText.substring(0, 50)}..."`);
           console.log(`[executeEditList] P${startIdx + i + 1} NEW: "${item.text.substring(0, 50)}..."`);
 
-          const numIdMatch = paraOoxml.value.match(/w:numId w:val="(\d+)"/);
-          const ilvlMatch = paraOoxml.value.match(/w:ilvl w:val="(\d+)"/);
+          const targetOoxmlValue = ooxmlResults[i].value;
+          const numIdMatch = targetOoxmlValue.match(/w:numId\s+w:val="(\d+)"/i);
+          const ilvlMatch = targetOoxmlValue.match(/w:ilvl\s+w:val="(\d+)"/i);
           const currentNumId = numIdMatch ? numIdMatch[1] : (existingNumId || '1');
           const currentIlvl = ilvlMatch ? ilvlMatch[1] : '0';
           const newIlvl = existingBaseIlvl + item.level;
@@ -2463,7 +2471,7 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
           console.log(`[executeEditList] Phase 2: Inserting ${newCount - existingCount} new paragraphs`);
 
           // Reload paragraphs after Phase 1 edits
-          paragraphs.load("items");
+          paragraphs.load("items/text");
           await context.sync();
 
           // Get the last edited paragraph to insert after
@@ -2567,7 +2575,7 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
           // This forces Word to properly re-evaluate and link the list structure
           try {
             // Reload paragraphs to get the newly inserted ones
-            paragraphs.load("items");
+            paragraphs.load("items/text");
             await context.sync();
 
             // Insert a blank paragraph after the last list item
@@ -2656,7 +2664,7 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
       try {
 
         const paragraphs = context.document.body.paragraphs;
-        paragraphs.load("items");
+        paragraphs.load("items/text");
         await context.sync();
 
         // Sort indices to process in order
@@ -2724,12 +2732,16 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
 
         console.log(`Started new numbered list on paragraph ${sortedIndices[0]}`);
 
+        // OPTIMIZATION: Pre-load text for all remaining headers
+        for (let i = 1; i < sortedIndices.length; i++) {
+          paragraphs.items[sortedIndices[i] - 1].load("text");
+        }
+        await context.sync();
+
         // For remaining headers, attach them to the same list
         for (let i = 1; i < sortedIndices.length; i++) {
           const pIdx = sortedIndices[i] - 1;
           const para = paragraphs.items[pIdx];
-          para.load("text");
-          await context.sync();
 
           // Strip manual numbering
           let paraText = para.text || "";
@@ -2799,9 +2811,9 @@ async function executeEditTable(paragraphIndex, action, content, targetRow, targ
       const redlineEnabled = loadRedlineSetting();
       const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeEditTable");
       try {
-
         const paragraphs = context.document.body.paragraphs;
-        paragraphs.load("items");
+        // Pre-load text and table relationship
+        paragraphs.load("items/text, items/parentTableOrNullObject");
         await context.sync();
 
         const pIdx = paragraphIndex - 1;
@@ -2810,63 +2822,55 @@ async function executeEditTable(paragraphIndex, action, content, targetRow, targ
         }
 
         const targetPara = paragraphs.items[pIdx];
-        targetPara.load("parentTableOrNullObject");
-        await context.sync();
-
         if (targetPara.parentTableOrNullObject.isNullObject) {
           throw new Error(`Paragraph ${paragraphIndex} is not inside a table`);
         }
 
         const table = targetPara.parentTableOrNullObject;
-        table.load("rowCount, rows");
+        // Word Online requires items/ for rows
+        table.load("rowCount, rows/items");
         await context.sync();
 
         if (action === "replace_content") {
-          // content should be 2D array [[row1cells], [row2cells], ...]
           if (!content || !Array.isArray(content)) {
             throw new Error("replace_content requires a 2D array of content");
           }
 
-          // Load all rows and cells
-          table.rows.load("items");
+          for (let r = 0; r < content.length && r < table.rows.items.length; r++) {
+            table.rows.items[r].cells.load("items/body");
+          }
           await context.sync();
 
           for (let r = 0; r < content.length && r < table.rows.items.length; r++) {
             const row = table.rows.items[r];
-            row.cells.load("items");
-            await context.sync();
+            for (let c = 0; c < content[r].length && c < row.cells.items.length; c++) {
+              row.cells.items[c].load("body");
+            }
+          }
+          await context.sync();
 
+          for (let r = 0; r < content.length && r < table.rows.items.length; r++) {
+            const row = table.rows.items[r];
             for (let c = 0; c < content[r].length && c < row.cells.items.length; c++) {
               const cell = row.cells.items[c];
-              const cellBody = cell.body;
-              cellBody.clear();
-              cellBody.insertText(content[r][c], Word.InsertLocation.start);
+              cell.body.clear();
+              cell.body.insertText(content[r][c], Word.InsertLocation.start);
             }
           }
           await context.sync();
 
         } else if (action === "add_row") {
-          // content should be array of cell values for the new row
           if (!content || !Array.isArray(content)) {
             throw new Error("add_row requires an array of cell values");
           }
-
           const insertAt = targetRow !== undefined ? targetRow : table.rowCount;
-          const newRow = table.addRows(Word.InsertLocation.end, 1, [content]);
+          table.addRows(Word.InsertLocation.end, 1, [content]);
           await context.sync();
 
         } else if (action === "delete_row") {
-          if (targetRow === undefined) {
-            throw new Error("delete_row requires targetRow");
+          if (targetRow === undefined || targetRow < 0 || targetRow >= table.rows.items.length) {
+            throw new Error(`Invalid or missing row index: ${targetRow}`);
           }
-
-          table.rows.load("items");
-          await context.sync();
-
-          if (targetRow < 0 || targetRow >= table.rows.items.length) {
-            throw new Error(`Invalid row index: ${targetRow}`);
-          }
-
           table.rows.items[targetRow].delete();
           await context.sync();
 
@@ -2874,19 +2878,12 @@ async function executeEditTable(paragraphIndex, action, content, targetRow, targ
           if (targetRow === undefined || targetColumn === undefined) {
             throw new Error("update_cell requires targetRow and targetColumn");
           }
-          if (!content || content.length === 0) {
-            throw new Error("update_cell requires content");
-          }
-
-          table.rows.load("items");
-          await context.sync();
-
           if (targetRow < 0 || targetRow >= table.rows.items.length) {
             throw new Error(`Invalid row index: ${targetRow}`);
           }
 
           const row = table.rows.items[targetRow];
-          row.cells.load("items");
+          row.cells.load("items/body");
           await context.sync();
 
           if (targetColumn < 0 || targetColumn >= row.cells.items.length) {
@@ -2894,9 +2891,8 @@ async function executeEditTable(paragraphIndex, action, content, targetRow, targ
           }
 
           const cell = row.cells.items[targetColumn];
-          const cellBody = cell.body;
-          cellBody.clear();
-          cellBody.insertText(content[0], Word.InsertLocation.start);
+          cell.body.clear();
+          cell.body.insertText(content[0], Word.InsertLocation.start);
           await context.sync();
 
         } else {
@@ -2944,7 +2940,8 @@ async function executeEditSection(sectionHeaderIndex, newHeaderText, newBodyPara
       try {
 
         const paragraphs = context.document.body.paragraphs;
-        paragraphs.load("items");
+        // OPTIMIZATION: Path-load nested properties to save round-trips
+        paragraphs.load("items/text, items/listItemOrNullObject/level");
         await context.sync();
 
         const headerIdx = sectionHeaderIndex - 1;
@@ -2952,20 +2949,7 @@ async function executeEditSection(sectionHeaderIndex, newHeaderText, newBodyPara
           throw new Error(`Invalid section header index: ${sectionHeaderIndex}`);
         }
 
-        // Load properties to understand section structure
-        for (const para of paragraphs.items) {
-          para.load("text, listItemOrNullObject");
-        }
-        await context.sync();
-
-        // Load list levels
-        for (const para of paragraphs.items) {
-          if (!para.listItemOrNullObject.isNullObject) {
-            para.listItemOrNullObject.load("level");
-          }
-        }
-        await context.sync();
-
+        // Section structure pre-loaded via path syntax above
         const headerPara = paragraphs.items[headerIdx];
 
         // Check that header is a list item (section header)
@@ -2995,9 +2979,9 @@ async function executeEditSection(sectionHeaderIndex, newHeaderText, newBodyPara
 
         // Update header text if provided
         if (newHeaderText !== undefined && newHeaderText !== null) {
-          // Extract the list number/letter prefix from current text
+          // Extract the list number/letter prefix from current text - use robust regex
           const currentText = headerPara.text || "";
-          const numberMatch = currentText.match(/^(\d+\.?\s*|\([a-z]\)\s*|[a-z]\.\s*|[ivxlcdm]+\.\s*)/i);
+          const numberMatch = currentText.match(/^(\d+\.?\s*|\([a-z]\)\s*|[a-z]\.?\s*|[ivxlcdm]+\.?\s*)/i);
 
           if (numberMatch) {
             // Preserve the numbering prefix
