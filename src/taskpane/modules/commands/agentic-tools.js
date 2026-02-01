@@ -148,9 +148,9 @@ Return ONLY the JSON array, nothing else:`;
       const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeRedline");
       try {
 
-        // Load paragraphs to map indices with text pre-loaded to reduce syncs
+        // Load paragraphs with all properties needed by routeChangeOperation to avoid syncs in the loop
         const paragraphs = context.document.body.paragraphs;
-        paragraphs.load("items/text");
+        paragraphs.load("items/text, items/style, items/parentTableCellOrNullObject, items/parentTableOrNullObject");
         await context.sync();
 
         // Track the current paragraph count (may change as we add/remove paragraphs)
@@ -175,8 +175,8 @@ Return ONLY the JSON array, nothing else:`;
             // For out-of-bounds indices, reload paragraphs and check again
             if (pIndex >= paragraphs.items.length) {
               // Reload paragraphs collection to get any newly added ones
-              // Reload paragraphs collection with text to maintain performance
-              paragraphs.load("items/text");
+              // Reload paragraphs collection with all properties to maintain performance
+              paragraphs.load("items/text, items/style, items/parentTableCellOrNullObject, items/parentTableOrNullObject");
               await context.sync();
               currentParagraphCount = paragraphs.items.length;
 
@@ -240,7 +240,7 @@ Return ONLY the JSON array, nothing else:`;
 
                   // Check for w:numPr in the paragraph's OOXML
                   // Check for w:numPr in the paragraph's OOXML - use robust regex for different XML serializations
-                  const numPrMatch = targetOoxmlResult.value.match(/<w:numPr>[\s\S]*?<w:ilvl\s+w:val="(\d+)"[\s\S]*?<w:numId\s+w:val="(\d+)"[\s\S]*?<\/w:numPr>/i);
+                  const numPrMatch = targetOoxmlResult.value.match(/<(?:w:)?numPr>[\s\S]*?<(?:w:)?ilvl\s+(?:w:)?val="(\d+)"[\s\S]*?<(?:w:)?numId\s+(?:w:)?val="(\d+)"[\s\S]*?<\/(?:w:)?numPr>/i);
                   if (numPrMatch) {
                     targetIsListItem = true;
                     targetListContext = {
@@ -1081,7 +1081,7 @@ JSON ARRAY OF COMMENTS:`;
 
     await Word.run(async (context) => {
       const paragraphs = context.document.body.paragraphs;
-      paragraphs.load("items/text");
+      paragraphs.load("items/text, items/style");
       await context.sync();
 
       for (const item of aiComments) {
@@ -1169,7 +1169,7 @@ JSON ARRAY OF HIGHLIGHTS:`;
 
       try {
         const paragraphs = context.document.body.paragraphs;
-        paragraphs.load("items/text");
+        paragraphs.load("items/text, items/style");
         await context.sync();
 
         for (const item of aiHighlights) {
@@ -1490,9 +1490,13 @@ async function executeResearch(query) {
  * Uses native Word APIs for lists/tables, DMP for text edits
  */
 async function routeChangeOperation(change, targetParagraph, context) {
-  // IMPORTANT: Load text property before accessing to ensure complete data
-  targetParagraph.load("text");
-  await context.sync();
+  // Properties text, style, parentTableCellOrNullObject, parentTableOrNullObject 
+  // should be pre-loaded by the caller (e.g. executeRedline) to avoid syncs here.
+  // We only load if not already available (fallback)
+  if (!targetParagraph.isPropertyLoaded("text")) {
+    targetParagraph.load("text");
+    await context.sync();
+  }
 
   const originalText = targetParagraph.text;
   let newContent = change.newContent || change.content || "";
@@ -1570,9 +1574,11 @@ async function routeChangeOperation(change, targetParagraph, context) {
   const redlineEnabled = loadRedlineSetting();
 
   // Get original text and paragraph OOXML
-  // IMPORTANT: Must load 'text' property explicitly before accessing it
-  targetParagraph.load("text");
-  await context.sync();
+  // Properties should be pre-loaded
+  if (!targetParagraph.isPropertyLoaded("text")) {
+    targetParagraph.load("text");
+    await context.sync();
+  }
 
   const paragraphOriginalText = targetParagraph.text;
   let paragraphOoxmlResult = null;
@@ -1592,8 +1598,10 @@ async function routeChangeOperation(change, targetParagraph, context) {
       console.warn("[OxmlEngine] Range.getOoxml failed for paragraph", rangeError);
       // Try parent table cell or table as a last resort (pure OOXML path)
       try {
-        targetParagraph.load("parentTableCellOrNullObject, parentTableOrNullObject");
-        await context.sync();
+        if (!targetParagraph.isPropertyLoaded("parentTableCellOrNullObject")) {
+          targetParagraph.load("parentTableCellOrNullObject, parentTableOrNullObject");
+          await context.sync();
+        }
 
         if (targetParagraph.parentTableCellOrNullObject && !targetParagraph.parentTableCellOrNullObject.isNullObject) {
           try {
@@ -1978,17 +1986,18 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
         const adjacentOoxml = adjacentPara.getOoxml();
         await context.sync();
 
-        const numIdMatch = adjacentOoxml.value.match(/w:numId\s+w:val="(\d+)"/i);
-        const ilvlMatch = adjacentOoxml.value.match(/w:ilvl\s+w:val="(\d+)"/i);
+        const ooxmlValue = adjacentOoxml.value;
+        const numIdMatch = ooxmlValue.match(/<[\w:]*?numId\s+[\w:]*?val="(\d+)"/i);
+        const ilvlMatch = ooxmlValue.match(/<[\w:]*?ilvl\s+[\w:]*?val="(\d+)"/i);
 
         // Debug: Log the numbering definition info if available
-        const lvlTextMatch = adjacentOoxml.value.match(/w:lvlText\s+w:val="([^"]*)"/i);
+        const lvlTextMatch = ooxmlValue.match(/<[\w:]*?lvlText\s+[\w:]*?val="([^"]*)"/i);
         if (lvlTextMatch) {
           console.log(`[executeInsertListItem] Adjacent lvlText format: "${lvlTextMatch[1]}"`);
         }
 
         // Log a snippet of the OOXML for debugging numbering structure
-        const numPrSection = adjacentOoxml.value.match(/<w:numPr[\s\S]*?<\/w:numPr>/i);
+        const numPrSection = ooxmlValue.match(/<[\w:]*?numPr[\s\S]*?<\/[\w:]*?numPr>/i);
         if (numPrSection) {
           console.log(`[executeInsertListItem] Adjacent numPr: ${numPrSection[0]}`);
         }
@@ -2008,15 +2017,13 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
         console.log(`[executeInsertListItem] Adjacent numId=${numId}, ilvl=${baseIlvl}, newIlvl=${newIlvl}`);
 
         // Extract run properties (rPr) from adjacent paragraph to preserve font styling
-        // Look for the first w:rPr in the paragraph's OOXML
         let rPrBlock = '';
-        const rPrMatch = adjacentOoxml.value.match(/<w:rPr[^>]*>([\s\S]*?)<\/w:rPr>/);
+        const rPrMatch = ooxmlValue.match(/<[\w:]*?rPr[^>]*>([\s\S]*?)<\/[\w:]*?rPr>/i);
         if (rPrMatch) {
           rPrBlock = rPrMatch[0];
           console.log(`[executeInsertListItem] Extracted rPr from adjacent paragraph`);
         } else {
-          // No rPr found, try to at least get the font from pPr
-          const fontMatch = adjacentOoxml.value.match(/<w:rFonts[^>]*\/>/);
+          const fontMatch = ooxmlValue.match(/<[\w:]*?rFonts[^>]*\/>/i);
           if (fontMatch) {
             rPrBlock = `<w:rPr>${fontMatch[0]}</w:rPr>`;
             console.log(`[executeInsertListItem] Extracted rFonts from adjacent paragraph`);
