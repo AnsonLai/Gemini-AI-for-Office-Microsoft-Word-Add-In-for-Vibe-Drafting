@@ -34,9 +34,6 @@ export function ingestOoxml(ooxmlString) {
 
         // Find ALL paragraph elements (support multi-paragraph)
         let paragraphs = Array.from(doc.getElementsByTagNameNS(NS_W, 'p'));
-        if (paragraphs.length === 0) {
-            paragraphs = Array.from(doc.getElementsByTagName('w:p'));
-        }
 
         if (paragraphs.length === 0) {
             console.warn('No paragraphs found in OOXML');
@@ -50,8 +47,7 @@ export function ingestOoxml(ooxmlString) {
             const pElement = paragraphs[pIndex];
 
             // Extract paragraph properties
-            const pPr = pElement.getElementsByTagNameNS(NS_W, 'pPr')[0] ||
-                pElement.getElementsByTagName('w:pPr')[0] || null;
+            const pPr = pElement.getElementsByTagNameNS(NS_W, 'pPr')[0] || null;
             const pPrXml = pPr ? new XMLSerializer().serializeToString(pPr) : '';
 
             // Save first pPr for legacy compatibility
@@ -106,16 +102,14 @@ function processNodeRecursive(node, currentOffset, runModel) {
         const nodeName = child.nodeName;
 
         // Skip: paragraph properties, proofing markers
-        if (nodeName === 'w:pPr') continue;
-        if (nodeName === 'w:proofErr') continue;
+        if (child.localName === 'pPr' && child.namespaceURI === NS_W) continue;
+        if (child.localName === 'proofErr' && child.namespaceURI === NS_W) continue;
 
         // Content Control (SDT)
-        if (nodeName === 'w:sdt') {
+        if (child.localName === 'sdt' && child.namespaceURI === NS_W) {
             const containerId = `sdt_${containerIdCounter++}`;
-            const sdtPr = child.getElementsByTagNameNS(NS_W, 'sdtPr')[0] ||
-                child.getElementsByTagName('w:sdtPr')[0];
-            const sdtContent = child.getElementsByTagNameNS(NS_W, 'sdtContent')[0] ||
-                child.getElementsByTagName('w:sdtContent')[0];
+            const sdtPr = child.getElementsByTagNameNS(NS_W, 'sdtPr')[0];
+            const sdtContent = child.getElementsByTagNameNS(NS_W, 'sdtContent')[0];
 
             runModel.push({
                 kind: RunKind.CONTAINER_START,
@@ -145,7 +139,7 @@ function processNodeRecursive(node, currentOffset, runModel) {
         }
 
         // Smart Tag
-        if (nodeName === 'w:smartTag') {
+        if (child.localName === 'smartTag' && child.namespaceURI === NS_W) {
             const containerId = `smartTag_${containerIdCounter++}`;
 
             runModel.push({
@@ -174,7 +168,7 @@ function processNodeRecursive(node, currentOffset, runModel) {
         }
 
         // Skip deleted content (w:del) - not part of accepted text
-        if (nodeName === 'w:del') {
+        if (child.localName === 'del' && child.namespaceURI === NS_W) {
             const deletionEntry = processDeletion(child, localOffset);
             if (deletionEntry) {
                 runModel.push(deletionEntry);
@@ -183,7 +177,7 @@ function processNodeRecursive(node, currentOffset, runModel) {
         }
 
         // Bookmarks: preserve but no text contribution
-        if (nodeName === 'w:bookmarkStart' || nodeName === 'w:bookmarkEnd') {
+        if ((child.localName === 'bookmarkStart' || child.localName === 'bookmarkEnd') && child.namespaceURI === NS_W) {
             runModel.push({
                 kind: RunKind.BOOKMARK,
                 nodeXml: new XMLSerializer().serializeToString(child),
@@ -195,7 +189,7 @@ function processNodeRecursive(node, currentOffset, runModel) {
         }
 
         // Insertions: content IS part of accepted text
-        if (nodeName === 'w:ins') {
+        if (child.localName === 'ins' && child.namespaceURI === NS_W) {
             const result = processNodeRecursive(child, localOffset, runModel);
             localOffset = result.offset;
             text += result.text;
@@ -203,7 +197,7 @@ function processNodeRecursive(node, currentOffset, runModel) {
         }
 
         // Hyperlinks: use container tokens for better preservation
-        if (nodeName === 'w:hyperlink') {
+        if (child.localName === 'hyperlink' && child.namespaceURI === NS_W) {
             const containerId = `hyperlink_${containerIdCounter++}`;
             const rId = child.getAttribute('r:id') || '';
             const anchor = child.getAttribute('w:anchor') || '';
@@ -234,7 +228,7 @@ function processNodeRecursive(node, currentOffset, runModel) {
         }
 
         // Standard runs (w:r)
-        if (nodeName === 'w:r') {
+        if (child.localName === 'r' && child.namespaceURI === NS_W) {
             const runEntry = processRun(child, localOffset);
             if (runEntry && runEntry.text) {
                 runModel.push(runEntry);
@@ -317,8 +311,7 @@ function processDeletion(delElement, offset) {
     // Also look inside w:r elements for w:delText
     const runs = delElement.getElementsByTagNameNS(NS_W, 'r');
     for (const run of runs) {
-        const innerDelTexts = run.getElementsByTagNameNS(NS_W, 'delText') ||
-            run.getElementsByTagName('w:delText');
+        const innerDelTexts = run.getElementsByTagNameNS(NS_W, 'delText');
         for (const dt of innerDelTexts) {
             text += dt.textContent || '';
         }
@@ -349,12 +342,10 @@ function processHyperlink(hyperlinkElement, startOffset) {
     const anchor = hyperlinkElement.getAttribute('w:anchor') || '';
 
     let text = '';
-    const runs = hyperlinkElement.getElementsByTagNameNS(NS_W, 'r') ||
-        hyperlinkElement.getElementsByTagName('w:r');
+    const runs = hyperlinkElement.getElementsByTagNameNS(NS_W, 'r');
 
     for (const run of runs) {
-        const textNodes = run.getElementsByTagNameNS(NS_W, 't') ||
-            run.getElementsByTagName('w:t');
+        const textNodes = run.getElementsByTagNameNS(NS_W, 't');
         for (const t of textNodes) {
             text += t.textContent || '';
         }
@@ -379,18 +370,14 @@ function processHyperlink(hyperlinkElement, startOffset) {
  * @returns {Object|null} Numbering context { numId, ilvl }
  */
 export function detectNumberingContext(pElement) {
-    const pPr = pElement.getElementsByTagNameNS(NS_W, 'pPr')[0] ||
-        pElement.getElementsByTagName('w:pPr')[0];
+    const pPr = pElement.getElementsByTagNameNS(NS_W, 'pPr')[0] || null;
     if (!pPr) return null;
 
-    const numPr = pPr.getElementsByTagNameNS(NS_W, 'numPr')[0] ||
-        pPr.getElementsByTagName('w:numPr')[0];
+    const numPr = pPr.getElementsByTagNameNS(NS_W, 'numPr')[0] || null;
     if (!numPr) return null;
 
-    const numIdEl = numPr.getElementsByTagNameNS(NS_W, 'numId')[0] ||
-        numPr.getElementsByTagName('w:numId')[0];
-    const ilvlEl = numPr.getElementsByTagNameNS(NS_W, 'ilvl')[0] ||
-        numPr.getElementsByTagName('w:ilvl')[0];
+    const numIdEl = numPr.getElementsByTagNameNS(NS_W, 'numId')[0] || null;
+    const ilvlEl = numPr.getElementsByTagNameNS(NS_W, 'ilvl')[0] || null;
 
     if (!numIdEl) return null;
 
@@ -413,16 +400,11 @@ export function detectNumberingContext(pElement) {
  * @returns {Object} The virtual grid model
  */
 export function ingestTableToVirtualGrid(tableNode) {
-    const tblGrid = tableNode.getElementsByTagNameNS(NS_W, 'tblGrid')[0] ||
-        tableNode.getElementsByTagName('w:tblGrid')[0];
-    const gridCols = tblGrid ? (tblGrid.getElementsByTagNameNS(NS_W, 'gridCol').length > 0 ?
-        tblGrid.getElementsByTagNameNS(NS_W, 'gridCol') :
-        tblGrid.getElementsByTagName('w:gridCol')) : [];
+    const tblGrid = tableNode.getElementsByTagNameNS(NS_W, 'tblGrid')[0] || null;
+    const gridCols = tblGrid ? tblGrid.getElementsByTagNameNS(NS_W, 'gridCol') : [];
     const colCount = gridCols.length;
 
-    const trElements = tableNode.getElementsByTagNameNS(NS_W, 'tr').length > 0 ?
-        tableNode.getElementsByTagNameNS(NS_W, 'tr') :
-        tableNode.getElementsByTagName('w:tr');
+    const trElements = tableNode.getElementsByTagNameNS(NS_W, 'tr');
     const rowCount = trElements.length;
 
     // Initialize empty grid
@@ -436,16 +418,13 @@ export function ingestTableToVirtualGrid(tableNode) {
 
     for (let rowIdx = 0; rowIdx < trElements.length; rowIdx++) {
         const tr = trElements[rowIdx];
-        const tcElements = tr.getElementsByTagNameNS(NS_W, 'tc').length > 0 ?
-            tr.getElementsByTagNameNS(NS_W, 'tc') :
-            tr.getElementsByTagName('w:tc');
+        const tcElements = tr.getElementsByTagNameNS(NS_W, 'tc');
 
         let gridCol = 0; // Current position in virtual grid
 
         for (let tcIdx = 0; tcIdx < tcElements.length; tcIdx++) {
             const tc = tcElements[tcIdx];
-            const tcPr = tc.getElementsByTagNameNS(NS_W, 'tcPr')[0] ||
-                tc.getElementsByTagName('w:tcPr')[0];
+            const tcPr = tc.getElementsByTagNameNS(NS_W, 'tcPr')[0] || null;
 
             // Skip to next available grid column (may be occupied by vMerge from above)
             while (gridCol < colCount && grid[rowIdx][gridCol] !== null) {
@@ -584,19 +563,16 @@ function serializeTcPr(tcPrNode) {
 }
 
 function extractTblPr(tableNode) {
-    const tblPr = tableNode.getElementsByTagNameNS(NS_W, 'tblPr')[0] ||
-        tableNode.getElementsByTagName('w:tblPr')[0];
+    const tblPr = tableNode.getElementsByTagNameNS(NS_W, 'tblPr')[0] || null;
     return tblPr ? new XMLSerializer().serializeToString(tblPr) : '<w:tblPr/>';
 }
 
 function extractTblGrid(tableNode) {
-    const tblGrid = tableNode.getElementsByTagNameNS(NS_W, 'tblGrid')[0] ||
-        tableNode.getElementsByTagName('w:tblGrid')[0];
+    const tblGrid = tableNode.getElementsByTagNameNS(NS_W, 'tblGrid')[0] || null;
     return tblGrid ? new XMLSerializer().serializeToString(tblGrid) : '<w:tblGrid/>';
 }
 
 function extractTrPr(trNode) {
-    const trPr = trNode.getElementsByTagNameNS(NS_W, 'trPr')[0] ||
-        trNode.getElementsByTagName('w:trPr')[0];
+    const trPr = trNode.getElementsByTagNameNS(NS_W, 'trPr')[0] || null;
     return trPr ? new XMLSerializer().serializeToString(trPr) : '<w:trPr/>';
 }

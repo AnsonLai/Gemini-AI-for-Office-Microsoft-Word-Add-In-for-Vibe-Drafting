@@ -207,8 +207,8 @@ Return ONLY the JSON array, nothing else:`;
                   await context.sync(); // Sync immediately to ensure tracked changes captures the insertion
                   changesApplied++;
                 } else {
-                  // Route through our smart operation router
-                  await routeChangeOperation(change, targetParagraph, context);
+                  // Route through our smart operation router with preloaded properties
+                  await routeChangeOperation(change, targetParagraph, context, true);
                   changesApplied++;
                 }
               } catch (error) {
@@ -1489,12 +1489,11 @@ async function executeResearch(query) {
  * Routes a change operation to the appropriate method
  * Uses native Word APIs for lists/tables, DMP for text edits
  */
-async function routeChangeOperation(change, targetParagraph, context) {
+async function routeChangeOperation(change, targetParagraph, context, propertiesPreloaded = false) {
   // Properties text, style, parentTableCellOrNullObject, parentTableOrNullObject 
-  // should be pre-loaded by the caller (e.g. executeRedline) to avoid syncs here.
-  // We only load if not already available (fallback)
-  if (!targetParagraph.isPropertyLoaded("text")) {
-    targetParagraph.load("text");
+  // should ideally be pre-loaded by the caller (e.g. executeRedline) to avoid syncs here.
+  if (!propertiesPreloaded) {
+    targetParagraph.load("text, style, parentTableCellOrNullObject, parentTableOrNullObject");
     await context.sync();
   }
 
@@ -1574,8 +1573,7 @@ async function routeChangeOperation(change, targetParagraph, context) {
   const redlineEnabled = loadRedlineSetting();
 
   // Get original text and paragraph OOXML
-  // Properties should be pre-loaded
-  if (!targetParagraph.isPropertyLoaded("text")) {
+  if (!propertiesPreloaded) {
     targetParagraph.load("text");
     await context.sync();
   }
@@ -1598,7 +1596,7 @@ async function routeChangeOperation(change, targetParagraph, context) {
       console.warn("[OxmlEngine] Range.getOoxml failed for paragraph", rangeError);
       // Try parent table cell or table as a last resort (pure OOXML path)
       try {
-        if (!targetParagraph.isPropertyLoaded("parentTableCellOrNullObject")) {
+        if (!propertiesPreloaded) {
           targetParagraph.load("parentTableCellOrNullObject, parentTableOrNullObject");
           await context.sync();
         }
