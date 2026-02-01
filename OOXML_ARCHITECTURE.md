@@ -7,7 +7,7 @@ This document outlines the architecture of the **OOXML Reconciliation Engine**, 
 The system operates in two distinct modes depending on the complexity of the operation:
 
 1.  **Reconstruction Pipeline** (Standard): Parses original OOXML, diffs against new text, and rebuilds the paragraph from scratch. Used for standard text edits and list generation.
-2.  **Surgical Hybrid Engine** (Complex): Direct DOM manipulation. Used for Tables (to preserve cell structure) and specific "Highlight" and "Format Removal" operations.
+2.  **Surgical Hybrid Engine** (Complex): Direct DOM manipulation. Used for Tables (to preserve cell structure) and **Pure Formatting Changes** (Bold, Italic, etc.) to ensure clean redlines.
 
 ```mermaid
 graph TD
@@ -43,8 +43,9 @@ The OOXML engine currently handles the following operations without Word JS API 
 3. **List Generation**: Complex nested lists with custom numbering styles
 4. **Table Generation**: Complete table creation and modification
 5. **Format Preservation**: Maintains existing document formatting during edits
-6. **Track Changes**: Generates proper `w:ins`/`w:del` elements for redlines
-7. **Comment Preservation**: Maintains comment positions during text edits
+6. **Pure Formatting Redlines**: Generates `w:rPrChange` elements for clean formatting-only changes (Bold, Italic, U, Strike)
+7. **Track Changes**: Generates proper `w:ins`/`w:del` elements for text edits
+8. **Comment Preservation**: Maintains comment positions during text edits
 
 ### 🚧 Hybrid Operations (Partial OOXML)
 
@@ -160,12 +161,11 @@ To reconcile tables, the engine converts the hierarchical XML (`w:tr` -> `w:tc`)
     *   The `applyHighlightToOoxml` function (in `ooxml-formatting-removal.js`) performs targeted XML modification to inject `w:highlight` tags into specific runs.
     *   This bypasses the reconstruction pipeline for high-speed, structural-preserving formatting updates.
 
-*   **Format Removal Workaround**:
-    *   Word's `insertOoxml` ignores `<w:rPrChange>` (formatting track changes).
-    *   **Workaround**: To "Redline" a format removal (e.g., un-bolding), the engine treats it as a text replacement:
-        *   `<w:del><strong>Text</strong></w:del>`
-        *   `<w:ins>Text</w:ins>`
-    *   This forces Word to show the change visibly as a deletion of the bold text and insertion of plain text.
+*   **Pure Formatting Changes**:
+    *   To ensure formatting changes (e.g., adding or removing Bold) appear as native "Formatting" edits in Word rather than "Delete + Insert" redlines, the engine uses **Surgical Property Modification**.
+    *   **Mechanism**: Directly modifies the `<w:rPr>` element and injects a `<w:rPrChange>` snapshot.
+    *   **High Fidelity**: This allows Word to display clean formatting signals in the Track Changes pane.
+    *   **Functions**: `applyFormatAdditionsAsSurgicalReplacement` and `applyFormatRemovalAsSurgicalReplacement`.
 
 ### Comment & Range Preservation
 *   **Position Markers**: Elements like `w:commentRangeStart/End` are treated as zero-width position markers during ingestion.

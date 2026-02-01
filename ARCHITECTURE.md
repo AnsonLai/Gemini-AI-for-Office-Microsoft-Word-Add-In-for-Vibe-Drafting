@@ -165,9 +165,10 @@ The system allows the AI to write in Markdown, which is then converted to Word-n
 1.  **Input**: AI generates `newContent` with Markdown (e.g., `Hello **World**`).
 2.  **Detection**: `agentic-tools` detects Markdown markers.
 3.  **Path Selection**:
-    *   *Complex (Nested Lists/Direct Bold)?* -> **OOXML Pipeline** -> `markdown-processor` extracts hints -> **Reconstruction Mode** splits the text into pieces where format changes, applying explicit `w:val="1"` attributes.
-    *   *Simple?* -> **HTML Fallback** -> `markdown-utils` -> `Hello <strong>World</strong>` -> `paragraph.insertHtml()`.
-    *   **Migration Target**: Replace HTML fallback with pure OOXML generation
+    *   **Pure Formatting Mode (Surgical)**: For formatting-only changes (Bold, Italic, U, Strike), the engine modifies `w:rPr` in place and uses `w:rPrChange` for redlines. This is the **preferred high-fidelity path**.
+    *   **Reconstruction Mode**: For combined text and formatting edits, or complex list/table generation. It reconstructs paragraphs and applies explicit `w:val="1"` attributes.
+    *   **HTML Fallback (Deprecated)**: Used for simple text updates. 
+    *   **Migration Target**: Fully eliminate HTML fallback and rely on Pure Formatting and Reconstruction modes for all edits.
 
 ## 6. Migration Plan to Pure OOXML
 
