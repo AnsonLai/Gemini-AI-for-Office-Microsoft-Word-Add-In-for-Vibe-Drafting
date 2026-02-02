@@ -150,8 +150,12 @@ Return ONLY the JSON array, nothing else:`;
 
         // Load paragraphs with all properties needed by routeChangeOperation to avoid syncs in the loop
         const paragraphs = context.document.body.paragraphs;
-        paragraphs.load("items/text, items/style, items/parentTableCellOrNullObject, items/parentTableOrNullObject");
+        paragraphs.load("items/text, items/style, items/parentTableCellOrNullObject, items/parentTableOrNullObject, items/font/name, items/font/size, items/parentTableOrNullObject/id");
+        paragraphs.load("items/text, items/style, items/parentTableCellOrNullObject, items/parentTableOrNullObject, items/font/name, items/font/size, items/parentTableOrNullObject/id");
+        context.document.load("changeTrackingMode");
         await context.sync();
+
+        const baseTrackingMode = context.document.changeTrackingMode;
 
         // Track the current paragraph count (may change as we add/remove paragraphs)
         let currentParagraphCount = paragraphs.items.length;
@@ -176,7 +180,7 @@ Return ONLY the JSON array, nothing else:`;
             if (pIndex >= paragraphs.items.length) {
               // Reload paragraphs collection to get any newly added ones
               // Reload paragraphs collection with all properties to maintain performance
-              paragraphs.load("items/text, items/style, items/parentTableCellOrNullObject, items/parentTableOrNullObject");
+              paragraphs.load("items/text, items/style, items/parentTableCellOrNullObject, items/parentTableOrNullObject, items/font/name, items/font/size, items/parentTableOrNullObject/id");
               await context.sync();
               currentParagraphCount = paragraphs.items.length;
 
@@ -289,11 +293,9 @@ Return ONLY the JSON array, nothing else:`;
 
                   if (result.oxml && result.hasChanges) {
                     const doc = context.document;
-                    doc.load("changeTrackingMode");
-                    await context.sync();
+                    // changeTrackingMode is pre-loaded as baseTrackingMode
 
-                    const originalMode = doc.changeTrackingMode;
-                    if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+                    if (redlineEnabled && baseTrackingMode !== Word.ChangeTrackingMode.off) {
                       doc.changeTrackingMode = Word.ChangeTrackingMode.off;
                       await context.sync();
                     }
@@ -304,8 +306,8 @@ Return ONLY the JSON array, nothing else:`;
                       console.log("✅ OOXML list-preserving edit successful");
                       changesApplied++;
                     } finally {
-                      if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
-                        doc.changeTrackingMode = originalMode;
+                      if (redlineEnabled && baseTrackingMode !== Word.ChangeTrackingMode.off) {
+                        doc.changeTrackingMode = baseTrackingMode;
                         await context.sync();
                       }
                     }
@@ -331,14 +333,12 @@ Return ONLY the JSON array, nothing else:`;
                   let originalTextForDeletion = '';
                   let paragraphFont = null;
                   if (!isInsertAtEnd) {
-                    targetParagraph.load("text,font");
-                    await context.sync();
+                    // pre-loaded in initial batch
                     originalTextForDeletion = targetParagraph.text;
 
                     // Get font info for inheritance
                     if (targetParagraph.font) {
-                      targetParagraph.font.load("name,size");
-                      await context.sync();
+                      // pre-loaded in initial batch
                       paragraphFont = targetParagraph.font.name;
                       console.log(`[ListGen] Inheriting font from original paragraph: ${paragraphFont} ${targetParagraph.font.size}pt`);
                     }
@@ -373,11 +373,9 @@ Return ONLY the JSON array, nothing else:`;
                     // Temporarily disable Word's track changes to avoid double-tracking
                     // Our w:ins/w:del ARE the track changes
                     const doc = context.document;
-                    doc.load("changeTrackingMode");
-                    await context.sync();
+                    // changeTrackingMode is pre-loaded as baseTrackingMode
 
-                    const originalMode = doc.changeTrackingMode;
-                    if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+                    if (redlineEnabled && baseTrackingMode !== Word.ChangeTrackingMode.off) {
                       doc.changeTrackingMode = Word.ChangeTrackingMode.off;
                       await context.sync();
                     }
@@ -433,8 +431,8 @@ Return ONLY the JSON array, nothing else:`;
                       changesApplied++;
                     } finally {
                       // Restore track changes mode
-                      if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
-                        doc.changeTrackingMode = originalMode;
+                      if (redlineEnabled && baseTrackingMode !== Word.ChangeTrackingMode.off) {
+                        doc.changeTrackingMode = baseTrackingMode;
                         await context.sync();
                       }
                     }
@@ -483,11 +481,9 @@ Return ONLY the JSON array, nothing else:`;
 
                       // Disable track changes temporarily
                       const doc = context.document;
-                      doc.load("changeTrackingMode");
-                      await context.sync();
+                      // changeTrackingMode is pre-loaded
 
-                      const originalMode = doc.changeTrackingMode;
-                      if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+                      if (redlineEnabled && baseTrackingMode !== Word.ChangeTrackingMode.off) {
                         doc.changeTrackingMode = Word.ChangeTrackingMode.off;
                         await context.sync();
                       }
@@ -500,8 +496,8 @@ Return ONLY the JSON array, nothing else:`;
                         console.log(`✅ OOXML table generation successful`);
                         changesApplied++;
                       } finally {
-                        if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
-                          doc.changeTrackingMode = originalMode;
+                        if (redlineEnabled && baseTrackingMode !== Word.ChangeTrackingMode.off) {
+                          doc.changeTrackingMode = baseTrackingMode;
                           await context.sync();
                         }
                       }
@@ -576,11 +572,9 @@ Return ONLY the JSON array, nothing else:`;
                 let startHasTable = false;
                 let endHasTable = false;
                 try {
-                  startPara.load("parentTable/id");
-                  endPara.load("parentTable/id");
-                  await context.sync();
-                  startHasTable = !startPara.parentTable.isNullObject;
-                  endHasTable = !endPara.parentTable.isNullObject;
+                  // Properties pre-loaded: items/parentTableOrNullObject/id
+                  startHasTable = !startPara.parentTableOrNullObject.isNullObject;
+                  endHasTable = !endPara.parentTableOrNullObject.isNullObject;
                 } catch (tableCheckError) {
                   console.warn("Could not check for table context:", tableCheckError);
                   // Continue without table detection
@@ -593,8 +587,8 @@ Return ONLY the JSON array, nothing else:`;
                 // If both start and end are in the same table
                 if (startHasTable && endHasTable) {
                   try {
-                    const startTable = startPara.parentTable;
-                    const endTable = endPara.parentTable;
+                    const startTable = startPara.parentTableOrNullObject;
+                    const endTable = endPara.parentTableOrNullObject;
 
                     if (startTable.id === endTable.id) {
                       console.log("Detected same table context. Will replace entire table.");
@@ -654,11 +648,9 @@ Return ONLY the JSON array, nothing else:`;
                     if (result.oxml && result.hasChanges) {
                       // Temporarily disable track changes to avoid double-tracking
                       const doc = context.document;
-                      doc.load("changeTrackingMode");
-                      await context.sync();
+                      // changeTrackingMode is pre-loaded
 
-                      const originalMode = doc.changeTrackingMode;
-                      if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
+                      if (redlineEnabled && baseTrackingMode !== Word.ChangeTrackingMode.off) {
                         doc.changeTrackingMode = Word.ChangeTrackingMode.off;
                         await context.sync();
                       }
@@ -669,8 +661,8 @@ Return ONLY the JSON array, nothing else:`;
                         changesApplied++;
                         console.log("✅ OOXML list reconciliation successful for replace_range");
                       } finally {
-                        if (redlineEnabled && originalMode !== Word.ChangeTrackingMode.off) {
-                          doc.changeTrackingMode = originalMode;
+                        if (redlineEnabled && baseTrackingMode !== Word.ChangeTrackingMode.off) {
+                          doc.changeTrackingMode = baseTrackingMode;
                           await context.sync();
                         }
                       }

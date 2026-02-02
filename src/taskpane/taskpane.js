@@ -1167,6 +1167,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
 
 
 
+
   try {
     // --- Get Document Context ---
     let docText = "";
@@ -1174,62 +1175,59 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
     let docRedlines = [];
     let docSelection = "";
 
-    try {
-      await Word.run(async (context) => {
-        const body = context.document.body;
+    await Word.run(async (context) => {
+      const body = context.document.body;
 
-        // Fetch current selection
-        const selection = context.document.getSelection();
-        selection.load("text");
+      // --- STAGE 1: Critical Text Retrieval ---
+      // Fetch current selection & basic text first
+      const selection = context.document.getSelection();
+      selection.load("text");
 
-        // Fetch comments
+      // We'll try enhanced extraction first as it's the gold standard
+      try {
+        const enhancedContext = await extractEnhancedDocumentContext(context);
+        docText = enhancedContext.formattedText;
+        console.log(`Enhanced context extracted: ${enhancedContext.paragraphs.length} paragraphs`);
+      } catch (enhancedError) {
+        console.warn("Enhanced context failed, falling back to simple text", enhancedError);
+        // Fallback
+        body.load("text");
+        await context.sync();
+        docText = body.text;
+      }
+
+      docSelection = selection.text;
+
+      // Sync to ensure we captured text/selection before trying risky features
+      await context.sync();
+
+      // --- STAGE 2: Optional Rich Data (Comments/Redlines) ---
+      // These are prone to failure in Word Online
+      try {
         const comments = context.document.comments;
-        comments.load("content, authorName, creationDate");
+        comments.load("items/content, items/authorName, items/creationDate");
 
-        // Fetch tracked changes (redlines)
         let trackedChanges = null;
         try {
           trackedChanges = body.getTrackedChanges();
-          trackedChanges.load("type, text, author, date");
-        } catch (e) {
-          console.warn("Tracked changes API not supported or failed:", e);
-        }
+          trackedChanges.load("items/type, items/text, items/author, items/date");
+        } catch (e) { console.warn("Tracked changes not supported", e); }
 
-        await context.sync();
+        await context.sync(); // syncing specifically for comments/redlines
 
-        // Use enhanced document context extraction for rich formatting info
-        try {
-          const enhancedContext = await extractEnhancedDocumentContext(context);
-          docText = enhancedContext.formattedText;
-          console.log(`Enhanced context extracted: ${enhancedContext.paragraphs.length} paragraphs, ${enhancedContext.sectionCount} sections`);
-        } catch (enhancedError) {
-          console.warn("Enhanced context extraction failed, falling back to simple extraction:", enhancedError);
-          // Fallback to simple extraction
-          const paragraphs = body.paragraphs;
-          paragraphs.load("text");
-          await context.sync();
-          docText = paragraphs.items.map((p, index) => `[P${index + 1}] ${p.text}`).join("\n");
-        }
-
-        docSelection = selection.text;
-
+        // Process optional data
         if (comments && comments.items) {
-          docComments = comments.items.map((c) => {
-            return `[Comment by ${c.authorName} on ${c.creationDate}]: ${c.content}`;
-          });
+          docComments = comments.items.map(c => `[Comment by ${c.authorName} on ${c.creationDate}]: ${c.content}`);
         }
-
         if (trackedChanges && trackedChanges.items) {
-          docRedlines = trackedChanges.items.map((tc) => {
-            const type = tc.type; // "Inserted" or "Deleted"
-            return `[${type} by ${tc.author} on ${tc.date}]: "${tc.text}"`;
-          });
+          docRedlines = trackedChanges.items.map(tc => `[${tc.type} by ${tc.author} on ${tc.date}]: "${tc.text}"`);
         }
-      });
-    } catch (error) {
-      console.warn("Could not fetch document text, comments, or redlines:", error);
-    }
 
+      } catch (optionalDataError) {
+        console.warn("Could not fetch comments or redlines (Word Online limitation or API error), proceeding with text only:", optionalDataError);
+      }
+
+    });
     // --- Check Document Size ---
     const wordCount = docText.split(/\s+/).length;
     const estimatedTokens = Math.ceil(wordCount * DOCUMENT_LIMITS.TOKEN_MULTIPLIER);
