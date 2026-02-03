@@ -1202,29 +1202,44 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
       await context.sync();
 
       // --- STAGE 2: Optional Rich Data (Comments/Redlines) ---
-      // These are prone to failure in Word Online
+      // These are prone to failure in older Word versions or specific environments
       try {
-        const comments = context.document.comments;
-        comments.load("items/content, items/authorName, items/creationDate");
+        const isWordApi14 = Office.context.requirements.isSetSupported("WordApi", "1.4");
+        const isWordApi16 = Office.context.requirements.isSetSupported("WordApi", "1.6");
 
-        let trackedChanges = null;
-        try {
-          trackedChanges = body.getTrackedChanges();
-          trackedChanges.load("items/type, items/text, items/author, items/date");
-        } catch (e) { console.warn("Tracked changes not supported", e); }
+        if (isWordApi14) {
+          const comments = context.document.comments;
+          comments.load("items/content, items/authorName, items/creationDate");
 
-        await context.sync(); // syncing specifically for comments/redlines
+          let trackedChanges = null;
+          if (isWordApi16) {
+            try {
+              trackedChanges = body.getTrackedChanges();
+              trackedChanges.load("items/type, items/text, items/author, items/date");
+            } catch (e) { console.warn("Tracked changes not supported (API available but failed)", e); }
+          } else {
+            console.log("Tracked changes not supported (WordApi 1.6 required)");
+          }
 
-        // Process optional data
-        if (comments && comments.items) {
-          docComments = comments.items.map(c => `[Comment by ${c.authorName} on ${c.creationDate}]: ${c.content}`);
-        }
-        if (trackedChanges && trackedChanges.items) {
-          docRedlines = trackedChanges.items.map(tc => `[${tc.type} by ${tc.author} on ${tc.date}]: "${tc.text}"`);
+          await context.sync(); // syncing specifically for comments/redlines
+
+          // Process optional data
+          if (comments && comments.items) {
+            docComments = comments.items.map(c => `[Comment by ${c.authorName} on ${c.creationDate}]: ${c.content}`);
+          }
+          if (trackedChanges && trackedChanges.items) {
+            docRedlines = trackedChanges.items.map(tc => `[${tc.type} by ${tc.author} on ${tc.date}]: "${tc.text}"`);
+          }
+        } else {
+          console.log("Optional rich data (comments/redlines) not supported (WordApi 1.4 required)");
         }
 
       } catch (optionalDataError) {
-        console.warn("Could not fetch comments or redlines (Word Online limitation or API error), proceeding with text only:", optionalDataError);
+        if (optionalDataError.name === "RichApi.Error" && optionalDataError.code === "ApiNotFound") {
+          console.warn("Could not fetch comments or redlines (API not found despite support check), proceeding with text only.");
+        } else {
+          console.warn("Could not fetch comments or redlines (API error), proceeding with text only:", optionalDataError);
+        }
       }
 
     });
