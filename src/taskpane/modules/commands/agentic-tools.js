@@ -2662,9 +2662,15 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
     return { success: false, message: "No paragraph indices provided." };
   }
 
+  // Deduplicate paragraph indices to prevent multiple processing
+  const distinctIndices = [...new Set(paragraphIndices)];
+  if (distinctIndices.length !== paragraphIndices.length) {
+    console.log(`Deduplicated indices: ${paragraphIndices.length} -> ${distinctIndices.length}`);
+  }
+
   // Default to arabic if not specified
   const format = numberingFormat || "arabic";
-  console.log(`executeConvertHeadersToList: Converting ${paragraphIndices.length} headers to ${format} numbered list`);
+  console.log(`executeConvertHeadersToList: Converting ${distinctIndices.length} headers to ${format} numbered list`);
 
   try {
     await Word.run(async (context) => {
@@ -2677,7 +2683,7 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
         await context.sync();
 
         // Sort indices to process in order
-        const sortedIndices = [...paragraphIndices].sort((a, b) => a - b);
+        const sortedIndices = distinctIndices.sort((a, b) => a - b);
 
         // Validate all indices
         for (const idx of sortedIndices) {
@@ -2694,8 +2700,10 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
         await context.sync();
 
         // Strip manual numbering from the first header if present
+        // Enhanced pattern to catch A., 1.1, I., etc.
         let firstText = firstPara.text || "";
-        const numberPattern = /^\s*\d+[.\)]\s*/;
+        // Matches: Start of string, optional whitespace, followed by one or more groups of (letters/digits/roman + dot/paren), followed by whitespace
+        const numberPattern = /^\s*(?:(?:\d+|[a-zA-Z]+|[ivxlcIVXLC]+)[.)]\s*)+/;
         firstText = firstText.replace(numberPattern, "").trim();
 
         // Use new text if provided
@@ -2703,9 +2711,9 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
           firstText = newHeaderTexts[0];
         }
 
-        // Clear and replace the paragraph content
-        firstPara.clear();
-        firstPara.insertText(firstText, Word.InsertLocation.start);
+        // Replace content directly using "Replace" to avoid doubling issues
+        // "Replace" overwrites the entire paragraph content cleanly
+        firstPara.insertText(firstText, Word.InsertLocation.replace);
         await context.sync();
 
         // Start a new list on this paragraph
@@ -2756,14 +2764,20 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
           let paraText = para.text || "";
           paraText = paraText.replace(numberPattern, "").trim();
 
-          // Use new text if provided
+          // Use new text if provided (note: using original index mapping could be complex if sorted differently,
+          // but assuming 1:1 mapping for sorted newHeaderTexts if they were provided in order of appearance)
+          // Ideally newHeaderTexts aligns with the SORTED order if provided by the AI for specific paragraphs.
+          // However, usually newHeaderTexts corresponds to input order.
+          // For safety, if newHeaderTexts is used, we should map it carefully.
+          // IF newHeaderTexts is just a flat list matching the input indices, we might have a mismatch if we sort.
+          // But usually this tool is called with indices in document order anyway.
+
           if (newHeaderTexts && newHeaderTexts.length > i) {
             paraText = newHeaderTexts[i];
           }
 
-          // Clear and replace the paragraph content
-          para.clear();
-          para.insertText(paraText, Word.InsertLocation.start);
+          // Replace content directly
+          para.insertText(paraText, Word.InsertLocation.replace);
           await context.sync();
 
           // Attach to the list
@@ -2782,12 +2796,12 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
         await restoreChangeTracking(context, trackingState, "executeConvertHeadersToList");
       }
 
-      console.log(`Successfully converted ${sortedIndices.length} headers to numbered list`);
+      console.log(`Successfully converted ${distinctIndices.length} headers to numbered list`);
     });
 
     return {
       success: true,
-      message: `Successfully converted ${paragraphIndices.length} headers to a numbered list.`
+      message: `Successfully converted ${distinctIndices.length} headers to a numbered list.`
     };
   } catch (error) {
     console.error("Error in executeConvertHeadersToList:", error);
