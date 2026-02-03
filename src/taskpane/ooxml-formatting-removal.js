@@ -104,7 +104,9 @@ export function applyFormattingRemovalToOoxml(ooxmlString, targetText, formatTyp
 
                 if (newRPr) {
                     // Replace with modified rPr
-                    rPr.parentNode.replaceChild(newRPr, rPr);
+                    if (rPr.parentNode) {
+                        rPr.parentNode.replaceChild(newRPr, rPr);
+                    }
                 } else {
                     // Remove entire rPr if empty
                     rPr.remove();
@@ -224,16 +226,8 @@ export function applyHighlightToOoxml(ooxmlString, targetText, color = 'yellow',
         return Array.from(textNodes).map(t => t.textContent).join('');
     };
 
-    // Find all runs
-    const runs = Array.from(doc.getElementsByTagNameNS(NS_W, 'r'));
-    const insertions = Array.from(doc.getElementsByTagNameNS(NS_W, 'ins'));
-
-    // Collect all runs to check
-    let allRuns = [...runs];
-    for (const ins of insertions) {
-        const insideRuns = ins.getElementsByTagNameNS(NS_W, 'r');
-        allRuns.push(...Array.from(insideRuns));
-    }
+    // Find all runs recursively (this already includes runs inside w:ins)
+    const allRuns = Array.from(doc.getElementsByTagNameNS(NS_W, 'r'));
 
     // Process runs 
     // Note: We need to be careful about mutating the DOM while iterating.
@@ -257,6 +251,11 @@ export function applyHighlightToOoxml(ooxmlString, targetText, color = 'yellow',
         // 3. Suffix (if match + len < total len)
 
         const parent = run.parentNode;
+        if (!parent) {
+            console.warn("[Highlight] Run parent is null; skipping. Likely already processed.");
+            continue;
+        }
+
         const prefixText = runText.substring(0, matchIndex);
         const matchText = runText.substring(matchIndex, matchIndex + targetText.length);
         const suffixText = runText.substring(matchIndex + targetText.length);

@@ -1072,19 +1072,26 @@ JSON ARRAY OF COMMENTS:`;
     let commentsApplied = 0;
 
     await Word.run(async (context) => {
-      const paragraphs = context.document.body.paragraphs;
-      paragraphs.load("items/text, items/style");
-      await context.sync();
+      const redlineEnabled = loadRedlineSetting();
+      const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeComment");
 
-      for (const item of aiComments) {
-        const pIndex = item.paragraphIndex - 1;
-        if (pIndex < 0 || pIndex >= paragraphs.items.length) continue;
+      try {
+        const paragraphs = context.document.body.paragraphs;
+        paragraphs.load("items/text, items/style");
+        await context.sync();
 
-        const targetParagraph = paragraphs.items[pIndex];
-        const count = await searchWithFallback(targetParagraph, item.textToFind, context, async (match) => {
-          match.insertComment(item.commentContent);
-        });
-        commentsApplied += count;
+        for (const item of aiComments) {
+          const pIndex = item.paragraphIndex - 1;
+          if (pIndex < 0 || pIndex >= paragraphs.items.length) continue;
+
+          const targetParagraph = paragraphs.items[pIndex];
+          const count = await searchWithFallback(targetParagraph, item.textToFind, context, async (match) => {
+            match.insertComment(item.commentContent);
+          });
+          commentsApplied += count;
+        }
+      } finally {
+        await restoreChangeTracking(context, trackingState, "executeComment");
       }
     });
 
@@ -1156,8 +1163,10 @@ JSON ARRAY OF HIGHLIGHTS:`;
       const redlineEnabled = loadRedlineSetting();
       const authorName = getAuthorForTracking();
 
-      // We don't need setChangeTrackingForAi for OOXML highlights as we generate w:rPrChange manually,
-      // but if we were using Word API we would.
+      // CRITICAL: For OOXML insertion with manual redline tags (w:rPrChange), 
+      // we MUST turn OFF Word's native Track Changes during the insertion.
+      // Otherwise Word will redline the entire paragraph replacement.
+      const trackingState = await setChangeTrackingForAi(context, false, "executeHighlight");
 
       try {
         const paragraphs = context.document.body.paragraphs;
@@ -1201,7 +1210,7 @@ JSON ARRAY OF HIGHLIGHTS:`;
           }
         }
       } finally {
-        // await restoreChangeTracking(context, trackingState, "executeHighlight");
+        await restoreChangeTracking(context, trackingState, "executeHighlight");
       }
     });
 
@@ -1762,7 +1771,10 @@ async function routeChangeOperation(change, targetParagraph, context, properties
     await context.sync();
 
     const originalMode = doc.changeTrackingMode;
-    const shouldDisableTracking = !result.isFormatOnly && originalMode !== Word.ChangeTrackingMode.off;
+    // CRITICAL: Always disable native tracking for OOXML insertion (Stage 4)
+    // because our hybrid engine already embeds surgical w:ins/w:del/w:rPrChange.
+    // Otherwise Word redlines the entire Ooxml replacement as a paragraph change.
+    const shouldDisableTracking = originalMode !== Word.ChangeTrackingMode.off;
     console.log(`[OxmlEngine] Current track changes mode: ${originalMode}, redlineEnabled: ${redlineEnabled}, isFormatOnly: ${result.isFormatOnly}, shouldDisableTracking: ${shouldDisableTracking}`);
 
     // Only disable track changes for TEXT changes (with w:ins/w:del)
