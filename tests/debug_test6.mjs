@@ -1,3 +1,4 @@
+import './setup-xml-provider.mjs';
 /**
  * Diagnostic test for table row addition
  */
@@ -11,8 +12,8 @@ global.DOMParser = dom.window.DOMParser;
 global.XMLSerializer = dom.window.XMLSerializer;
 global.document = dom.window.document;
 
-import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/oxml-engine.js';
-import { ingestOoxml } from '../src/taskpane/modules/reconciliation/ingestion.js';
+import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
+import { ingestOoxml } from '../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DOC_PATH = path.join(__dirname, 'sample_doc/word/document.xml');
@@ -67,3 +68,4 @@ async function runDiagnostic() {
 }
 
 runDiagnostic().catch(console.error);
+

@@ -4,7 +4,7 @@
  * Manages list numbering to ensure continuation and consistent formatting.
  */
 
-import { NS_W, NumberFormat, NumberSuffix } from './types.js';
+import { NS_W, NumberFormat, NumberSuffix } from '../core/types.js';
 
 export class NumberingService {
     constructor() {

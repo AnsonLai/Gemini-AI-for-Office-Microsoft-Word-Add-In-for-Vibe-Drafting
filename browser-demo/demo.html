@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OOXML Engine Browser Demo</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --text: #1b2333;
+      --muted: #52607a;
+      --accent: #0b5fff;
+      --border: #d8e0ef;
+    }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(160deg, #eef4ff 0%, var(--bg) 45%, #eef7f2 100%);
+      color: var(--text);
+    }
+    .wrap {
+      max-width: 900px;
+      margin: 32px auto;
+      padding: 0 16px 24px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(31, 51, 89, 0.08);
+      padding: 20px;
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 24px;
+    }
+    p {
+      margin: 0 0 14px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      margin-top: 12px;
+    }
+    input[type="file"], input[type="text"], button {
+      font-size: 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+      width: 100%;
+      box-sizing: border-box;
+      background: #fff;
+      color: var(--text);
+    }
+    button {
+      cursor: pointer;
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      font-weight: 600;
+      width: auto;
+      min-width: 190px;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .status {
+      margin-top: 12px;
+      font-weight: 600;
+      min-height: 20px;
+    }
+    pre {
+      margin-top: 12px;
+      background: #0f172a;
+      color: #d6e1ff;
+      padding: 12px;
+      border-radius: 8px;
+      overflow: auto;
+      min-height: 180px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .hint {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>OOXML Engine Kitchen-Sink Browser Demo</h1>
+      <p>
+        Upload a <code>.docx</code> file, run a kitchen-sink transform (text edit, formatting,
+        bullets/sub-bullets, and table), and download a modified document.
+      </p>
+
+      <div class="row">
+        <input id="docxFile" type="file" accept=".docx" />
+        <button id="runBtn">Run Kitchen Sink</button>
+      </div>
+
+      <div class="row">
+        <input id="authorInput" type="text" value="Browser Demo AI" />
+        <span></span>
+      </div>
+
+      <div id="status" class="status"></div>
+      <pre id="log"></pre>
+      <div class="hint">
+        Note: this demo uses CDN ESM dependencies and should be served from a local/static web server (not <code>file://</code>).
+      </div>
+    </div>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "diff-match-patch": "https://esm.sh/diff-match-patch@1.0.5"
+      }
+    }
+  </script>
+  <script type="module" src="./demo.js"></script>
+</body>
+</html>

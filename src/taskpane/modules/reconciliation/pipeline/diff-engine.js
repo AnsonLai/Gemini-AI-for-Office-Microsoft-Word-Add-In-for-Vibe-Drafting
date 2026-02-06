@@ -5,7 +5,7 @@
  */
 
 import { diff_match_patch } from 'diff-match-patch';
-import { DiffOp } from './types.js';
+import { DiffOp } from '../core/types.js';
 
 /**
  * Converts text into word tokens represented as unique characters.
@@ -84,7 +84,7 @@ export function charsToWords(diffs, wordArray) {
  * 
  * @param {string} originalText - Original text
  * @param {string} newText - New text
- * @returns {import('./types.js').DiffOperation[]}
+ * @returns {import('../core/types.js').DiffOperation[]}
  */
 export function computeWordLevelDiffOps(originalText, newText) {
     // Handle edge cases
@@ -167,7 +167,7 @@ export function computeWordLevelDiffOps(originalText, newText) {
 /**
  * Collects all unique boundary offsets from diff operations.
  * 
- * @param {import('./types.js').DiffOperation[]} diffOps - Diff operations
+ * @param {import('../core/types.js').DiffOperation[]} diffOps - Diff operations
  * @returns {Set<number>}
  */
 export function collectDiffBoundaries(diffOps) {
@@ -178,3 +178,4 @@ export function collectDiffBoundaries(diffOps) {
     }
     return boundaries;
 }
+

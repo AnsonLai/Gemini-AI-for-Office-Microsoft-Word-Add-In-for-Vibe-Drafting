@@ -1,13 +1,14 @@
+import './setup-xml-provider.mjs';
 
 import { JSDOM } from 'jsdom';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { ReconciliationPipeline } from '../src/taskpane/modules/reconciliation/pipeline.js';
-import { NumberingService } from '../src/taskpane/modules/reconciliation/numbering-service.js';
-import { ingestOoxml } from '../src/taskpane/modules/reconciliation/ingestion.js';
-import { serializeToOoxml } from '../src/taskpane/modules/reconciliation/serialization.js';
-import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/oxml-engine.js';
+import { ReconciliationPipeline } from '../src/taskpane/modules/reconciliation/pipeline/pipeline.js';
+import { NumberingService } from '../src/taskpane/modules/reconciliation/services/numbering-service.js';
+import { ingestOoxml } from '../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
+import { serializeToOoxml } from '../src/taskpane/modules/reconciliation/pipeline/serialization.js';
+import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
 
 // --- Global Setup ---
 const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
@@ -411,3 +412,4 @@ More text.`;
         console.log('❌ FAIL: Bullet List parsing failed');
     }
 }
+

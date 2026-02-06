@@ -5,7 +5,7 @@
  * while preserving the text content and other properties.
  */
 
-import { parseOoxml, serializeOoxml } from './modules/reconciliation/oxml-engine.js';
+import { parseOoxml, serializeOoxml } from './modules/reconciliation/engine/oxml-engine.js';
 
 /**
  * Removes specific formatting properties from a run properties (w:rPr) element.

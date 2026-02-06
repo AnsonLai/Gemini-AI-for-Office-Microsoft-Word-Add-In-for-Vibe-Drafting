@@ -9,10 +9,12 @@ import { preprocessMarkdown } from './markdown-processor.js';
 import { computeWordLevelDiffOps } from './diff-engine.js';
 import { splitRunsAtDiffBoundaries, applyPatches } from './patching.js';
 import { serializeToOoxml, wrapInDocumentFragment } from './serialization.js';
-import { ContentType, RunKind } from './types.js';
-import { NumberingService } from './numbering-service.js';
+import { ContentType, RunKind } from '../core/types.js';
+import { NumberingService } from '../services/numbering-service.js';
 import { detectNumberingContext } from './ingestion.js';
-import { generateTableOoxml } from './table-reconciliation.js';
+import { generateTableOoxml } from '../services/table-reconciliation.js';
+import { createParser } from '../adapters/xml-adapter.js';
+import { log, error as logError } from '../adapters/logger.js';
 
 /**
  * Main reconciliation pipeline class.
@@ -38,29 +40,29 @@ export class ReconciliationPipeline {
      * 
      * @param {string} originalOoxml - Original OOXML paragraph content
      * @param {string} newText - New text with optional markdown formatting
-     * @returns {Promise<import('./types.js').ReconciliationResult>}
+     * @returns {Promise<import('../core/types.js').ReconciliationResult>}
      */
     async execute(originalOoxml, newText) {
         const warnings = [];
 
         try {
             // Stage 1: Ingest OOXML
-            const parser = new DOMParser();
+            const parser = createParser();
             const doc = parser.parseFromString(originalOoxml, 'application/xml');
             const pElement = doc.getElementsByTagNameNS('*', 'p')[0];
 
             const { runModel, acceptedText, pPr } = ingestOoxml(originalOoxml);
             const numberingContext = pElement ? detectNumberingContext(pElement) : null;
 
-            console.log(`[Reconcile] Ingested ${runModel.length} runs, ${acceptedText.length} chars, numbering:`, numberingContext);
+            log(`[Reconcile] Ingested ${runModel.length} runs, ${acceptedText.length} chars, numbering:`, numberingContext);
 
             // Stage 2: Preprocess markdown
             const { cleanText, formatHints } = preprocessMarkdown(newText);
-            console.log(`[Reconcile] Preprocessed: ${formatHints.length} format hints`);
+            log(`[Reconcile] Preprocessed: ${formatHints.length} format hints`);
 
             // Early exit if no change
             if (acceptedText === cleanText && formatHints.length === 0) {
-                console.log('[Reconcile] No changes detected');
+                log('[Reconcile] No changes detected');
                 return {
                     ooxml: originalOoxml,
                     isValid: true,
@@ -78,22 +80,22 @@ export class ReconciliationPipeline {
             const markersRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s+)/m;
             const isTargetList = cleanText.includes('\n') && markersRegex.test(cleanText);
 
-            console.log(`[Reconcile] isTargetList: ${isTargetList}, paragraphCount: ${paragraphCount}`);
+            log(`[Reconcile] isTargetList: ${isTargetList}, paragraphCount: ${paragraphCount}`);
 
             // If target is a list, always use list generation logic
             // This handles both expansion (1 para -> N items) and conversion (N paras -> M items)
             if (isTargetList) {
-                console.log('[Reconcile] 🎯 ENTERING LIST GENERATION PATH');
-                console.log(`[Reconcile] cleanText preview: ${cleanText.substring(0, 100)}...`);
-                console.log(`[Reconcile] acceptedText preview: ${acceptedText.substring(0, 100)}...`);
+                log('[Reconcile] 🎯 ENTERING LIST GENERATION PATH');
+                log(`[Reconcile] cleanText preview: ${cleanText.substring(0, 100)}...`);
+                log(`[Reconcile] acceptedText preview: ${acceptedText.substring(0, 100)}...`);
                 return this.executeListGeneration(cleanText, numberingContext, runModel);
             }
 
-            console.log(`[Reconcile] Computed ${diffOps.length} diff operations`);
+            log(`[Reconcile] Computed ${diffOps.length} diff operations`);
 
             // Stage 4: Pre-split runs at boundaries
             const splitModel = splitRunsAtDiffBoundaries(runModel, diffOps);
-            console.log(`[Reconcile] Split into ${splitModel.length} runs`);
+            log(`[Reconcile] Split into ${splitModel.length} runs`);
 
             // Stage 5: Apply patches
             const patchedModel = applyPatches(splitModel, diffOps, {
@@ -102,7 +104,7 @@ export class ReconciliationPipeline {
                 formatHints,
                 numberingService: this.numberingService
             });
-            console.log(`[Reconcile] Patched model has ${patchedModel.length} runs`);
+            log(`[Reconcile] Patched model has ${patchedModel.length} runs`);
 
             // Stage 6: Serialize to OOXML
             const resultOoxml = serializeToOoxml(patchedModel, pPr, formatHints, {
@@ -125,7 +127,7 @@ export class ReconciliationPipeline {
             };
 
         } catch (error) {
-            console.error('[Reconcile] Pipeline error:', error);
+            logError('[Reconcile] Pipeline error:', error);
             return {
                 ooxml: originalOoxml,
                 isValid: false,
@@ -146,7 +148,7 @@ export class ReconciliationPipeline {
         try {
             // Check for well-formed XML by wrapping in namespace container
             const wrappedXml = `<root xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${ooxml}</root>`;
-            const parser = new DOMParser();
+            const parser = createParser();
             const doc = parser.parseFromString(wrappedXml, 'application/xml');
 
             const parseError = doc.getElementsByTagName('parsererror')[0];
@@ -213,7 +215,7 @@ export class ReconciliationPipeline {
 
         // Determine the indentation step (2 spaces, 4 spaces, or tabs)
         const indentStep = this.detectIndentationStep(rawLines);
-        console.log(`[ListGen] Detected indentation step: ${indentStep} spaces/chars`);
+        log(`[ListGen] Detected indentation step: ${indentStep} spaces/chars`);
 
         // Determine the primary list type and format from the first item
         let firstMarker = '';
@@ -228,7 +230,7 @@ export class ReconciliationPipeline {
         }
 
         const { format: defaultFormat } = this.numberingService.detectNumberingFormat(firstMarker);
-        console.log(`[ListGen] Detected primary marker: "${firstMarker}", format: ${defaultFormat}`);
+        log(`[ListGen] Detected primary marker: "${firstMarker}", format: ${defaultFormat}`);
 
         const isTableLine = (line) => /^\s*\|/.test(line);
         const isTableSeparator = (line) => /^\s*\|?[\s:-]*-[-\s|:]*\|?\s*$/.test(line);
@@ -367,8 +369,8 @@ export class ReconciliationPipeline {
         const blankParagraph = '<w:p><w:pPr></w:pPr></w:p>';
         const oxmlWithSpacing = finalOoxml + blankParagraph;
 
-        console.log(`[ListGen] ✅ Generated OOXML for ${results.length} list items, total length: ${oxmlWithSpacing.length}`);
-        console.log(`[ListGen] First 200 chars: ${oxmlWithSpacing.substring(0, 200)}...`);
+        log(`[ListGen] ✅ Generated OOXML for ${results.length} list items, total length: ${oxmlWithSpacing.length}`);
+        log(`[ListGen] First 200 chars: ${oxmlWithSpacing.substring(0, 200)}...`);
 
         return {
             ooxml: oxmlWithSpacing,
@@ -450,7 +452,7 @@ export class ReconciliationPipeline {
  */
 export function detectContentType(text) {
     // TODO: Implement content type detection
-    console.log('[Stub] detectContentType - returning PARAGRAPH');
+    log('[Stub] detectContentType - returning PARAGRAPH');
     return ContentType.PARAGRAPH;
 }
 
@@ -463,7 +465,7 @@ export function detectContentType(text) {
  */
 export function parseListItems(text) {
     // TODO: Implement list parsing
-    console.log('[Stub] parseListItems - not implemented');
+    log('[Stub] parseListItems - not implemented');
     return [];
 }
 
@@ -496,3 +498,4 @@ export function parseTable(text) {
         hasHeader: lines.some(l => l.includes('---'))
     };
 }
+

@@ -4,15 +4,17 @@
  * Converts patched run model back to OOXML with track changes.
  */
 
-import { NS_W, RunKind, escapeXml, getNextRevisionId } from './types.js';
+import { NS_W, RunKind, escapeXml, getNextRevisionId } from '../core/types.js';
 import { getApplicableFormatHints } from './markdown-processor.js';
+import { serializeXml } from '../adapters/xml-adapter.js';
+import { warn } from '../adapters/logger.js';
 
 /**
  * Serializes a patched run model to OOXML.
  * 
- * @param {import('./types.js').RunEntry[]} patchedModel - The patched run model
+ * @param {import('../core/types.js').RunEntry[]} patchedModel - The patched run model
  * @param {Element|null} pPr - Paragraph properties element
- * @param {import('./types.js').FormatHint[]} [formatHints=[]] - Format hints
+ * @param {import('../core/types.js').FormatHint[]} [formatHints=[]] - Format hints
  * @param {Object} [options={}] - Serialization options
  * @param {string} [options.author='AI'] - Author for track changes
  * @returns {string} OOXML paragraph string (WITHOUT namespace - added by wrapper)
@@ -35,7 +37,7 @@ export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = 
                 if (typeof pPr === 'string') {
                     pPrContent = pPr;
                 } else {
-                    pPrContent = new XMLSerializer().serializeToString(pPr);
+                    pPrContent = serializeXml(pPr);
                 }
                 pPrContent = pPrContent.replace(/\s+xmlns:[^=]+="[^"]*"/g, '');
             }
@@ -106,7 +108,7 @@ export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = 
                 break;
 
             default:
-                console.warn('Unknown run kind:', item.kind);
+                warn('Unknown run kind:', item.kind);
         }
     }
 
@@ -120,8 +122,8 @@ export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = 
 /**
  * Builds a run XML element, applying format hints if applicable.
  * 
- * @param {import('./types.js').RunEntry} item - Run entry
- * @param {import('./types.js').FormatHint[]} formatHints - Format hints
+ * @param {import('../core/types.js').RunEntry} item - Run entry
+ * @param {import('../core/types.js').FormatHint[]} formatHints - Format hints
  * @returns {string}
  */
 function buildRunXmlWithHints(item, formatHints, options = {}) {
@@ -183,7 +185,7 @@ function buildSimpleRun(text, rPrXml) {
 /**
  * Builds a deletion (w:del) element.
  * 
- * @param {import('./types.js').RunEntry} item - Deletion entry
+ * @param {import('../core/types.js').RunEntry} item - Deletion entry
  * @param {string} author - Author name
  * @returns {string}
  */
@@ -204,8 +206,8 @@ function buildDeletionXml(item, author, font = null) {
 /**
  * Builds an insertion (w:ins) element.
  * 
- * @param {import('./types.js').RunEntry} item - Insertion entry
- * @param {import('./types.js').FormatHint[]} formatHints - Format hints
+ * @param {import('../core/types.js').RunEntry} item - Insertion entry
+ * @param {import('../core/types.js').FormatHint[]} formatHints - Format hints
  * @param {string} author - Author name
  * @returns {string}
  */
@@ -393,5 +395,6 @@ export function wrapInDocumentFragment(paragraphXml, options = {}) {
   </pkg:part>
 </pkg:package>`;
 }
+
 
 

@@ -1,13 +1,14 @@
+import './setup-xml-provider.mjs';
 
 import { JSDOM } from 'jsdom';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/oxml-engine.js';
-import { ingestOoxml } from '../src/taskpane/modules/reconciliation/ingestion.js';
-import { parseTable } from '../src/taskpane/modules/reconciliation/pipeline.js';
-import { ingestTableToVirtualGrid } from '../src/taskpane/modules/reconciliation/ingestion.js';
-import { diffTablesWithVirtualGrid, serializeVirtualGridToOoxml } from '../src/taskpane/modules/reconciliation/table-reconciliation.js';
+import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
+import { ingestOoxml } from '../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
+import { parseTable } from '../src/taskpane/modules/reconciliation/pipeline/pipeline.js';
+import { ingestTableToVirtualGrid } from '../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
+import { diffTablesWithVirtualGrid, serializeVirtualGridToOoxml } from '../src/taskpane/modules/reconciliation/services/table-reconciliation.js';
 
 // --- Global Setup ---
 const dom = new JSDOM('');
@@ -183,3 +184,4 @@ async function testTableReconciliationFlow() {
 
     console.log('\nALL TABLE TESTS COMPLETE.');
 })();
+

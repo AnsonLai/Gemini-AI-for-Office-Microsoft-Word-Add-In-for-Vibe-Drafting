@@ -1,3 +1,4 @@
+import './setup-xml-provider.mjs';
 
 /**
  * Integration Tests
@@ -10,8 +11,8 @@ import { JSDOM } from 'jsdom';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/oxml-engine.js';
-import { ingestOoxml } from '../src/taskpane/modules/reconciliation/ingestion.js';
+import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
+import { ingestOoxml } from '../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
 
 // --- Mock Browser Environment ---
 const dom = new JSDOM('');
@@ -282,3 +283,4 @@ async function runRedlineToggleTests() {
     await runRedlineToggleTests();
     console.log('\nALL INTEGRATION TESTS COMPLETE.');
 })();
+

@@ -4,14 +4,15 @@
  * Splits runs at diff boundaries and applies patch operations.
  */
 
-import { DiffOp, RunKind } from './types.js';
+import { DiffOp, RunKind } from '../core/types.js';
+import { log } from '../adapters/logger.js';
 
 /**
  * Splits runs at diff operation boundaries for precise patching.
  * 
- * @param {import('./types.js').RunEntry[]} runModel - Original run model
- * @param {import('./types.js').DiffOperation[]} diffOps - Diff operations
- * @returns {import('./types.js').RunEntry[]} Split run model
+ * @param {import('../core/types.js').RunEntry[]} runModel - Original run model
+ * @param {import('../core/types.js').DiffOperation[]} diffOps - Diff operations
+ * @returns {import('../core/types.js').RunEntry[]} Split run model
  */
 export function splitRunsAtDiffBoundaries(runModel, diffOps) {
     // Collect all boundary points
@@ -77,10 +78,10 @@ const StyleInheritance = {
     /**
      * Finds the appropriate style source for an insertion.
      * 
-     * @param {import('./types.js').RunEntry[]} runModel - Run model
+     * @param {import('../core/types.js').RunEntry[]} runModel - Run model
      * @param {number} offset - Insertion offset
      * @param {string} insertText - Text being inserted
-     * @returns {import('./types.js').RunEntry|null}
+     * @returns {import('../core/types.js').RunEntry|null}
      */
     forInsertion(runModel, offset, insertText) {
         const prevRun = this.findRunBefore(runModel, offset);
@@ -114,13 +115,13 @@ const StyleInheritance = {
 /**
  * Applies diff operations to the split run model.
  * 
- * @param {import('./types.js').RunEntry[]} splitModel - Pre-split run model
- * @param {import('./types.js').DiffOperation[]} diffOps - Diff operations
+ * @param {import('../core/types.js').RunEntry[]} splitModel - Pre-split run model
+ * @param {import('../core/types.js').DiffOperation[]} diffOps - Diff operations
  * @param {Object} options - Patching options
  * @param {boolean} options.generateRedlines - Whether to generate track changes
  * @param {string} options.author - Author for track changes
- * @param {import('./types.js').FormatHint[]} [options.formatHints] - Format hints
- * @returns {import('./types.js').RunEntry[]}
+ * @param {import('../core/types.js').FormatHint[]} [options.formatHints] - Format hints
+ * @returns {import('../core/types.js').RunEntry[]}
  */
 export function applyPatches(splitModel, diffOps, options) {
     const { generateRedlines, author, formatHints = [] } = options;
@@ -251,7 +252,7 @@ export function applyPatches(splitModel, diffOps, options) {
                         const newPPrXml = options.numberingService.buildListPPr(numId, ilvl);
                         lastPStart.pPrXml = newPPrXml;
                         containerStack.pPrXml = newPPrXml;
-                        console.log(`[Patching] Converted current paragraph to list item: numId=${numId}, ilvl=${ilvl}`);
+                        log(`[Patching] Converted current paragraph to list item: numId=${numId}, ilvl=${ilvl}`);
                     }
                 }
 
@@ -320,9 +321,9 @@ export function applyPatches(splitModel, diffOps, options) {
 /**
  * Finds the diff operation that applies to a given run.
  * 
- * @param {import('./types.js').DiffOperation[]} diffOps - Diff operations
- * @param {import('./types.js').RunEntry} run - The run to check
- * @returns {import('./types.js').DiffOperation|null}
+ * @param {import('../core/types.js').DiffOperation[]} diffOps - Diff operations
+ * @param {import('../core/types.js').RunEntry} run - The run to check
+ * @returns {import('../core/types.js').DiffOperation|null}
  */
 function findDiffOpForRun(diffOps, run) {
     // Find an operation that covers this run
@@ -335,3 +336,4 @@ function findDiffOpForRun(diffOps, run) {
     }
     return null;
 }
+

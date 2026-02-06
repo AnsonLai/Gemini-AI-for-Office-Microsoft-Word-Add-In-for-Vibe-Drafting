@@ -1,6 +1,7 @@
+import './setup-xml-provider.mjs';
 
 import { JSDOM } from 'jsdom';
-import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/oxml-engine.js';
+import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
 
 // Global Setup
 const dom = new JSDOM('');
@@ -126,3 +127,4 @@ async function testSurgicalPureFormats() {
 (async () => {
     await testSurgicalPureFormats();
 })();
+

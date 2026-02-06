@@ -5,13 +5,15 @@
  * Handles track changes, hyperlinks, and basic container elements.
  */
 
-import { NS_W, RunKind } from './types.js';
+import { NS_W, RunKind, ContainerKind } from '../core/types.js';
+import { createParser, serializeXml } from '../adapters/xml-adapter.js';
+import { warn, error as logError } from '../adapters/logger.js';
 
 /**
  * Ingests OOXML paragraph content and builds a run-aware text model.
  * 
  * @param {string} ooxmlString - The OOXML string to parse
- * @returns {import('./types.js').IngestionResult} The ingestion result
+ * @returns {import('../core/types.js').IngestionResult} The ingestion result
  */
 export function ingestOoxml(ooxmlString) {
     const runModel = [];
@@ -22,13 +24,13 @@ export function ingestOoxml(ooxmlString) {
     }
 
     try {
-        const parser = new DOMParser();
+        const parser = createParser();
         const doc = parser.parseFromString(ooxmlString, 'application/xml');
 
         // Check for parse errors
         const parseError = doc.getElementsByTagName('parsererror')[0];
         if (parseError) {
-            console.error('OOXML parse error:', parseError.textContent);
+            logError('OOXML parse error:', parseError.textContent);
             return { runModel, acceptedText, pPr: null };
         }
 
@@ -36,7 +38,7 @@ export function ingestOoxml(ooxmlString) {
         let paragraphs = Array.from(doc.getElementsByTagNameNS(NS_W, 'p'));
 
         if (paragraphs.length === 0) {
-            console.warn('No paragraphs found in OOXML');
+            warn('No paragraphs found in OOXML');
             return { runModel, acceptedText, pPr: null };
         }
 
@@ -48,7 +50,7 @@ export function ingestOoxml(ooxmlString) {
 
             // Extract paragraph properties
             const pPr = pElement.getElementsByTagNameNS(NS_W, 'pPr')[0] || null;
-            const pPrXml = pPr ? new XMLSerializer().serializeToString(pPr) : '';
+            const pPrXml = pPr ? serializeXml(pPr) : '';
 
             // Save first pPr for legacy compatibility
             if (pIndex === 0) {
@@ -79,7 +81,7 @@ export function ingestOoxml(ooxmlString) {
         return { runModel, acceptedText, pPr: firstPPr };
 
     } catch (error) {
-        console.error('Error ingesting OOXML:', error);
+        logError('Error ingesting OOXML:', error);
         return { runModel, acceptedText, pPr: null };
     }
 }
@@ -98,7 +100,7 @@ function processNodeRecursive(node, currentOffset, runModel) {
     let localOffset = currentOffset;
     let text = '';
 
-    for (const child of node.childNodes) {
+    for (const child of Array.from(node.childNodes)) {
         const nodeName = child.nodeName;
 
         // Skip: paragraph properties, proofing markers
@@ -115,7 +117,7 @@ function processNodeRecursive(node, currentOffset, runModel) {
                 kind: RunKind.CONTAINER_START,
                 containerKind: ContainerKind.SDT,
                 containerId,
-                propertiesXml: sdtPr ? new XMLSerializer().serializeToString(sdtPr) : '',
+                propertiesXml: sdtPr ? serializeXml(sdtPr) : '',
                 startOffset: localOffset,
                 endOffset: localOffset,
                 text: ''
@@ -180,7 +182,7 @@ function processNodeRecursive(node, currentOffset, runModel) {
         if ((child.localName === 'bookmarkStart' || child.localName === 'bookmarkEnd') && child.namespaceURI === NS_W) {
             runModel.push({
                 kind: RunKind.BOOKMARK,
-                nodeXml: new XMLSerializer().serializeToString(child),
+                nodeXml: serializeXml(child),
                 startOffset: localOffset,
                 endOffset: localOffset,
                 text: ''
@@ -253,18 +255,18 @@ function serializeAttributes(element) {
  * 
  * @param {Element} runElement - The w:r element
  * @param {number} startOffset - Starting character offset
- * @returns {import('./types.js').RunEntry|null}
+ * @returns {import('../core/types.js').RunEntry|null}
  */
 function processRun(runElement, startOffset) {
     // Extract run properties (formatting)
     const rPr = runElement.getElementsByTagNameNS(NS_W, 'rPr')[0] ||
         runElement.getElementsByTagName('w:rPr')[0];
-    const rPrXml = rPr ? new XMLSerializer().serializeToString(rPr) : '';
+    const rPrXml = rPr ? serializeXml(rPr) : '';
 
     let text = '';
 
     // Iterate children in order to preserve sequence of text, breaks, and tabs
-    for (const child of runElement.childNodes) {
+    for (const child of Array.from(runElement.childNodes)) {
         const nodeName = child.nodeName; // In standard DOM, this includes namespace prefix usually
 
         // Handle namespaced and non-namespaced variants
@@ -296,7 +298,7 @@ function processRun(runElement, startOffset) {
  * 
  * @param {Element} delElement - The w:del element
  * @param {number} offset - Current offset (unchanged)
- * @returns {import('./types.js').RunEntry|null}
+ * @returns {import('../core/types.js').RunEntry|null}
  */
 function processDeletion(delElement, offset) {
     const author = delElement.getAttribute('w:author') || '';
@@ -326,7 +328,7 @@ function processDeletion(delElement, offset) {
         startOffset: offset,
         endOffset: offset, // Deletions don't advance offset
         author,
-        nodeXml: new XMLSerializer().serializeToString(delElement)
+        nodeXml: serializeXml(delElement)
     };
 }
 
@@ -335,7 +337,7 @@ function processDeletion(delElement, offset) {
  * 
  * @param {Element} hyperlinkElement - The w:hyperlink element
  * @param {number} startOffset - Starting character offset
- * @returns {import('./types.js').RunEntry}
+ * @returns {import('../core/types.js').RunEntry}
  */
 function processHyperlink(hyperlinkElement, startOffset) {
     const rId = hyperlinkElement.getAttribute('r:id') || '';
@@ -346,7 +348,7 @@ function processHyperlink(hyperlinkElement, startOffset) {
 
     for (const run of runs) {
         const textNodes = run.getElementsByTagNameNS(NS_W, 't');
-        for (const t of textNodes) {
+        for (const t of Array.from(textNodes)) {
             text += t.textContent || '';
         }
     }
@@ -359,7 +361,7 @@ function processHyperlink(hyperlinkElement, startOffset) {
         rId,
         anchor,
         rPrXml: '',
-        nodeXml: new XMLSerializer().serializeToString(hyperlinkElement)
+        nodeXml: serializeXml(hyperlinkElement)
     };
 }
 
@@ -546,7 +548,7 @@ function parseCellBlocks(tcNode) {
     for (const p of paragraphs) {
         // We need a full paragraph OOXML string for ingestOoxml
         // For efficiency, we can wrap the single paragraph node
-        const pXml = new XMLSerializer().serializeToString(p);
+        const pXml = serializeXml(p);
         const { runModel, acceptedText, pPr } = ingestOoxml(pXml);
         cellBlocks.push({
             runModel,
@@ -559,20 +561,22 @@ function parseCellBlocks(tcNode) {
 
 function serializeTcPr(tcPrNode) {
     if (!tcPrNode) return '<w:tcPr/>';
-    return new XMLSerializer().serializeToString(tcPrNode);
+    return serializeXml(tcPrNode);
 }
 
 function extractTblPr(tableNode) {
     const tblPr = tableNode.getElementsByTagNameNS(NS_W, 'tblPr')[0] || null;
-    return tblPr ? new XMLSerializer().serializeToString(tblPr) : '<w:tblPr/>';
+    return tblPr ? serializeXml(tblPr) : '<w:tblPr/>';
 }
 
 function extractTblGrid(tableNode) {
     const tblGrid = tableNode.getElementsByTagNameNS(NS_W, 'tblGrid')[0] || null;
-    return tblGrid ? new XMLSerializer().serializeToString(tblGrid) : '<w:tblGrid/>';
+    return tblGrid ? serializeXml(tblGrid) : '<w:tblGrid/>';
 }
 
 function extractTrPr(trNode) {
     const trPr = trNode.getElementsByTagNameNS(NS_W, 'trPr')[0] || null;
-    return trPr ? new XMLSerializer().serializeToString(trPr) : '<w:trPr/>';
+    return trPr ? serializeXml(trPr) : '<w:trPr/>';
 }
+
+

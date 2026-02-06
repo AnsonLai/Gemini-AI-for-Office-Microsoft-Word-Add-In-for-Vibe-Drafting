@@ -1,3 +1,4 @@
+import './setup-xml-provider.mjs';
 /**
  * Comment Engine Tests
  * 
@@ -14,7 +15,7 @@ import {
     wrapWithCommentsPart,
     injectCommentsIntoPackage,
     resetRevisionIdCounter
-} from '../src/taskpane/modules/reconciliation/comment-engine.js';
+} from '../src/taskpane/modules/reconciliation/services/comment-engine.js';
 
 // --- Mock Browser Environment ---
 const dom = new JSDOM('');
@@ -276,3 +277,4 @@ console.log('========================================\n');
 if (failCount > 0) {
     process.exit(1);
 }
+

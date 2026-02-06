@@ -5,7 +5,8 @@
  * the new OOXML-based reconciliation pipeline.
  */
 
-import { ReconciliationPipeline } from './index.js';
+import { ReconciliationPipeline } from '../index.js';
+import { log, warn, error } from '../adapters/logger.js';
 
 /**
  * Applies OOXML-level reconciliation to a paragraph.
@@ -29,7 +30,7 @@ export async function applyReconciliationToParagraph(paragraph, newText, context
         await context.sync();
 
         const originalOoxml = ooxmlResult.value;
-        console.log('[Integration] Got paragraph OOXML, length:', originalOoxml.length);
+        log('[Integration] Got paragraph OOXML, length:', originalOoxml.length);
 
         // Step 2: Run the reconciliation pipeline
         const pipeline = new ReconciliationPipeline({
@@ -41,7 +42,7 @@ export async function applyReconciliationToParagraph(paragraph, newText, context
         const result = await pipeline.execute(originalOoxml, newText);
 
         if (!result.isValid && result.warnings.length > 0) {
-            console.warn('[Integration] Pipeline warnings:', result.warnings);
+            warn('[Integration] Pipeline warnings:', result.warnings);
         }
 
         // Step 3: Wrap for insertion if needed
@@ -51,18 +52,18 @@ export async function applyReconciliationToParagraph(paragraph, newText, context
         paragraph.insertOoxml(wrappedOoxml, 'Replace');
         await context.sync();
 
-        console.log('[Integration] Successfully applied OOXML reconciliation');
+        log('[Integration] Successfully applied OOXML reconciliation');
 
         return {
             success: true,
             message: 'Changes applied via OOXML reconciliation'
         };
 
-    } catch (error) {
-        console.error('[Integration] Reconciliation failed:', error);
+    } catch (errorObj) {
+        error('[Integration] Reconciliation failed:', errorObj);
         return {
             success: false,
-            message: `Reconciliation error: ${error.message}`
+            message: `Reconciliation error: ${errorObj.message}`
         };
     }
 }

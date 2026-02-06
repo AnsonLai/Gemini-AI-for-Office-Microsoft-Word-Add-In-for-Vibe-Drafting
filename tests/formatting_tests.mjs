@@ -1,11 +1,12 @@
+import './setup-xml-provider.mjs';
 
 import { JSDOM } from 'jsdom';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/oxml-engine.js';
-import { wordsToChars, charsToWords } from '../src/taskpane/modules/reconciliation/diff-engine.js';
-import { preprocessMarkdown } from '../src/taskpane/modules/reconciliation/markdown-processor.js';
+import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
+import { wordsToChars, charsToWords } from '../src/taskpane/modules/reconciliation/pipeline/diff-engine.js';
+import { preprocessMarkdown } from '../src/taskpane/modules/reconciliation/pipeline/markdown-processor.js';
 import { diff_match_patch } from 'diff-match-patch';
 
 // --- Global Setup ---
@@ -231,3 +232,4 @@ async function testMiddleFormat() {
         console.log("❌ FAIL: Formatting missing. Bold:", hasBold, "Italic:", hasItalic);
     }
 }
+

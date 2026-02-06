@@ -4,11 +4,11 @@
  * Logic for reconciling tables using a Virtual Grid to handle merged cells.
  */
 
-import { computeWordLevelDiffOps } from './diff-engine.js';
-import { splitRunsAtDiffBoundaries, applyPatches } from './patching.js';
-import { serializeToOoxml } from './serialization.js';
-import { NS_W, getNextRevisionId, escapeXml, RunKind } from './types.js';
-import { preprocessMarkdown } from './markdown-processor.js';
+import { computeWordLevelDiffOps } from '../pipeline/diff-engine.js';
+import { splitRunsAtDiffBoundaries, applyPatches } from '../pipeline/patching.js';
+import { serializeToOoxml } from '../pipeline/serialization.js';
+import { NS_W, getNextRevisionId, escapeXml, RunKind } from '../core/types.js';
+import { preprocessMarkdown } from '../pipeline/markdown-processor.js';
 
 /**
  * Generates a new w:tbl OOXML structure from Markdown table data.

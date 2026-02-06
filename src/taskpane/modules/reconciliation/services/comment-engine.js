@@ -9,42 +9,11 @@
  * 3. Relationship entry linking to comments.xml
  */
 
-// WordprocessingML namespace
-const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+import { NS_W, escapeXml, getNextRevisionId, resetRevisionIdCounter } from '../core/types.js';
+import { createParser, createSerializer } from '../adapters/xml-adapter.js';
+import { log, error as logError } from '../adapters/logger.js';
 
-// Global counter for unique revision/comment IDs
-let revisionIdCounter = 1000;
-
-/**
- * Gets the next unique revision ID for comments
- * @returns {number} Unique ID
- */
-export function getNextRevisionId() {
-    return revisionIdCounter++;
-}
-
-/**
- * Resets the revision ID counter (for testing)
- * @param {number} [startValue=1000] - Value to reset to
- */
-export function resetRevisionIdCounter(startValue = 1000) {
-    revisionIdCounter = startValue;
-}
-
-/**
- * Escapes XML special characters
- * @param {string} str - String to escape
- * @returns {string} Escaped string
- */
-function escapeXml(str) {
-    if (!str) return '';
-    return str
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&apos;');
-}
+export { getNextRevisionId, resetRevisionIdCounter };
 
 // ============================================================================
 // TYPES
@@ -152,7 +121,7 @@ function findTextInParagraph(paragraph, searchText) {
     for (const run of runs) {
         const start = fullText.length;
         const textNodes = run.getElementsByTagName('w:t');
-        for (const t of textNodes) {
+        for (const t of Array.from(textNodes)) {
             fullText += t.textContent || '';
         }
         runOffsets.push({ run, start, end: fullText.length });
@@ -385,14 +354,14 @@ export function injectCommentsIntoOoxml(oxml, comments, options = {}) {
         };
     }
 
-    const parser = new DOMParser();
-    const serializer = new XMLSerializer();
+    const parser = createParser();
+    const serializer = createSerializer();
 
     let xmlDoc;
     try {
         xmlDoc = parser.parseFromString(oxml, 'text/xml');
     } catch (e) {
-        console.error('[CommentEngine] Failed to parse OXML:', e);
+        logError('[CommentEngine] Failed to parse OXML:', e);
         return {
             oxml,
             commentsApplied: 0,
@@ -403,7 +372,7 @@ export function injectCommentsIntoOoxml(oxml, comments, options = {}) {
     // Check for parse errors
     const parseError = xmlDoc.getElementsByTagName('parsererror')[0];
     if (parseError) {
-        console.error('[CommentEngine] XML parse error:', parseError.textContent);
+        logError('[CommentEngine] XML parse error:', parseError.textContent);
         return {
             oxml,
             commentsApplied: 0,
@@ -413,7 +382,7 @@ export function injectCommentsIntoOoxml(oxml, comments, options = {}) {
 
     // Get all paragraphs
     const paragraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
-    console.log(`[CommentEngine] Found ${paragraphs.length} paragraphs, processing ${comments.length} comment requests`);
+    log(`[CommentEngine] Found ${paragraphs.length} paragraphs, processing ${comments.length} comment requests`);
 
     // Process each comment request
     for (const comment of comments) {
@@ -441,7 +410,7 @@ export function injectCommentsIntoOoxml(oxml, comments, options = {}) {
                 author,
                 date
             });
-            console.log(`[CommentEngine] Placed comment ${commentId} on paragraph ${comment.paragraphIndex}`);
+            log(`[CommentEngine] Placed comment ${commentId} on paragraph ${comment.paragraphIndex}`);
         } else {
             warnings.push(`Could not find "${comment.textToFind.substring(0, 30)}..." in paragraph ${comment.paragraphIndex}`);
         }
@@ -489,8 +458,8 @@ export function injectCommentIntoParagraphOoxml(paragraphOoxml, textToFind, comm
     const date = new Date().toISOString();
     const commentId = getNextRevisionId();
 
-    const parser = new DOMParser();
-    const serializer = new XMLSerializer();
+    const parser = createParser();
+    const serializer = createSerializer();
 
     let xmlDoc;
     try {
@@ -594,15 +563,15 @@ function wrapParagraphWithComments(paragraphXml, commentsXml) {
  * @returns {string} Complete pkg:package with comments part added
  */
 export function injectCommentsIntoPackage(packageOxml, commentsXml) {
-    const parser = new DOMParser();
-    const serializer = new XMLSerializer();
+    const parser = createParser();
+    const serializer = createSerializer();
 
     const pkgDoc = parser.parseFromString(packageOxml, 'text/xml');
 
     // Check for parse errors
     const parseError = pkgDoc.getElementsByTagName('parsererror')[0];
     if (parseError) {
-        console.error('[CommentEngine] Failed to parse package:', parseError.textContent);
+        logError('[CommentEngine] Failed to parse package:', parseError.textContent);
         return packageOxml;
     }
 
@@ -722,3 +691,4 @@ export function wrapWithCommentsPart(documentXml, commentsXml) {
   </pkg:part>
 </pkg:package>`;
 }
+
