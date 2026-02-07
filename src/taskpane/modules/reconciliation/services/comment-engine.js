@@ -91,29 +91,26 @@ export function injectCommentsIntoOoxml(oxml, comments, options = {}) {
     const paragraphs = getElementsByTag(xmlDoc, 'w:p');
     log(`[CommentEngine] Found ${paragraphs.length} paragraphs, processing ${comments.length} comment requests`);
 
-    /** @type {Array<{ paragraphIndex: number, request: CommentRequest }>} */
-    const validRequests = [];
     /** @type {Map<number, number>} */
     const remainingRequestsByParagraph = new Map();
-
     for (const request of comments) {
         const paragraphIndex = request.paragraphIndex - 1;
         if (paragraphIndex < 0 || paragraphIndex >= paragraphs.length) {
             warnings.push(`Paragraph ${request.paragraphIndex} out of range (1-${paragraphs.length})`);
             continue;
         }
-
-        validRequests.push({ paragraphIndex, request });
-        remainingRequestsByParagraph.set(
-            paragraphIndex,
-            (remainingRequestsByParagraph.get(paragraphIndex) || 0) + 1
-        );
+        remainingRequestsByParagraph.set(paragraphIndex, (remainingRequestsByParagraph.get(paragraphIndex) || 0) + 1);
     }
 
     /** @type {Map<number, { fullText: string, runOffsets: Array<{run: Element, start: number, end: number}> }>} */
     const paragraphIndexes = new Map();
 
-    for (const { paragraphIndex, request } of validRequests) {
+    for (const request of comments) {
+        const paragraphIndex = request.paragraphIndex - 1;
+        if (paragraphIndex < 0 || paragraphIndex >= paragraphs.length) {
+            continue;
+        }
+
         const targetParagraph = paragraphs[paragraphIndex];
         let textIndex = paragraphIndexes.get(paragraphIndex);
         if (!textIndex) {
@@ -147,7 +144,6 @@ export function injectCommentsIntoOoxml(oxml, comments, options = {}) {
             author,
             date
         });
-        log(`[CommentEngine] Placed comment ${commentId} on paragraph ${request.paragraphIndex}`);
 
         if (remaining > 0) {
             // Rebuild only when another request still targets this paragraph.

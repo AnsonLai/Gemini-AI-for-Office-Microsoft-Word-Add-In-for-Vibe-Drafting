@@ -1,6 +1,6 @@
 /**
  * OOXML Reconciliation Pipeline - Patching
- * 
+ *
  * Splits runs at diff boundaries and applies patch operations.
  */
 
@@ -10,112 +10,68 @@ import { matchListMarker, stripListMarker } from './list-markers.js';
 
 /**
  * Splits runs at diff operation boundaries for precise patching.
- * 
+ *
  * @param {import('../core/types.js').RunEntry[]} runModel - Original run model
  * @param {import('../core/types.js').DiffOperation[]} diffOps - Diff operations
  * @returns {import('../core/types.js').RunEntry[]} Split run model
  */
 export function splitRunsAtDiffBoundaries(runModel, diffOps) {
-    // Collect all boundary points
-    const boundaries = new Set();
-    for (const op of diffOps) {
-        boundaries.add(op.startOffset);
-        boundaries.add(op.endOffset);
-    }
-
+    const boundaries = buildSortedDiffBoundaries(diffOps);
     const newModel = [];
+    let boundaryCursor = 0;
 
     for (const run of runModel) {
-        // Skip non-text runs (bookmarks, containers, paragraph markers, etc.)
         if (run.kind !== RunKind.TEXT && run.kind !== RunKind.HYPERLINK) {
             newModel.push(run);
             continue;
         }
 
-        // Find boundaries that fall within this run
-        const runBoundaries = [...boundaries]
-            .filter(b => b > run.startOffset && b < run.endOffset)
-            .sort((a, b) => a - b);
+        while (boundaryCursor < boundaries.length && boundaries[boundaryCursor] <= run.startOffset) {
+            boundaryCursor++;
+        }
 
-        if (runBoundaries.length === 0) {
-            // No splits needed
-            newModel.push(run);
-        } else {
-            // Split the run at each boundary
-            let currentStart = run.startOffset;
+        let cursor = boundaryCursor;
+        let currentStart = run.startOffset;
+        let hasSplit = false;
 
-            for (const boundary of runBoundaries) {
-                const localStart = currentStart - run.startOffset;
-                const localEnd = boundary - run.startOffset;
+        while (cursor < boundaries.length) {
+            const boundary = boundaries[cursor];
+            if (boundary >= run.endOffset) break;
 
+            if (boundary > currentStart) {
+                hasSplit = true;
                 newModel.push({
                     ...run,
-                    text: run.text.slice(localStart, localEnd),
+                    text: run.text.slice(currentStart - run.startOffset, boundary - run.startOffset),
                     startOffset: currentStart,
                     endOffset: boundary
                 });
-
                 currentStart = boundary;
             }
-
-            // Add the final segment
-            const localStart = currentStart - run.startOffset;
-            newModel.push({
-                ...run,
-                text: run.text.slice(localStart),
-                startOffset: currentStart,
-                endOffset: run.endOffset
-            });
+            cursor++;
         }
+
+        boundaryCursor = cursor;
+
+        if (!hasSplit) {
+            newModel.push(run);
+            continue;
+        }
+
+        newModel.push({
+            ...run,
+            text: run.text.slice(currentStart - run.startOffset),
+            startOffset: currentStart,
+            endOffset: run.endOffset
+        });
     }
 
     return newModel;
 }
 
 /**
- * Style inheritance strategy - determines which run's formatting to use for insertions.
- */
-const StyleInheritance = {
-    /**
-     * Finds the appropriate style source for an insertion.
-     * 
-     * @param {import('../core/types.js').RunEntry[]} runModel - Run model
-     * @param {number} offset - Insertion offset
-     * @param {string} insertText - Text being inserted
-     * @returns {import('../core/types.js').RunEntry|null}
-     */
-    forInsertion(runModel, offset, insertText) {
-        const prevRun = this.findRunBefore(runModel, offset);
-        const nextRun = this.findRunAfter(runModel, offset);
-
-        if (!prevRun && !nextRun) return null;
-        if (!prevRun) return nextRun;
-        if (!nextRun) return prevRun;
-
-        // Text ending with space = new phrase → inherit from NEXT
-        if (insertText && insertText.endsWith(' ')) return nextRun;
-
-        // Text starting with space = continuation → inherit from PREV
-        if (insertText && insertText.startsWith(' ')) return prevRun;
-
-        // Default to previous run's style
-        return prevRun;
-    },
-
-    findRunBefore(model, offset) {
-        return model
-            .filter(r => r.endOffset <= offset && r.kind === RunKind.TEXT)
-            .pop() || null;
-    },
-
-    findRunAfter(model, offset) {
-        return model.find(r => r.startOffset >= offset && r.kind === RunKind.TEXT) || null;
-    }
-};
-
-/**
  * Applies diff operations to the split run model.
- * 
+ *
  * @param {import('../core/types.js').RunEntry[]} splitModel - Pre-split run model
  * @param {import('../core/types.js').DiffOperation[]} diffOps - Diff operations
  * @param {Object} options - Patching options
@@ -125,199 +81,86 @@ const StyleInheritance = {
  * @returns {import('../core/types.js').RunEntry[]}
  */
 export function applyPatches(splitModel, diffOps, options) {
-    const { generateRedlines, author, formatHints = [] } = options;
+    const { generateRedlines, author } = options;
     const patchedModel = [];
     const processedInsertions = new Set();
     const diffLookup = buildPatchLookupIndex(diffOps);
-    let coveringOpCursor = 0;
-
-    const containerStack = [];
-    const getCoveringDiffOp = (run) => {
-        const nonInsertOps = diffLookup.nonInsertOps;
-        while (coveringOpCursor < nonInsertOps.length && nonInsertOps[coveringOpCursor].endOffset <= run.startOffset) {
-            coveringOpCursor++;
-        }
-
-        const operation = nonInsertOps[coveringOpCursor];
-        if (!operation) return null;
-
-        if (operation.startOffset <= run.startOffset && operation.endOffset >= run.endOffset) {
-            return operation;
-        }
-
-        return null;
+    const styleLookup = buildTextRunLookup(splitModel);
+    const getCoveringDiffOp = createRangeCursorLookup(diffLookup.nonInsertOps);
+    const state = {
+        containerStack: [],
+        lastParagraphStartIndex: -1
     };
 
     for (const run of splitModel) {
-        // Track container stack
         if (run.kind === RunKind.CONTAINER_START) {
-            containerStack.push(run.containerId);
+            state.containerStack.push(run.containerId);
             patchedModel.push({ ...run });
             continue;
         }
+
         if (run.kind === RunKind.CONTAINER_END) {
-            containerStack.pop();
+            state.containerStack.pop();
             patchedModel.push({ ...run });
             continue;
         }
 
-        // Paragraph markers pass-through - track current context
         if (run.kind === RunKind.PARAGRAPH_START) {
-            containerStack.pPrXml = run.pPrXml; // Track current pPr
+            state.containerStack.pPrXml = run.pPrXml;
+            patchedModel.push({ ...run });
+            state.lastParagraphStartIndex = patchedModel.length - 1;
+            continue;
+        }
+
+        if (run.kind === RunKind.BOOKMARK || run.kind === RunKind.DELETION) {
             patchedModel.push({ ...run });
             continue;
         }
 
-        // Bookmark pass-through
-        if (run.kind === RunKind.BOOKMARK) {
-            patchedModel.push({ ...run });
-            continue;
-        }
-
-        // Deletions from ingestion pass through
-        if (run.kind === RunKind.DELETION) {
-            patchedModel.push({ ...run });
-            continue;
-        }
-
-        // Find the diff operation that applies to this run
-        const op = getCoveringDiffOp(run);
-
-        // Handle insertions that occur at this run's start
+        const op = getCoveringDiffOp(run.startOffset, run.endOffset);
         const insertOps = diffLookup.insertOpsByStartOffset.get(run.startOffset) || [];
 
         for (const insertOp of insertOps) {
             if (processedInsertions.has(insertOp)) continue;
             processedInsertions.add(insertOp);
-
-            // Split insertion by newlines to handle paragraph breaks/lists
-            const lines = insertOp.text.split('\n');
-            const styleSource = StyleInheritance.forInsertion(splitModel, insertOp.startOffset, insertOp.text);
-
-            lines.forEach((line, index) => {
-                // If we have numbering service, check for list markers on EVERY line
-                let markerMatch = null;
-                let marker = null;
-                let ilvl = 0;
-                let numId = null;
-
-                if (options.numberingService) {
-                    markerMatch = matchListMarker(line, { allowZeroSpaceAfterMarker: true });
-
-                    if (markerMatch) {
-                        marker = markerMatch[2].trim();
-                        const { format, depth: markerLevel } = options.numberingService.detectNumberingFormat(marker);
-
-                        // Detect indentation
-                        const indentMatch = line.match(/^(\s*)/);
-                        const indentSize = indentMatch ? indentMatch[1].length : 0;
-                        const indentStep = indentSize >= 4 ? 4 : 2;
-                        let indentLevel = Math.floor(indentSize / indentStep);
-
-                        // Stripe the marker from the line text
-                        line = stripListMarker(line, { allowZeroSpaceAfterMarker: true });
-
-                        // Resolve numId based on context
-                        let currentPPrXml = containerStack.pPrXml || '';
-                        const numIdMatch = currentPPrXml.match(/w:numId w:val="(\d+)"/);
-                        const ilvlMatch = currentPPrXml.match(/w:ilvl w:val="(\d+)"/);
-
-                        const contextNumId = numIdMatch ? numIdMatch[1] : null;
-                        const contextIlvl = ilvlMatch ? parseInt(ilvlMatch[1], 10) : 0;
-
-                        numId = options.numberingService.getOrCreateNumId(
-                            { type: format },
-                            { numId: contextNumId, type: 'unknown' }
-                        );
-
-                        // Final ilvl: 
-                        // If it's an outline format (e.g. 1.1.1), it's usually absolute
-                        if (format === 'outline') {
-                            ilvl = Math.min(8, markerLevel);
-                        } else {
-                            // Simple format: relative to current context level
-                            ilvl = Math.min(8, indentLevel + contextIlvl);
-                        }
-                    }
-                }
-
-                // For subsequent lines, we need to start a new paragraph
-                if (index > 0) {
-                    let newPPrXml = containerStack.pPrXml || '';
-                    if (markerMatch && numId) {
-                        newPPrXml = options.numberingService.buildListPPr(numId, ilvl);
-                    }
-
-                    patchedModel.push({
-                        kind: RunKind.PARAGRAPH_START,
-                        pPrXml: newPPrXml,
-                        startOffset: insertOp.startOffset,
-                        endOffset: insertOp.startOffset,
-                        text: ''
-                    });
-
-                    // Update context
-                    containerStack.pPrXml = newPPrXml;
-                } else if (markerMatch && numId) {
-                    // First line has a marker: Check if we need to convert current paragraph to a list
-                    // Find the last PARAGRAPH_START in patchedModel and update its pPrXml
-                    const lastPStart = [...patchedModel].reverse().find(r => r.kind === RunKind.PARAGRAPH_START);
-                    if (lastPStart) {
-                        const newPPrXml = options.numberingService.buildListPPr(numId, ilvl);
-                        lastPStart.pPrXml = newPPrXml;
-                        containerStack.pPrXml = newPPrXml;
-                        log(`[Patching] Converted current paragraph to list item: numId=${numId}, ilvl=${ilvl}`);
-                    }
-                }
-
-                if (line.length > 0 || (index > 0)) { // Always push something for index > 0 to ensure the paragraph is created
-                    patchedModel.push({
-                        kind: generateRedlines ? RunKind.INSERTION : RunKind.TEXT,
-                        text: line,
-                        rPrXml: styleSource?.rPrXml || '',
-                        startOffset: insertOp.startOffset,
-                        endOffset: insertOp.startOffset + line.length,
-                        author: generateRedlines ? author : undefined,
-                        containerContext: containerStack.length > 0 ? containerStack[containerStack.length - 1] : null
-                    });
-                }
+            processInsertionOperation({
+                insertOp,
+                splitModel,
+                styleLookup,
+                patchedModel,
+                state,
+                options,
+                generateRedlines,
+                author
             });
         }
 
-        // Process the run based on the diff operation
         if (!op || op.type === DiffOp.EQUAL) {
-            // No change - keep the run
             patchedModel.push({
                 ...run,
-                containerContext: containerStack.length > 0 ? containerStack[containerStack.length - 1] : null
+                containerContext: state.containerStack.length > 0 ? state.containerStack[state.containerStack.length - 1] : null
             });
-        } else if (op.type === DiffOp.DELETE) {
-            if (generateRedlines) {
-                // Mark as deletion
-                patchedModel.push({
-                    ...run,
-                    kind: RunKind.DELETION,
-                    author,
-                    containerContext: containerStack.length > 0 ? containerStack[containerStack.length - 1] : null
-                });
-            }
-            // If not generating redlines, simply omit the run
+            continue;
+        }
+
+        if (op.type === DiffOp.DELETE && generateRedlines) {
+            patchedModel.push({
+                ...run,
+                kind: RunKind.DELETION,
+                author,
+                containerContext: state.containerStack.length > 0 ? state.containerStack[state.containerStack.length - 1] : null
+            });
         }
     }
 
-    // Handle insertions at the very end
     const endOffset = splitModel.length > 0
-        ? Math.max(...splitModel.map(r => r.endOffset))
+        ? Math.max(...splitModel.map(run => run.endOffset))
         : 0;
 
-    const endInsertOps = diffLookup.sortedInsertOps.filter(o =>
-        o.startOffset >= endOffset &&
-        !processedInsertions.has(o)
-    );
+    for (const insertOp of diffLookup.sortedInsertOps) {
+        if (insertOp.startOffset < endOffset || processedInsertions.has(insertOp)) continue;
 
-    for (const insertOp of endInsertOps) {
         const lastRun = splitModel[splitModel.length - 1];
-
         patchedModel.push({
             kind: generateRedlines ? RunKind.INSERTION : RunKind.TEXT,
             text: insertOp.text,
@@ -331,9 +174,182 @@ export function applyPatches(splitModel, diffOps, options) {
     return patchedModel;
 }
 
+function processInsertionOperation(context) {
+    const {
+        insertOp,
+        splitModel,
+        styleLookup,
+        patchedModel,
+        state,
+        options,
+        generateRedlines,
+        author
+    } = context;
+
+    const lines = insertOp.text.split('\n');
+    const styleSource = chooseInsertionStyle(styleLookup, insertOp.startOffset, insertOp.text);
+
+    for (let index = 0; index < lines.length; index++) {
+        const parsed = parseInsertionLine(lines[index], options.numberingService, state.containerStack.pPrXml);
+        const lineText = parsed.lineText;
+
+        if (index > 0) {
+            let newPPrXml = state.containerStack.pPrXml || '';
+            if (parsed.isListLine && parsed.numId) {
+                newPPrXml = options.numberingService.buildListPPr(parsed.numId, parsed.ilvl);
+            }
+
+            patchedModel.push({
+                kind: RunKind.PARAGRAPH_START,
+                pPrXml: newPPrXml,
+                startOffset: insertOp.startOffset,
+                endOffset: insertOp.startOffset,
+                text: ''
+            });
+            state.containerStack.pPrXml = newPPrXml;
+            state.lastParagraphStartIndex = patchedModel.length - 1;
+        } else if (parsed.isListLine && parsed.numId && state.lastParagraphStartIndex >= 0) {
+            const newPPrXml = options.numberingService.buildListPPr(parsed.numId, parsed.ilvl);
+            patchedModel[state.lastParagraphStartIndex].pPrXml = newPPrXml;
+            state.containerStack.pPrXml = newPPrXml;
+            log(`[Patching] Converted current paragraph to list item: numId=${parsed.numId}, ilvl=${parsed.ilvl}`);
+        }
+
+        if (lineText.length > 0 || index > 0) {
+            patchedModel.push({
+                kind: generateRedlines ? RunKind.INSERTION : RunKind.TEXT,
+                text: lineText,
+                rPrXml: styleSource?.rPrXml || '',
+                startOffset: insertOp.startOffset,
+                endOffset: insertOp.startOffset + lineText.length,
+                author: generateRedlines ? author : undefined,
+                containerContext: state.containerStack.length > 0 ? state.containerStack[state.containerStack.length - 1] : null
+            });
+        }
+    }
+}
+
+function parseInsertionLine(line, numberingService, currentPPrXml = '') {
+    if (!numberingService) {
+        return { lineText: line, isListLine: false, numId: null, ilvl: 0 };
+    }
+
+    const markerMatch = matchListMarker(line, { allowZeroSpaceAfterMarker: true });
+    if (!markerMatch) {
+        return { lineText: line, isListLine: false, numId: null, ilvl: 0 };
+    }
+
+    const marker = markerMatch[2].trim();
+    const lineFormat = numberingService.detectNumberingFormat(marker);
+    const indentMatch = line.match(/^(\s*)/);
+    const indentSize = indentMatch ? indentMatch[1].length : 0;
+    const indentStep = indentSize >= 4 ? 4 : 2;
+    const indentLevel = Math.floor(indentSize / indentStep);
+
+    const lineText = stripListMarker(line, { allowZeroSpaceAfterMarker: true });
+    const numIdMatch = currentPPrXml.match(/w:numId w:val="(\d+)"/);
+    const ilvlMatch = currentPPrXml.match(/w:ilvl w:val="(\d+)"/);
+    const contextNumId = numIdMatch ? numIdMatch[1] : null;
+    const contextIlvl = ilvlMatch ? parseInt(ilvlMatch[1], 10) : 0;
+
+    const numId = numberingService.getOrCreateNumId(
+        { type: lineFormat.format },
+        { numId: contextNumId, type: 'unknown' }
+    );
+
+    const ilvl = lineFormat.format === 'outline'
+        ? Math.min(8, lineFormat.depth)
+        : Math.min(8, indentLevel + contextIlvl);
+
+    return { lineText, isListLine: true, numId, ilvl };
+}
+
+function chooseInsertionStyle(styleLookup, offset, insertText) {
+    const prevRun = styleLookup.findRunBefore(offset);
+    const nextRun = styleLookup.findRunAfter(offset);
+
+    if (!prevRun && !nextRun) return null;
+    if (!prevRun) return nextRun;
+    if (!nextRun) return prevRun;
+
+    if (insertText && insertText.endsWith(' ')) return nextRun;
+    if (insertText && insertText.startsWith(' ')) return prevRun;
+
+    return prevRun;
+}
+
+function buildTextRunLookup(runModel) {
+    const textRuns = runModel.filter(run => run.kind === RunKind.TEXT);
+    const starts = textRuns.map(run => run.startOffset);
+    const ends = textRuns.map(run => run.endOffset);
+
+    return {
+        findRunBefore(offset) {
+            let left = 0;
+            let right = ends.length - 1;
+            let answer = -1;
+
+            while (left <= right) {
+                const middle = (left + right) >> 1;
+                if (ends[middle] <= offset) {
+                    answer = middle;
+                    left = middle + 1;
+                } else {
+                    right = middle - 1;
+                }
+            }
+
+            return answer >= 0 ? textRuns[answer] : null;
+        },
+
+        findRunAfter(offset) {
+            let left = 0;
+            let right = starts.length - 1;
+            let answer = -1;
+
+            while (left <= right) {
+                const middle = (left + right) >> 1;
+                if (starts[middle] >= offset) {
+                    answer = middle;
+                    right = middle - 1;
+                } else {
+                    left = middle + 1;
+                }
+            }
+
+            return answer >= 0 ? textRuns[answer] : null;
+        }
+    };
+}
+
+function createRangeCursorLookup(operations) {
+    let cursor = 0;
+    return (startOffset, endOffset) => {
+        while (cursor < operations.length && operations[cursor].endOffset <= startOffset) {
+            cursor++;
+        }
+
+        const operation = operations[cursor];
+        if (!operation) return null;
+        if (operation.startOffset <= startOffset && operation.endOffset >= endOffset) {
+            return operation;
+        }
+        return null;
+    };
+}
+
+function buildSortedDiffBoundaries(diffOps) {
+    const unique = new Set();
+    for (const op of diffOps) {
+        unique.add(op.startOffset);
+        unique.add(op.endOffset);
+    }
+    return Array.from(unique).sort((a, b) => a - b);
+}
+
 /**
  * Builds indexed diff lookups for patching hot paths.
- * 
+ *
  * @param {import('../core/types.js').DiffOperation[]} diffOps - Diff operations
  * @returns {{
  *   insertOpsByStartOffset: Map<number, import('../core/types.js').DiffOperation[]>,
@@ -355,7 +371,6 @@ function buildPatchLookupIndex(diffOps) {
             sortedInsertOps.push(op);
             continue;
         }
-
         nonInsertOps.push(op);
     }
 
@@ -368,4 +383,3 @@ function buildPatchLookupIndex(diffOps) {
         sortedInsertOps
     };
 }
-

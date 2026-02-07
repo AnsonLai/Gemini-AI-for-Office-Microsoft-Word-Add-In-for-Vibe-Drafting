@@ -23,16 +23,22 @@ reconciliation/
 │   ├── oxml-engine.js
 │   ├── surgical-mode.js
 │   ├── reconstruction-mode.js
+│   ├── reconstruction-mapper.js
+│   ├── reconstruction-writer.js
 │   ├── format-extraction.js
 │   ├── format-application.js
 │   ├── format-paragraph-targeting.js
 │   ├── format-span-application.js
 │   ├── rpr-helpers.js
 │   ├── run-builders.js
+│   ├── table-mode.js
 │   └── table-cell-context.js
 ├── pipeline/
 │   ├── pipeline.js
 │   ├── ingestion.js
+│   ├── ingestion-paragraph.js
+│   ├── ingestion-table.js
+│   ├── ingestion-xml.js
 │   ├── diff-engine.js
 │   ├── list-markers.js
 │   ├── patching.js
@@ -65,6 +71,12 @@ reconciliation/
 - `pipeline/*`
   - General reconciliation pipeline for run-model diffing/patching/serialization.
   - Used for list generation and compatibility flows.
+- `pipeline/ingestion-paragraph.js`
+  - Paragraph/run ingestion with node-handler dispatch and numbering context detection.
+- `pipeline/ingestion-table.js`
+  - Virtual-grid table ingestion and merged-cell parsing.
+- `pipeline/ingestion-xml.js`
+  - Shared ingestion helpers for child-node traversal and attribute serialization.
 - `pipeline/list-markers.js`
   - Shared list marker regex/detection helpers used by router/pipeline/patching.
 - `services/table-reconciliation.js`
@@ -79,7 +91,11 @@ reconciliation/
 - `engine/surgical-mode.js`
   - In-place edits for table-heavy/structure-sensitive content.
 - `engine/reconstruction-mode.js`
-  - Rebuild-oriented flow for non-table content where structure changes are allowed.
+  - Thin orchestration for reconstruction mapping + writing.
+- `engine/reconstruction-mapper.js`
+  - Builds reconstruction maps (paragraph/property/sentinel/reference) and indexed lookups.
+- `engine/reconstruction-writer.js`
+  - Applies diffs against mapped context and writes updated content fragments.
 - `engine/format-extraction.js`
   - Extracts spans and existing formatting from paragraphs/runs.
 - `engine/format-application.js`
@@ -94,6 +110,8 @@ reconciliation/
   - Shared constructors for runs and track-change nodes.
 - `engine/table-cell-context.js`
   - Detects table-cell wrapper contexts and paragraph-only serialization.
+- `engine/table-mode.js`
+  - Table reconciliation/text-to-table transformation flows extracted from router.
 - `integration/integration.js`
   - Word API bridge (`paragraph.getOoxml()/insertOoxml()`).
 - `index.js`

@@ -6,14 +6,16 @@
 
 import { ingestOoxml } from './ingestion.js';
 import { preprocessMarkdown } from './markdown-processor.js';
-import { isListTargetStrict, matchListMarker, extractListMarker, stripListMarker } from './list-markers.js';
+import { isListTargetStrict } from './list-markers.js';
 import { computeWordLevelDiffOps } from './diff-engine.js';
 import { splitRunsAtDiffBoundaries, applyPatches } from './patching.js';
 import { serializeToOoxml, wrapInDocumentFragment } from './serialization.js';
-import { ContentType, RunKind } from '../core/types.js';
+import { RunKind } from '../core/types.js';
 import { NumberingService } from '../services/numbering-service.js';
 import { detectNumberingContext } from './ingestion.js';
 import { generateTableOoxml } from '../services/table-reconciliation.js';
+import { executeListGeneration, detectIndentationStep } from './list-generation.js';
+import { detectContentType, parseListItems, parseTable } from './content-analysis.js';
 import { createParser } from '../adapters/xml-adapter.js';
 import { log, error as logError } from '../adapters/logger.js';
 import { getFirstElementByTagNS, getXmlParseError } from '../core/xml-query.js';
@@ -192,193 +194,16 @@ export class ReconciliationPipeline {
      * @param {string} originalText - Plain text of the original paragraph (optional, used if runModel not provided)
      */
     async executeListGeneration(cleanText, numberingContext, originalRunModel, originalText = '') {
-        const rawLines = cleanText.split('\n').filter(l => l.trim().length > 0);
-        const results = [];
-
-        // Identify the original text to be deleted across the new paragraphs
-        let deletionRuns = [];
-        if (this.generateRedlines) {
-            if (originalRunModel && originalRunModel.length > 0) {
-                deletionRuns = originalRunModel
-                    .filter(r => r.kind === 'text' || r.kind === 'run')
-                    .map(r => ({ ...r, kind: 'deletion', author: this.author }));
-            } else if (originalText && originalText.trim().length > 0) {
-                deletionRuns = [{
-                    kind: 'deletion',
-                    text: originalText.trim(),
-                    author: this.author,
-                    startOffset: 0,
-                    endOffset: originalText.trim().length
-                }];
-            }
-        }
-
-        // Determine the indentation step (2 spaces, 4 spaces, or tabs)
-        const indentStep = this.detectIndentationStep(rawLines);
-        log(`[ListGen] Detected indentation step: ${indentStep} spaces/chars`);
-
-        // Determine the primary list type and format from the first item
-        let firstMarker = '';
-
-        for (const line of rawLines) {
-            const marker = extractListMarker(line);
-            if (marker) {
-                firstMarker = marker;
-                break;
-            }
-        }
-
-        const { format: defaultFormat } = this.numberingService.detectNumberingFormat(firstMarker);
-        log(`[ListGen] Detected primary marker: "${firstMarker}", format: ${defaultFormat}`);
-
-        const isTableLine = (line) => /^\s*\|/.test(line);
-        const isTableSeparator = (line) => /^\s*\|?[\s:-]*-[-\s|:]*\|?\s*$/.test(line);
-
-        for (let i = 0; i < rawLines.length; i++) {
-            const line = rawLines[i];
-
-            // Detect markdown table blocks and generate table OOXML in-line
-            if (
-                isTableLine(line) &&
-                i + 1 < rawLines.length &&
-                isTableLine(rawLines[i + 1]) &&
-                isTableSeparator(rawLines[i + 1])
-            ) {
-                const tableLines = [];
-                let j = i;
-                while (j < rawLines.length && isTableLine(rawLines[j])) {
-                    tableLines.push(rawLines[j]);
-                    j++;
-                }
-
-                const tableText = tableLines.join('\n');
-                const tableData = parseTable(tableText);
-
-                if (tableData.headers.length > 0 || tableData.rows.length > 0) {
-                    if (this.generateRedlines && results.length === 0 && deletionRuns.length > 0) {
-                        const deletionOnlyOoxml = serializeToOoxml(deletionRuns, null, [], {
-                            author: this.author,
-                            generateRedlines: this.generateRedlines,
-                            font: this.font
-                        });
-                        results.push(deletionOnlyOoxml);
-                    }
-
-                    const tableOoxml = generateTableOoxml(tableData, {
-                        generateRedlines: this.generateRedlines,
-                        author: this.author
-                    });
-                    results.push(tableOoxml);
-                    i = j - 1;
-                    continue;
-                }
-            }
-
-            // Extract the marker for THIS line
-            const markerMatch = matchListMarker(line);
-            const currentMarker = markerMatch ? markerMatch[2].trim() : '';
-
-            let pPrXml = '';
-            let segmentText = '';
-
-            // Check for Markdown Headers (e.g. ### Header)
-            const headerMatch = line.match(/^\s*(#{1,9})\s+(.*)/);
-
-            if (headerMatch) {
-                // --- HEADER ---
-                const level = Math.min(headerMatch[1].length, 9); // 1 to 9
-                const outlineLevel = Math.min(level - 1, 8);
-                const headingSizes = [32, 28, 26, 24, 22, 20, 20, 20, 20]; // half-points
-                const headingSize = headingSizes[level - 1] || headingSizes[headingSizes.length - 1];
-                segmentText = headerMatch[2].trim();
-                // Create pPr with Heading style + outline level, with a size/bold fallback
-                pPrXml = `<w:pPr><w:pStyle w:val="Heading${level}"/><w:outlineLvl w:val="${outlineLevel}"/><w:rPr><w:b/><w:sz w:val="${headingSize}"/><w:szCs w:val="${headingSize}"/></w:rPr></w:pPr>`;
-
-                // Intentionally do NOT process as list item (omit numPr)
-            } else if (currentMarker) {
-                // --- LIST ITEM ---
-                // If marker exists, detect its specific format (supports mixed lists)
-                const lineFormatInfo = this.numberingService.detectNumberingFormat(currentMarker);
-
-                // Detect indentation
-                const indentMatch = line.match(/^(\s*)/);
-                const indentSize = indentMatch ? indentMatch[1].length : 0;
-
-                // Calculate level
-                let ilvl = 0;
-                const indentLevel = indentStep > 0 ? Math.floor(indentSize / indentStep) : 0;
-                const contextLevel = numberingContext?.ilvl || 0;
-
-                if (lineFormatInfo.format === 'outline') {
-                    // Hierarchical markers are absolute within the document
-                    ilvl = Math.min(8, lineFormatInfo.depth);
-                } else {
-                    // Simple markers or no-marker lines are relative to the original paragraph's level
-                    ilvl = Math.min(8, indentLevel + contextLevel);
-                }
-
-                // Strip list markers from the text
-                segmentText = stripListMarker(line);
-
-                // Get or create numId
-                const numId = this.numberingService.getOrCreateNumId({ type: lineFormatInfo.format }, numberingContext);
-                pPrXml = this.numberingService.buildListPPr(numId, ilvl);
-            } else {
-                // --- PLAIN TEXT (e.g. Preamble) ---
-                // No marker = Normal paragraph.
-                // Reset to standard text.
-                segmentText = line;
-                // pPrXml remains empty, which defaults to Normal/inherited style in serializeToOoxml
-                // Note: We intentionally ignore indentation for preamble to avoid accidental list formatting
-            }
-
-            // Process markdown formatting (e.g., **bold**, *italic*)
-            const { cleanText, formatHints } = preprocessMarkdown(segmentText);
-
-            const runModel = [];
-
-            // Add deletion to the first paragraph only
-            if (i === 0 && deletionRuns.length > 0) {
-                runModel.push(...deletionRuns);
-            }
-
-            // Add the new text as an insertion
-            runModel.push({
-                kind: this.generateRedlines ? 'insertion' : 'run',
-                text: cleanText,
-                author: this.author,
-                startOffset: 0,
-                endOffset: cleanText.length
-            });
-
-            const itemOoxml = serializeToOoxml(runModel, pPrXml, formatHints, {
-                author: this.author,
-                generateRedlines: this.generateRedlines,
-                font: this.font
-            });
-            results.push(itemOoxml);
-        }
-
-        const numberingXml = this.numberingService.generateNumberingXml();
-
-        const finalOoxml = results.join('');
-
-        // CRITICAL FIX: Append a blank paragraph after the list to prevent Word from
-        // canceling the list formatting on the last item
-        const blankParagraph = '<w:p><w:pPr></w:pPr></w:p>';
-        const oxmlWithSpacing = finalOoxml + blankParagraph;
-
-        log(`[ListGen] ✅ Generated OOXML for ${results.length} list items, total length: ${oxmlWithSpacing.length}`);
-        log(`[ListGen] First 200 chars: ${oxmlWithSpacing.substring(0, 200)}...`);
-
-        return {
-            ooxml: oxmlWithSpacing,
-            isValid: true,
-            warnings: ['Paragraph expanded to list fragment'],
-            type: 'fragment',
-            includeNumbering: true,
-            numberingXml: numberingXml
-        };
+        return executeListGeneration({
+            cleanText,
+            numberingContext,
+            originalRunModel,
+            originalText,
+            generateRedlines: this.generateRedlines,
+            author: this.author,
+            font: this.font,
+            numberingService: this.numberingService
+        });
     }
 
     /**
@@ -388,23 +213,7 @@ export class ReconciliationPipeline {
      * @returns {number} The detected step (defaulting to 2)
      */
     detectIndentationStep(lines) {
-        const indentations = lines
-            .map(l => l.match(/^(\s*)/)[0].length)
-            .filter(len => len > 0)
-            .sort((a, b) => a - b);
-
-        if (indentations.length === 0) return 2; // Default
-
-        // Find the smallest non-zero jump
-        let minJump = indentations[0];
-        for (let i = 1; i < indentations.length; i++) {
-            const jump = indentations[i] - indentations[i - 1];
-            if (jump > 0 && jump < minJump) {
-                minJump = jump;
-            }
-        }
-
-        return minJump || 2;
+        return detectIndentationStep(lines);
     }
 
 
@@ -437,64 +246,5 @@ export class ReconciliationPipeline {
         };
     }
 }
-
-// ============================================================================
-// STUBS FOR FUTURE FEATURES
-// ============================================================================
-
-/**
- * Detects content type (paragraph, list, table) from text.
- * STUB: Currently always returns PARAGRAPH.
- * 
- * @param {string} text - Text to analyze
- * @returns {ContentType}
- */
-export function detectContentType(text) {
-    // TODO: Implement content type detection
-    log('[Stub] detectContentType - returning PARAGRAPH');
-    return ContentType.PARAGRAPH;
-}
-
-/**
- * Parses list items from markdown-style list text.
- * STUB: Not yet implemented.
- * 
- * @param {string} text - List text
- * @returns {Array}
- */
-export function parseListItems(text) {
-    // TODO: Implement list parsing
-    log('[Stub] parseListItems - not implemented');
-    return [];
-}
-
-/**
- * Parses table from markdown-style table text.
- * 
- * @param {string} text - Table text
- * @returns {Object}
- */
-export function parseTable(text) {
-    const lines = text.split('\n').filter(l => l.trim().startsWith('|'));
-
-    if (lines.length === 0) {
-        return { headers: [], rows: [], hasHeader: false };
-    }
-
-    // Skip separator row (|---|---|)
-    const dataLines = lines.filter(l => !l.includes('---'));
-
-    const rows = dataLines.map(line => {
-        return line
-            .split('|')
-            .slice(1, -1)  // Remove empty first/last from split
-            .map(cell => cell.trim());
-    });
-
-    return {
-        headers: rows[0] || [],
-        rows: rows.slice(1),
-        hasHeader: lines.some(l => l.includes('---'))
-    };
-}
+export { detectContentType, parseListItems, parseTable };
 
