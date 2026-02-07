@@ -1,0 +1,32 @@
+{
+  "generatedAt": "2026-02-07T00:00:00.000Z",
+  "nodeVersion": "v24.11.1",
+  "iterations": 4,
+  "threshold": 0.05,
+  "results": [
+    {
+      "name": "long_paragraph_redline",
+      "iterations": 4,
+      "minMs": 23.093,
+      "medianMs": 31.665,
+      "avgMs": 32.585,
+      "maxMs": 43.917
+    },
+    {
+      "name": "table_reconciliation",
+      "iterations": 4,
+      "minMs": 60.285,
+      "medianMs": 62.414,
+      "avgMs": 62.954,
+      "maxMs": 66.703
+    },
+    {
+      "name": "multi_comment_injection",
+      "iterations": 4,
+      "minMs": 1.038,
+      "medianMs": 1.063,
+      "avgMs": 1.088,
+      "maxMs": 1.185
+    }
+  ]
+}

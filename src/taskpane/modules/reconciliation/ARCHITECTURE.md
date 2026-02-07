@@ -16,6 +16,8 @@ reconciliation/
 │   ├── logger.js
 │   └── xml-adapter.js
 ├── core/
+│   ├── paragraph-offset-policy.js
+│   ├── xml-query.js
 │   └── types.js
 ├── engine/
 │   ├── oxml-engine.js
@@ -23,6 +25,8 @@ reconciliation/
 │   ├── reconstruction-mode.js
 │   ├── format-extraction.js
 │   ├── format-application.js
+│   ├── format-paragraph-targeting.js
+│   ├── format-span-application.js
 │   ├── rpr-helpers.js
 │   ├── run-builders.js
 │   └── table-cell-context.js
@@ -30,12 +34,14 @@ reconciliation/
 │   ├── pipeline.js
 │   ├── ingestion.js
 │   ├── diff-engine.js
+│   ├── list-markers.js
 │   ├── patching.js
 │   ├── serialization.js
 │   └── markdown-processor.js
 ├── services/
 │   ├── comment-engine.js
 │   ├── numbering-service.js
+│   ├── package-builder.js
 │   └── table-reconciliation.js
 ├── integration/
 │   └── integration.js
@@ -51,14 +57,22 @@ reconciliation/
 - `adapters/logger.js`
   - Central logging surface (`log`, `warn`, `error`) and logger injection.
 - `core/types.js`
-  - Shared enums/constants (`RunKind`, `DiffOp`, `NS_W`, revision IDs).
+  - Shared enums/constants (`RunKind`, `DiffOp`, `NS_W`) and revision metadata utilities.
+- `core/paragraph-offset-policy.js`
+  - Canonical paragraph-boundary separator policy used across extraction/ingestion/reconstruction.
+- `core/xml-query.js`
+  - Shared namespace-safe XML query helpers for first/all lookups and parser-error detection.
 - `pipeline/*`
   - General reconciliation pipeline for run-model diffing/patching/serialization.
   - Used for list generation and compatibility flows.
+- `pipeline/list-markers.js`
+  - Shared list marker regex/detection helpers used by router/pipeline/patching.
 - `services/table-reconciliation.js`
   - Virtual-grid table diff and OOXML table serialization.
 - `services/comment-engine.js`
   - OOXML-only comment insertion logic.
+- `services/package-builder.js`
+  - Shared `pkg:package` builders for document fragments, paragraph-only packages, and comments package variants.
 - `engine/oxml-engine.js`
   - Main router/orchestrator for text + formatting reconciliation.
   - Chooses modes and delegates work.
@@ -69,7 +83,11 @@ reconciliation/
 - `engine/format-extraction.js`
   - Extracts spans and existing formatting from paragraphs/runs.
 - `engine/format-application.js`
-  - Applies format-only changes, span splitting, and rPr synchronization.
+  - Orchestrates format-only and surgical format-application flows.
+- `engine/format-paragraph-targeting.js`
+  - Paragraph text reconstruction/matching helpers used by format-only targeting.
+- `engine/format-span-application.js`
+  - Span boundary splitting and robust per-span format synchronization.
 - `engine/rpr-helpers.js`
   - Canonical `w:rPr` order and format override/addition primitives.
 - `engine/run-builders.js`
@@ -124,6 +142,7 @@ The router:
 - `RPR_SCHEMA_ORDER` in `engine/rpr-helpers.js` is the single ordering source for run property insertion.
 - `snapshotAndAttachRPrChange(...)` in `engine/run-builders.js` is the shared track-change snapshot routine.
 - Format-only surgical flow now uses full target-state synchronization for core flags (bold/italic/underline/strikethrough), not additive-only behavior.
+- Hot-path lookup indexing is used in patching/format/table loops to reduce repeated O(n) scans.
 
 ## Extension Points
 

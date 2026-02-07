@@ -1,0 +1,63 @@
+{
+  "generatedAt": "2026-02-07T00:00:00.000Z",
+  "nodeVersion": "v24.11.1",
+  "cases": {
+    "format_only_add": {
+      "hasChanges": true,
+      "hasInsertion": false,
+      "hasRPrChange": true,
+      "length": 501,
+      "hash": "5d2b1607fb9ae06b43e2a846353ce6b4e664dea88a420a475809b10b08462bdc"
+    },
+    "format_only_remove": {
+      "hasChanges": true,
+      "hasRPrChange": true,
+      "length": 377,
+      "hash": "2281f509de915e820310891c63b986fa161310d399099d6ecb4ea8387998c351"
+    },
+    "mixed_insert_delete": {
+      "hasChanges": true,
+      "hasInsertion": true,
+      "hasDeletion": true,
+      "length": 1694,
+      "hash": "dc1f2603c4cb002c96e43dd64d54db2e7287af065fb8c16c6304eb24b9b1fa7a"
+    },
+    "list_generation": {
+      "hasChanges": true,
+      "hasNumberingRelationship": true,
+      "length": 8214,
+      "hash": "729a53bfdde78439227ee6c3784d0df4a6d3d66f738d8ae070fa39c688f3a96d"
+    },
+    "table_reconcile": {
+      "hasChanges": true,
+      "hasTable": true,
+      "length": 3227,
+      "hash": "f14768c113b39fd3fc2126d3845b447b87109d97ca351963c073e77762437d31"
+    },
+    "text_to_table_transform": {
+      "hasChanges": true,
+      "hasTable": true,
+      "length": 2379,
+      "hash": "7a25f562377c3f337698d94190a9f52cf34a07965496ff28de6fb0b0c9a92e7c"
+    },
+    "comment_document_injection": {
+      "commentsApplied": 2,
+      "warningCount": 0,
+      "length": 642,
+      "hash": "1ac692270a9d0387d1a5bc1adc9bc4ceab3466ac373b405d240ed97c827904c9",
+      "commentsXmlHash": "e0de8efae39f9ab57be72bc043105065837428e837679a87984c567fbef26c71"
+    },
+    "comment_paragraph_injection": {
+      "success": true,
+      "hasPackage": true,
+      "packageHash": "3e19a0d4a9ba8f26bd1826d01a738383640a8cac25ec9c1454ace195cdb557c1",
+      "packageLength": 2130
+    },
+    "comment_package_injection": {
+      "hasCommentsPart": true,
+      "hasCommentsRel": true,
+      "length": 1568,
+      "hash": "7103daeba7201883a24404aa7278763e350ea6e2cf0ccfeefb5c2f5a8263dd68"
+    }
+  }
+}
