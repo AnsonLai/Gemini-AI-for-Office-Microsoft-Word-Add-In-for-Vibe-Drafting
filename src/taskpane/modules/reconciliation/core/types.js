@@ -124,6 +124,20 @@ export const NumberSuffix = Object.freeze({
  */
 
 /**
+ * @typedef {Object} SerializationOptions
+ * @property {string} [author='Gemini AI'] - Author for generated track changes
+ * @property {boolean} [generateRedlines=true] - Toggle track-change wrappers
+ * @property {string|null} [font=null] - Optional font override for generated runs
+ */
+
+/**
+ * @typedef {Object} DocumentFragmentOptions
+ * @property {boolean} [includeNumbering=false] - Include numbering relationship/part
+ * @property {string|null} [numberingXml=null] - Custom numbering part payload
+ * @property {boolean} [appendTrailingParagraph=true] - Append trailing blank paragraph
+ */
+
+/**
  * Escapes XML special characters
  * @param {string} str - String to escape
  * @returns {string} Escaped string

@@ -230,19 +230,3 @@ export function extractFormattingFromOoxml(xmlDoc) {
     log(`[OxmlEngine] Extracted ${textSpans.length} text spans, ${existingFormatHints.length} format hints`);
     return { existingFormatHints, textSpans };
 }
-
-/**
- * Legacy check for any core direct formatting tags in the document.
- *
- * @param {Document} xmlDoc - XML document
- * @returns {boolean}
- */
-export function checkOxmlForFormatting(xmlDoc) {
-    const formattingTags = ['w:b', 'w:i', 'w:u', 'w:strike'];
-    for (const tag of formattingTags) {
-        if (xmlDoc.getElementsByTagName(tag).length > 0) {
-            return true;
-        }
-    }
-    return false;
-}

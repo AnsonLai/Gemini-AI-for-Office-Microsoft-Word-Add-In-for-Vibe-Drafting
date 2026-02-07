@@ -82,10 +82,7 @@ function buildPackage(documentXml, documentRelationshipsXml = '', extraPartsXml 
  * Builds a package for paragraph/document-fragment insertion.
  *
  * @param {string} paragraphXml - Paragraph OOXML content
- * @param {Object} [options={}] - Packaging options
- * @param {boolean} [options.includeNumbering=false] - Include numbering part + relationship
- * @param {string|null} [options.numberingXml=null] - Custom numbering XML
- * @param {boolean} [options.appendTrailingParagraph=true] - Append trailing blank paragraph
+ * @param {import('../core/types.js').DocumentFragmentOptions} [options={}] - Packaging options
  * @returns {string}
  */
 export function buildDocumentFragmentPackage(paragraphXml, options = {}) {

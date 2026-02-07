@@ -31,7 +31,7 @@ import {
  * @param {Object} formatToRemove - Format flags to force off
  * @returns {string}
  */
-export function buildSurgicalReplacementOoxml(xmlDoc, originalRun, textContent, author, dateStr, formatToRemove) {
+function buildSurgicalReplacementOoxml(xmlDoc, originalRun, textContent, author, dateStr, formatToRemove) {
     const authorName = author || 'Gemini AI';
     const delId = Math.floor(Math.random() * 1000000);
     const insId = Math.floor(Math.random() * 1000000);
@@ -72,7 +72,7 @@ export function buildSurgicalReplacementOoxml(xmlDoc, originalRun, textContent, 
  * @param {Object} formatToRemove - Format flags to force off
  * @returns {string}
  */
-export function buildUnformattedRunOoxml(xmlDoc, originalRun, textContent, formatToRemove) {
+function buildUnformattedRunOoxml(xmlDoc, originalRun, textContent, formatToRemove) {
     const serializer = createSerializer();
     const unformattedRPrXml = buildOverrideRPrXml(xmlDoc, originalRun, formatToRemove, serializer);
 
@@ -186,7 +186,7 @@ export function applySurgicalMode(xmlDoc, originalText, modifiedText, serializer
  * @param {string} author - Author name
  * @param {boolean} generateRedlines - Track change toggle
  */
-export function reconcileFormattingForTextSpan(xmlDoc, span, start, end, applicableHints, author, generateRedlines) {
+function reconcileFormattingForTextSpan(xmlDoc, span, start, end, applicableHints, author, generateRedlines) {
     const desiredFormat = {};
     if (applicableHints.length > 0) {
         applicableHints.forEach(h => Object.assign(desiredFormat, h.format));
@@ -249,7 +249,7 @@ export function reconcileFormattingForTextSpan(xmlDoc, span, start, end, applica
  * @param {Array} textSpans - Span collection
  * @returns {number}
  */
-export function processRunElement(r, p, container, currentOffset, textSpans) {
+function processRunElement(r, p, container, currentOffset, textSpans) {
     const rPr = r.getElementsByTagName('w:rPr')[0] || null;
     let localOffset = currentOffset;
 
@@ -313,7 +313,7 @@ export function processRunElement(r, p, container, currentOffset, textSpans) {
  * @param {string} currentFullText - Current full text
  * @returns {string}
  */
-export function getUpdatedFullText(r, currentFullText) {
+function getUpdatedFullText(r, currentFullText) {
     let fullText = currentFullText;
     Array.from(r.childNodes).forEach(rc => {
         if (rc.nodeName === 'w:t') {
@@ -340,7 +340,7 @@ export function getUpdatedFullText(r, currentFullText) {
  * @param {string} author - Author name
  * @param {boolean} generateRedlines - Track change toggle
  */
-export function processDelete(xmlDoc, textSpans, startPos, endPos, processedSpans, author, generateRedlines) {
+function processDelete(xmlDoc, textSpans, startPos, endPos, processedSpans, author, generateRedlines) {
     const affectedSpans = textSpans.filter(s =>
         s.charEnd > startPos && s.charStart < endPos
     );
@@ -409,7 +409,7 @@ export function processDelete(xmlDoc, textSpans, startPos, endPos, processedSpan
  * @param {number} [insertOffset=0] - Offset in modified text
  * @param {boolean} [generateRedlines=true] - Track change toggle
  */
-export function processInsert(xmlDoc, textSpans, pos, text, processedSpans, author, formatHints = [], insertOffset = 0, generateRedlines = true) {
+function processInsert(xmlDoc, textSpans, pos, text, processedSpans, author, formatHints = [], insertOffset = 0, generateRedlines = true) {
     let targetSpan = textSpans.find(s => pos >= s.charStart && pos < s.charEnd);
 
     if (!targetSpan && pos > 0) {

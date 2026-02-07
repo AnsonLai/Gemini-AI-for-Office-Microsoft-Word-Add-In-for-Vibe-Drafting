@@ -16,12 +16,12 @@ import { buildDocumentFragmentPackage } from '../services/package-builder.js';
  * @param {import('../core/types.js').RunEntry[]} patchedModel - The patched run model
  * @param {Element|null} pPr - Paragraph properties element
  * @param {import('../core/types.js').FormatHint[]} [formatHints=[]] - Format hints
- * @param {Object} [options={}] - Serialization options
- * @param {string} [options.author='AI'] - Author for track changes
+ * @param {import('../core/types.js').SerializationOptions} [options={}] - Serialization options
  * @returns {string} OOXML paragraph string (WITHOUT namespace - added by wrapper)
  */
 export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = {}) {
-    const { author = 'Gemini AI', generateRedlines = true, font = null } = options;
+    const serializationOptions = normalizeSerializationOptions(options);
+    const { author, generateRedlines } = serializationOptions;
     const paragraphs = [];
     let currentPPrXml = '';
     let currentRuns = [];
@@ -58,22 +58,22 @@ export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = 
                 break;
 
             case RunKind.TEXT:
-                currentRuns.push(buildRunXmlWithHints(item, formatHints, font));
+                currentRuns.push(buildRunXmlWithHints(item, formatHints, serializationOptions));
                 break;
 
             case RunKind.DELETION:
                 if (generateRedlines) {
-                    currentRuns.push(buildDeletionXml(item, author, font));
+                    currentRuns.push(buildDeletionXml(item, serializationOptions));
                 }
                 // If redlines are disabled, we simply omit the deleted content
                 break;
 
             case RunKind.INSERTION:
                 if (generateRedlines) {
-                    currentRuns.push(buildInsertionXml(item, formatHints, author, font));
+                    currentRuns.push(buildInsertionXml(item, formatHints, serializationOptions));
                 } else {
                     // Treat insertion as a normal run when redlines are disabled
-                    currentRuns.push(buildRunXmlWithHints(item, formatHints, font));
+                    currentRuns.push(buildRunXmlWithHints(item, formatHints, serializationOptions));
                 }
                 break;
 
@@ -121,21 +121,48 @@ export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = 
 }
 
 /**
+ * Normalizes serialization options to a single object contract.
+ *
+ * @param {import('../core/types.js').SerializationOptions|string|undefined|null} options - Raw options
+ * @returns {import('../core/types.js').SerializationOptions}
+ */
+function normalizeSerializationOptions(options) {
+    // Backward compatibility: accept legacy `font` string signature.
+    if (typeof options === 'string') {
+        return {
+            author: 'Gemini AI',
+            generateRedlines: true,
+            font: options
+        };
+    }
+
+    const normalized = options && typeof options === 'object' ? options : {};
+    return {
+        author: normalized.author ?? 'Gemini AI',
+        generateRedlines: normalized.generateRedlines ?? true,
+        font: normalized.font ?? null
+    };
+}
+
+/**
  * Builds a run XML element, applying format hints if applicable.
  * 
  * @param {import('../core/types.js').RunEntry} item - Run entry
  * @param {import('../core/types.js').FormatHint[]} formatHints - Format hints
+ * @param {import('../core/types.js').SerializationOptions} options - Serialization options
  * @returns {string}
  */
 function buildRunXmlWithHints(item, formatHints, options = {}) {
     const applicableHints = getApplicableFormatHints(formatHints, item.startOffset, item.endOffset);
+    const font = options?.font ?? null;
+    let cleanRPr = item.rPrXml ? item.rPrXml.replace(/\s+xmlns:[^=]+="[^"]*"/g, '') : '';
+
+    if (font) {
+        cleanRPr = applyFont(cleanRPr, font);
+    }
 
     if (applicableHints.length === 0) {
         // No formatting changes - use original rPr (strip namespace)
-        let cleanRPr = item.rPrXml ? item.rPrXml.replace(/\s+xmlns:[^=]+="[^"]*"/g, '') : '';
-        if (options && typeof options === 'string') { // Support old signature if called directly
-            cleanRPr = applyFont(cleanRPr, options);
-        }
         return buildSimpleRun(item.text, cleanRPr);
     }
 
@@ -144,8 +171,6 @@ function buildRunXmlWithHints(item, formatHints, options = {}) {
     let pos = 0;
     const text = item.text;
     const baseOffset = item.startOffset;
-    let cleanRPr = item.rPrXml ? item.rPrXml.replace(/\s+xmlns:[^=]+="[^"]*"/g, '') : '';
-    const font = typeof options === 'string' ? options : (options?.font);
 
     for (const hint of applicableHints) {
         const localStart = Math.max(0, hint.start - baseOffset);
@@ -187,10 +212,12 @@ function buildSimpleRun(text, rPrXml) {
  * Builds a deletion (w:del) element.
  * 
  * @param {import('../core/types.js').RunEntry} item - Deletion entry
- * @param {string} author - Author name
+ * @param {import('../core/types.js').SerializationOptions} options - Serialization options
  * @returns {string}
  */
-function buildDeletionXml(item, author, font = null) {
+function buildDeletionXml(item, options = {}) {
+    const author = options.author ?? 'Gemini AI';
+    const font = options.font ?? null;
     const revId = getNextRevisionId();
     const date = new Date().toISOString();
     let rPr = item.rPrXml ? item.rPrXml.replace(/\s+xmlns:[^=]+="[^"]*"/g, '') : '';
@@ -209,10 +236,12 @@ function buildDeletionXml(item, author, font = null) {
  * 
  * @param {import('../core/types.js').RunEntry} item - Insertion entry
  * @param {import('../core/types.js').FormatHint[]} formatHints - Format hints
- * @param {string} author - Author name
+ * @param {import('../core/types.js').SerializationOptions} options - Serialization options
  * @returns {string}
  */
-function buildInsertionXml(item, formatHints, author, font = null) {
+function buildInsertionXml(item, formatHints, options = {}) {
+    const author = options.author ?? 'Gemini AI';
+    const font = options.font ?? null;
     const revId = getNextRevisionId();
     const date = new Date().toISOString();
 
@@ -322,14 +351,33 @@ function injectFormatting(baseRPrXml, format) {
  * Must include both the document part AND the relationships part.
  * 
  * @param {string} paragraphXml - The paragraph XML (without namespace declarations)
- * @param {Object} [options={}] - Options
- * @param {boolean} [options.includeNumbering=false] - Whether to include numbering definitions
- * @param {string} [options.numberingXml] - Custom numbering XML (w:numbering)
+ * @param {import('../core/types.js').DocumentFragmentOptions|boolean} [options={}] - Fragment options
  * @returns {string} Complete OOXML package for insertOoxml
  */
 export function wrapInDocumentFragment(paragraphXml, options = {}) {
-    return buildDocumentFragmentPackage(paragraphXml, options);
+    const normalizedOptions = normalizeFragmentOptions(options);
+    return buildDocumentFragmentPackage(paragraphXml, normalizedOptions);
 }
 
+/**
+ * Normalizes wrapper options to object form.
+ *
+ * @param {import('../core/types.js').DocumentFragmentOptions|boolean|undefined|null} options - Raw options
+ * @returns {import('../core/types.js').DocumentFragmentOptions}
+ */
+function normalizeFragmentOptions(options) {
+    if (typeof options === 'boolean') {
+        return { includeNumbering: options };
+    }
 
+    if (!options || typeof options !== 'object') {
+        return {};
+    }
+
+    return {
+        includeNumbering: options.includeNumbering ?? false,
+        numberingXml: options.numberingXml ?? null,
+        appendTrailingParagraph: options.appendTrailingParagraph ?? true
+    };
+}
 

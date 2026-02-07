@@ -143,51 +143,6 @@ export function applyFormatOverridesToRPr(xmlDoc, rPr, formatToRemove) {
 }
 
 /**
- * Adds formatting tags to rPr for the specified flags without forcing other flags off.
- *
- * @param {Document} xmlDoc - XML document
- * @param {Element} rPr - Run properties
- * @param {Object} formatToAdd - Format flags to add
- */
-export function applyFormatAdditionsToRPr(xmlDoc, rPr, formatToAdd) {
-    _applyOverrides(xmlDoc, rPr, formatToAdd, 'add');
-}
-
-/**
- * Removes all w:rPrChange children from run properties.
- *
- * @param {Element} rPr - Run properties
- */
-export function stripRPrChangeNodes(rPr) {
-    if (!rPr) return;
-    const toRemove = [];
-    for (const child of Array.from(rPr.childNodes)) {
-        if (child.nodeName === 'w:rPrChange') {
-            toRemove.push(child);
-        }
-    }
-    for (const el of toRemove) {
-        rPr.removeChild(el);
-    }
-}
-
-/**
- * Builds a cloned rPr with format additions applied.
- *
- * @param {Document} xmlDoc - XML document
- * @param {Element} originalRun - Source run
- * @param {Object} formatToAdd - Format flags to add
- * @returns {Element}
- */
-export function buildAddedFormatRPr(xmlDoc, originalRun, formatToAdd) {
-    const baseRPr = originalRun.getElementsByTagName('w:rPr')[0] || null;
-    const rPr = baseRPr ? baseRPr.cloneNode(true) : xmlDoc.createElement('w:rPr');
-    stripRPrChangeNodes(rPr);
-    applyFormatAdditionsToRPr(xmlDoc, rPr, formatToAdd);
-    return rPr;
-}
-
-/**
  * Extracts format flags from a run properties element.
  *
  * @param {Element|null} rPr - Run properties element

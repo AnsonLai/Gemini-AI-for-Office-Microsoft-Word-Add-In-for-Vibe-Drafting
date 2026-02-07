@@ -228,7 +228,7 @@ export function applyReconstructionMode(xmlDoc, originalText, modifiedText, seri
  * @param {number} nextCharCode - Next private-use char code
  * @returns {string}
  */
-export function processChildNode(child, originalFullText, propertyMap, sentinelMap, referenceMap, tokenToCharMap, nextCharCode) {
+function processChildNode(child, originalFullText, propertyMap, sentinelMap, referenceMap, tokenToCharMap, nextCharCode) {
     if (child.nodeName === 'w:r') {
         return processRunForReconstruction(child, originalFullText, propertyMap, sentinelMap, referenceMap, tokenToCharMap, nextCharCode);
     } else if (child.nodeName === 'w:hyperlink') {
@@ -255,7 +255,7 @@ export function processChildNode(child, originalFullText, propertyMap, sentinelM
  * @param {number} nextCharCode - Next private-use char code
  * @returns {string}
  */
-export function processRunForReconstruction(r, originalFullText, propertyMap, sentinelMap, referenceMap, tokenToCharMap, nextCharCode) {
+function processRunForReconstruction(r, originalFullText, propertyMap, sentinelMap, referenceMap, tokenToCharMap, nextCharCode) {
     let fullText = originalFullText;
     const rPr = r.getElementsByTagName('w:rPr')[0] || null;
 
@@ -320,7 +320,7 @@ export function processRunForReconstruction(r, originalFullText, propertyMap, se
  * @param {Array} propertyMap - Property map
  * @returns {string}
  */
-export function processHyperlinkForReconstruction(h, originalFullText, propertyMap) {
+function processHyperlinkForReconstruction(h, originalFullText, propertyMap) {
     let fullText = originalFullText;
 
     Array.from(h.childNodes).forEach(hc => {
@@ -369,7 +369,7 @@ export function processHyperlinkForReconstruction(h, originalFullText, propertyM
  * @param {number} [insertOffset=0] - Insert offset
  * @param {boolean} [generateRedlines=true] - Track change toggle
  */
-export function appendTextToCurrent(
+function appendTextToCurrent(
     xmlDoc, text, type, rPr, wrapper, baseIndex,
     currentParagraphRef, paragraphMap, containerFragments,
     sentinelMap, referenceMap, tokenToCharMap,

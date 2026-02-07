@@ -227,34 +227,6 @@ export function snapshotAndAttachRPrChange(xmlDoc, rPr, author, dateStr, sourceN
  * @param {Element} [previousRPrArg] - Optional explicit previous-state source
  * @returns {void}
  */
-export function createRPrChange(xmlDoc, rPr, author, previousRPrArg) {
+function createRPrChange(xmlDoc, rPr, author, previousRPrArg) {
     snapshotAndAttachRPrChange(xmlDoc, rPr, author, new Date().toISOString(), previousRPrArg || rPr);
-}
-
-/**
- * Creates `w:pPrChange` for paragraph property tracking.
- *
- * @param {Document} xmlDoc - XML document
- * @param {Element} pPr - Paragraph properties target
- * @param {string} author - Change author
- * @param {Element} [previousPPrArg] - Optional previous-state source
- * @returns {void}
- */
-export function createPPrChange(xmlDoc, pPr, author, previousPPrArg) {
-    const pPrChange = xmlDoc.createElement('w:pPrChange');
-    pPrChange.setAttribute('w:id', Math.floor(Math.random() * 90000 + 10000).toString());
-    pPrChange.setAttribute('w:author', author);
-    pPrChange.setAttribute('w:date', new Date().toISOString());
-
-    const previousPPr = xmlDoc.createElement('w:pPr');
-    const sourceNode = previousPPrArg || pPr;
-
-    Array.from(sourceNode.childNodes).forEach(child => {
-        if (child.nodeName !== 'w:pPrChange' && child.nodeName !== 'w:rPr') {
-            previousPPr.appendChild(child.cloneNode(true));
-        }
-    });
-
-    pPrChange.appendChild(previousPPr);
-    pPr.appendChild(pPrChange);
 }

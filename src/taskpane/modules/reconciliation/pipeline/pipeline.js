@@ -175,8 +175,7 @@ export class ReconciliationPipeline {
      * Wraps the reconciled content for document insertion.
      * 
      * @param {string} ooxml - Reconciled OOXML paragraph
-     * @param {Object} [options={}] - Options
-     * @param {boolean} [options.includeNumbering=false] - Include numbering definitions
+     * @param {import('../core/types.js').DocumentFragmentOptions|boolean} [options={}] - Fragment options
      * @returns {string} Wrapped document fragment
      */
     wrapForInsertion(ooxml, options = {}) {

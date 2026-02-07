@@ -16,11 +16,9 @@ import { log, error } from '../adapters/logger.js';
 import { extractFormattingFromOoxml, getDocumentParagraphs } from './format-extraction.js';
 import {
     applyFormatRemovalAsSurgicalReplacement,
-    applyFormatOnlyChangesSurgical,
-    buildParagraphInfos,
-    findMatchingParagraphInfo,
-    getContainingParagraph
+    applyFormatOnlyChangesSurgical
 } from './format-application.js';
+import { buildParagraphInfos, findMatchingParagraphInfo, getContainingParagraph } from './format-paragraph-targeting.js';
 import { detectTableCellContext, serializeParagraphOnly } from './table-cell-context.js';
 import { applySurgicalMode } from './surgical-mode.js';
 import { applyReconstructionMode } from './reconstruction-mode.js';
