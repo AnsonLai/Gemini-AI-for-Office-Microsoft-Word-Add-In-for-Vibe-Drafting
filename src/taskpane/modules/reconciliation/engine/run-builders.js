@@ -6,6 +6,8 @@
  */
 
 import { RPR_SCHEMA_ORDER } from './rpr-helpers.js';
+import { createRevisionMetadata, getRevisionTimestamp } from '../core/types.js';
+import { getFirstElementByTag } from '../core/xml-query.js';
 
 /**
  * Creates an insertion/deletion wrapper.
@@ -18,9 +20,10 @@ import { RPR_SCHEMA_ORDER } from './rpr-helpers.js';
  */
 export function createTrackChange(xmlDoc, type, run, author) {
     const wrapper = xmlDoc.createElement(type === 'ins' ? 'w:ins' : 'w:del');
-    wrapper.setAttribute('w:id', Math.floor(Math.random() * 90000 + 10000).toString());
-    wrapper.setAttribute('w:author', author);
-    wrapper.setAttribute('w:date', new Date().toISOString());
+    const metadata = createRevisionMetadata(author);
+    wrapper.setAttribute('w:id', String(metadata.id));
+    wrapper.setAttribute('w:author', metadata.author);
+    wrapper.setAttribute('w:date', metadata.date);
     if (run) {
         wrapper.appendChild(run);
     }
@@ -194,7 +197,7 @@ export function injectFormattingToRPr(xmlDoc, baseRPr, format, author, generateR
  */
 export function snapshotAndAttachRPrChange(xmlDoc, rPr, author, dateStr, sourceNode) {
     const rPrChange = xmlDoc.createElement('w:rPrChange');
-    rPrChange.setAttribute('w:id', Math.floor(Math.random() * 90000 + 10000).toString());
+    rPrChange.setAttribute('w:id', String(createRevisionMetadata(author).id));
     rPrChange.setAttribute('w:author', author);
     rPrChange.setAttribute('w:date', dateStr);
 
@@ -209,7 +212,7 @@ export function snapshotAndAttachRPrChange(xmlDoc, rPr, author, dateStr, sourceN
 
     rPrChange.appendChild(previousRPr);
 
-    const existing = rPr.getElementsByTagName('w:rPrChange')[0];
+    const existing = getFirstElementByTag(rPr, 'w:rPrChange');
     if (existing) {
         rPr.removeChild(existing);
     }
@@ -228,5 +231,5 @@ export function snapshotAndAttachRPrChange(xmlDoc, rPr, author, dateStr, sourceN
  * @returns {void}
  */
 function createRPrChange(xmlDoc, rPr, author, previousRPrArg) {
-    snapshotAndAttachRPrChange(xmlDoc, rPr, author, new Date().toISOString(), previousRPrArg || rPr);
+    snapshotAndAttachRPrChange(xmlDoc, rPr, author, getRevisionTimestamp(), previousRPrArg || rPr);
 }

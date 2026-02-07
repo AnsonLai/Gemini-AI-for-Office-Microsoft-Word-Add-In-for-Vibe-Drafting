@@ -10,7 +10,14 @@ import { diffTablesWithVirtualGrid, serializeVirtualGridToOoxml, generateTableOo
 import { parseTable, ReconciliationPipeline } from '../pipeline/pipeline.js';
 import { ingestTableToVirtualGrid } from '../pipeline/ingestion.js';
 import { wrapInDocumentFragment } from '../pipeline/serialization.js';
-import { NS_W } from '../core/types.js';
+import { NS_W, getNextRevisionId, getRevisionTimestamp } from '../core/types.js';
+import {
+    getElementsByTag,
+    getElementsByTagNS,
+    getFirstElementByTag,
+    getFirstElementByTagNS,
+    getXmlParseError
+} from '../core/xml-query.js';
 import { createParser, createSerializer, parseXml, serializeXml } from '../adapters/xml-adapter.js';
 import { log, error } from '../adapters/logger.js';
 import { extractFormattingFromOoxml, getDocumentParagraphs } from './format-extraction.js';
@@ -31,6 +38,7 @@ import { applyReconstructionMode } from './reconstruction-mode.js';
  * @param {string} modifiedText - New text (may contain markdown)
  * @param {Object} [options={}] - Options
  * @param {string} [options.author='AI'] - Author for track changes
+ * @param {string|null} [options.targetParagraphId=null] - Preferred paragraph identity for table wrappers
  * @returns {Promise<{ oxml: string, hasChanges: boolean }>}
  */
 export async function applyRedlineToOxml(oxml, originalText, modifiedText, options = {}) {
@@ -47,13 +55,13 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
         return { oxml, hasChanges: false };
     }
 
-    const parseError = xmlDoc.getElementsByTagName('parsererror')[0];
+    const parseError = getXmlParseError(xmlDoc);
     if (parseError) {
         error('[OxmlEngine] XML parse error:', parseError.textContent);
         return { oxml, hasChanges: false };
     }
 
-    const initialTableCellContext = detectTableCellContext(xmlDoc, originalText);
+    const initialTableCellContext = detectTableCellContext(xmlDoc, originalText, options);
     if (initialTableCellContext.hasTableWrapper && initialTableCellContext.targetParagraph && !options._isolatedTableCell) {
         log('[OxmlEngine] Isolating table-cell paragraph before diff');
         const isolatedOxml = serializeParagraphOnly(xmlDoc, initialTableCellContext.targetParagraph, serializer);
@@ -84,7 +92,7 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     if (needsFormatRemoval) {
         log('[OxmlEngine] Format REMOVAL detected: applying surgical replacement in OOXML');
 
-        const tableCellCtx = detectTableCellContext(xmlDoc, originalText);
+        const tableCellCtx = detectTableCellContext(xmlDoc, originalText, options);
         let targetParagraph = tableCellCtx.targetParagraph || null;
 
         if (!targetParagraph) {
@@ -126,7 +134,7 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     if (!hasTextChanges && hasFormatHints) {
         log(`[OxmlEngine] Format-only change detected: ${formatHints.length} format hints`);
 
-        const tableCellCtx = detectTableCellContext(xmlDoc, originalText);
+        const tableCellCtx = detectTableCellContext(xmlDoc, originalText, options);
         if (tableCellCtx.hasTableWrapper && tableCellCtx.targetParagraph) {
             log('[OxmlEngine] Table cell context: applying formatting to target paragraph only');
 
@@ -154,7 +162,7 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
         return applyFormatOnlyChangesSurgical(xmlDoc, originalText, formatHints, serializer, author, generateRedlines, textSpans);
     }
 
-    const tables = xmlDoc.getElementsByTagName('w:tbl');
+    const tables = getElementsByTag(xmlDoc, 'w:tbl');
     const hasTables = tables.length > 0;
     const isMarkdownTable = /^\|.+\|/.test(cleanModifiedText.trim()) && cleanModifiedText.includes('\n');
     const isTargetList = isListTargetLoose(cleanModifiedText);
@@ -227,7 +235,7 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
  * @returns {{ oxml: string, hasChanges: boolean }}
  */
 function applyTableReconciliation(xmlDoc, modifiedText, serializer, author, formatHints, generateRedlines = true) {
-    const tableNodes = Array.from(xmlDoc.getElementsByTagName('w:tbl'));
+    const tableNodes = getElementsByTag(xmlDoc, 'w:tbl');
     const newTableData = parseTable(modifiedText);
     const hasNewContent = newTableData.rows.length > 0 || newTableData.headers.length > 0;
 
@@ -250,13 +258,13 @@ function applyTableReconciliation(xmlDoc, modifiedText, serializer, author, form
     const wrappedOxml = `<root xmlns:w="${NS_W}">${reconciledOxml}</root>`;
     const reconciledDoc = parser.parseFromString(wrappedOxml, 'application/xml');
 
-    const parseError = reconciledDoc.getElementsByTagName('parsererror')[0];
+    const parseError = getXmlParseError(reconciledDoc);
     if (parseError) {
         error('[OxmlEngine] Failed to parse reconciled table OOXML:', parseError.textContent);
         return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
     }
 
-    const newTableNode = reconciledDoc.getElementsByTagName('w:tbl')[0];
+    const newTableNode = getFirstElementByTag(reconciledDoc, 'w:tbl');
     if (!newTableNode) {
         error('[OxmlEngine] No table found in reconciled OOXML');
         return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
@@ -294,15 +302,15 @@ function applyTextToTableTransformation(xmlDoc, modifiedText, serializer, author
         'application/xml'
     );
 
-    const parseError = tableDoc.getElementsByTagName('parsererror')[0];
+    const parseError = getXmlParseError(tableDoc);
     if (parseError) {
         error('[OxmlEngine] Failed to parse generated table OOXML:', parseError.textContent);
         return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
     }
 
-    let newTableElement = tableDoc.getElementsByTagNameNS(NS_W, 'tbl')[0];
+    let newTableElement = getFirstElementByTagNS(tableDoc, NS_W, 'tbl');
     if (!newTableElement) {
-        newTableElement = tableDoc.getElementsByTagNameNS(NS_W, 'ins')[0];
+        newTableElement = getFirstElementByTagNS(tableDoc, NS_W, 'ins');
     }
     if (!newTableElement) {
         error('[OxmlEngine] No table element found in generated OOXML');
@@ -310,7 +318,7 @@ function applyTextToTableTransformation(xmlDoc, modifiedText, serializer, author
     }
 
     let workingDoc = xmlDoc;
-    let paragraphs = Array.from(workingDoc.getElementsByTagNameNS(NS_W, 'p'));
+    let paragraphs = getElementsByTagNS(workingDoc, NS_W, 'p');
 
     if (paragraphs.length === 0) {
         log('[OxmlEngine] No paragraphs found to replace');
@@ -327,11 +335,11 @@ function applyTextToTableTransformation(xmlDoc, modifiedText, serializer, author
             `<w:document xmlns:w="${NS_W}"><w:body/></w:document>`,
             'application/xml'
         );
-        const wrappedBody = wrappedDoc.getElementsByTagNameNS(NS_W, 'body')[0];
+        const wrappedBody = getFirstElementByTagNS(wrappedDoc, NS_W, 'body');
         paragraphs.forEach(p => wrappedBody.appendChild(wrappedDoc.importNode(p, true)));
 
         workingDoc = wrappedDoc;
-        paragraphs = Array.from(workingDoc.getElementsByTagNameNS(NS_W, 'p'));
+        paragraphs = getElementsByTagNS(workingDoc, NS_W, 'p');
         firstParagraph = paragraphs[0];
         parent = firstParagraph.parentNode;
     }
@@ -339,11 +347,11 @@ function applyTextToTableTransformation(xmlDoc, modifiedText, serializer, author
     const importedTable = workingDoc.importNode(newTableElement, true);
 
     if (generateRedlines) {
-        const date = new Date().toISOString();
+        const date = getRevisionTimestamp();
         paragraphs.forEach(p => {
-            const runs = Array.from(p.getElementsByTagNameNS(NS_W, 'r'));
+            const runs = getElementsByTagNS(p, NS_W, 'r');
             runs.forEach(run => {
-                const textNodes = Array.from(run.getElementsByTagNameNS(NS_W, 't'));
+                const textNodes = getElementsByTagNS(run, NS_W, 't');
                 textNodes.forEach(t => {
                     const text = t.textContent || '';
                     if (text.trim()) {
@@ -354,7 +362,7 @@ function applyTextToTableTransformation(xmlDoc, modifiedText, serializer, author
                 });
 
                 const del = workingDoc.createElementNS(NS_W, 'w:del');
-                del.setAttribute('w:id', String(Math.floor(Math.random() * 100000)));
+                del.setAttribute('w:id', String(getNextRevisionId()));
                 del.setAttribute('w:author', author);
                 del.setAttribute('w:date', date);
                 run.parentNode.insertBefore(del, run);

@@ -1652,6 +1652,7 @@ async function routeChangeOperation(change, targetParagraph, context, properties
 
   console.log("[OxmlEngine] Original text:", paragraphOriginalText.length > 500 ? paragraphOriginalText.substring(0, 500) + "..." : paragraphOriginalText);
   console.log("[OxmlEngine] Original text length:", paragraphOriginalText.length);
+  const targetParagraphId = extractParagraphIdFromOoxml(paragraphOoxmlValue);
 
   // Apply redlines using hybrid engine (DOM manipulation approach)
   const redlineAuthor = loadRedlineAuthor();
@@ -1661,7 +1662,8 @@ async function routeChangeOperation(change, targetParagraph, context, properties
     newContent,
     {
       author: redlineEnabled ? redlineAuthor : undefined,
-      generateRedlines: redlineEnabled
+      generateRedlines: redlineEnabled,
+      targetParagraphId
     }
   );
 
@@ -1848,6 +1850,18 @@ async function routeChangeOperation(change, targetParagraph, context, properties
     targetParagraph.insertText(newContent, "Replace");
     await context.sync();
   }
+}
+
+/**
+ * Extracts a paragraph identity token from OOXML (`w14:paraId` when present).
+ *
+ * @param {string} ooxml - OOXML payload
+ * @returns {string|null}
+ */
+function extractParagraphIdFromOoxml(ooxml) {
+  if (!ooxml || typeof ooxml !== 'string') return null;
+  const match = ooxml.match(/\b(?:w14:paraId|w:paraId|paraId)="([^"]+)"/i);
+  return match ? match[1] : null;
 }
 
 function buildListFallbackHtml(normalizedContent, listData) {

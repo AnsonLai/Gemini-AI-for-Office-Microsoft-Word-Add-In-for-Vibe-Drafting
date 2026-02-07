@@ -8,8 +8,10 @@
 import { diff_match_patch } from 'diff-match-patch';
 import { getApplicableFormatHints } from '../pipeline/markdown-processor.js';
 import { wordsToChars, charsToWords } from '../pipeline/diff-engine.js';
+import { appendParagraphBoundary } from '../core/paragraph-offset-policy.js';
 import { getDocumentParagraphs } from './format-extraction.js';
 import { createTrackChange, createFormattedRuns } from './run-builders.js';
+import { getElementsByTag, getFirstElementByTag } from '../core/xml-query.js';
 
 /**
  * Applies reconstruction mode reconciliation.
@@ -28,7 +30,7 @@ export function applyReconstructionMode(xmlDoc, originalText, modifiedText, seri
     const isBodyRoot = rootElement.nodeName === 'w:body' || rootElement.nodeName.endsWith(':package');
     const paragraphs = getDocumentParagraphs(xmlDoc);
 
-    let body = xmlDoc.getElementsByTagName('w:body')[0];
+    let body = getFirstElementByTag(xmlDoc, 'w:body');
     if (!body && isBodyRoot) body = rootElement;
 
     if (paragraphs.length === 0) {
@@ -59,12 +61,10 @@ export function applyReconstructionMode(xmlDoc, originalText, modifiedText, seri
             }
         });
 
-        if (pIndex < paragraphs.length - 1) {
-            originalFullText += '\n';
-        }
+        originalFullText = appendParagraphBoundary(originalFullText, pIndex, paragraphs.length);
 
         const pEnd = originalFullText.length;
-        const pPr = p.getElementsByTagName('w:pPr')[0] || null;
+        const pPr = getFirstElementByTag(p, 'w:pPr');
         const container = p.parentNode;
         if (container) uniqueContainers.add(container);
 
@@ -257,7 +257,7 @@ function processChildNode(child, originalFullText, propertyMap, sentinelMap, ref
  */
 function processRunForReconstruction(r, originalFullText, propertyMap, sentinelMap, referenceMap, tokenToCharMap, nextCharCode) {
     let fullText = originalFullText;
-    const rPr = r.getElementsByTagName('w:rPr')[0] || null;
+    const rPr = getFirstElementByTag(r, 'w:rPr');
 
     Array.from(r.childNodes).forEach(rc => {
         if (rc.nodeName === 'w:t') {
@@ -281,7 +281,7 @@ function processRunForReconstruction(r, originalFullText, propertyMap, sentinelM
             propertyMap.push({ start: fullText.length - 1, end: fullText.length, rPr });
         } else if (['w:drawing', 'w:pict', 'w:object', 'w:fldChar', 'w:instrText', 'w:sym'].includes(rc.nodeName)) {
             const rcElement = rc;
-            const txbxContent = rcElement.getElementsByTagName ? rcElement.getElementsByTagName('w:txbxContent')[0] : null;
+            const txbxContent = getFirstElementByTag(rcElement, 'w:txbxContent');
             const hasTextBox = rc.nodeName === 'w:pict' && !!txbxContent;
 
             sentinelMap.push({
@@ -326,8 +326,8 @@ function processHyperlinkForReconstruction(h, originalFullText, propertyMap) {
     Array.from(h.childNodes).forEach(hc => {
         if (hc.nodeName === 'w:r') {
             const r = hc;
-            const rPr = r.getElementsByTagName('w:rPr')[0] || null;
-            const texts = Array.from(r.getElementsByTagName('w:t'));
+            const rPr = getFirstElementByTag(r, 'w:rPr');
+            const texts = getElementsByTag(r, 'w:t');
             texts.forEach(t => {
                 const textContent = t.textContent || '';
                 if (textContent.length > 0) {
@@ -413,7 +413,7 @@ function appendTextToCurrent(
             if (sentinel) {
                 const clone = sentinel.node.cloneNode(true);
                 if (sentinel.isTextBox && sentinel.originalContainer) {
-                    const newContainer = clone.getElementsByTagName('w:txbxContent')[0];
+                    const newContainer = getFirstElementByTag(clone, 'w:txbxContent');
                     if (newContainer) {
                         while (newContainer.firstChild) newContainer.removeChild(newContainer.firstChild);
                         replacementContainers.set(sentinel.originalContainer, newContainer);

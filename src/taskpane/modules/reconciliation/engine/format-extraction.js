@@ -6,7 +6,9 @@
  */
 
 import { extractFormatFromRPr } from './rpr-helpers.js';
+import { advanceOffsetForParagraphBoundary } from '../core/paragraph-offset-policy.js';
 import { log } from '../adapters/logger.js';
+import { getElementsByTag, getFirstElementByTag } from '../core/xml-query.js';
 
 /**
  * Returns only document body paragraphs, excluding comments/footnotes/endnotes.
@@ -16,7 +18,7 @@ import { log } from '../adapters/logger.js';
  */
 export function getDocumentParagraphs(xmlDoc) {
     const excludedContainers = ['w:comment', 'w:footnote', 'w:endnote'];
-    const allParagraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
+    const allParagraphs = getElementsByTag(xmlDoc, 'w:p');
 
     return allParagraphs.filter(p => {
         let node = p.parentNode;
@@ -40,10 +42,11 @@ export function buildTextSpansFromParagraphs(paragraphs) {
     const textSpans = [];
     let charOffset = 0;
 
-    for (const p of paragraphs) {
+    for (let pIndex = 0; pIndex < paragraphs.length; pIndex++) {
+        const p = paragraphs[pIndex];
         Array.from(p.childNodes).forEach(child => {
             if (child.nodeName === 'w:r') {
-                const rPr = child.getElementsByTagName('w:rPr')[0] || null;
+                const rPr = getFirstElementByTag(child, 'w:rPr');
                 Array.from(child.childNodes).forEach(rc => {
                     if (rc.nodeName === 'w:t') {
                         const text = rc.textContent || '';
@@ -75,7 +78,7 @@ export function buildTextSpansFromParagraphs(paragraphs) {
             } else if (child.nodeName === 'w:hyperlink') {
                 Array.from(child.childNodes).forEach(hc => {
                     if (hc.nodeName === 'w:r') {
-                        const rPr = hc.getElementsByTagName('w:rPr')[0] || null;
+                        const rPr = getFirstElementByTag(hc, 'w:rPr');
                         Array.from(hc.childNodes).forEach(rc => {
                             if (rc.nodeName === 'w:t') {
                                 const text = rc.textContent || '';
@@ -108,7 +111,7 @@ export function buildTextSpansFromParagraphs(paragraphs) {
                 });
             }
         });
-        charOffset++;
+        charOffset = advanceOffsetForParagraphBoundary(charOffset, pIndex, paragraphs.length);
     }
 
     return { textSpans, charOffset };
@@ -194,7 +197,8 @@ export function extractFormattingFromOoxml(xmlDoc) {
 
     const allParagraphs = getDocumentParagraphs(xmlDoc);
 
-    for (const p of allParagraphs) {
+    for (let pIndex = 0; pIndex < allParagraphs.length; pIndex++) {
+        const p = allParagraphs[pIndex];
         let pRPr = null;
         for (const child of Array.from(p.childNodes)) {
             if (child.nodeName === 'w:pPr') {
@@ -224,7 +228,7 @@ export function extractFormattingFromOoxml(xmlDoc) {
                 }
             }
         }
-        charOffset++;
+        charOffset = advanceOffsetForParagraphBoundary(charOffset, pIndex, allParagraphs.length);
     }
 
     log(`[OxmlEngine] Extracted ${textSpans.length} text spans, ${existingFormatHints.length} format hints`);

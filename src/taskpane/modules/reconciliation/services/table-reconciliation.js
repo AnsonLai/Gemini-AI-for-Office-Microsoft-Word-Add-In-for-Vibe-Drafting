@@ -7,7 +7,7 @@
 import { computeWordLevelDiffOps } from '../pipeline/diff-engine.js';
 import { splitRunsAtDiffBoundaries, applyPatches } from '../pipeline/patching.js';
 import { serializeToOoxml } from '../pipeline/serialization.js';
-import { NS_W, getNextRevisionId, escapeXml, RunKind } from '../core/types.js';
+import { NS_W, getNextRevisionId, getRevisionTimestamp, createRevisionMetadata, escapeXml, RunKind } from '../core/types.js';
 import { preprocessMarkdown } from '../pipeline/markdown-processor.js';
 
 /**
@@ -20,7 +20,7 @@ import { preprocessMarkdown } from '../pipeline/markdown-processor.js';
  */
 export function generateTableOoxml(tableData, options = {}) {
     const { generateRedlines = false, author = 'AI' } = options;
-    const date = new Date().toISOString();
+    const date = getRevisionTimestamp();
     const revId = generateRedlines ? getNextRevisionId() : null;
 
     // Determine number of columns
@@ -166,12 +166,12 @@ export function diffTablesWithVirtualGrid(oldGrid, newTableData) {
  */
 export function serializeVirtualGridToOoxml(grid, operations, options) {
     const { generateRedlines, author } = options;
-    const date = new Date().toISOString();
+    const opIndex = buildTableOperationIndex(operations);
 
     let rowsXml = '';
 
     for (let row = 0; row < grid.rowCount; row++) {
-        const rowDeleteOp = operations.find(o => o.type === 'row_delete' && o.gridRow === row);
+        const rowDeleteOp = opIndex.rowDeleteByRow.get(row) || null;
 
         if (rowDeleteOp && !generateRedlines) continue;
 
@@ -191,11 +191,7 @@ export function serializeVirtualGridToOoxml(grid, operations, options) {
                 continue;
             }
 
-            const modOp = operations.find(o =>
-                o.type === 'cell_modify' &&
-                o.gridRow === row &&
-                o.gridCol === col
-            );
+            const modOp = opIndex.cellModifyByCoordinate.get(`${row}:${col}`) || null;
 
             let cellContent;
             if (modOp) {
@@ -211,8 +207,8 @@ export function serializeVirtualGridToOoxml(grid, operations, options) {
         let trPr = grid.trPrList[row] || '<w:trPr/>';
 
         if (rowDeleteOp && generateRedlines) {
-            const revId = getNextRevisionId();
-            const delMark = `<w:del w:id="${revId}" w:author="${escapeXml(author)}" w:date="${date}"/>`;
+            const metadata = createRevisionMetadata(author);
+            const delMark = `<w:del w:id="${metadata.id}" w:author="${escapeXml(metadata.author)}" w:date="${metadata.date}"/>`;
             if (trPr.includes('</w:trPr>')) {
                 trPr = trPr.replace('</w:trPr>', `${delMark}</w:trPr>`);
             } else {
@@ -224,10 +220,10 @@ export function serializeVirtualGridToOoxml(grid, operations, options) {
     }
 
     // Handle row insertions
-    const insertOps = operations.filter(o => o.type === 'row_insert').sort((a, b) => a.gridRow - b.gridRow);
+    const insertOps = opIndex.rowInsertOperations;
     for (const op of insertOps) {
         let cellsXml = '';
-        const revId = generateRedlines ? getNextRevisionId() : null;
+        const rowInsertMeta = generateRedlines ? createRevisionMetadata(author) : null;
 
         for (const cellText of op.cells) {
             const { cleanText, formatHints } = preprocessMarkdown(cellText);
@@ -248,7 +244,7 @@ export function serializeVirtualGridToOoxml(grid, operations, options) {
 
         let trPr = '<w:trPr/>';
         if (generateRedlines) {
-            trPr = `<w:trPr><w:ins w:id="${revId}" w:author="${escapeXml(author)}" w:date="${date}"/></w:trPr>`;
+            trPr = `<w:trPr><w:ins w:id="${rowInsertMeta.id}" w:author="${escapeXml(rowInsertMeta.author)}" w:date="${rowInsertMeta.date}"/></w:trPr>`;
         }
 
         rowsXml += `<w:tr>${trPr}${cellsXml}</w:tr>`;
@@ -261,6 +257,40 @@ export function serializeVirtualGridToOoxml(grid, operations, options) {
             ${rowsXml}
         </w:tbl>
     `;
+}
+
+/**
+ * Builds indexed table operation lookups for row/cell hot paths.
+ *
+ * @param {Array} operations - Table diff operations
+ * @returns {{
+ *   rowDeleteByRow: Map<number, Object>,
+ *   cellModifyByCoordinate: Map<string, Object>,
+ *   rowInsertOperations: Object[]
+ * }}
+ */
+function buildTableOperationIndex(operations) {
+    const rowDeleteByRow = new Map();
+    const cellModifyByCoordinate = new Map();
+    const rowInsertOperations = [];
+
+    for (const operation of operations) {
+        if (operation.type === 'row_delete') {
+            rowDeleteByRow.set(operation.gridRow, operation);
+        } else if (operation.type === 'cell_modify') {
+            cellModifyByCoordinate.set(`${operation.gridRow}:${operation.gridCol}`, operation);
+        } else if (operation.type === 'row_insert') {
+            rowInsertOperations.push(operation);
+        }
+    }
+
+    rowInsertOperations.sort((a, b) => a.gridRow - b.gridRow);
+
+    return {
+        rowDeleteByRow,
+        cellModifyByCoordinate,
+        rowInsertOperations
+    };
 }
 
 function reconcileCellContent(cell, newText, options) {

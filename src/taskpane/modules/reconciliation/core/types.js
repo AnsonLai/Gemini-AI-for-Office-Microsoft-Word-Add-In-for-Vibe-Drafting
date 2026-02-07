@@ -164,6 +164,30 @@ export function getNextRevisionId() {
 }
 
 /**
+ * Returns the canonical ISO timestamp used for track-change metadata.
+ *
+ * @param {Date} [date] - Optional date source (for tests)
+ * @returns {string}
+ */
+export function getRevisionTimestamp(date = new Date()) {
+    return date.toISOString();
+}
+
+/**
+ * Creates shared revision metadata for OOXML track-change tags.
+ *
+ * @param {string} [author='Gemini AI'] - Track-change author
+ * @returns {{ id: number, author: string, date: string }}
+ */
+export function createRevisionMetadata(author = 'Gemini AI') {
+    return {
+        id: getNextRevisionId(),
+        author,
+        date: getRevisionTimestamp()
+    };
+}
+
+/**
  * Resets the revision ID counter (for testing)
  * @param {number} [startValue=1000] - Value to reset to
  */

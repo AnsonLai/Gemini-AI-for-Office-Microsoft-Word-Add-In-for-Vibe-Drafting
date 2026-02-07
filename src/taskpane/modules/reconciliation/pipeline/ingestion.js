@@ -6,8 +6,17 @@
  */
 
 import { NS_W, RunKind, ContainerKind } from '../core/types.js';
+import { appendParagraphBoundary, advanceOffsetForParagraphBoundary } from '../core/paragraph-offset-policy.js';
 import { createParser, serializeXml } from '../adapters/xml-adapter.js';
 import { warn, error as logError } from '../adapters/logger.js';
+import {
+    getElementsByTagNS,
+    getElementsByTagNSOrTag,
+    getFirstElementByTag,
+    getFirstElementByTagNS,
+    getFirstElementByTagNSOrTag,
+    getXmlParseError
+} from '../core/xml-query.js';
 
 /**
  * Ingests OOXML paragraph content and builds a run-aware text model.
@@ -28,14 +37,14 @@ export function ingestOoxml(ooxmlString) {
         const doc = parser.parseFromString(ooxmlString, 'application/xml');
 
         // Check for parse errors
-        const parseError = doc.getElementsByTagName('parsererror')[0];
+        const parseError = getXmlParseError(doc);
         if (parseError) {
             logError('OOXML parse error:', parseError.textContent);
             return { runModel, acceptedText, pPr: null };
         }
 
         // Find ALL paragraph elements (support multi-paragraph)
-        let paragraphs = Array.from(doc.getElementsByTagNameNS(NS_W, 'p'));
+        let paragraphs = getElementsByTagNS(doc, NS_W, 'p');
 
         if (paragraphs.length === 0) {
             warn('No paragraphs found in OOXML');
@@ -49,7 +58,7 @@ export function ingestOoxml(ooxmlString) {
             const pElement = paragraphs[pIndex];
 
             // Extract paragraph properties
-            const pPr = pElement.getElementsByTagNameNS(NS_W, 'pPr')[0] || null;
+            const pPr = getFirstElementByTagNS(pElement, NS_W, 'pPr');
             const pPrXml = pPr ? serializeXml(pPr) : '';
 
             // Save first pPr for legacy compatibility
@@ -71,11 +80,8 @@ export function ingestOoxml(ooxmlString) {
             acceptedText += result.text;
             currentOffset = acceptedText.length;
 
-            // Add newline separator between paragraphs (but not after the last one)
-            if (pIndex < paragraphs.length - 1) {
-                acceptedText += '\n';
-                currentOffset++;
-            }
+            acceptedText = appendParagraphBoundary(acceptedText, pIndex, paragraphs.length);
+            currentOffset = advanceOffsetForParagraphBoundary(currentOffset, pIndex, paragraphs.length);
         }
 
         return { runModel, acceptedText, pPr: firstPPr };
@@ -110,8 +116,8 @@ function processNodeRecursive(node, currentOffset, runModel) {
         // Content Control (SDT)
         if (child.localName === 'sdt' && child.namespaceURI === NS_W) {
             const containerId = `sdt_${containerIdCounter++}`;
-            const sdtPr = child.getElementsByTagNameNS(NS_W, 'sdtPr')[0];
-            const sdtContent = child.getElementsByTagNameNS(NS_W, 'sdtContent')[0];
+            const sdtPr = getFirstElementByTagNS(child, NS_W, 'sdtPr');
+            const sdtContent = getFirstElementByTagNS(child, NS_W, 'sdtContent');
 
             runModel.push({
                 kind: RunKind.CONTAINER_START,
@@ -259,8 +265,7 @@ function serializeAttributes(element) {
  */
 function processRun(runElement, startOffset) {
     // Extract run properties (formatting)
-    const rPr = runElement.getElementsByTagNameNS(NS_W, 'rPr')[0] ||
-        runElement.getElementsByTagName('w:rPr')[0];
+    const rPr = getFirstElementByTagNSOrTag(runElement, NS_W, 'rPr');
     const rPrXml = rPr ? serializeXml(rPr) : '';
 
     let text = '';
@@ -305,15 +310,15 @@ function processDeletion(delElement, offset) {
 
     // Extract text from w:delText elements
     let text = '';
-    const delTexts = delElement.getElementsByTagNameNS(NS_W, 'delText');
+    const delTexts = getElementsByTagNS(delElement, NS_W, 'delText');
     for (const dt of delTexts) {
         text += dt.textContent || '';
     }
 
     // Also look inside w:r elements for w:delText
-    const runs = delElement.getElementsByTagNameNS(NS_W, 'r');
+    const runs = getElementsByTagNS(delElement, NS_W, 'r');
     for (const run of runs) {
-        const innerDelTexts = run.getElementsByTagNameNS(NS_W, 'delText');
+        const innerDelTexts = getElementsByTagNS(run, NS_W, 'delText');
         for (const dt of innerDelTexts) {
             text += dt.textContent || '';
         }
@@ -344,11 +349,11 @@ function processHyperlink(hyperlinkElement, startOffset) {
     const anchor = hyperlinkElement.getAttribute('w:anchor') || '';
 
     let text = '';
-    const runs = hyperlinkElement.getElementsByTagNameNS(NS_W, 'r');
+    const runs = getElementsByTagNS(hyperlinkElement, NS_W, 'r');
 
     for (const run of runs) {
-        const textNodes = run.getElementsByTagNameNS(NS_W, 't');
-        for (const t of Array.from(textNodes)) {
+        const textNodes = getElementsByTagNS(run, NS_W, 't');
+        for (const t of textNodes) {
             text += t.textContent || '';
         }
     }
@@ -372,14 +377,14 @@ function processHyperlink(hyperlinkElement, startOffset) {
  * @returns {Object|null} Numbering context { numId, ilvl }
  */
 export function detectNumberingContext(pElement) {
-    const pPr = pElement.getElementsByTagNameNS(NS_W, 'pPr')[0] || null;
+    const pPr = getFirstElementByTagNS(pElement, NS_W, 'pPr');
     if (!pPr) return null;
 
-    const numPr = pPr.getElementsByTagNameNS(NS_W, 'numPr')[0] || null;
+    const numPr = getFirstElementByTagNS(pPr, NS_W, 'numPr');
     if (!numPr) return null;
 
-    const numIdEl = numPr.getElementsByTagNameNS(NS_W, 'numId')[0] || null;
-    const ilvlEl = numPr.getElementsByTagNameNS(NS_W, 'ilvl')[0] || null;
+    const numIdEl = getFirstElementByTagNS(numPr, NS_W, 'numId');
+    const ilvlEl = getFirstElementByTagNS(numPr, NS_W, 'ilvl');
 
     if (!numIdEl) return null;
 
@@ -402,11 +407,11 @@ export function detectNumberingContext(pElement) {
  * @returns {Object} The virtual grid model
  */
 export function ingestTableToVirtualGrid(tableNode) {
-    const tblGrid = tableNode.getElementsByTagNameNS(NS_W, 'tblGrid')[0] || null;
-    const gridCols = tblGrid ? tblGrid.getElementsByTagNameNS(NS_W, 'gridCol') : [];
+    const tblGrid = getFirstElementByTagNS(tableNode, NS_W, 'tblGrid');
+    const gridCols = tblGrid ? getElementsByTagNS(tblGrid, NS_W, 'gridCol') : [];
     const colCount = gridCols.length;
 
-    const trElements = tableNode.getElementsByTagNameNS(NS_W, 'tr');
+    const trElements = getElementsByTagNS(tableNode, NS_W, 'tr');
     const rowCount = trElements.length;
 
     // Initialize empty grid
@@ -420,13 +425,13 @@ export function ingestTableToVirtualGrid(tableNode) {
 
     for (let rowIdx = 0; rowIdx < trElements.length; rowIdx++) {
         const tr = trElements[rowIdx];
-        const tcElements = tr.getElementsByTagNameNS(NS_W, 'tc');
+        const tcElements = getElementsByTagNS(tr, NS_W, 'tc');
 
         let gridCol = 0; // Current position in virtual grid
 
         for (let tcIdx = 0; tcIdx < tcElements.length; tcIdx++) {
             const tc = tcElements[tcIdx];
-            const tcPr = tc.getElementsByTagNameNS(NS_W, 'tcPr')[0] || null;
+            const tcPr = getFirstElementByTagNS(tc, NS_W, 'tcPr');
 
             // Skip to next available grid column (may be occupied by vMerge from above)
             while (gridCol < colCount && grid[rowIdx][gridCol] !== null) {
@@ -436,13 +441,13 @@ export function ingestTableToVirtualGrid(tableNode) {
             if (gridCol >= colCount) break; // Row is full
 
             // Parse gridSpan (horizontal merge)
-            const gridSpanEl = tcPr ? (tcPr.getElementsByTagNameNS(NS_W, 'gridSpan')[0] ||
-                tcPr.getElementsByTagName('w:gridSpan')[0]) : null;
+            const gridSpanEl = tcPr ? (getFirstElementByTagNS(tcPr, NS_W, 'gridSpan') ||
+                getFirstElementByTag(tcPr, 'w:gridSpan')) : null;
             const colSpan = parseInt(gridSpanEl?.getAttribute('w:val') || '1', 10);
 
             // Parse vMerge (vertical merge)
-            const vMergeEl = tcPr ? (tcPr.getElementsByTagNameNS(NS_W, 'vMerge')[0] ||
-                tcPr.getElementsByTagName('w:vMerge')[0]) : null;
+            const vMergeEl = tcPr ? (getFirstElementByTagNS(tcPr, NS_W, 'vMerge') ||
+                getFirstElementByTag(tcPr, 'w:vMerge')) : null;
             const vMergeVal = vMergeEl?.getAttribute('w:val'); // "restart" or undefined (continue)
             const hasVMerge = vMergeEl !== null;
 
@@ -540,9 +545,7 @@ function createRegularCell(rowIdx, gridCol, colSpan, tc, tcPr) {
 }
 
 function parseCellBlocks(tcNode) {
-    const paragraphs = tcNode.getElementsByTagNameNS(NS_W, 'p').length > 0 ?
-        tcNode.getElementsByTagNameNS(NS_W, 'p') :
-        tcNode.getElementsByTagName('w:p');
+    const paragraphs = getElementsByTagNSOrTag(tcNode, NS_W, 'p');
     const cellBlocks = [];
 
     for (const p of paragraphs) {
@@ -565,17 +568,17 @@ function serializeTcPr(tcPrNode) {
 }
 
 function extractTblPr(tableNode) {
-    const tblPr = tableNode.getElementsByTagNameNS(NS_W, 'tblPr')[0] || null;
+    const tblPr = getFirstElementByTagNS(tableNode, NS_W, 'tblPr');
     return tblPr ? serializeXml(tblPr) : '<w:tblPr/>';
 }
 
 function extractTblGrid(tableNode) {
-    const tblGrid = tableNode.getElementsByTagNameNS(NS_W, 'tblGrid')[0] || null;
+    const tblGrid = getFirstElementByTagNS(tableNode, NS_W, 'tblGrid');
     return tblGrid ? serializeXml(tblGrid) : '<w:tblGrid/>';
 }
 
 function extractTrPr(trNode) {
-    const trPr = trNode.getElementsByTagNameNS(NS_W, 'trPr')[0] || null;
+    const trPr = getFirstElementByTagNS(trNode, NS_W, 'trPr');
     return trPr ? serializeXml(trPr) : '<w:trPr/>';
 }
 

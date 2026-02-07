@@ -128,8 +128,25 @@ export function applyPatches(splitModel, diffOps, options) {
     const { generateRedlines, author, formatHints = [] } = options;
     const patchedModel = [];
     const processedInsertions = new Set();
+    const diffLookup = buildPatchLookupIndex(diffOps);
+    let coveringOpCursor = 0;
 
     const containerStack = [];
+    const getCoveringDiffOp = (run) => {
+        const nonInsertOps = diffLookup.nonInsertOps;
+        while (coveringOpCursor < nonInsertOps.length && nonInsertOps[coveringOpCursor].endOffset <= run.startOffset) {
+            coveringOpCursor++;
+        }
+
+        const operation = nonInsertOps[coveringOpCursor];
+        if (!operation) return null;
+
+        if (operation.startOffset <= run.startOffset && operation.endOffset >= run.endOffset) {
+            return operation;
+        }
+
+        return null;
+    };
 
     for (const run of splitModel) {
         // Track container stack
@@ -164,16 +181,13 @@ export function applyPatches(splitModel, diffOps, options) {
         }
 
         // Find the diff operation that applies to this run
-        const op = findDiffOpForRun(diffOps, run);
+        const op = getCoveringDiffOp(run);
 
         // Handle insertions that occur at this run's start
-        const insertOps = diffOps.filter(o =>
-            o.type === DiffOp.INSERT &&
-            o.startOffset === run.startOffset &&
-            !processedInsertions.has(o)
-        );
+        const insertOps = diffLookup.insertOpsByStartOffset.get(run.startOffset) || [];
 
         for (const insertOp of insertOps) {
+            if (processedInsertions.has(insertOp)) continue;
             processedInsertions.add(insertOp);
 
             // Split insertion by newlines to handle paragraph breaks/lists
@@ -296,8 +310,7 @@ export function applyPatches(splitModel, diffOps, options) {
         ? Math.max(...splitModel.map(r => r.endOffset))
         : 0;
 
-    const endInsertOps = diffOps.filter(o =>
-        o.type === DiffOp.INSERT &&
+    const endInsertOps = diffLookup.sortedInsertOps.filter(o =>
         o.startOffset >= endOffset &&
         !processedInsertions.has(o)
     );
@@ -319,21 +332,40 @@ export function applyPatches(splitModel, diffOps, options) {
 }
 
 /**
- * Finds the diff operation that applies to a given run.
+ * Builds indexed diff lookups for patching hot paths.
  * 
  * @param {import('../core/types.js').DiffOperation[]} diffOps - Diff operations
- * @param {import('../core/types.js').RunEntry} run - The run to check
- * @returns {import('../core/types.js').DiffOperation|null}
+ * @returns {{
+ *   insertOpsByStartOffset: Map<number, import('../core/types.js').DiffOperation[]>,
+ *   nonInsertOps: import('../core/types.js').DiffOperation[],
+ *   sortedInsertOps: import('../core/types.js').DiffOperation[]
+ * }}
  */
-function findDiffOpForRun(diffOps, run) {
-    // Find an operation that covers this run
-    for (const op of diffOps) {
-        if (op.type === DiffOp.INSERT) continue; // Insertions handled separately
+function buildPatchLookupIndex(diffOps) {
+    const insertOpsByStartOffset = new Map();
+    const nonInsertOps = [];
+    const sortedInsertOps = [];
 
-        if (op.startOffset <= run.startOffset && op.endOffset >= run.endOffset) {
-            return op;
+    for (const op of diffOps) {
+        if (op.type === DiffOp.INSERT) {
+            if (!insertOpsByStartOffset.has(op.startOffset)) {
+                insertOpsByStartOffset.set(op.startOffset, []);
+            }
+            insertOpsByStartOffset.get(op.startOffset).push(op);
+            sortedInsertOps.push(op);
+            continue;
         }
+
+        nonInsertOps.push(op);
     }
-    return null;
+
+    nonInsertOps.sort((a, b) => a.startOffset - b.startOffset || a.endOffset - b.endOffset);
+    sortedInsertOps.sort((a, b) => a.startOffset - b.startOffset || a.endOffset - b.endOffset);
+
+    return {
+        insertOpsByStartOffset,
+        nonInsertOps,
+        sortedInsertOps
+    };
 }
 

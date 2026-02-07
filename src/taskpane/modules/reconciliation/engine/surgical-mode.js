@@ -8,10 +8,12 @@
 import { diff_match_patch } from 'diff-match-patch';
 import { getApplicableFormatHints } from '../pipeline/markdown-processor.js';
 import { wordsToChars, charsToWords } from '../pipeline/diff-engine.js';
-import { NS_W } from '../core/types.js';
+import { appendParagraphBoundary } from '../core/paragraph-offset-policy.js';
+import { NS_W, getNextRevisionId } from '../core/types.js';
 import { createSerializer } from '../adapters/xml-adapter.js';
 import { getDocumentParagraphs } from './format-extraction.js';
 import { buildOverrideRPrXml } from './rpr-helpers.js';
+import { getFirstElementByTag } from '../core/xml-query.js';
 import {
     createTrackChange,
     createTextRun,
@@ -33,13 +35,13 @@ import {
  */
 function buildSurgicalReplacementOoxml(xmlDoc, originalRun, textContent, author, dateStr, formatToRemove) {
     const authorName = author || 'Gemini AI';
-    const delId = Math.floor(Math.random() * 1000000);
-    const insId = Math.floor(Math.random() * 1000000);
+    const delId = getNextRevisionId();
+    const insId = getNextRevisionId();
 
     const serializer = createSerializer();
 
     let rPrXml = '';
-    const rPr = originalRun.getElementsByTagName('w:rPr')[0];
+    const rPr = getFirstElementByTag(originalRun, 'w:rPr');
     if (rPr) {
         rPrXml = serializer.serializeToString(rPr);
         rPrXml = rPrXml.replace(/\s+xmlns:[^=]+="[^"]*"/g, '');
@@ -122,9 +124,7 @@ export function applySurgicalMode(xmlDoc, originalText, modifiedText, serializer
             }
         });
 
-        if (pIndex < allParagraphs.length - 1) {
-            fullText += '\n';
-        }
+        fullText = appendParagraphBoundary(fullText, pIndex, allParagraphs.length);
     });
 
     const dmp = new diff_match_patch();
@@ -250,7 +250,7 @@ function reconcileFormattingForTextSpan(xmlDoc, span, start, end, applicableHint
  * @returns {number}
  */
 function processRunElement(r, p, container, currentOffset, textSpans) {
-    const rPr = r.getElementsByTagName('w:rPr')[0] || null;
+    const rPr = getFirstElementByTag(r, 'w:rPr');
     let localOffset = currentOffset;
 
     Array.from(r.childNodes).forEach(rc => {
@@ -386,7 +386,7 @@ function processDelete(xmlDoc, textSpans, startPos, endPos, processedSpans, auth
                 const afterRun = createTextRun(xmlDoc, afterText, span.rPr, false);
                 parent.insertBefore(afterRun, oldRun);
                 span.runElement = afterRun;
-                span.textElement = afterRun.getElementsByTagName('w:t')[0] || afterRun.getElementsByTagName('t')[0];
+                span.textElement = getFirstElementByTag(afterRun, 'w:t') || getFirstElementByTag(afterRun, 't');
             }
 
             parent.removeChild(oldRun);

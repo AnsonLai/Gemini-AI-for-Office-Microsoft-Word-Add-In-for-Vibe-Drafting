@@ -9,10 +9,16 @@
  * 3. Relationship entry linking to comments.xml
  */
 
-import { NS_W, escapeXml, getNextRevisionId, resetRevisionIdCounter } from '../core/types.js';
+import { NS_W, escapeXml, getNextRevisionId, getRevisionTimestamp, resetRevisionIdCounter } from '../core/types.js';
 import { createParser, createSerializer } from '../adapters/xml-adapter.js';
 import { log, error as logError } from '../adapters/logger.js';
 import { buildDocumentCommentsPackage, buildParagraphCommentsPackage } from './package-builder.js';
+import {
+    getElementsByTag,
+    getElementsByTagNS,
+    getFirstElementByTag,
+    getXmlParseError
+} from '../core/xml-query.js';
 
 export { getNextRevisionId, resetRevisionIdCounter };
 
@@ -114,15 +120,15 @@ export function buildCommentMarkers(commentId) {
  * @returns {{ found: boolean, startRun?: Element, startOffset?: number, endRun?: Element, endOffset?: number, runs?: Element[] }}
  */
 function findTextInParagraph(paragraph, searchText) {
-    const runs = Array.from(paragraph.getElementsByTagName('w:r'));
+    const runs = getElementsByTag(paragraph, 'w:r');
     let fullText = '';
     const runOffsets = [];
 
     // Build full text and track run boundaries
     for (const run of runs) {
         const start = fullText.length;
-        const textNodes = run.getElementsByTagName('w:t');
-        for (const t of Array.from(textNodes)) {
+        const textNodes = getElementsByTag(run, 'w:t');
+        for (const t of textNodes) {
             fullText += t.textContent || '';
         }
         runOffsets.push({ run, start, end: fullText.length });
@@ -201,7 +207,7 @@ function injectMarkersIntoParagraph(xmlDoc, paragraph, textToFind, commentId) {
     if (location.startRun === location.endRun) {
         // Split the run into: [before][highlighted][after]
         const run = location.startRun;
-        const textNode = run.getElementsByTagName('w:t')[0];
+        const textNode = getFirstElementByTag(run, 'w:t');
         if (!textNode) {
             // Fallback: place markers around the run
             run.parentNode.insertBefore(startMarker, run);
@@ -221,7 +227,7 @@ function injectMarkersIntoParagraph(xmlDoc, paragraph, textToFind, commentId) {
         const afterText = fullText.substring(location.endOffset);
 
         // Clone the run properties (w:rPr) if it exists
-        const rPr = run.getElementsByTagName('w:rPr')[0];
+        const rPr = getFirstElementByTag(run, 'w:rPr');
 
         // Build replacement content
         const parent = run.parentNode;
@@ -255,14 +261,14 @@ function injectMarkersIntoParagraph(xmlDoc, paragraph, textToFind, commentId) {
         // Text spans multiple runs - handle start and end runs separately
 
         // Handle start run: split if needed and place start marker
-        const startTextNode = location.startRun.getElementsByTagName('w:t')[0];
+        const startTextNode = getFirstElementByTag(location.startRun, 'w:t');
         if (startTextNode && location.startOffset > 0) {
             const fullText = startTextNode.textContent || '';
             const beforeText = fullText.substring(0, location.startOffset);
             const highlightText = fullText.substring(location.startOffset);
 
             if (beforeText) {
-                const rPr = location.startRun.getElementsByTagName('w:rPr')[0];
+                const rPr = getFirstElementByTag(location.startRun, 'w:rPr');
                 const beforeRun = cloneRunWithText(xmlDoc, location.startRun, rPr, beforeText);
                 location.startRun.parentNode.insertBefore(beforeRun, location.startRun);
             }
@@ -274,7 +280,7 @@ function injectMarkersIntoParagraph(xmlDoc, paragraph, textToFind, commentId) {
 
         // Handle end run: split if needed and place end marker
         const endRun = location.endRun || location.startRun;
-        const endTextNode = endRun.getElementsByTagName('w:t')[0];
+        const endTextNode = getFirstElementByTag(endRun, 'w:t');
         if (endTextNode && location.endOffset < (endTextNode.textContent || '').length) {
             const fullText = endTextNode.textContent || '';
             const highlightText = fullText.substring(0, location.endOffset);
@@ -283,7 +289,7 @@ function injectMarkersIntoParagraph(xmlDoc, paragraph, textToFind, commentId) {
             endTextNode.textContent = highlightText;
 
             if (afterText) {
-                const rPr = endRun.getElementsByTagName('w:rPr')[0];
+                const rPr = getFirstElementByTag(endRun, 'w:rPr');
                 const afterRun = cloneRunWithText(xmlDoc, endRun, rPr, afterText);
                 if (endRun.nextSibling) {
                     endRun.parentNode.insertBefore(afterRun, endRun.nextSibling);
@@ -343,7 +349,7 @@ function cloneRunWithText(xmlDoc, originalRun, rPr, newText) {
  */
 export function injectCommentsIntoOoxml(oxml, comments, options = {}) {
     const { author = 'Gemini AI' } = options;
-    const date = new Date().toISOString();
+    const date = getRevisionTimestamp();
     const warnings = [];
     const placedComments = [];
 
@@ -371,7 +377,7 @@ export function injectCommentsIntoOoxml(oxml, comments, options = {}) {
     }
 
     // Check for parse errors
-    const parseError = xmlDoc.getElementsByTagName('parsererror')[0];
+    const parseError = getXmlParseError(xmlDoc);
     if (parseError) {
         logError('[CommentEngine] XML parse error:', parseError.textContent);
         return {
@@ -382,7 +388,7 @@ export function injectCommentsIntoOoxml(oxml, comments, options = {}) {
     }
 
     // Get all paragraphs
-    const paragraphs = Array.from(xmlDoc.getElementsByTagName('w:p'));
+    const paragraphs = getElementsByTag(xmlDoc, 'w:p');
     log(`[CommentEngine] Found ${paragraphs.length} paragraphs, processing ${comments.length} comment requests`);
 
     // Process each comment request
@@ -456,7 +462,7 @@ export function injectCommentsIntoOoxml(oxml, comments, options = {}) {
  */
 export function injectCommentIntoParagraphOoxml(paragraphOoxml, textToFind, commentContent, options = {}) {
     const { author = 'AI Assistant' } = options;
-    const date = new Date().toISOString();
+    const date = getRevisionTimestamp();
     const commentId = getNextRevisionId();
 
     const parser = createParser();
@@ -470,13 +476,13 @@ export function injectCommentIntoParagraphOoxml(paragraphOoxml, textToFind, comm
     }
 
     // Check for parse errors
-    const parseError = xmlDoc.getElementsByTagName('parsererror')[0];
+    const parseError = getXmlParseError(xmlDoc);
     if (parseError) {
         return { success: false, warning: 'XML parse error in paragraph' };
     }
 
     // Find the w:p element (paragraph) - it might be inside a pkg:package or directly
-    const paragraphs = xmlDoc.getElementsByTagName('w:p');
+    const paragraphs = getElementsByTag(xmlDoc, 'w:p');
     if (paragraphs.length === 0) {
         return { success: false, warning: 'No paragraph found in OOXML' };
     }
@@ -496,7 +502,7 @@ export function injectCommentIntoParagraphOoxml(paragraphOoxml, textToFind, comm
     const commentsXml = `<w:comments xmlns:w="${NS_W}">${commentElement}</w:comments>`;
 
     // Check if this is already a pkg:package (from paragraph.getOoxml()) or raw XML
-    const pkgPackage = xmlDoc.getElementsByTagName('pkg:package')[0];
+    const pkgPackage = getFirstElementByTag(xmlDoc, 'pkg:package');
 
     if (pkgPackage) {
         // It's already a package - inject the comments part into it
@@ -540,7 +546,7 @@ export function injectCommentsIntoPackage(packageOxml, commentsXml) {
     const pkgDoc = parser.parseFromString(packageOxml, 'text/xml');
 
     // Check for parse errors
-    const parseError = pkgDoc.getElementsByTagName('parsererror')[0];
+    const parseError = getXmlParseError(pkgDoc);
     if (parseError) {
         logError('[CommentEngine] Failed to parse package:', parseError.textContent);
         return packageOxml;
@@ -565,7 +571,7 @@ export function injectCommentsIntoPackage(packageOxml, commentsXml) {
     pkgPackage.appendChild(commentsPart);
 
     // 2. Update document.xml.rels to include comments relationship
-    const parts = Array.from(pkgPackage.getElementsByTagNameNS(PKG_NS, 'part'));
+    const parts = getElementsByTagNS(pkgPackage, PKG_NS, 'part');
     const docRelsPart = parts.find(p => {
         const name = p.getAttribute('pkg:name');
         return name === '/word/_rels/document.xml.rels';
@@ -573,15 +579,15 @@ export function injectCommentsIntoPackage(packageOxml, commentsXml) {
 
     if (docRelsPart) {
         // Find the Relationships element inside
-        const xmlDataNodes = docRelsPart.getElementsByTagNameNS(PKG_NS, 'xmlData');
+        const xmlDataNodes = getElementsByTagNS(docRelsPart, PKG_NS, 'xmlData');
         if (xmlDataNodes.length > 0) {
             const xmlData = xmlDataNodes[0];
-            const relsNodes = xmlData.getElementsByTagNameNS(RELS_NS, 'Relationships');
+            const relsNodes = getElementsByTagNS(xmlData, RELS_NS, 'Relationships');
             if (relsNodes.length > 0) {
                 const relationships = relsNodes[0];
 
                 // Check if comments relationship already exists
-                const existingRels = Array.from(relationships.getElementsByTagNameNS(RELS_NS, 'Relationship'));
+                const existingRels = getElementsByTagNS(relationships, RELS_NS, 'Relationship');
                 const hasComments = existingRels.some(r =>
                     r.getAttribute('Type')?.includes('comments')
                 );

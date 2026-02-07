@@ -11,7 +11,9 @@ import { snapshotAndAttachRPrChange, injectFormattingToRPr } from './run-builder
 import { getDocumentParagraphs, buildTextSpansFromParagraphs } from './format-extraction.js';
 import { buildParagraphInfos, findTargetParagraphInfo } from './format-paragraph-targeting.js';
 import { splitSpansAtBoundaries, applyFormatHintsToSpansRobust } from './format-span-application.js';
+import { getRevisionTimestamp } from '../core/types.js';
 import { warn, log } from '../adapters/logger.js';
+import { getFirstElementByTag } from '../core/xml-query.js';
 
 /**
  * Removes existing core formatting via `w:rPrChange` snapshots and explicit overrides.
@@ -28,7 +30,7 @@ export function applyFormatRemovalAsSurgicalReplacement(xmlDoc, textSpans, exist
     void textSpans;
     let hasAnyChanges = false;
     const processedRuns = new Set();
-    const dateStr = new Date().toISOString();
+    const dateStr = getRevisionTimestamp();
 
     log(`[OxmlEngine] Surgical format removal: ${existingFormatHints.length} hints to process (using w:rPrChange)`);
 
@@ -40,7 +42,7 @@ export function applyFormatRemovalAsSurgicalReplacement(xmlDoc, textSpans, exist
 
         log('[OxmlEngine] Processing run for surgical format removal, format:', hint.format);
 
-        let rPr = run.getElementsByTagName('w:rPr')[0];
+        let rPr = getFirstElementByTag(run, 'w:rPr');
         if (!rPr) {
             rPr = xmlDoc.createElement('w:rPr');
             run.insertBefore(rPr, run.firstChild);
@@ -87,11 +89,15 @@ export function applyFormatAdditionsAsSurgicalReplacement(xmlDoc, textSpans, for
         boundaries.push(hint.start, hint.end);
     }
     const currentSpans = splitSpansAtBoundaries(xmlDoc, textSpans, boundaries);
+    const orderedSpans = currentSpans
+        .slice()
+        .sort((a, b) => a.charStart - b.charStart || a.charEnd - b.charEnd);
+    const getOverlappingHints = createFormatHintOverlapLookup(formatHints);
 
-    for (const span of currentSpans) {
+    for (const span of orderedSpans) {
         if (!span || !span.textElement || span.textElement.nodeName !== 'w:t') continue;
 
-        const applicableHints = formatHints.filter(h => h.start < span.charEnd && h.end > span.charStart);
+        const applicableHints = getOverlappingHints(span.charStart, span.charEnd);
         if (applicableHints.length === 0) continue;
 
         const mergedDesiredFormat = mergeFormats(...applicableHints.map(h => h.format));
@@ -124,7 +130,7 @@ export function applyFormatAdditionsAsSurgicalReplacement(xmlDoc, textSpans, for
         if (!parentNode) continue;
 
         const run = span.runElement;
-        const baseRPr = run.getElementsByTagName('w:rPr')[0] || null;
+        const baseRPr = getFirstElementByTag(run, 'w:rPr');
         const syncedRPr = injectFormattingToRPr(
             xmlDoc,
             baseRPr,
@@ -284,4 +290,34 @@ export function applyFormatOnlyChangesSurgical(xmlDoc, originalText, formatHints
         author,
         generateRedlines
     );
+}
+
+/**
+ * Builds a sweep-line overlap lookup for format hints.
+ *
+ * @param {Array} formatHints - Format hints
+ * @returns {(start:number, end:number)=>Array}
+ */
+function createFormatHintOverlapLookup(formatHints) {
+    const sortedHints = (formatHints || [])
+        .slice()
+        .sort((a, b) => a.start - b.start || a.end - b.end);
+
+    const activeHints = [];
+    let nextHintIndex = 0;
+
+    return (start, end) => {
+        while (nextHintIndex < sortedHints.length && sortedHints[nextHintIndex].start < end) {
+            activeHints.push(sortedHints[nextHintIndex]);
+            nextHintIndex++;
+        }
+
+        for (let i = activeHints.length - 1; i >= 0; i--) {
+            if (activeHints[i].end <= start) {
+                activeHints.splice(i, 1);
+            }
+        }
+
+        return activeHints.filter(hint => hint.start < end && hint.end > start);
+    };
 }

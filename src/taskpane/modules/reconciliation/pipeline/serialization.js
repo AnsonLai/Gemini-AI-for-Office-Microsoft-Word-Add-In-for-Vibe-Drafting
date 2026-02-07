@@ -4,7 +4,7 @@
  * Converts patched run model back to OOXML with track changes.
  */
 
-import { RunKind, escapeXml, getNextRevisionId } from '../core/types.js';
+import { RunKind, escapeXml, createRevisionMetadata } from '../core/types.js';
 import { getApplicableFormatHints } from './markdown-processor.js';
 import { serializeXml } from '../adapters/xml-adapter.js';
 import { warn } from '../adapters/logger.js';
@@ -216,17 +216,15 @@ function buildSimpleRun(text, rPrXml) {
  * @returns {string}
  */
 function buildDeletionXml(item, options = {}) {
-    const author = options.author ?? 'Gemini AI';
+    const metadata = createRevisionMetadata(options.author ?? 'Gemini AI');
     const font = options.font ?? null;
-    const revId = getNextRevisionId();
-    const date = new Date().toISOString();
     let rPr = item.rPrXml ? item.rPrXml.replace(/\s+xmlns:[^=]+="[^"]*"/g, '') : '';
 
     if (font) {
         rPr = applyFont(rPr, font);
     }
 
-    return `<w:del w:id="${revId}" w:author="${escapeXml(author)}" w:date="${date}">` +
+    return `<w:del w:id="${metadata.id}" w:author="${escapeXml(metadata.author)}" w:date="${metadata.date}">` +
         `<w:r>${rPr}<w:delText xml:space="preserve">${escapeXml(item.text)}</w:delText></w:r>` +
         `</w:del>`;
 }
@@ -240,10 +238,8 @@ function buildDeletionXml(item, options = {}) {
  * @returns {string}
  */
 function buildInsertionXml(item, formatHints, options = {}) {
-    const author = options.author ?? 'Gemini AI';
+    const metadata = createRevisionMetadata(options.author ?? 'Gemini AI');
     const font = options.font ?? null;
-    const revId = getNextRevisionId();
-    const date = new Date().toISOString();
 
     // Build the inner run content with format hints
     const applicableHints = getApplicableFormatHints(formatHints, item.startOffset, item.endOffset);
@@ -280,7 +276,7 @@ function buildInsertionXml(item, formatHints, options = {}) {
         }
     }
 
-    return `<w:ins w:id="${revId}" w:author="${escapeXml(author)}" w:date="${date}">` +
+    return `<w:ins w:id="${metadata.id}" w:author="${escapeXml(metadata.author)}" w:date="${metadata.date}">` +
         innerContent +
         `</w:ins>`;
 }

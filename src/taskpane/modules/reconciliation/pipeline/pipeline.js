@@ -16,6 +16,7 @@ import { detectNumberingContext } from './ingestion.js';
 import { generateTableOoxml } from '../services/table-reconciliation.js';
 import { createParser } from '../adapters/xml-adapter.js';
 import { log, error as logError } from '../adapters/logger.js';
+import { getFirstElementByTagNS, getXmlParseError } from '../core/xml-query.js';
 
 /**
  * Main reconciliation pipeline class.
@@ -50,7 +51,7 @@ export class ReconciliationPipeline {
             // Stage 1: Ingest OOXML
             const parser = createParser();
             const doc = parser.parseFromString(originalOoxml, 'application/xml');
-            const pElement = doc.getElementsByTagNameNS('*', 'p')[0];
+            const pElement = getFirstElementByTagNS(doc, '*', 'p');
 
             const { runModel, acceptedText, pPr } = ingestOoxml(originalOoxml);
             const numberingContext = pElement ? detectNumberingContext(pElement) : null;
@@ -151,7 +152,7 @@ export class ReconciliationPipeline {
             const parser = createParser();
             const doc = parser.parseFromString(wrappedXml, 'application/xml');
 
-            const parseError = doc.getElementsByTagName('parsererror')[0];
+            const parseError = getXmlParseError(doc);
             if (parseError) {
                 errors.push('Generated OOXML is not well-formed XML: ' + parseError.textContent.substring(0, 100));
             }

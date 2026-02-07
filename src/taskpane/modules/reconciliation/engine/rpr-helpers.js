@@ -153,10 +153,10 @@ export function extractFormatFromRPr(rPr) {
     if (!rPr) return format;
 
     for (const child of Array.from(rPr.childNodes)) {
-        if (child.nodeName === 'w:b') format.bold = true;
-        if (child.nodeName === 'w:i') format.italic = true;
-        if (child.nodeName === 'w:u') format.underline = true;
-        if (child.nodeName === 'w:strike') format.strikethrough = true;
+        if (child.nodeName === 'w:b') format.bold = isFormattingElementEnabled(child, false);
+        if (child.nodeName === 'w:i') format.italic = isFormattingElementEnabled(child, false);
+        if (child.nodeName === 'w:u') format.underline = isFormattingElementEnabled(child, true);
+        if (child.nodeName === 'w:strike') format.strikethrough = isFormattingElementEnabled(child, false);
 
         if (child.nodeName === 'w:rStyle') {
             const styleRef = child.getAttribute('w:val');
@@ -171,4 +171,24 @@ export function extractFormatFromRPr(rPr) {
 
     format.hasFormatting = format.bold || format.italic || format.underline || format.strikethrough;
     return format;
+}
+
+/**
+ * Determines whether a formatting element is effectively "on".
+ *
+ * @param {Element} element - Formatting element
+ * @param {boolean} isUnderline - Underline semantic handling
+ * @returns {boolean}
+ */
+function isFormattingElementEnabled(element, isUnderline) {
+    const rawValue = element.getAttribute('w:val') || element.getAttribute('val') || '';
+    const value = rawValue.toLowerCase();
+
+    if (!value) return true;
+
+    if (isUnderline) {
+        return value !== 'none' && value !== '0' && value !== 'false' && value !== 'off';
+    }
+
+    return value !== '0' && value !== 'false' && value !== 'off';
 }

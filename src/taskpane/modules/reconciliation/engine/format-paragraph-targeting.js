@@ -1,3 +1,5 @@
+import { advanceOffsetForParagraphBoundary } from '../core/paragraph-offset-policy.js';
+
 /**
  * Paragraph targeting helpers for format-only operations.
  *
@@ -39,9 +41,7 @@ export function buildParagraphInfos(xmlDoc, paragraphs, textSpans) {
         });
 
         runningOffset += normalizeParagraphComparisonText(text).length;
-        if (index < paragraphs.length - 1) {
-            runningOffset += 1; // Account for implicit newline between paragraphs
-        }
+        runningOffset = advanceOffsetForParagraphBoundary(runningOffset, index, paragraphs.length);
     });
 
     return infos;
