@@ -13,10 +13,11 @@ This folder contains a no-build browser demo for the standalone OOXML reconcilia
 
 ## What The Demo Applies
 
-1. Text rewrite
+1. Text rewrite (Gemini-backed when API key is provided; fallback rewrite otherwise)
 2. Format-only change (`bold + underline` markdown hints)
 3. Bullets with sub-bullets
 4. Markdown table transformation
+5. Gemini surprise tool action (model chooses one: `comment`, `highlight`, or `redline`)
 
 ## Run It
 
@@ -29,6 +30,14 @@ Example with Python:
 ```bash
 python -m http.server 8000
 ```
+
+## Gemini API Key
+
+- Enter your Gemini API key in the demo page and click `Save Gemini Key`.
+- The key is persisted in browser `localStorage` for this page origin.
+- On run, Gemini is used twice:
+  - Once to rewrite `DEMO_TEXT_TARGET`.
+  - Once to choose and execute one surprise tool action (`comment`, `highlight`, or `redline`).
 
 ## Notes
 
