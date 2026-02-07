@@ -1,0 +1,16 @@
+{
+  "name": "reconciliation-docx-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local MCP server for .docx editing using the reconciliation engine",
+  "main": "src/server.mjs",
+  "scripts": {
+    "start": "node src/server.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.3",
+    "@xmldom/xmldom": "^0.8.11",
+    "jszip": "^3.10.1"
+  }
+}
