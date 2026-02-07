@@ -4,10 +4,11 @@
  * Converts patched run model back to OOXML with track changes.
  */
 
-import { NS_W, RunKind, escapeXml, getNextRevisionId } from '../core/types.js';
+import { RunKind, escapeXml, getNextRevisionId } from '../core/types.js';
 import { getApplicableFormatHints } from './markdown-processor.js';
 import { serializeXml } from '../adapters/xml-adapter.js';
 import { warn } from '../adapters/logger.js';
+import { buildDocumentFragmentPackage } from '../services/package-builder.js';
 
 /**
  * Serializes a patched run model to OOXML.
@@ -327,73 +328,7 @@ function injectFormatting(baseRPrXml, format) {
  * @returns {string} Complete OOXML package for insertOoxml
  */
 export function wrapInDocumentFragment(paragraphXml, options = {}) {
-    const { includeNumbering = false, numberingXml = null } = options;
-
-    // Build document relationships - include numbering if needed
-    let docRels = '';
-    if (includeNumbering || numberingXml) {
-        docRels = '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>';
-    }
-
-    // Build numbering.xml part if needed
-    let numberingPart = '';
-    if (numberingXml) {
-        // Use custom provided numbering XML
-        numberingPart = `
-  <pkg:part pkg:name="/word/numbering.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml">
-    <pkg:xmlData>
-      ${numberingXml.replace(/<\?xml[^>]*\?>/g, '')}
-    </pkg:xmlData>
-  </pkg:part>`;
-    } else if (includeNumbering) {
-        // Fallback to default numbering definition
-        numberingPart = `
-  <pkg:part pkg:name="/word/numbering.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml">
-    <pkg:xmlData>
-      <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-        <!-- Bullet list definition -->
-        <w:abstractNum w:abstractNumId="0">
-          <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="•"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl>
-        </w:abstractNum>
-        <!-- Numbered list definition -->
-        <w:abstractNum w:abstractNumId="1">
-          <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl>
-        </w:abstractNum>
-        <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>
-        <w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num>
-      </w:numbering>
-    </pkg:xmlData>
-  </pkg:part>`;
-    }
-
-    // Word's insertOoxml requires a complete package with relationships
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
-  <pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
-    <pkg:xmlData>
-      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
-      </Relationships>
-    </pkg:xmlData>
-  </pkg:part>
-  <pkg:part pkg:name="/word/_rels/document.xml.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
-    <pkg:xmlData>
-      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-        ${docRels}
-      </Relationships>
-    </pkg:xmlData>
-  </pkg:part>${numberingPart}
-  <pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">
-    <pkg:xmlData>
-      <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-        <w:body>
-          ${paragraphXml}
-          <w:p><w:pPr></w:pPr></w:p>
-        </w:body>
-      </w:document>
-    </pkg:xmlData>
-  </pkg:part>
-</pkg:package>`;
+    return buildDocumentFragmentPackage(paragraphXml, options);
 }
 
 

@@ -5,7 +5,7 @@
  * the new OOXML-based reconciliation pipeline.
  */
 
-import { ReconciliationPipeline } from '../index.js';
+import { ReconciliationPipeline } from '../pipeline/pipeline.js';
 import { log, warn, error } from '../adapters/logger.js';
 
 /**

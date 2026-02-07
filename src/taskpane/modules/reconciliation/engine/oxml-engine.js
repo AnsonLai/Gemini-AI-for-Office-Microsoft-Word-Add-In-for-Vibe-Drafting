@@ -5,6 +5,7 @@
  */
 
 import { preprocessMarkdown } from '../pipeline/markdown-processor.js';
+import { isListTargetLoose } from '../pipeline/list-markers.js';
 import { diffTablesWithVirtualGrid, serializeVirtualGridToOoxml, generateTableOoxml } from '../services/table-reconciliation.js';
 import { parseTable, ReconciliationPipeline } from '../pipeline/pipeline.js';
 import { ingestTableToVirtualGrid } from '../pipeline/ingestion.js';
@@ -158,8 +159,7 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     const tables = xmlDoc.getElementsByTagName('w:tbl');
     const hasTables = tables.length > 0;
     const isMarkdownTable = /^\|.+\|/.test(cleanModifiedText.trim()) && cleanModifiedText.includes('\n');
-    const markersRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s*)/m;
-    const isTargetList = cleanModifiedText.includes('\n') && markersRegex.test(cleanModifiedText.trim());
+    const isTargetList = isListTargetLoose(cleanModifiedText);
     const tableCellContext = initialTableCellContext;
 
     log(`[OxmlEngine] Mode: ${hasTables ? 'SURGICAL' : 'RECONSTRUCTION'}, formatHints: ${formatHints.length}, isMarkdownTable: ${isMarkdownTable}, isTargetList: ${isTargetList}, isTableCellParagraph: ${tableCellContext.isTableCellParagraph}`);
@@ -205,7 +205,7 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
         if (result.isValid && result.ooxml && result.ooxml !== oxml) {
             log(`[OxmlEngine] Wrapping list OOXML with numbering definitions, includeNumbering=${result.includeNumbering}`);
             const wrapped = wrapInDocumentFragment(result.ooxml, {
-                includeNumbering: result.includeNumbering || true,
+                includeNumbering: result.includeNumbering ?? true,
                 numberingXml: result.numberingXml
             });
             log(`[OxmlEngine] ✅ Wrapped OOXML length: ${wrapped.length}`);

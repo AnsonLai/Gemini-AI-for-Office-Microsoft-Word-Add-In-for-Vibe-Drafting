@@ -6,6 +6,7 @@
 
 import { ingestOoxml } from './ingestion.js';
 import { preprocessMarkdown } from './markdown-processor.js';
+import { isListTargetStrict, matchListMarker, extractListMarker, stripListMarker } from './list-markers.js';
 import { computeWordLevelDiffOps } from './diff-engine.js';
 import { splitRunsAtDiffBoundaries, applyPatches } from './patching.js';
 import { serializeToOoxml, wrapInDocumentFragment } from './serialization.js';
@@ -77,8 +78,7 @@ export class ReconciliationPipeline {
             const paragraphCount = runModel.filter(r => r.kind === RunKind.PARAGRAPH_START).length;
 
             // Detect if this is a list transformation (e.g., paragraph with newlines)
-            const markersRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s+)/m;
-            const isTargetList = cleanText.includes('\n') && markersRegex.test(cleanText);
+            const isTargetList = isListTargetStrict(cleanText);
 
             log(`[Reconcile] isTargetList: ${isTargetList}, paragraphCount: ${paragraphCount}`);
 
@@ -219,12 +219,11 @@ export class ReconciliationPipeline {
 
         // Determine the primary list type and format from the first item
         let firstMarker = '';
-        const markerRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s+)/;
 
         for (const line of rawLines) {
-            const match = line.match(markerRegex);
-            if (match) {
-                firstMarker = match[2].trim();
+            const marker = extractListMarker(line);
+            if (marker) {
+                firstMarker = marker;
                 break;
             }
         }
@@ -276,7 +275,7 @@ export class ReconciliationPipeline {
             }
 
             // Extract the marker for THIS line
-            const markerMatch = line.match(markerRegex);
+            const markerMatch = matchListMarker(line);
             const currentMarker = markerMatch ? markerMatch[2].trim() : '';
 
             let pPrXml = '';
@@ -319,7 +318,7 @@ export class ReconciliationPipeline {
                 }
 
                 // Strip list markers from the text
-                segmentText = line.replace(markerRegex, '');
+                segmentText = stripListMarker(line);
 
                 // Get or create numId
                 const numId = this.numberingService.getOrCreateNumId({ type: lineFormatInfo.format }, numberingContext);

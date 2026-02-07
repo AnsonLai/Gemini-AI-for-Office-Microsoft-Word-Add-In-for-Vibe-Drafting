@@ -1,14 +1,6 @@
 import './setup-xml-provider.mjs';
 
-import { JSDOM } from 'jsdom';
 import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
-
-// Global Setup
-const dom = new JSDOM('');
-global.DOMParser = dom.window.DOMParser;
-global.XMLSerializer = dom.window.XMLSerializer;
-global.document = dom.window.document;
-global.Node = dom.window.Node;
 
 async function testSurgicalPureFormats() {
     console.log('\n=== Test: Surgical Pure Formats (Addition & Removal) ===');

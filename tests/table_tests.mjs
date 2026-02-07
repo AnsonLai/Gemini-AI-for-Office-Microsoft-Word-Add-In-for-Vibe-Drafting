@@ -1,6 +1,5 @@
 import './setup-xml-provider.mjs';
 
-import { JSDOM } from 'jsdom';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -9,12 +8,6 @@ import { ingestOoxml } from '../src/taskpane/modules/reconciliation/pipeline/ing
 import { parseTable } from '../src/taskpane/modules/reconciliation/pipeline/pipeline.js';
 import { ingestTableToVirtualGrid } from '../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
 import { diffTablesWithVirtualGrid, serializeVirtualGridToOoxml } from '../src/taskpane/modules/reconciliation/services/table-reconciliation.js';
-
-// --- Global Setup ---
-const dom = new JSDOM('');
-global.DOMParser = dom.window.DOMParser;
-global.XMLSerializer = dom.window.XMLSerializer;
-global.document = dom.window.document;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

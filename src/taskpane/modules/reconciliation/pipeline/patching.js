@@ -6,6 +6,7 @@
 
 import { DiffOp, RunKind } from '../core/types.js';
 import { log } from '../adapters/logger.js';
+import { matchListMarker, stripListMarker } from './list-markers.js';
 
 /**
  * Splits runs at diff operation boundaries for precise patching.
@@ -187,8 +188,7 @@ export function applyPatches(splitModel, diffOps, options) {
                 let numId = null;
 
                 if (options.numberingService) {
-                    const markersRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s*)/m;
-                    markerMatch = line.match(markersRegex);
+                    markerMatch = matchListMarker(line, { allowZeroSpaceAfterMarker: true });
 
                     if (markerMatch) {
                         marker = markerMatch[2].trim();
@@ -201,7 +201,7 @@ export function applyPatches(splitModel, diffOps, options) {
                         let indentLevel = Math.floor(indentSize / indentStep);
 
                         // Stripe the marker from the line text
-                        line = line.replace(markersRegex, '');
+                        line = stripListMarker(line, { allowZeroSpaceAfterMarker: true });
 
                         // Resolve numId based on context
                         let currentPPrXml = containerStack.pPrXml || '';

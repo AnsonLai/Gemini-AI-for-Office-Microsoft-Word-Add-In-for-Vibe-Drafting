@@ -2,15 +2,9 @@ import './setup-xml-provider.mjs';
 /**
  * Diagnostic test for table row addition
  */
-import { JSDOM } from 'jsdom';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-
-const dom = new JSDOM('');
-global.DOMParser = dom.window.DOMParser;
-global.XMLSerializer = dom.window.XMLSerializer;
-global.document = dom.window.document;
 
 import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
 import { ingestOoxml } from '../src/taskpane/modules/reconciliation/pipeline/ingestion.js';

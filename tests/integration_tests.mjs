@@ -7,18 +7,11 @@ import './setup-xml-provider.mjs';
  * Run with: node --experimental-modules tests/integration_tests.mjs
  */
 
-import { JSDOM } from 'jsdom';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
 import { ingestOoxml } from '../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
-
-// --- Mock Browser Environment ---
-const dom = new JSDOM('');
-global.DOMParser = dom.window.DOMParser;
-global.XMLSerializer = dom.window.XMLSerializer;
-global.document = dom.window.document;
 
 // --- Config ---
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

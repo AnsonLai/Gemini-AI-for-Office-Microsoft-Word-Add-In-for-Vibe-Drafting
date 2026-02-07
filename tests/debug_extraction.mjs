@@ -1,9 +1,4 @@
-
-import { JSDOM } from 'jsdom';
-const dom = new JSDOM('');
-global.DOMParser = dom.window.DOMParser;
-global.XMLSerializer = dom.window.XMLSerializer;
-global.document = dom.window.document;
+import './setup-xml-provider.mjs';
 
 // Mock the function from oxml-engine.js since it's not exported
 function processRunForReconstruction(r, originalFullText) {

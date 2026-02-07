@@ -6,7 +6,6 @@ import './setup-xml-provider.mjs';
  * Run with: node --experimental-modules tests/comment_tests.mjs
  */
 
-import { JSDOM } from 'jsdom';
 import {
     buildCommentElement,
     buildCommentsPartXml,
@@ -16,12 +15,6 @@ import {
     injectCommentsIntoPackage,
     resetRevisionIdCounter
 } from '../src/taskpane/modules/reconciliation/services/comment-engine.js';
-
-// --- Mock Browser Environment ---
-const dom = new JSDOM('');
-global.DOMParser = dom.window.DOMParser;
-global.XMLSerializer = dom.window.XMLSerializer;
-global.document = dom.window.document;
 
 // --- Test Utilities ---
 let passCount = 0;

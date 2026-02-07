@@ -12,6 +12,7 @@
 import { NS_W, escapeXml, getNextRevisionId, resetRevisionIdCounter } from '../core/types.js';
 import { createParser, createSerializer } from '../adapters/xml-adapter.js';
 import { log, error as logError } from '../adapters/logger.js';
+import { buildDocumentCommentsPackage, buildParagraphCommentsPackage } from './package-builder.js';
 
 export { getNextRevisionId, resetRevisionIdCounter };
 
@@ -517,37 +518,7 @@ export function injectCommentIntoParagraphOoxml(paragraphOoxml, textToFind, comm
  * @returns {string} Complete pkg:package for insertOoxml
  */
 function wrapParagraphWithComments(paragraphXml, commentsXml) {
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
-  <pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
-    <pkg:xmlData>
-      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
-      </Relationships>
-    </pkg:xmlData>
-  </pkg:part>
-  <pkg:part pkg:name="/word/_rels/document.xml.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
-    <pkg:xmlData>
-      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="comments.xml"/>
-      </Relationships>
-    </pkg:xmlData>
-  </pkg:part>
-  <pkg:part pkg:name="/word/comments.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml">
-    <pkg:xmlData>
-      ${commentsXml}
-    </pkg:xmlData>
-  </pkg:part>
-  <pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">
-    <pkg:xmlData>
-      <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-        <w:body>
-          ${paragraphXml}
-        </w:body>
-      </w:document>
-    </pkg:xmlData>
-  </pkg:part>
-</pkg:package>`;
+    return buildParagraphCommentsPackage(paragraphXml, commentsXml);
 }
 
 /**
@@ -662,33 +633,6 @@ export function injectCommentsIntoPackage(packageOxml, commentsXml) {
  * @returns {string} Complete pkg:package for insertOoxml
  */
 export function wrapWithCommentsPart(documentXml, commentsXml) {
-    // Build the complete package with comments part
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
-  <pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
-    <pkg:xmlData>
-      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
-      </Relationships>
-    </pkg:xmlData>
-  </pkg:part>
-  <pkg:part pkg:name="/word/_rels/document.xml.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
-    <pkg:xmlData>
-      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="comments.xml"/>
-      </Relationships>
-    </pkg:xmlData>
-  </pkg:part>
-  <pkg:part pkg:name="/word/comments.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml">
-    <pkg:xmlData>
-      ${commentsXml}
-    </pkg:xmlData>
-  </pkg:part>
-  <pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">
-    <pkg:xmlData>
-      ${documentXml}
-    </pkg:xmlData>
-  </pkg:part>
-</pkg:package>`;
+    return buildDocumentCommentsPackage(documentXml, commentsXml);
 }
 

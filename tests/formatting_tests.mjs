@@ -1,6 +1,5 @@
 import './setup-xml-provider.mjs';
 
-import { JSDOM } from 'jsdom';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -8,13 +7,6 @@ import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/engin
 import { wordsToChars, charsToWords } from '../src/taskpane/modules/reconciliation/pipeline/diff-engine.js';
 import { preprocessMarkdown } from '../src/taskpane/modules/reconciliation/pipeline/markdown-processor.js';
 import { diff_match_patch } from 'diff-match-patch';
-
-// --- Global Setup ---
-const dom = new JSDOM('');
-global.DOMParser = dom.window.DOMParser;
-global.XMLSerializer = dom.window.XMLSerializer;
-global.document = dom.window.document;
-global.Node = dom.window.Node;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

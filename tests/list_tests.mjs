@@ -1,6 +1,5 @@
 import './setup-xml-provider.mjs';
 
-import { JSDOM } from 'jsdom';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -9,14 +8,6 @@ import { NumberingService } from '../src/taskpane/modules/reconciliation/service
 import { ingestOoxml } from '../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
 import { serializeToOoxml } from '../src/taskpane/modules/reconciliation/pipeline/serialization.js';
 import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
-
-// --- Global Setup ---
-const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
-global.window = dom.window;
-global.document = dom.window.document;
-global.DOMParser = dom.window.DOMParser;
-global.XMLSerializer = dom.window.XMLSerializer;
-global.Node = dom.window.Node;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

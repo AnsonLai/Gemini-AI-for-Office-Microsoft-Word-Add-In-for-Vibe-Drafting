@@ -7,6 +7,7 @@
 
 import { getDocumentParagraphs } from './format-extraction.js';
 import { log } from '../adapters/logger.js';
+import { buildParagraphOnlyPackage } from '../services/package-builder.js';
 
 /**
  * Detects whether the current XML is table-wrapped and resolves target paragraph context.
@@ -102,29 +103,5 @@ export function serializeParagraphOnly(xmlDoc, paragraphs, serializer) {
  * @returns {string}
  */
 export function wrapParagraphInPackage(paragraphXml) {
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
-  <pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
-    <pkg:xmlData>
-      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
-      </Relationships>
-    </pkg:xmlData>
-  </pkg:part>
-  <pkg:part pkg:name="/word/_rels/document.xml.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
-    <pkg:xmlData>
-      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-      </Relationships>
-    </pkg:xmlData>
-  </pkg:part>
-  <pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">
-    <pkg:xmlData>
-      <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-        <w:body>
-          ${paragraphXml}
-        </w:body>
-      </w:document>
-    </pkg:xmlData>
-  </pkg:part>
-</pkg:package>`;
+    return buildParagraphOnlyPackage(paragraphXml);
 }

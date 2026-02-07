@@ -1,13 +1,6 @@
-import { JSDOM } from 'jsdom';
+import './setup-xml-provider.mjs';
 import { applyHighlightToOoxml } from '../src/taskpane/ooxml-formatting-removal.js';
 import assert from 'assert';
-
-// --- Global Setup ---
-const dom = new JSDOM('');
-global.DOMParser = dom.window.DOMParser;
-global.XMLSerializer = dom.window.XMLSerializer;
-global.document = dom.window.document;
-global.Node = dom.window.Node;
 
 async function testHighlight() {
     console.log("STARTING HIGHLIGHT TESTS...");
