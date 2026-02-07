@@ -73,7 +73,8 @@ export function generateTableOoxml(tableData, options = {}) {
 
             // Cell properties
             const tcPr = '<w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr>';
-            cellsXml += `<w:tc>${tcPr}<w:p>${runsOoxml}</w:p></w:tc>`;
+            // serializeToOoxml already returns one or more w:p blocks.
+            cellsXml += `<w:tc>${tcPr}${runsOoxml}</w:tc>`;
         }
 
         // Row properties
@@ -241,7 +242,8 @@ export function serializeVirtualGridToOoxml(grid, operations, options) {
             }];
 
             const runsOoxml = serializeToOoxml(runModel, null, formatHints, { author, generateRedlines });
-            cellsXml += `<w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr><w:p>${runsOoxml}</w:p></w:tc>`;
+            // serializeToOoxml already returns one or more w:p blocks.
+            cellsXml += `<w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr>${runsOoxml}</w:tc>`;
         }
 
         let trPr = '<w:trPr/>';
@@ -286,7 +288,8 @@ function reconcileCellContent(cell, newText, options) {
 function serializeCellBlocks(blocks) {
     return blocks.map(b => {
         const runsOoxml = serializeToOoxml(b.runModel, b.pPr, [], {});
-        return `<w:p>${runsOoxml}</w:p>`;
+        // serializeToOoxml already returns one or more w:p blocks.
+        return runsOoxml;
     }).join('');
 }
 
