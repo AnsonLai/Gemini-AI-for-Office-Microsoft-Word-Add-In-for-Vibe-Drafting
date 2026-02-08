@@ -21,6 +21,12 @@ cd mcp/docx-server
 npm install
 ```
 
+Or from repo root without changing directories:
+
+```bash
+npm run mcp:docx:install
+```
+
 ## Run
 
 ```bash
@@ -28,6 +34,12 @@ npm start
 ```
 
 The server runs over stdio (for MCP clients).
+
+From repo root:
+
+```bash
+npm run mcp:docx
+```
 
 ## Claude Code MCP config example
 
@@ -58,4 +70,3 @@ Adjust the absolute path for your machine:
   - `_rels/.rels`
   - `word/document.xml`
   - `word/_rels/document.xml.rels`
-

@@ -15,6 +15,30 @@ import { getRevisionTimestamp } from '../core/types.js';
 import { warn, log } from '../adapters/logger.js';
 import { getFirstElementByTag } from '../core/xml-query.js';
 
+function normalizePrecomputedFormatContext(precomputedContext) {
+    if (Array.isArray(precomputedContext)) {
+        return {
+            textSpans: precomputedContext,
+            paragraphs: null,
+            paragraphInfos: null
+        };
+    }
+
+    if (!precomputedContext || typeof precomputedContext !== 'object') {
+        return {
+            textSpans: null,
+            paragraphs: null,
+            paragraphInfos: null
+        };
+    }
+
+    return {
+        textSpans: Array.isArray(precomputedContext.textSpans) ? precomputedContext.textSpans : null,
+        paragraphs: Array.isArray(precomputedContext.paragraphs) ? precomputedContext.paragraphs : null,
+        paragraphInfos: Array.isArray(precomputedContext.paragraphInfos) ? precomputedContext.paragraphInfos : null
+    };
+}
+
 /**
  * Removes existing core formatting via `w:rPrChange` snapshots and explicit overrides.
  *
@@ -165,15 +189,15 @@ export function applyFormatAdditionsAsSurgicalReplacement(xmlDoc, textSpans, for
  * @param {XMLSerializer} serializer - Serializer instance
  * @param {string} author - Change author
  * @param {boolean} [generateRedlines=true] - Track change toggle
- * @param {Array|null} [precomputedSpans=null] - Optional pre-extracted spans
+ * @param {Array|Object|null} [precomputedContext=null] - Optional precomputed format context
  * @returns {{ oxml?: string, hasChanges: boolean, useNativeApi?: boolean, formatHints?: Array, originalText?: string }}
  */
-export function applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, author, generateRedlines = true, precomputedSpans = null) {
-    const allParagraphs = getDocumentParagraphs(xmlDoc);
+export function applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serializer, author, generateRedlines = true, precomputedContext = null) {
+    const precomputed = normalizePrecomputedFormatContext(precomputedContext);
+    const allParagraphs = precomputed.paragraphs || getDocumentParagraphs(xmlDoc);
 
-    let textSpans = Array.isArray(precomputedSpans) ? precomputedSpans : [];
-
-    if (!Array.isArray(precomputedSpans)) {
+    let textSpans = precomputed.textSpans || [];
+    if (!precomputed.textSpans) {
         ({ textSpans } = buildTextSpansFromParagraphs(allParagraphs));
     }
 
@@ -191,7 +215,7 @@ export function applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serial
         return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
     }
 
-    const paragraphInfos = buildParagraphInfos(xmlDoc, allParagraphs, textSpans);
+    const paragraphInfos = precomputed.paragraphInfos || buildParagraphInfos(xmlDoc, allParagraphs, textSpans);
     const { targetInfo, matchOffset } = findTargetParagraphInfo(paragraphInfos, originalText);
 
     if (!targetInfo || !targetInfo.spans || targetInfo.spans.length === 0) {
@@ -231,14 +255,15 @@ export function applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serial
  * @param {XMLSerializer} serializer - Serializer instance
  * @param {string} author - Change author
  * @param {boolean} [generateRedlines=true] - Track change toggle
- * @param {Array|null} [precomputedSpans=null] - Optional pre-extracted spans
+ * @param {Array|Object|null} [precomputedContext=null] - Optional precomputed format context
  * @returns {{ oxml?: string, hasChanges: boolean, useNativeApi?: boolean, formatHints?: Array, originalText?: string }}
  */
-export function applyFormatOnlyChangesSurgical(xmlDoc, originalText, formatHints, serializer, author, generateRedlines = true, precomputedSpans = null) {
-    const allParagraphs = getDocumentParagraphs(xmlDoc);
+export function applyFormatOnlyChangesSurgical(xmlDoc, originalText, formatHints, serializer, author, generateRedlines = true, precomputedContext = null) {
+    const precomputed = normalizePrecomputedFormatContext(precomputedContext);
+    const allParagraphs = precomputed.paragraphs || getDocumentParagraphs(xmlDoc);
 
-    let textSpans = Array.isArray(precomputedSpans) ? precomputedSpans : [];
-    if (!Array.isArray(precomputedSpans)) {
+    let textSpans = precomputed.textSpans || [];
+    if (!precomputed.textSpans) {
         ({ textSpans } = buildTextSpansFromParagraphs(allParagraphs));
     }
 
@@ -256,7 +281,7 @@ export function applyFormatOnlyChangesSurgical(xmlDoc, originalText, formatHints
         return { oxml: serializer.serializeToString(xmlDoc), hasChanges: false };
     }
 
-    const paragraphInfos = buildParagraphInfos(xmlDoc, allParagraphs, textSpans);
+    const paragraphInfos = precomputed.paragraphInfos || buildParagraphInfos(xmlDoc, allParagraphs, textSpans);
     const { targetInfo, matchOffset } = findTargetParagraphInfo(paragraphInfos, originalText);
 
     if (!targetInfo || !targetInfo.spans || targetInfo.spans.length === 0) {

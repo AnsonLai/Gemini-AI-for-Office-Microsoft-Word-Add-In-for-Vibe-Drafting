@@ -32,15 +32,19 @@ export function buildParagraphInfos(xmlDoc, paragraphs, textSpans) {
     paragraphs.forEach((p, index) => {
         const spans = (spansByParagraph.get(p) || []).slice().sort((a, b) => a.charStart - b.charStart);
         const text = buildParagraphTextFromSpans(spans);
+        const normalizedText = normalizeParagraphComparisonText(text);
+        const normalizedTrim = normalizedText.trim();
 
         infos.push({
             paragraph: p,
             spans,
             text,
+            normalizedText,
+            normalizedTrim,
             startOffset: runningOffset
         });
 
-        runningOffset += normalizeParagraphComparisonText(text).length;
+        runningOffset += normalizedText.length;
         runningOffset = advanceOffsetForParagraphBoundary(runningOffset, index, paragraphs.length);
     });
 
@@ -62,15 +66,13 @@ export function findMatchingParagraphInfo(paragraphInfos, originalText) {
     if (!normalizedTrim) return null;
 
     for (const info of paragraphInfos) {
-        const candidate = normalizeParagraphComparisonText(info.text);
-        if (candidate === normalizedOriginal) {
+        if (info.normalizedText === normalizedOriginal) {
             return info;
         }
     }
 
     for (const info of paragraphInfos) {
-        const candidate = normalizeParagraphComparisonText(info.text);
-        if (candidate.trim() === normalizedTrim) {
+        if (info.normalizedTrim === normalizedTrim) {
             return info;
         }
     }
@@ -93,8 +95,7 @@ export function findTargetParagraphInfo(paragraphInfos, originalText) {
     let matchOffset = 0;
 
     for (const info of paragraphInfos) {
-        const candidateFull = normalizeParagraphComparisonText(info.text);
-        if (candidateFull === normalizedOriginalFull) {
+        if (info.normalizedText === normalizedOriginalFull) {
             targetInfo = info;
             return { targetInfo, matchOffset };
         }
@@ -102,8 +103,7 @@ export function findTargetParagraphInfo(paragraphInfos, originalText) {
 
     if (normalizedOriginalTrim.length > 0) {
         for (const info of paragraphInfos) {
-            const candidateFull = normalizeParagraphComparisonText(info.text);
-            if (candidateFull.trim() === normalizedOriginalTrim) {
+            if (info.normalizedTrim === normalizedOriginalTrim) {
                 targetInfo = info;
                 return { targetInfo, matchOffset };
             }
@@ -111,12 +111,12 @@ export function findTargetParagraphInfo(paragraphInfos, originalText) {
     }
 
     if (normalizedOriginalTrim.length > 0) {
-        const docPlain = paragraphInfos.map(info => normalizeParagraphComparisonText(info.text)).join('\n');
+        const docPlain = paragraphInfos.map(info => info.normalizedText).join('\n');
         const idx = docPlain.indexOf(normalizedOriginalTrim);
         if (idx !== -1) {
             for (const info of paragraphInfos) {
                 const start = info.startOffset;
-                const length = normalizeParagraphComparisonText(info.text).length;
+                const length = info.normalizedText.length;
                 if (idx >= start && idx <= start + length) {
                     targetInfo = info;
                     matchOffset = idx - start;

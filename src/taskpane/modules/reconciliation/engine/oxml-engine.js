@@ -14,7 +14,7 @@ import {
 } from '../core/xml-query.js';
 import { createParser, createSerializer, parseXml, serializeXml } from '../adapters/xml-adapter.js';
 import { log, error } from '../adapters/logger.js';
-import { extractFormattingFromOoxml, getDocumentParagraphs } from './format-extraction.js';
+import { extractFormattingFromOoxml } from './format-extraction.js';
 import {
     applyFormatRemovalAsSurgicalReplacement,
     applyFormatOnlyChangesSurgical
@@ -73,8 +73,15 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     const hasTextChanges = cleanModifiedText.trim() !== originalText.trim();
     const hasFormatHints = formatHints.length > 0;
 
-    const { existingFormatHints, textSpans } = extractFormattingFromOoxml(xmlDoc);
+    const { existingFormatHints, textSpans, paragraphs } = extractFormattingFromOoxml(xmlDoc);
     const hasExistingFormatting = existingFormatHints.length > 0;
+    let paragraphInfos = null;
+    const getParagraphInfos = () => {
+        if (!paragraphInfos) {
+            paragraphInfos = buildParagraphInfos(xmlDoc, paragraphs, textSpans);
+        }
+        return paragraphInfos;
+    };
 
     log(`[OxmlEngine] Text changes: ${hasTextChanges}, New format hints: ${formatHints.length}, Existing format hints: ${existingFormatHints.length}`);
 
@@ -88,13 +95,11 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     if (needsFormatRemoval) {
         log('[OxmlEngine] Format REMOVAL detected: applying surgical replacement in OOXML');
 
-        const tableCellCtx = detectTableCellContext(xmlDoc, originalText, options);
+        const tableCellCtx = initialTableCellContext;
         let targetParagraph = tableCellCtx.targetParagraph || null;
 
         if (!targetParagraph) {
-            const allParagraphs = getDocumentParagraphs(xmlDoc);
-            const paragraphInfos = buildParagraphInfos(xmlDoc, allParagraphs, textSpans);
-            const matchedInfo = findMatchingParagraphInfo(paragraphInfos, originalText);
+            const matchedInfo = findMatchingParagraphInfo(getParagraphInfos(), originalText);
             if (matchedInfo) {
                 targetParagraph = matchedInfo.paragraph;
             }
@@ -130,7 +135,12 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     if (!hasTextChanges && hasFormatHints) {
         log(`[OxmlEngine] Format-only change detected: ${formatHints.length} format hints`);
 
-        const tableCellCtx = detectTableCellContext(xmlDoc, originalText, options);
+        const tableCellCtx = initialTableCellContext;
+        const precomputedFormatContext = {
+            textSpans,
+            paragraphs,
+            paragraphInfos: getParagraphInfos()
+        };
         if (tableCellCtx.hasTableWrapper && tableCellCtx.targetParagraph) {
             log('[OxmlEngine] Table cell context: applying formatting to target paragraph only');
 
@@ -141,7 +151,7 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
                 serializer,
                 author,
                 generateRedlines,
-                textSpans
+                precomputedFormatContext
             );
 
             if (formatResult.useNativeApi) {
@@ -155,7 +165,7 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
             };
         }
 
-        return applyFormatOnlyChangesSurgical(xmlDoc, originalText, formatHints, serializer, author, generateRedlines, textSpans);
+        return applyFormatOnlyChangesSurgical(xmlDoc, originalText, formatHints, serializer, author, generateRedlines, precomputedFormatContext);
     }
 
     const tables = getElementsByTag(xmlDoc, 'w:tbl');

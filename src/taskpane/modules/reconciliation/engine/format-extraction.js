@@ -188,17 +188,17 @@ export function processRunForFormatting(run, paragraph, charOffset, textSpans, f
  * Extracts existing formatting hints from OOXML paragraph runs.
  *
  * @param {Document} xmlDoc - XML document
- * @returns {{ existingFormatHints: Array, textSpans: Array }}
+ * @returns {{ existingFormatHints: Array, textSpans: Array, paragraphs: Element[] }}
  */
 export function extractFormattingFromOoxml(xmlDoc) {
     const existingFormatHints = [];
     const textSpans = [];
     let charOffset = 0;
 
-    const allParagraphs = getDocumentParagraphs(xmlDoc);
+    const paragraphs = getDocumentParagraphs(xmlDoc);
 
-    for (let pIndex = 0; pIndex < allParagraphs.length; pIndex++) {
-        const p = allParagraphs[pIndex];
+    for (let pIndex = 0; pIndex < paragraphs.length; pIndex++) {
+        const p = paragraphs[pIndex];
         let pRPr = null;
         for (const child of Array.from(p.childNodes)) {
             if (child.nodeName === 'w:pPr') {
@@ -228,9 +228,9 @@ export function extractFormattingFromOoxml(xmlDoc) {
                 }
             }
         }
-        charOffset = advanceOffsetForParagraphBoundary(charOffset, pIndex, allParagraphs.length);
+        charOffset = advanceOffsetForParagraphBoundary(charOffset, pIndex, paragraphs.length);
     }
 
     log(`[OxmlEngine] Extracted ${textSpans.length} text spans, ${existingFormatHints.length} format hints`);
-    return { existingFormatHints, textSpans };
+    return { existingFormatHints, textSpans, paragraphs };
 }
