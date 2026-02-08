@@ -5,9 +5,8 @@
  * making it safe for tables and other complex OOXML containers.
  */
 
-import { diff_match_patch } from 'diff-match-patch';
 import { getApplicableFormatHints } from '../pipeline/markdown-processor.js';
-import { wordsToChars, charsToWords } from '../pipeline/diff-engine.js';
+import { computeWordDiffs } from '../pipeline/diff-engine.js';
 import { appendParagraphBoundary } from '../core/paragraph-offset-policy.js';
 import { NS_W, getNextRevisionId } from '../core/types.js';
 import { createSerializer } from '../adapters/xml-adapter.js';
@@ -110,28 +109,25 @@ export function applySurgicalMode(xmlDoc, originalText, modifiedText, serializer
     allParagraphs.forEach((p, pIndex) => {
         const container = p.parentNode;
 
-        Array.from(p.childNodes).forEach(child => {
+        for (let child = p.firstChild; child; child = child.nextSibling) {
             if (child.nodeName === 'w:r') {
-                processRunElement(child, p, container, fullText.length, textSpans);
-                fullText = getUpdatedFullText(child, fullText);
+                const runResult = processRunElement(child, p, container, fullText.length, textSpans);
+                fullText += runResult.text;
             } else if (child.nodeName === 'w:hyperlink') {
-                Array.from(child.childNodes).forEach(hc => {
+                for (let hc = child.firstChild; hc; hc = hc.nextSibling) {
                     if (hc.nodeName === 'w:r') {
-                        processRunElement(hc, p, container, fullText.length, textSpans);
-                        fullText = getUpdatedFullText(hc, fullText);
+                        const runResult = processRunElement(hc, p, container, fullText.length, textSpans);
+                        fullText += runResult.text;
                     }
-                });
+                }
             }
-        });
+        }
 
         fullText = appendParagraphBoundary(fullText, pIndex, allParagraphs.length);
     });
 
-    const dmp = new diff_match_patch();
-    const { chars1, chars2, wordArray } = wordsToChars(fullText, modifiedText);
-    const charDiffs = dmp.diff_main(chars1, chars2);
-    dmp.diff_cleanupSemantic(charDiffs);
-    const diffs = charsToWords(charDiffs, wordArray);
+    const diffs = computeWordDiffs(fullText, modifiedText);
+    const spanIndex = buildSpanIndex(textSpans);
 
     let originalPos = 0;
     let newPos = 0;
@@ -143,11 +139,7 @@ export function applySurgicalMode(xmlDoc, originalText, modifiedText, serializer
             const startPos = originalPos;
             const endPos = originalPos + len;
 
-            const affectedSpans = textSpans.filter(s =>
-                s.charEnd > startPos && s.charStart < endPos
-            );
-
-            for (const span of affectedSpans) {
+            forEachOverlappingSpan(spanIndex, startPos, endPos, span => {
                 const overlapStartOriginal = Math.max(span.charStart, startPos);
                 const overlapEndOriginal = Math.min(span.charEnd, endPos);
                 const segmentLen = overlapEndOriginal - overlapStartOriginal;
@@ -156,17 +148,17 @@ export function applySurgicalMode(xmlDoc, originalText, modifiedText, serializer
                 const overlapEndNew = overlapStartNew + segmentLen;
                 const applicableHints = getApplicableFormatHints(formatHints, overlapStartNew, overlapEndNew);
                 reconcileFormattingForTextSpan(xmlDoc, span, overlapStartOriginal, overlapEndOriginal, applicableHints, author, generateRedlines);
-            }
+            });
 
             originalPos += len;
             newPos += len;
         } else if (op === -1) {
-            processDelete(xmlDoc, textSpans, originalPos, originalPos + text.length, processedSpans, author, generateRedlines);
+            processDelete(xmlDoc, spanIndex, originalPos, originalPos + text.length, processedSpans, author, generateRedlines);
             originalPos += text.length;
         } else if (op === 1) {
             const textWithoutNewlines = text.replace(/\n/g, ' ');
             if (textWithoutNewlines.trim().length > 0) {
-                processInsert(xmlDoc, textSpans, originalPos, textWithoutNewlines, processedSpans, author, formatHints, newPos, generateRedlines);
+                processInsert(xmlDoc, spanIndex, originalPos, textWithoutNewlines, processedSpans, author, formatHints, newPos, generateRedlines);
             }
             newPos += text.length;
         }
@@ -194,7 +186,13 @@ function reconcileFormattingForTextSpan(xmlDoc, span, start, end, applicableHint
 
     const rPr = span.rPr;
     const hasElement = (tagName) => {
-        return rPr && Array.from(rPr.childNodes).some(n => n.nodeName === tagName);
+        if (!rPr) return false;
+        for (let node = rPr.firstChild; node; node = node.nextSibling) {
+            if (node.nodeName === tagName) {
+                return true;
+            }
+        }
+        return false;
     };
 
     const existingFormat = {
@@ -247,13 +245,14 @@ function reconcileFormattingForTextSpan(xmlDoc, span, start, end, applicableHint
  * @param {Element} container - Parent container
  * @param {number} currentOffset - Absolute offset
  * @param {Array} textSpans - Span collection
- * @returns {number}
+ * @returns {{ nextOffset: number, text: string }}
  */
 function processRunElement(r, p, container, currentOffset, textSpans) {
     const rPr = getFirstElementByTag(r, 'w:rPr');
     let localOffset = currentOffset;
+    const textParts = [];
 
-    Array.from(r.childNodes).forEach(rc => {
+    for (let rc = r.firstChild; rc; rc = rc.nextSibling) {
         if (rc.nodeName === 'w:t') {
             const text = rc.textContent || '';
             if (text.length > 0) {
@@ -267,6 +266,7 @@ function processRunElement(r, p, container, currentOffset, textSpans) {
                     rPr
                 });
                 localOffset += text.length;
+                textParts.push(text);
             }
         } else if (rc.nodeName === 'w:br' || rc.nodeName === 'w:cr') {
             textSpans.push({
@@ -279,6 +279,7 @@ function processRunElement(r, p, container, currentOffset, textSpans) {
                 rPr
             });
             localOffset += 1;
+            textParts.push('\n');
         } else if (rc.nodeName === 'w:tab') {
             textSpans.push({
                 charStart: localOffset,
@@ -290,6 +291,7 @@ function processRunElement(r, p, container, currentOffset, textSpans) {
                 rPr
             });
             localOffset += 1;
+            textParts.push('\t');
         } else if (rc.nodeName === 'w:noBreakHyphen') {
             textSpans.push({
                 charStart: localOffset,
@@ -301,52 +303,26 @@ function processRunElement(r, p, container, currentOffset, textSpans) {
                 rPr
             });
             localOffset += 1;
+            textParts.push('\u2011');
         }
-    });
-    return localOffset;
-}
-
-/**
- * Returns full text with current run text appended.
- *
- * @param {Element} r - Run element
- * @param {string} currentFullText - Current full text
- * @returns {string}
- */
-function getUpdatedFullText(r, currentFullText) {
-    let fullText = currentFullText;
-    Array.from(r.childNodes).forEach(rc => {
-        if (rc.nodeName === 'w:t') {
-            fullText += rc.textContent || '';
-        } else if (rc.nodeName === 'w:br' || rc.nodeName === 'w:cr') {
-            fullText += '\n';
-        } else if (rc.nodeName === 'w:tab') {
-            fullText += '\t';
-        } else if (rc.nodeName === 'w:noBreakHyphen') {
-            fullText += '\u2011';
-        }
-    });
-    return fullText;
+    }
+    return { nextOffset: localOffset, text: textParts.join('') };
 }
 
 /**
  * Applies deletion over affected spans.
  *
  * @param {Document} xmlDoc - XML document
- * @param {Array} textSpans - Span collection
+ * @param {{ spans: Array, starts: number[], ends: number[] }} spanIndex - Indexed spans
  * @param {number} startPos - Delete start
  * @param {number} endPos - Delete end
  * @param {Set<Node>} processedSpans - Processed marker set
  * @param {string} author - Author name
  * @param {boolean} generateRedlines - Track change toggle
  */
-function processDelete(xmlDoc, textSpans, startPos, endPos, processedSpans, author, generateRedlines) {
-    const affectedSpans = textSpans.filter(s =>
-        s.charEnd > startPos && s.charStart < endPos
-    );
-
-    for (const span of affectedSpans) {
-        if (processedSpans.has(span.textElement)) continue;
+function processDelete(xmlDoc, spanIndex, startPos, endPos, processedSpans, author, generateRedlines) {
+    forEachOverlappingSpan(spanIndex, startPos, endPos, span => {
+        if (processedSpans.has(span.textElement)) return;
 
         const deleteStart = Math.max(0, startPos - span.charStart);
         const deleteEnd = Math.min(span.charEnd - span.charStart, endPos - span.charStart);
@@ -356,10 +332,10 @@ function processDelete(xmlDoc, textSpans, startPos, endPos, processedSpans, auth
         const deletedText = originalText.substring(deleteStart, deleteEnd);
         const afterText = originalText.substring(deleteEnd);
 
-        if (deletedText.length === 0) continue;
+        if (deletedText.length === 0) return;
 
         const parent = span.runElement.parentNode;
-        if (!parent) continue;
+        if (!parent) return;
 
         if (beforeText.length === 0 && afterText.length === 0) {
             const delRun = createTextRun(xmlDoc, deletedText, span.rPr, true);
@@ -393,14 +369,14 @@ function processDelete(xmlDoc, textSpans, startPos, endPos, processedSpans, auth
         }
 
         processedSpans.add(span.textElement);
-    }
+    });
 }
 
 /**
  * Inserts new text at an absolute position.
  *
  * @param {Document} xmlDoc - XML document
- * @param {Array} textSpans - Span collection
+ * @param {{ spans: Array, starts: number[], ends: number[] }} spanIndex - Indexed spans
  * @param {number} pos - Insertion position
  * @param {string} text - Text to insert
  * @param {Set<Node>} processedSpans - Processed marker set (unused, kept for signature)
@@ -409,22 +385,21 @@ function processDelete(xmlDoc, textSpans, startPos, endPos, processedSpans, auth
  * @param {number} [insertOffset=0] - Offset in modified text
  * @param {boolean} [generateRedlines=true] - Track change toggle
  */
-function processInsert(xmlDoc, textSpans, pos, text, processedSpans, author, formatHints = [], insertOffset = 0, generateRedlines = true) {
-    let targetSpan = textSpans.find(s => pos >= s.charStart && pos < s.charEnd);
+function processInsert(xmlDoc, spanIndex, pos, text, processedSpans, author, formatHints = [], insertOffset = 0, generateRedlines = true) {
+    void processedSpans;
+
+    let targetSpan = findContainingSpan(spanIndex, pos);
 
     if (!targetSpan && pos > 0) {
-        targetSpan = textSpans.find(s => pos === s.charEnd);
+        targetSpan = findFirstSpanEndingAt(spanIndex, pos);
     }
 
     if (!targetSpan && pos > 0) {
-        const before = textSpans.filter(s => s.charEnd <= pos);
-        if (before.length > 0) {
-            targetSpan = before[before.length - 1];
-        }
+        targetSpan = findLastSpanEndingBeforeOrAt(spanIndex, pos);
     }
 
-    if (!targetSpan && textSpans.length > 0) {
-        targetSpan = textSpans[textSpans.length - 1];
+    if (!targetSpan && spanIndex.spans.length > 0) {
+        targetSpan = spanIndex.spans[spanIndex.spans.length - 1];
     }
 
     if (targetSpan) {
@@ -456,4 +431,89 @@ function processInsert(xmlDoc, textSpans, pos, text, processedSpans, author, for
             }
         }
     }
+}
+
+function buildSpanIndex(textSpans) {
+    const spans = textSpans
+        .slice()
+        .sort((a, b) => a.charStart - b.charStart || a.charEnd - b.charEnd);
+
+    const starts = spans.map(span => span.charStart);
+    const ends = spans.map(span => span.charEnd);
+
+    return { spans, starts, ends };
+}
+
+function upperBound(values, target) {
+    let left = 0;
+    let right = values.length;
+
+    while (left < right) {
+        const middle = (left + right) >> 1;
+        if (values[middle] <= target) {
+            left = middle + 1;
+        } else {
+            right = middle;
+        }
+    }
+
+    return left;
+}
+
+function lowerBound(values, target) {
+    let left = 0;
+    let right = values.length;
+
+    while (left < right) {
+        const middle = (left + right) >> 1;
+        if (values[middle] < target) {
+            left = middle + 1;
+        } else {
+            right = middle;
+        }
+    }
+
+    return left;
+}
+
+function forEachOverlappingSpan(spanIndex, startPos, endPos, callback) {
+    if (endPos <= startPos || spanIndex.spans.length === 0) {
+        return;
+    }
+
+    let index = upperBound(spanIndex.ends, startPos);
+    while (index < spanIndex.spans.length) {
+        const span = spanIndex.spans[index];
+        if (span.charStart >= endPos) {
+            break;
+        }
+        callback(span);
+        index++;
+    }
+}
+
+function findContainingSpan(spanIndex, pos) {
+    if (spanIndex.spans.length === 0) return null;
+
+    const index = upperBound(spanIndex.starts, pos) - 1;
+    if (index < 0) return null;
+
+    const span = spanIndex.spans[index];
+    return pos >= span.charStart && pos < span.charEnd ? span : null;
+}
+
+function findFirstSpanEndingAt(spanIndex, pos) {
+    const index = lowerBound(spanIndex.ends, pos);
+    if (index < spanIndex.spans.length && spanIndex.ends[index] === pos) {
+        return spanIndex.spans[index];
+    }
+    return null;
+}
+
+function findLastSpanEndingBeforeOrAt(spanIndex, pos) {
+    const index = upperBound(spanIndex.ends, pos) - 1;
+    if (index >= 0) {
+        return spanIndex.spans[index];
+    }
+    return null;
 }

@@ -20,6 +20,28 @@ import { createParser } from '../adapters/xml-adapter.js';
 import { log, error as logError } from '../adapters/logger.js';
 import { getFirstElementByTagNS, getXmlParseError } from '../core/xml-query.js';
 
+const WEB_PLATFORM_NAMES = new Set(['officeonline', 'officeweb', 'web']);
+
+function detectOfficePlatform() {
+    if (typeof Office === 'undefined' || !Office?.context?.platform) {
+        return null;
+    }
+    return String(Office.context.platform);
+}
+
+function isWebPlatform(platform) {
+    if (!platform) return false;
+    return WEB_PLATFORM_NAMES.has(String(platform).toLowerCase());
+}
+
+function isProductionBuild() {
+    return typeof process !== 'undefined' && process?.env?.NODE_ENV === 'production';
+}
+
+function yieldToEventLoop() {
+    return new Promise(resolve => setTimeout(resolve, 0));
+}
+
 /**
  * Main reconciliation pipeline class.
  * Orchestrates the process of diffing and patching OOXML content.
@@ -35,8 +57,15 @@ export class ReconciliationPipeline {
         this.generateRedlines = options.generateRedlines ?? true;
         this.author = options.author ?? 'AI';
         this.validateOutput = options.validateOutput ?? true;
+        this.validationMode = options.validationMode ?? 'auto';
         this.numberingService = options.numberingService || new NumberingService();
         this.font = options.font || null;
+        this.platform = options.platform ?? detectOfficePlatform();
+        this.isWebPlatform = options.isWebPlatform ?? isWebPlatform(this.platform);
+        this.enableEventLoopYielding = options.enableEventLoopYielding ?? this.isWebPlatform;
+        this.yieldRunThreshold = options.yieldRunThreshold ?? 50;
+        this.yieldCharThreshold = options.yieldCharThreshold ?? 5000;
+        this.disableSemanticCleanupOverChars = options.disableSemanticCleanupOverChars ?? (this.isWebPlatform ? 8000 : Number.POSITIVE_INFINITY);
     }
 
     /**
@@ -44,25 +73,30 @@ export class ReconciliationPipeline {
      * 
      * @param {string} originalOoxml - Original OOXML paragraph content
      * @param {string} newText - New text with optional markdown formatting
+     * @param {{ xmlDoc?: Document|null }} [options={}] - Optional execution options
      * @returns {Promise<import('../core/types.js').ReconciliationResult>}
      */
-    async execute(originalOoxml, newText) {
+    async execute(originalOoxml, newText, options = {}) {
         const warnings = [];
 
         try {
             // Stage 1: Ingest OOXML
-            const parser = createParser();
-            const doc = parser.parseFromString(originalOoxml, 'application/xml');
+            const doc = options.xmlDoc || (() => {
+                const parser = createParser();
+                return parser.parseFromString(originalOoxml, 'application/xml');
+            })();
             const pElement = getFirstElementByTagNS(doc, '*', 'p');
 
-            const { runModel, acceptedText, pPr } = ingestOoxml(originalOoxml);
+            const { runModel, acceptedText, pPr } = ingestOoxml(originalOoxml, { xmlDoc: doc });
             const numberingContext = pElement ? detectNumberingContext(pElement) : null;
 
             log(`[Reconcile] Ingested ${runModel.length} runs, ${acceptedText.length} chars, numbering:`, numberingContext);
+            await this.maybeYield(runModel.length, Math.max(acceptedText.length, newText?.length || 0));
 
             // Stage 2: Preprocess markdown
             const { cleanText, formatHints } = preprocessMarkdown(newText);
             log(`[Reconcile] Preprocessed: ${formatHints.length} format hints`);
+            await this.maybeYield(runModel.length, Math.max(acceptedText.length, cleanText.length));
 
             // Early exit if no change
             if (acceptedText === cleanText && formatHints.length === 0) {
@@ -75,7 +109,14 @@ export class ReconciliationPipeline {
             }
 
             // Stage 3: Compute word-level diff
-            const diffOps = computeWordLevelDiffOps(acceptedText, cleanText);
+            const shouldCleanupSemantic = Math.max(acceptedText.length, cleanText.length) < this.disableSemanticCleanupOverChars;
+            const diffOps = computeWordLevelDiffOps(acceptedText, cleanText, {
+                cleanupSemantic: shouldCleanupSemantic
+            });
+            if (!shouldCleanupSemantic) {
+                log('[Reconcile] Skipping semantic diff cleanup for large web payload');
+            }
+            await this.maybeYield(runModel.length, Math.max(acceptedText.length, cleanText.length));
 
             // Count actual paragraph elements ingested
             const paragraphCount = runModel.filter(r => r.kind === RunKind.PARAGRAPH_START).length;
@@ -108,6 +149,7 @@ export class ReconciliationPipeline {
                 numberingService: this.numberingService
             });
             log(`[Reconcile] Patched model has ${patchedModel.length} runs`);
+            await this.maybeYield(patchedModel.length, Math.max(acceptedText.length, cleanText.length));
 
             // Stage 6: Serialize to OOXML
             const resultOoxml = serializeToOoxml(patchedModel, pPr, formatHints, {
@@ -116,7 +158,7 @@ export class ReconciliationPipeline {
             });
 
             // Stage 7: Basic validation
-            if (this.validateOutput) {
+            if (this.shouldRunValidation()) {
                 const validation = this.validateBasic(resultOoxml);
                 if (!validation.isValid) {
                     warnings.push(...validation.errors);
@@ -172,6 +214,39 @@ export class ReconciliationPipeline {
             isValid: errors.length === 0,
             errors
         };
+    }
+
+    /**
+     * Decides if basic output validation should run for this pipeline instance.
+     *
+     * Modes:
+     * - `always`: validate whenever `validateOutput` is true
+     * - `never`: never validate
+     * - `auto` (default): skip only in production web runtime
+     *
+     * @returns {boolean}
+     */
+    shouldRunValidation() {
+        if (!this.validateOutput) return false;
+
+        if (this.validationMode === 'always') return true;
+        if (this.validationMode === 'never') return false;
+
+        // Auto mode: avoid extra parse round-trips in Word Online production.
+        return !(this.isWebPlatform && isProductionBuild());
+    }
+
+    /**
+     * Yields to the event loop for large operations to keep web UI responsive.
+     *
+     * @param {number} runCount - Run model size
+     * @param {number} charCount - Text size
+     * @returns {Promise<void>}
+     */
+    async maybeYield(runCount, charCount) {
+        if (!this.enableEventLoopYielding) return;
+        if (runCount <= this.yieldRunThreshold && charCount <= this.yieldCharThreshold) return;
+        await yieldToEventLoop();
     }
 
     /**

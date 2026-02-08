@@ -73,6 +73,7 @@ const SEARCH_LIMITS = {
 const DOCUMENT_LIMITS = {
   MAX_WORDS: 30000,          // Approx 40 pages, ~40k tokens
   MAX_LOOPS: 6,              // Maximum tool execution loops
+  MAX_NO_PROGRESS_TOOL_LOOPS: 2, // Stop when the same mutation tool cycle keeps applying 0 changes
   TOKEN_MULTIPLIER: 1.33     // Words to tokens conversion factor
 };
 
@@ -1302,7 +1303,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
         function_declarations: [
           {
             name: "apply_redlines",
-            description: "Applies suggested edits to the document. Use this tool whenever the user asks to 'edit text', 'change text', 'modify', 'add', 'delete', 'reword', 'rephrase', 'update', 'bold', 'italicize', 'underline', 'strikethrough', or apply any TEXT FORMATTING to the document.\n\nIMPORTANT - FORMATTING RULES:\n- Bold: **text**\n- Italic: *text*\n- Underline: ++text++\n- Strikethrough: ~~text~~\n\nIMPORTANT - LIST RULES:\n- Use Markdown syntax for lists. \n- For Bullet Lists: Use '* item'. For nested items, indent with 4 spaces (e.g., '    * sub-item').\n- For Numbered Lists: Use '1. item', 'a. item', 'i. item', etc. explicitly. \n- For Nested Numbering: Use '1.1.', '1.1.1.' styles if appropriate. \n- DO NOT use simple hyphens ('-') if you intend to create a structured or numbered list. \n- INDENTATION is critical for sub-levels. Use 2 or 4 spaces.\n\nDo NOT suggest changes in the chat; always use this tool to apply them directly. The edits will be applied under track changes (redlines). NEVER say you have applied edits unless you have successfully called this tool.",
+            description: "Applies suggested edits to the document. Use this tool whenever the user asks to 'edit text', 'change text', 'modify', 'add', 'delete', 'reword', 'rephrase', 'update', 'bold', 'italicize', 'underline', 'strikethrough', or apply inline TEXT FORMATTING to existing paragraphs.\n\nIMPORTANT - FORMATTING RULES:\n- Bold: **text**\n- Italic: *text*\n- Underline: ++text++\n- Strikethrough: ~~text~~\n\nIMPORTANT - LIST RULES:\n- Use Markdown syntax for lists. \n- For Bullet Lists: Use '* item'. For nested items, indent with 4 spaces (e.g., '    * sub-item').\n- For Numbered Lists: Use '1. item', 'a. item', 'i. item', etc. explicitly. \n- For Nested Numbering: Use '1.1.', '1.1.1.' styles if appropriate. \n- DO NOT use simple hyphens ('-') if you intend to create a structured or numbered list. \n- INDENTATION is critical for sub-levels. Use 2 or 4 spaces.\n\nFor full list structure conversions (like turning multiple lines into A., B., C. or 1., 2., 3. list items), prefer the dedicated list tools.\n\nDo NOT suggest changes in the chat; always use this tool to apply them directly. The edits will be applied under track changes (redlines). NEVER say you have applied edits unless you have successfully called this tool.",
             parameters: {
               type: "OBJECT",
               properties: {
@@ -1544,7 +1545,7 @@ TOOL SELECTION GUIDANCE:
 
 IMPORTANT: You have access to tools. You can chat and respond normally to questions. However, when the user asks for an action that involves manipulating the document, you should HEAVILY FAVOR using the corresponding tool rather than just describing the action.
 
-CRITICAL: If the user asks to 'edit text' or make any changes, you MUST use the \`apply_redlines\` tool.
+CRITICAL: For plain text edits and inline formatting within existing paragraphs, use \`apply_redlines\`. For structural list/table/section edits, use the dedicated tools (\`edit_list\`, \`convert_headers_to_list\`, \`edit_table\`, \`edit_section\`).
 CRITICAL: If the user asks to "Reply to a comment" by "changing textual content", you MUST call BOTH \`apply_redlines\` (to apply the text change) AND \`insert_comment\` (to insert the reply). Call them in the same turn.
 NEVER claim to have "added a sentence" or "changed text" if you have only called \`insert_comment\`.
 NEVER state that you have taken an action unless you have successfully invoked the corresponding tool.
@@ -1569,6 +1570,8 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
     let keepLooping = true;
     let currentRecoveryTier = 0;  // 0=normal, 1=validate pairs, 2=remove all pairs, 3=fresh start, 4=graceful degrade
     const originalUserMessage = prompt;  // Save for Tier 3 recovery
+    let consecutiveNoProgressToolLoops = 0;
+    let lastNoProgressSignature = "";
 
     while (keepLooping && loopCount < DOCUMENT_LIMITS.MAX_LOOPS) {
       loopCount++;
@@ -1718,16 +1721,179 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
         parts = content.parts;
       } else if (candidate.finishReason === "MALFORMED_FUNCTION_CALL" && candidate.finishMessage) {
         console.warn("Gemini returned MALFORMED_FUNCTION_CALL. Attempting to recover...", candidate.finishMessage);
-        const redlineMatch = candidate.finishMessage.match(/apply_redlines\s*\{\s*instruction\s*:\s*(.*)\s*\}/s);
-        if (redlineMatch && redlineMatch[1]) {
-          const instruction = redlineMatch[1].trim();
-          console.log("Recovered instruction:", instruction);
-          parts = [{
-            functionCall: {
-              name: "apply_redlines",
-              args: { instruction: instruction }
+
+        const toolNames = [
+          "apply_redlines",
+          "insert_comment",
+          "highlight_text",
+          "perform_research",
+          "navigate_to_section",
+          "edit_list",
+          "insert_list_item",
+          "edit_table",
+          "edit_section",
+          "convert_headers_to_list"
+        ];
+
+        const tryParseArgs = (rawArgs) => {
+          if (!rawArgs || typeof rawArgs !== "string") return null;
+          const trimmed = rawArgs.trim();
+          if (!trimmed) return {};
+
+          try {
+            return JSON.parse(trimmed);
+          } catch (_) {
+            // Fall through to tolerant parser.
+          }
+
+          try {
+            const normalized = trimmed
+              .replace(/^\(\s*/, "")
+              .replace(/\s*\)\s*$/, "")
+              .replace(/,\s*([}\]])/g, "$1")
+              .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:/g, '$1"$2":')
+              .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_, s) => `"${s.replace(/"/g, '\\"')}"`);
+            return JSON.parse(normalized);
+          } catch (_) {
+            return null;
+          }
+        };
+
+        const parseMalformedEditListArgs = (rawArgs) => {
+          if (!rawArgs || typeof rawArgs !== "string") return null;
+
+          const parseIntField = (fieldName) => {
+            const match = rawArgs.match(new RegExp(`${fieldName}\\s*:\\s*(\\d+)`, "i"));
+            return match ? parseInt(match[1], 10) : null;
+          };
+
+          const parseStringField = (fieldName) => {
+            const match = rawArgs.match(new RegExp(`${fieldName}\\s*:\\s*([^,}\\]]+)`, "i"));
+            return match ? String(match[1]).trim().replace(/^["']|["']$/g, "") : null;
+          };
+
+          const startParagraphIndex = parseIntField("startParagraphIndex");
+          const endParagraphIndex = parseIntField("endParagraphIndex");
+          const listTypeRaw = parseStringField("listType");
+          const numberingStyle = parseStringField("numberingStyle");
+
+          if (!startParagraphIndex || !endParagraphIndex) {
+            return null;
+          }
+
+          const listType = (listTypeRaw || "numbered").toLowerCase();
+          const normalizedListType = listType === "bullet" ? "bullet" : "numbered";
+
+          let newItems = [];
+          const itemsMatch = rawArgs.match(/newItems\s*:\s*\[([\s\S]*?)\](?=\s*,\s*[A-Za-z_][A-Za-z0-9_]*\s*:|\s*$)/i);
+          if (itemsMatch && itemsMatch[1]) {
+            const itemsRaw = itemsMatch[1]
+              .replace(/\r?\n/g, " ")
+              .replace(/\s+/g, " ")
+              .trim();
+
+            if (itemsRaw) {
+              // Common malformed pattern: unquoted sentence-like items separated by " , "
+              const sentenceSplit = itemsRaw
+                .split(/(?<=[.;!?])\s*,\s*(?=[A-Z0-9(“"'])/)
+                .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+                .filter(Boolean);
+
+              if (sentenceSplit.length > 0) {
+                newItems = sentenceSplit;
+              } else {
+                // Fallback for simpler malformed arrays.
+                newItems = itemsRaw
+                  .split(/\s*,\s*/)
+                  .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+                  .filter(Boolean);
+              }
             }
-          }];
+          }
+
+          const parsed = {
+            startParagraphIndex,
+            endParagraphIndex,
+            listType: normalizedListType
+          };
+
+          if (numberingStyle) {
+            parsed.numberingStyle = numberingStyle;
+          }
+
+          if (newItems.length > 0) {
+            parsed.newItems = newItems;
+          }
+
+          return parsed;
+        };
+
+        const parseMalformedConvertHeadersArgs = (rawArgs) => {
+          if (!rawArgs || typeof rawArgs !== "string") return null;
+          const indicesMatch = rawArgs.match(/paragraphIndices\s*:\s*\[([^\]]*)\]/i);
+          if (!indicesMatch || !indicesMatch[1]) {
+            return null;
+          }
+
+          const paragraphIndices = indicesMatch[1]
+            .split(/\s*,\s*/)
+            .map((v) => parseInt(v.trim(), 10))
+            .filter((v) => Number.isFinite(v));
+
+          if (paragraphIndices.length === 0) {
+            return null;
+          }
+
+          const numberingFormatMatch = rawArgs.match(/numberingFormat\s*:\s*([^,}\]]+)/i);
+          const numberingFormat = numberingFormatMatch
+            ? String(numberingFormatMatch[1]).trim().replace(/^["']|["']$/g, "")
+            : undefined;
+
+          return numberingFormat
+            ? { paragraphIndices, numberingFormat }
+            : { paragraphIndices };
+        };
+
+        let recoveredFunctionCall = null;
+        for (const toolName of toolNames) {
+          const regex = new RegExp(`${toolName}\\s*\\(?\\s*(\\{[\\s\\S]*?\\})\\s*\\)?`, "i");
+          const match = candidate.finishMessage.match(regex);
+          if (!match || !match[1]) {
+            continue;
+          }
+
+          let parsedArgs = tryParseArgs(match[1]);
+          if ((!parsedArgs || typeof parsedArgs !== "object" || Array.isArray(parsedArgs)) && toolName === "edit_list") {
+            parsedArgs = parseMalformedEditListArgs(match[1]);
+          }
+          if ((!parsedArgs || typeof parsedArgs !== "object" || Array.isArray(parsedArgs)) && toolName === "convert_headers_to_list") {
+            parsedArgs = parseMalformedConvertHeadersArgs(match[1]);
+          }
+          if (!parsedArgs || typeof parsedArgs !== "object" || Array.isArray(parsedArgs)) {
+            continue;
+          }
+
+          recoveredFunctionCall = {
+            name: toolName,
+            args: parsedArgs
+          };
+          break;
+        }
+
+        // Legacy fallback: recover redline instruction from raw malformed text.
+        if (!recoveredFunctionCall) {
+          const redlineMatch = candidate.finishMessage.match(/apply_redlines\s*\{\s*instruction\s*:\s*(.*)\s*\}/s);
+          if (redlineMatch && redlineMatch[1]) {
+            recoveredFunctionCall = {
+              name: "apply_redlines",
+              args: { instruction: redlineMatch[1].trim() }
+            };
+          }
+        }
+
+        if (recoveredFunctionCall) {
+          console.log("Recovered malformed tool call:", recoveredFunctionCall.name, recoveredFunctionCall.args);
+          parts = [{ functionCall: recoveredFunctionCall }];
           // Ensure content has the proper structure with role
           if (!content || !content.role) {
             content = { role: "model", parts: parts };
@@ -1785,6 +1951,19 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
 
         // Execute ALL function calls and collect responses
         const functionResponses = [];
+        const mutatingToolNames = new Set([
+          "apply_redlines",
+          "insert_comment",
+          "highlight_text",
+          "edit_list",
+          "insert_list_item",
+          "edit_table",
+          "edit_section",
+          "convert_headers_to_list"
+        ]);
+        let attemptedMutatingToolsThisLoop = 0;
+        let successfulMutatingToolsThisLoop = 0;
+        const failedMutationSignatures = [];
 
         for (const functionCallPart of functionCallParts) {
           const functionCall = functionCallPart.functionCall;
@@ -1806,11 +1985,13 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
 
 
           let toolResult = "";
+          let toolSucceeded = false;
 
           if (functionCall.name === "apply_redlines") {
             const checkpointIndex = await createCheckpoint(true);
             const result = await executeRedline(instruction, docText);
             toolResult = result.message;
+            toolSucceeded = !!result.showToUser;
 
             // Track successful tool execution for recovery
             toolsExecutedInCurrentRequest.push({
@@ -1831,6 +2012,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
             const checkpointIndex = await createCheckpoint(true);
             const result = await executeComment(instruction, docText);
             toolResult = result.message;
+            toolSucceeded = !!result.showToUser;
 
             // Track successful tool execution for recovery
             toolsExecutedInCurrentRequest.push({
@@ -1851,6 +2033,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
             const highlightColor = args.color || "yellow";
             const result = await executeHighlight(instruction, docText, highlightColor);
             toolResult = result.message;
+            toolSucceeded = !!result.showToUser;
 
             // Track successful tool execution for recovery
             toolsExecutedInCurrentRequest.push({
@@ -1869,6 +2052,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
           } else if (functionCall.name === "perform_research") {
             updateSystemMessage(loadingMsg, `Researching: "${instruction}"...`);
             toolResult = await executeResearch(instruction);
+            toolSucceeded = true;
 
             // Track successful tool execution for recovery
             toolsExecutedInCurrentRequest.push({
@@ -1882,6 +2066,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
           } else if (functionCall.name === "navigate_to_section") {
             updateSystemMessage(loadingMsg, `Navigating to: "${instruction}"...`);
             toolResult = await executeNavigate(instruction, docText);
+            toolSucceeded = true;
 
             // Track successful tool execution for recovery
             toolsExecutedInCurrentRequest.push({
@@ -1904,6 +2089,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
               args.numberingStyle
             );
             toolResult = result.message;
+            toolSucceeded = !!result.success;
 
             // Track successful tool execution
             toolsExecutedInCurrentRequest.push({
@@ -1928,6 +2114,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
               args.indentLevel || 0
             );
             toolResult = result.message;
+            toolSucceeded = !!result.success;
 
             // Track successful tool execution
             toolsExecutedInCurrentRequest.push({
@@ -1954,6 +2141,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
               args.targetColumn
             );
             toolResult = result.message;
+            toolSucceeded = !!result.success;
 
             // Track successful tool execution
             toolsExecutedInCurrentRequest.push({
@@ -1979,6 +2167,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
               args.preserveSubsections
             );
             toolResult = result.message;
+            toolSucceeded = !!result.success;
 
             // Track successful tool execution
             toolsExecutedInCurrentRequest.push({
@@ -2003,6 +2192,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
               args.numberingFormat
             );
             toolResult = result.message;
+            toolSucceeded = !!result.success;
 
             // Track successful tool execution
             toolsExecutedInCurrentRequest.push({
@@ -2016,6 +2206,22 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
               updateSystemMessage(loadingMsg, toolResult, checkpointIndex);
             } else {
               updateSystemMessage(loadingMsg, toolResult);
+            }
+          }
+
+          const isMutatingTool = mutatingToolNames.has(functionCall.name);
+          if (isMutatingTool) {
+            attemptedMutatingToolsThisLoop++;
+            if (toolSucceeded) {
+              successfulMutatingToolsThisLoop++;
+            } else {
+              let argsSignature = "";
+              try {
+                argsSignature = JSON.stringify(args || {});
+              } catch (_) {
+                argsSignature = "[unserializable-args]";
+              }
+              failedMutationSignatures.push(`${functionCall.name}|${argsSignature}|${toolResult || ""}`);
             }
           }
 
@@ -2061,6 +2267,35 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
           role: "user",
           parts: functionResponses
         });
+
+        if (attemptedMutatingToolsThisLoop > 0 && successfulMutatingToolsThisLoop === 0) {
+          const noProgressSignature = failedMutationSignatures.join("||").slice(0, 2000);
+          if (noProgressSignature && noProgressSignature === lastNoProgressSignature) {
+            consecutiveNoProgressToolLoops++;
+          } else {
+            consecutiveNoProgressToolLoops = 1;
+            lastNoProgressSignature = noProgressSignature;
+          }
+
+          console.warn(`[LoopGuard] No-progress mutation loop ${consecutiveNoProgressToolLoops}/${DOCUMENT_LIMITS.MAX_NO_PROGRESS_TOOL_LOOPS}`);
+
+          if (consecutiveNoProgressToolLoops >= DOCUMENT_LIMITS.MAX_NO_PROGRESS_TOOL_LOOPS) {
+            const loopGuardMessage = "Stopped to prevent a retry loop: repeated document edit attempts are failing with no applied changes.";
+            if (loadingMsg) {
+              updateSystemMessage(loadingMsg, loopGuardMessage);
+            } else {
+              addMessageToChat("System", loopGuardMessage);
+            }
+            // Reset conversation history to avoid carrying forward orphaned
+            // function-call/function-response turns into the next request.
+            chatHistory = [];
+            keepLooping = false;
+            break;
+          }
+        } else {
+          consecutiveNoProgressToolLoops = 0;
+          lastNoProgressSignature = "";
+        }
 
       } else {
         // Normal text response - this ends the loop

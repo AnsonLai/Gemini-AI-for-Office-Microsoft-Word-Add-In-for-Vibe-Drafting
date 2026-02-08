@@ -22,19 +22,23 @@ let containerIdCounter = 0;
  * Ingests OOXML paragraph content and builds a run-aware text model.
  *
  * @param {string} ooxmlString - OOXML input
+ * @param {{ xmlDoc?: Document|null }} [options={}] - Optional pre-parsed XML document
  * @returns {import('../core/types.js').IngestionResult}
  */
-export function ingestOoxml(ooxmlString) {
+export function ingestOoxml(ooxmlString, options = {}) {
     const runModel = [];
     let acceptedText = '';
+    const preParsedDoc = options.xmlDoc || null;
 
-    if (!ooxmlString) {
+    if (!ooxmlString && !preParsedDoc) {
         return { runModel, acceptedText, pPr: null };
     }
 
     try {
-        const parser = createParser();
-        const doc = parser.parseFromString(ooxmlString, 'application/xml');
+        const doc = preParsedDoc || (() => {
+            const parser = createParser();
+            return parser.parseFromString(ooxmlString, 'application/xml');
+        })();
 
         const parseError = getXmlParseError(doc);
         if (parseError) {
@@ -105,7 +109,6 @@ function ingestParagraphElements(paragraphs, options = {}) {
     for (let pIndex = 0; pIndex < paragraphs.length; pIndex++) {
         const pElement = paragraphs[pIndex];
         const pPr = getFirstElementByTagNS(pElement, NS_W, 'pPr');
-        const pPrXml = pPr ? serializeXml(pPr) : '';
 
         if (pIndex === 0) {
             firstPPr = pPr;
@@ -113,7 +116,8 @@ function ingestParagraphElements(paragraphs, options = {}) {
 
         runModel.push({
             kind: RunKind.PARAGRAPH_START,
-            pPrXml,
+            // Keep pPr as a DOM reference; serialize only when downstream actually needs string XML.
+            pPrElement: pPr || null,
             startOffset: currentOffset,
             endOffset: currentOffset,
             text: ''

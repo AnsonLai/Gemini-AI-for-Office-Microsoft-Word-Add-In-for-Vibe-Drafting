@@ -7,6 +7,8 @@
 import { diff_match_patch } from 'diff-match-patch';
 import { DiffOp } from '../core/types.js';
 
+const DMP = new diff_match_patch();
+
 /**
  * Converts text into word tokens represented as unique characters.
  * This allows DMP to diff at word-level instead of character-level.
@@ -66,17 +68,49 @@ export function charsToWords(diffs, wordArray) {
     const wordDiffs = [];
 
     for (const [op, chars] of diffs) {
-        let text = '';
+        const parts = [];
         for (let i = 0; i < chars.length; i++) {
             const charCode = chars.charCodeAt(i);
             if (charCode < wordArray.length) {
-                text += wordArray[charCode];
+                parts.push(wordArray[charCode]);
             }
         }
-        wordDiffs.push([op, text]);
+        wordDiffs.push([op, parts.join('')]);
     }
 
     return wordDiffs;
+}
+
+/**
+ * Computes word-level diff tuples using a shared diff engine instance.
+ *
+ * @param {string} originalText - Original text
+ * @param {string} newText - New text
+ * @param {{ cleanupSemantic?: boolean }} [options={}] - Diff options
+ * @returns {Array<[number, string]>}
+ */
+export function computeWordDiffs(originalText, newText, options = {}) {
+    if (originalText === newText) {
+        return [[0, originalText]];
+    }
+
+    if (!originalText) {
+        return [[1, newText]];
+    }
+
+    if (!newText) {
+        return [[-1, originalText]];
+    }
+
+    const { cleanupSemantic = true } = options;
+
+    const { chars1, chars2, wordArray } = wordsToChars(originalText, newText);
+    const charDiffs = DMP.diff_main(chars1, chars2);
+    if (cleanupSemantic) {
+        DMP.diff_cleanupSemantic(charDiffs);
+    }
+
+    return charsToWords(charDiffs, wordArray);
 }
 
 /**
@@ -84,9 +118,10 @@ export function charsToWords(diffs, wordArray) {
  * 
  * @param {string} originalText - Original text
  * @param {string} newText - New text
+ * @param {{ cleanupSemantic?: boolean }} [options={}] - Diff options
  * @returns {import('../core/types.js').DiffOperation[]}
  */
-export function computeWordLevelDiffOps(originalText, newText) {
+export function computeWordLevelDiffOps(originalText, newText, options = {}) {
     // Handle edge cases
     if (originalText === newText) {
         return [{
@@ -115,19 +150,7 @@ export function computeWordLevelDiffOps(originalText, newText) {
         }];
     }
 
-    // Use diff_match_patch for word-level diff
-    // eslint-disable-next-line no-undef
-    const dmp = new diff_match_patch();
-
-    // Convert to word-level tokens
-    const { chars1, chars2, wordArray } = wordsToChars(originalText, newText);
-
-    // Compute diff on tokenized text
-    const charDiffs = dmp.diff_main(chars1, chars2);
-    dmp.diff_cleanupSemantic(charDiffs);
-
-    // Convert back to words
-    const wordDiffs = charsToWords(charDiffs, wordArray);
+    const wordDiffs = computeWordDiffs(originalText, newText, options);
 
     // Convert to operations with offsets
     const operations = [];

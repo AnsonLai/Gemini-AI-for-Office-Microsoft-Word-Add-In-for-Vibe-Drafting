@@ -212,7 +212,7 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
     if (isTargetList) {
         log('[OxmlEngine] 🎯 Using reconciliation pipeline for list generation');
         const pipeline = new ReconciliationPipeline({ author, generateRedlines });
-        const result = await pipeline.execute(oxml, modifiedText);
+        const result = await pipeline.execute(oxml, modifiedText, { xmlDoc });
 
         if (result.isValid && result.ooxml && result.ooxml !== oxml) {
             log(`[OxmlEngine] Wrapping list OOXML with numbering definitions, includeNumbering=${result.includeNumbering}`);

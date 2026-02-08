@@ -81,7 +81,9 @@ export const NumberSuffix = Object.freeze({
  * @typedef {Object} RunEntry
  * @property {string} kind - RunKind value
  * @property {string} text - Text content of the run
- * @property {string} rPrXml - Serialized run properties (formatting)
+ * @property {string} [rPrXml] - Serialized run properties (formatting)
+ * @property {Element|null} [pPrElement] - Lazy paragraph properties element for PARAGRAPH_START entries
+ * @property {string} [pPrXml] - Serialized paragraph properties for PARAGRAPH_START entries
  * @property {number} startOffset - Start offset in accepted text
  * @property {number} endOffset - End offset in accepted text
  * @property {string} [author] - Author for track changes
@@ -107,7 +109,7 @@ export const NumberSuffix = Object.freeze({
  * @typedef {Object} IngestionResult
  * @property {RunEntry[]} runModel - Array of run entries
  * @property {string} acceptedText - Reconstructed text from runs
- * @property {Element} pPr - Paragraph properties element
+ * @property {Element|null} pPr - Paragraph properties element
  */
 
 /**

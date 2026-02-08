@@ -7,6 +7,9 @@
 import { DiffOp, RunKind } from '../core/types.js';
 import { log } from '../adapters/logger.js';
 import { matchListMarker, stripListMarker } from './list-markers.js';
+import { serializeXml } from '../adapters/xml-adapter.js';
+
+const XMLNS_ATTR_REGEX = /\s+xmlns:[^=]+="[^"]*"/g;
 
 /**
  * Splits runs at diff operation boundaries for precise patching.
@@ -89,7 +92,9 @@ export function applyPatches(splitModel, diffOps, options) {
     const getCoveringDiffOp = createRangeCursorLookup(diffLookup.nonInsertOps);
     const state = {
         containerStack: [],
-        lastParagraphStartIndex: -1
+        lastParagraphStartIndex: -1,
+        currentParagraphPPrXml: '',
+        currentParagraphPPrElement: null
     };
 
     for (const run of splitModel) {
@@ -106,7 +111,8 @@ export function applyPatches(splitModel, diffOps, options) {
         }
 
         if (run.kind === RunKind.PARAGRAPH_START) {
-            state.containerStack.pPrXml = run.pPrXml;
+            state.currentParagraphPPrXml = typeof run.pPrXml === 'string' ? run.pPrXml : '';
+            state.currentParagraphPPrElement = run.pPrElement || null;
             patchedModel.push({ ...run });
             state.lastParagraphStartIndex = patchedModel.length - 1;
             continue;
@@ -190,11 +196,11 @@ function processInsertionOperation(context) {
     const styleSource = chooseInsertionStyle(styleLookup, insertOp.startOffset, insertOp.text);
 
     for (let index = 0; index < lines.length; index++) {
-        const parsed = parseInsertionLine(lines[index], options.numberingService, state.containerStack.pPrXml);
+        const parsed = parseInsertionLine(lines[index], options.numberingService, state);
         const lineText = parsed.lineText;
 
         if (index > 0) {
-            let newPPrXml = state.containerStack.pPrXml || '';
+            let newPPrXml = resolveCurrentParagraphPPrXml(state);
             if (parsed.isListLine && parsed.numId) {
                 newPPrXml = options.numberingService.buildListPPr(parsed.numId, parsed.ilvl);
             }
@@ -206,12 +212,15 @@ function processInsertionOperation(context) {
                 endOffset: insertOp.startOffset,
                 text: ''
             });
-            state.containerStack.pPrXml = newPPrXml;
+            state.currentParagraphPPrXml = newPPrXml;
+            state.currentParagraphPPrElement = null;
             state.lastParagraphStartIndex = patchedModel.length - 1;
         } else if (parsed.isListLine && parsed.numId && state.lastParagraphStartIndex >= 0) {
             const newPPrXml = options.numberingService.buildListPPr(parsed.numId, parsed.ilvl);
             patchedModel[state.lastParagraphStartIndex].pPrXml = newPPrXml;
-            state.containerStack.pPrXml = newPPrXml;
+            patchedModel[state.lastParagraphStartIndex].pPrElement = null;
+            state.currentParagraphPPrXml = newPPrXml;
+            state.currentParagraphPPrElement = null;
             log(`[Patching] Converted current paragraph to list item: numId=${parsed.numId}, ilvl=${parsed.ilvl}`);
         }
 
@@ -229,7 +238,7 @@ function processInsertionOperation(context) {
     }
 }
 
-function parseInsertionLine(line, numberingService, currentPPrXml = '') {
+function parseInsertionLine(line, numberingService, state) {
     if (!numberingService) {
         return { lineText: line, isListLine: false, numId: null, ilvl: 0 };
     }
@@ -246,6 +255,7 @@ function parseInsertionLine(line, numberingService, currentPPrXml = '') {
     const indentStep = indentSize >= 4 ? 4 : 2;
     const indentLevel = Math.floor(indentSize / indentStep);
 
+    const currentPPrXml = resolveCurrentParagraphPPrXml(state);
     const lineText = stripListMarker(line, { allowZeroSpaceAfterMarker: true });
     const numIdMatch = currentPPrXml.match(/w:numId w:val="(\d+)"/);
     const ilvlMatch = currentPPrXml.match(/w:ilvl w:val="(\d+)"/);
@@ -262,6 +272,19 @@ function parseInsertionLine(line, numberingService, currentPPrXml = '') {
         : Math.min(8, indentLevel + contextIlvl);
 
     return { lineText, isListLine: true, numId, ilvl };
+}
+
+function resolveCurrentParagraphPPrXml(state) {
+    if (state.currentParagraphPPrXml) {
+        return state.currentParagraphPPrXml;
+    }
+
+    if (!state.currentParagraphPPrElement) {
+        return '';
+    }
+
+    state.currentParagraphPPrXml = serializeXml(state.currentParagraphPPrElement).replace(XMLNS_ATTR_REGEX, '');
+    return state.currentParagraphPPrXml;
 }
 
 function chooseInsertionStyle(styleLookup, offset, insertText) {

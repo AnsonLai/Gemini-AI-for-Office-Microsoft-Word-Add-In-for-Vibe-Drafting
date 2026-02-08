@@ -10,6 +10,8 @@ import { serializeXml } from '../adapters/xml-adapter.js';
 import { warn } from '../adapters/logger.js';
 import { buildDocumentFragmentPackage } from '../services/package-builder.js';
 
+const XMLNS_ATTR_REGEX = /\s+xmlns:[^=]+="[^"]*"/g;
+
 /**
  * Serializes a patched run model to OOXML.
  * 
@@ -24,6 +26,7 @@ export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = 
     const { author, generateRedlines } = serializationOptions;
     const paragraphs = [];
     let currentPPrXml = '';
+    let currentPPrElement = null;
     let currentRuns = [];
 
     // Helper to flush accumulated runs into a paragraph
@@ -32,7 +35,10 @@ export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = 
             // Build paragraph properties - handle both string and DOM element
             let pPrContent = '';
             if (currentPPrXml) {
-                pPrContent = currentPPrXml.replace(/\s+xmlns:[^=]+="[^"]*"/g, '');
+                pPrContent = stripNamespaceDeclarations(currentPPrXml);
+            } else if (currentPPrElement) {
+                currentPPrXml = stripNamespaceDeclarations(serializeXml(currentPPrElement));
+                pPrContent = currentPPrXml;
             } else if (pPr) {
                 // Fallback to legacy pPr if no PARAGRAPH_START was seen
                 if (typeof pPr === 'string') {
@@ -40,7 +46,7 @@ export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = 
                 } else {
                     pPrContent = serializeXml(pPr);
                 }
-                pPrContent = pPrContent.replace(/\s+xmlns:[^=]+="[^"]*"/g, '');
+                pPrContent = stripNamespaceDeclarations(pPrContent);
             }
             paragraphs.push(`<w:p>${pPrContent}${currentRuns.join('')}</w:p>`);
             currentRuns = [];
@@ -55,6 +61,7 @@ export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = 
                     flushParagraph();
                 }
                 currentPPrXml = item.pPrXml || '';
+                currentPPrElement = item.pPrElement || null;
                 break;
 
             case RunKind.TEXT:
@@ -81,7 +88,7 @@ export function serializeToOoxml(patchedModel, pPr, formatHints = [], options = 
             case RunKind.HYPERLINK:
                 // Pass through original XML - but strip any namespace declarations
                 if (item.nodeXml) {
-                    currentRuns.push(item.nodeXml.replace(/\s+xmlns:[^=]+="[^"]*"/g, ''));
+                    currentRuns.push(stripNamespaceDeclarations(item.nodeXml));
                 }
                 break;
 
@@ -155,7 +162,7 @@ function normalizeSerializationOptions(options) {
 function buildRunXmlWithHints(item, formatHints, options = {}) {
     const applicableHints = getApplicableFormatHints(formatHints, item.startOffset, item.endOffset);
     const font = options?.font ?? null;
-    let cleanRPr = item.rPrXml ? item.rPrXml.replace(/\s+xmlns:[^=]+="[^"]*"/g, '') : '';
+    let cleanRPr = item.rPrXml ? stripNamespaceDeclarations(item.rPrXml) : '';
 
     if (font) {
         cleanRPr = applyFont(cleanRPr, font);
@@ -218,7 +225,7 @@ function buildSimpleRun(text, rPrXml) {
 function buildDeletionXml(item, options = {}) {
     const metadata = createRevisionMetadata(options.author ?? 'Gemini AI');
     const font = options.font ?? null;
-    let rPr = item.rPrXml ? item.rPrXml.replace(/\s+xmlns:[^=]+="[^"]*"/g, '') : '';
+    let rPr = item.rPrXml ? stripNamespaceDeclarations(item.rPrXml) : '';
 
     if (font) {
         rPr = applyFont(rPr, font);
@@ -244,7 +251,7 @@ function buildInsertionXml(item, formatHints, options = {}) {
     // Build the inner run content with format hints
     const applicableHints = getApplicableFormatHints(formatHints, item.startOffset, item.endOffset);
     let innerContent = '';
-    let cleanRPr = item.rPrXml ? item.rPrXml.replace(/\s+xmlns:[^=]+="[^"]*"/g, '') : '';
+    let cleanRPr = item.rPrXml ? stripNamespaceDeclarations(item.rPrXml) : '';
 
     if (font) {
         cleanRPr = applyFont(cleanRPr, font);
@@ -375,5 +382,9 @@ function normalizeFragmentOptions(options) {
         numberingXml: options.numberingXml ?? null,
         appendTrailingParagraph: options.appendTrailingParagraph ?? true
     };
+}
+
+function stripNamespaceDeclarations(xml) {
+    return xml ? xml.replace(XMLNS_ATTR_REGEX, '') : '';
 }
 

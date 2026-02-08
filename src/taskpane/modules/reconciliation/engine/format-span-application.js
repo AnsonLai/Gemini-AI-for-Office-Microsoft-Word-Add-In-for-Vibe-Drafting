@@ -18,35 +18,38 @@ import { injectFormattingToRPr, createTextRun } from './run-builders.js';
  */
 export function splitSpansAtBoundaries(xmlDoc, textSpans, boundaries) {
     const sortedBoundaries = Array.from(new Set(boundaries)).sort((a, b) => a - b);
-    let currentSpans = [...textSpans];
-    let splitsOccurred = true;
-
-    while (splitsOccurred) {
-        splitsOccurred = false;
-        const nextPassSpans = [];
-
-        for (const span of currentSpans) {
-            let splitThisSpan = false;
-            for (const boundary of sortedBoundaries) {
-                if (boundary > span.charStart && boundary < span.charEnd) {
-                    const splitResult = splitSpanAtOffset(xmlDoc, span, boundary);
-                    if (splitResult) {
-                        nextPassSpans.push(splitResult[0], splitResult[1]);
-                        splitsOccurred = true;
-                        splitThisSpan = true;
-                        break;
-                    }
-                }
-            }
-            if (!splitThisSpan) {
-                nextPassSpans.push(span);
-            }
-        }
-
-        currentSpans = nextPassSpans;
+    if (sortedBoundaries.length === 0 || textSpans.length === 0) {
+        return [...textSpans];
     }
 
-    return currentSpans;
+    const orderedSpans = [...textSpans].sort((a, b) => a.charStart - b.charStart || a.charEnd - b.charEnd);
+    const splitSpans = [];
+    let boundaryIndex = 0;
+
+    for (const span of orderedSpans) {
+        while (boundaryIndex < sortedBoundaries.length && sortedBoundaries[boundaryIndex] <= span.charStart) {
+            boundaryIndex++;
+        }
+
+        let currentSpan = span;
+        while (boundaryIndex < sortedBoundaries.length && sortedBoundaries[boundaryIndex] < currentSpan.charEnd) {
+            const boundary = sortedBoundaries[boundaryIndex];
+            const splitResult = splitSpanAtOffset(xmlDoc, currentSpan, boundary);
+
+            if (!splitResult) {
+                boundaryIndex++;
+                continue;
+            }
+
+            splitSpans.push(splitResult[0]);
+            currentSpan = splitResult[1];
+            boundaryIndex++;
+        }
+
+        splitSpans.push(currentSpan);
+    }
+
+    return splitSpans;
 }
 
 /**
@@ -68,15 +71,47 @@ export function applyFormatHintsToSpansRobust(xmlDoc, textSpans, formatHints, au
         boundaries.push(hint.start, hint.end);
     }
 
-    const currentSpans = splitSpansAtBoundaries(xmlDoc, textSpans, boundaries);
+    const currentSpans = splitSpansAtBoundaries(xmlDoc, textSpans, boundaries)
+        .sort((a, b) => a.charStart - b.charStart || a.charEnd - b.charEnd);
+    const getOverlappingHints = createFormatHintOverlapLookup(formatHints);
 
     for (const span of currentSpans) {
-        const applicableHints = formatHints.filter(h => h.start < span.charEnd && h.end > span.charStart);
+        const applicableHints = getOverlappingHints(span.charStart, span.charEnd);
         if (applicableHints.length > 0) {
             const targetFormat = mergeFormats(...applicableHints.map(h => h.format));
             addFormattingToRun(xmlDoc, span.runElement, targetFormat, author, generateRedlines);
         }
     }
+}
+
+function createFormatHintOverlapLookup(formatHints) {
+    const sortedHints = (formatHints || [])
+        .slice()
+        .sort((a, b) => a.start - b.start || a.end - b.end);
+
+    const activeHints = [];
+    let nextHintIndex = 0;
+
+    return (start, end) => {
+        while (nextHintIndex < sortedHints.length && sortedHints[nextHintIndex].start < end) {
+            activeHints.push(sortedHints[nextHintIndex]);
+            nextHintIndex++;
+        }
+
+        for (let i = activeHints.length - 1; i >= 0; i--) {
+            if (activeHints[i].end <= start) {
+                activeHints.splice(i, 1);
+            }
+        }
+
+        const overlaps = [];
+        for (const hint of activeHints) {
+            if (hint.start < end && hint.end > start) {
+                overlaps.push(hint);
+            }
+        }
+        return overlaps;
+    };
 }
 
 /**

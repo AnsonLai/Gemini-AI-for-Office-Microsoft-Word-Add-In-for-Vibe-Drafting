@@ -120,7 +120,7 @@ function markdownToWordHtmlInline(markdown) {
 
   // Use parseInline to avoid wrapping in <p> tags for simple text
   // But if there are block elements (lists, tables), use full parse
-  const hasBlockElements = /(\n[-*+]\s|\n\d+\.\s|\|.*\|.*\n|^#{1,9}\s)/m.test(markdown);
+  const hasBlockElements = /(^|\n)\s*(?:[-*+•]|\d+(?:\.\d+)*\.?|[A-Za-z]\.|[ivxlcIVXLC]+\.)\s+|(\|.*\|.*\n)|(^#{1,9}\s)/m.test(markdown);
 
   if (hasBlockElements) {
     return markdownToWordHtml(markdown);
@@ -149,6 +149,12 @@ function hasBlockElements(content) {
   // Examples: "1. item", "10. item", "  2. item"
   const hasOrderedList = /^[\s]*\d+\.\s+/m.test(content);
 
+  // Detect outline numbering and alpha/roman markers
+  // Examples: "1.1. item", "A. item", "a. item", "I. item", "iv. item"
+  const hasOutlineList = /^[\s]*\d+\.\d+(?:\.\d+)*\.?\s+/m.test(content);
+  const hasAlphaDotList = /^[\s]*[A-Za-z]\.\s+/m.test(content);
+  const hasRomanDotList = /^[\s]*[ivxlcIVXLC]+\.\s+/m.test(content);
+
   // Detect alphabetical lists: (a), (b), (c) style
   const hasAlphaList = /^[\s]*\([a-z]\)\s+/m.test(content);
 
@@ -161,13 +167,16 @@ function hasBlockElements(content) {
   // Detect paragraph breaks (multiple consecutive newlines)
   const hasMultipleLineBreaks = content.includes('\n\n');
 
-  const result = hasUnorderedList || hasOrderedList || hasAlphaList || hasTable || hasHeading || hasMultipleLineBreaks;
+  const result = hasUnorderedList || hasOrderedList || hasOutlineList || hasAlphaDotList || hasRomanDotList || hasAlphaList || hasTable || hasHeading || hasMultipleLineBreaks;
 
   // Debug logging to help diagnose issues
   if (result) {
     console.log('Block elements detected:', {
       hasUnorderedList,
       hasOrderedList,
+      hasOutlineList,
+      hasAlphaDotList,
+      hasRomanDotList,
       hasAlphaList,
       hasTable,
       hasHeading,
