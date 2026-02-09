@@ -1719,8 +1719,11 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
 
       if (content && content.parts && Array.isArray(content.parts)) {
         parts = content.parts;
-      } else if (candidate.finishReason === "MALFORMED_FUNCTION_CALL" && candidate.finishMessage) {
-        console.warn("Gemini returned MALFORMED_FUNCTION_CALL. Attempting to recover...", candidate.finishMessage);
+      } else if (
+        (candidate.finishReason === "MALFORMED_FUNCTION_CALL" || candidate.finishReason === "UNEXPECTED_TOOL_CALL")
+        && (candidate.finishMessage || (candidate.content && candidate.content.parts))
+      ) {
+        console.warn(`Gemini returned ${candidate.finishReason}. Attempting to recover...`, candidate.finishMessage || candidate.content);
 
         const toolNames = [
           "apply_redlines",
@@ -1908,6 +1911,19 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
         if (candidate.finishReason === "STOP") {
           console.log("Gemini returned empty parts with finishReason: STOP. Treating as silent success.");
           parts = [{ text: "Task completed successfully." }];
+        } else if (candidate.finishReason === "UNEXPECTED_TOOL_CALL" || candidate.finishReason === "MALFORMED_FUNCTION_CALL") {
+          // The model tried to call a tool but the call was malformed/unexpected
+          // and we couldn't recover it. Ask the model to retry without a tool call.
+          console.warn(`Gemini returned ${candidate.finishReason} with no recoverable data. Asking model to retry.`);
+          chatHistory.push({
+            role: "model",
+            parts: [{ text: `I encountered an issue trying to use a tool (${candidate.finishReason}). Let me try a different approach.` }]
+          });
+          chatHistory.push({
+            role: "user",
+            parts: [{ text: "Your previous tool call was malformed. Please try again — either rephrase the tool call with valid arguments, or respond with text only." }]
+          });
+          continue;
         } else {
           console.error("Gemini candidate missing content.parts:", candidate);
 

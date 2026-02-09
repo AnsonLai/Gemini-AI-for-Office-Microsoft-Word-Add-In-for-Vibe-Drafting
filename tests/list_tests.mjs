@@ -341,6 +341,231 @@ Intro line for context.
     }
 }
 
+// --- Test 8: Plain text to upperAlpha ordered list (the Recitals bug) ---
+// Reproduces the exact scenario from the user's bug report: paragraphs starting
+// with "A. ...", "B. ...", "C. ..." that need to become a proper ordered list
+// with upperLetter numbering. Previously failed because:
+//   1) numbering.xml was duplicated per-paragraph, causing merge conflicts
+//   2) per-paragraph insertOoxml("Replace") dropped <w:pPr> under tracked changes
+async function testPlainTextToUpperAlphaList() {
+    console.log('\n=== Test 8: Plain Text → upperAlpha Ordered List (Recitals Bug) ===');
+
+    const pipeline = new ReconciliationPipeline({
+        generateRedlines: false,
+        author: 'Test',
+        numberingService: new NumberingService()
+    });
+
+    // Simulates the Recitals section: 3 plain paragraphs with A./B./C. markers
+    const modifiedText = `A. The Disclosing Party possesses certain confidential, proprietary, and trade secret information.
+B. The Parties desire to enter into a potential business relationship or transaction (the "Purpose"), which requires the Disclosing Party to disclose certain Confidential Information (as defined below) to the Receiving Party.
+C. The Receiving Party agrees to receive and treat such Confidential Information in confidence, subject to the terms and conditions of this Agreement.`;
+
+    try {
+        const result = await pipeline.executeListGeneration(modifiedText, null, null, "Original Text");
+        const ooxml = result.ooxml || '';
+
+        // Check: must have numPr on every paragraph
+        const numPrCount = (ooxml.match(/<w:numPr>/g) || []).length;
+        // Check: must use upperLetter numbering format
+        const hasUpperLetter = (result.numberingXml || '').includes('w:numFmt w:val="upperLetter"');
+        // Check: must have 3 paragraphs with list formatting
+        const listParas = (ooxml.match(/<w:pStyle w:val="ListParagraph"\/>/g) || []).length;
+        // Check: text should NOT retain "A. " / "B. " / "C. " prefixes (markers stripped)
+        const hasLiteralMarker = ooxml.includes('>A. The Disclosing') || ooxml.includes('>B. The Parties');
+
+        const pass = numPrCount >= 3 && hasUpperLetter && listParas >= 3 && !hasLiteralMarker;
+        if (pass) {
+            console.log('✅ PASS: upperAlpha list created with 3 items, markers stripped, correct numFmt.');
+        } else {
+            console.log('❌ FAIL:', { numPrCount, hasUpperLetter, listParas, hasLiteralMarker });
+        }
+    } catch (e) {
+        console.error('❌ ERROR:', e);
+    }
+}
+
+// --- Test 9: Decimal numbered list from plain text ---
+// Ensures numbered lists with decimal format also get a proper numbering
+// definition (not relying on a pre-existing numId=2 in the document).
+async function testDecimalNumberedList() {
+    console.log('\n=== Test 9: Decimal Numbered List ===');
+
+    const pipeline = new ReconciliationPipeline({
+        generateRedlines: false,
+        author: 'Test',
+        numberingService: new NumberingService()
+    });
+
+    const modifiedText = `1. First item in the list.
+2. Second item in the list.
+3. Third item.
+4. Fourth and final item.`;
+
+    try {
+        const result = await pipeline.executeListGeneration(modifiedText, null, null, "Original");
+        const ooxml = result.ooxml || '';
+
+        const numPrCount = (ooxml.match(/<w:numPr>/g) || []).length;
+        const pCount = (ooxml.match(/<w:p\b/g) || []).length;
+
+        if (numPrCount >= 4 && pCount >= 4) {
+            console.log('✅ PASS: Decimal list with 4 items, all have numPr.');
+        } else {
+            console.log('❌ FAIL:', { numPrCount, pCount });
+        }
+    } catch (e) {
+        console.error('❌ ERROR:', e);
+    }
+}
+
+// --- Test 10: Bullet list creation ---
+async function testBulletListCreation() {
+    console.log('\n=== Test 10: Bullet List Creation ===');
+
+    const pipeline = new ReconciliationPipeline({
+        generateRedlines: false,
+        author: 'Test',
+        numberingService: new NumberingService()
+    });
+
+    const modifiedText = `- Confidentiality obligations
+- Non-disclosure requirements
+- Permitted exceptions`;
+
+    try {
+        const result = await pipeline.executeListGeneration(modifiedText, null, null, "Original");
+        const ooxml = result.ooxml || '';
+
+        const numPrCount = (ooxml.match(/<w:numPr>/g) || []).length;
+        const hasBulletFmt = (result.numberingXml || '').includes('w:numFmt w:val="bullet"');
+        const pCount = (ooxml.match(/<w:p\b/g) || []).length;
+
+        if (numPrCount >= 3 && pCount >= 3) {
+            console.log('✅ PASS: Bullet list with 3 items.');
+        } else {
+            console.log('❌ FAIL:', { numPrCount, hasBulletFmt, pCount });
+        }
+    } catch (e) {
+        console.error('❌ ERROR:', e);
+    }
+}
+
+// --- Test 11: lowerAlpha numbered list ---
+// Note: "i.", "ii.", "iii." are ambiguous between lowerAlpha and lowerRoman.
+// The marker detector treats single-letter markers like "i." as lowerLetter.
+// Use explicit lowerAlpha markers to test this path unambiguously.
+async function testLowerAlphaList() {
+    console.log('\n=== Test 11: lowerAlpha Numbered List ===');
+
+    const pipeline = new ReconciliationPipeline({
+        generateRedlines: false,
+        author: 'Test',
+        numberingService: new NumberingService()
+    });
+
+    const modifiedText = `a. First obligation
+b. Second obligation
+c. Third obligation`;
+
+    try {
+        const result = await pipeline.executeListGeneration(modifiedText, null, null, "Original");
+        const ooxml = result.ooxml || '';
+        const numXml = result.numberingXml || '';
+
+        const numPrCount = (ooxml.match(/<w:numPr>/g) || []).length;
+        const hasLowerLetterFmt = numXml.includes('w:numFmt w:val="lowerLetter"');
+        const pCount = (ooxml.match(/<w:p\b/g) || []).length;
+
+        if (numPrCount >= 3 && hasLowerLetterFmt && pCount >= 3) {
+            console.log('✅ PASS: lowerAlpha list with 3 items, correct numFmt.');
+        } else {
+            console.log('❌ FAIL:', { numPrCount, hasLowerLetterFmt, pCount });
+        }
+    } catch (e) {
+        console.error('❌ ERROR:', e);
+    }
+}
+
+// --- Test 12: List with redlines (tracked changes) ---
+// The original bug was that numPr was dropped under tracked changes.
+// This test ensures the reconciliation pipeline generates valid OOXML
+// for list content even with generateRedlines: true.
+async function testListWithRedlines() {
+    console.log('\n=== Test 12: List with Redlines ===');
+
+    const pipeline = new ReconciliationPipeline({
+        generateRedlines: true,
+        author: 'AI',
+        numberingService: new NumberingService()
+    });
+
+    // Original is plain text, new content is a numbered list
+    const originalOoxml = '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:r><w:t>Original plain paragraph text.</w:t></w:r></w:p>';
+    const modifiedText = `A. First recital clause.
+B. Second recital clause.`;
+
+    try {
+        const result = await pipeline.execute(originalOoxml, modifiedText);
+        const ooxml = result.ooxml || '';
+
+        // Must have list structure (numPr) in the output
+        const hasNumPr = ooxml.includes('<w:numPr>') || ooxml.includes('w:numId');
+        // Must have at least 2 paragraphs
+        const pCount = (ooxml.match(/<w:p\b/g) || []).length;
+        // Must have the text content
+        const hasText = ooxml.includes('First recital') && ooxml.includes('Second recital');
+
+        if (hasNumPr && pCount >= 2 && hasText) {
+            console.log('✅ PASS: List with redlines preserves numPr and content.');
+        } else {
+            console.log('❌ FAIL:', { hasNumPr, pCount, hasText });
+        }
+    } catch (e) {
+        console.error('❌ ERROR:', e);
+    }
+}
+
+// --- Test 13: Single numbering definition for multi-item list ---
+// Verifies that only ONE numbering definition is created for all items,
+// not duplicated per-paragraph (the original bug).
+async function testSingleNumberingDefinition() {
+    console.log('\n=== Test 13: Single Numbering Definition (no duplicates) ===');
+
+    const pipeline = new ReconciliationPipeline({
+        generateRedlines: false,
+        author: 'Test',
+        numberingService: new NumberingService()
+    });
+
+    const modifiedText = `A. Item one
+B. Item two
+C. Item three
+D. Item four
+E. Item five`;
+
+    try {
+        const result = await pipeline.executeListGeneration(modifiedText, null, null, "Original");
+        const numXml = result.numberingXml || '';
+
+        // All 5 paragraphs should reference the SAME numId.
+        // The original bug caused each paragraph to get its own numbering.xml
+        // with a separate numId, breaking the list continuity.
+        const ooxml = result.ooxml || '';
+        const numIdRefs = ooxml.match(/w:numId w:val="(\d+)"/g) || [];
+        const uniqueNumIds = new Set(numIdRefs.map(m => m.match(/"(\d+)"/)[1]));
+
+        // Key check: all items share ONE numId, and we have 5 references
+        if (uniqueNumIds.size === 1 && numIdRefs.length >= 5) {
+            console.log(`✅ PASS: All 5 items share same numId (${[...uniqueNumIds][0]}), no per-paragraph duplication.`);
+        } else {
+            console.log('❌ FAIL:', { uniqueNumIds: [...uniqueNumIds], numIdRefs: numIdRefs.length });
+        }
+    } catch (e) {
+        console.error('❌ ERROR:', e);
+    }
+}
+
 // --- Main Runner ---
 (async () => {
     console.log('STARTING LIST TESTS...');
@@ -352,6 +577,14 @@ Intro line for context.
     await verifyListFixes();
     await testKitchenSinkMarkdown();
     testMixedContentParsing();
+
+    // New tests for the Recitals/ordered-list bug
+    await testPlainTextToUpperAlphaList();
+    await testDecimalNumberedList();
+    await testBulletListCreation();
+    await testLowerAlphaList();
+    await testListWithRedlines();
+    await testSingleNumberingDefinition();
 
     console.log('\nALL LIST TESTS COMPLETE.');
 })();

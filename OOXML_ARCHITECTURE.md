@@ -48,11 +48,12 @@ The OOXML engine currently handles the following operations without Word JS API 
 1. **Text Editing**: `applyRedlineToOxml()` for paragraph-level text modifications
 2. **Highlighting**: `applyHighlightToOoxml()` for surgical highlighting with redline support
 3. **List Generation**: Complex nested lists with custom numbering styles
-4. **Table Generation**: Complete table creation and modification
-5. **Format Preservation**: Maintains existing document formatting during edits
-6. **Pure Formatting Redlines**: Generates `w:rPrChange` elements for clean formatting-only changes (Bold, Italic, U, Strike)
-7. **Track Changes**: Generates proper `w:ins`/`w:del` elements for text edits
-8. **Comment Preservation**: Maintains comment positions during text edits
+4. **List Range Editing (`executeEditList`)**: Multi-paragraph list replacement via reconciliation-generated OOXML, including `w:ins`/`w:del` when redlines are enabled
+5. **Table Generation**: Complete table creation and modification
+6. **Format Preservation**: Maintains existing document formatting during edits
+7. **Pure Formatting Redlines**: Generates `w:rPrChange` elements for clean formatting-only changes (Bold, Italic, U, Strike)
+8. **Track Changes**: Generates proper `w:ins`/`w:del` elements for text edits
+9. **Comment Preservation**: Maintains comment positions during text edits
 
 ### 🚧 Hybrid Operations (Partial OOXML)
 
@@ -191,6 +192,7 @@ Handled within `pipeline.js` (`executeListGeneration`).
     *   Manages `abstractNum` and `num` definitions.
     *   Generates a virtual `numbering.xml` structure to support custom formats (Legal `1.1.1`, Outline `I. A. 1.`, etc.).
     *   Matches Markdown markers (`1.`, `-`, `A.`) to Word's internal numbering ID system.
+*   **Runtime insertion behavior**: For list tools that inject prebuilt OOXML (`executeEditList`), native Word track changes is temporarily disabled during insertion, because redline markup is already embedded in OOXML (`w:ins`/`w:del`).
 
 ## 4. Helper Modules
 

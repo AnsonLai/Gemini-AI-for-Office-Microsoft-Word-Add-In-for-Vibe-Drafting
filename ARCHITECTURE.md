@@ -45,7 +45,7 @@ The following areas are fully managed via the pure OOXML engine:
 1. **Text Editing**: `applyRedlineToOxml()` for paragraph-level edits
 2. **Pure Formatting Changes**: `w:rPrChange` engine for surgical Bold, Italic, etc.
 3. **Highlighting**: `applyHighlightToOoxml()` for surgical highlighting
-4. **List Generation/Editing**: OOXML pipeline for complex structures and `executeEditList`
+4. **List Generation/Editing**: OOXML pipeline for complex structures and `executeEditList` (with OOXML redlines)
 5. **Table Generation**: OOXML pipeline for table creation
 6. **Checkpoint System**: Stores entire document body as OOXML
 
@@ -110,7 +110,7 @@ The system currently uses a hybrid approach with both Word JS API and OOXML:
 
 1. **`executeRedline()`**: Uses `applyRedlineToOxml()` for text editing
 2. **`executeHighlight()`**: Uses `applyHighlightToOoxml()` for highlighting
-3. **`executeEditList()`**: Uses OOXML pipeline for list generation and replacement
+3. **`executeEditList()`**: Uses OOXML reconciliation for list generation and replacement (`w:ins`/`w:del` when redlines are enabled), then inserts with native tracking temporarily off to avoid double-tracking
 4. **`executeInsertListItem()`**: Uses OOXML for surgical list item insertion
 5. **Pure Formatting**: Surgical `w:rPrChange` for redlining formatting changes
 
@@ -167,6 +167,7 @@ The system allows the AI to write in Markdown, which is then converted to Word-n
 3.  **Path Selection**:
     *   **Pure Formatting Mode (Surgical)**: For formatting-only changes (Bold, Italic, U, Strike), the engine modifies `w:rPr` in place and uses `w:rPrChange` for redlines. This is the **preferred high-fidelity path**.
     *   **Reconstruction Mode**: For combined text and formatting edits, or complex list/table generation. It reconstructs paragraphs and applies explicit `w:val="1"` attributes.
+    *   **Structured List Edits (`edit_list`)**: List ranges are reconciled as OOXML list content. If redlines are enabled, the engine emits `w:ins`/`w:del` markup and insertion is done with native tracking disabled for that operation.
     *   **Migration Target**: Fully eliminate deprecated fallback methods and rely on Pure Formatting and Reconstruction modes for all edits.
 
 ## 6. Migration Plan to Pure OOXML
