@@ -1,6 +1,18 @@
 /* global Word */
 
-import { applyRedlineToOxml, applyReconciliationToParagraphBatch, ReconciliationPipeline, wrapInDocumentFragment, parseTable, getAuthorForTracking } from '../reconciliation/index.js';
+import {
+  applyRedlineToOxml,
+  applyReconciliationToParagraphBatch,
+  ReconciliationPipeline,
+  wrapInDocumentFragment,
+  parseTable,
+  getAuthorForTracking,
+  buildListMarkdown,
+  normalizeListItemsWithLevels,
+  routeWordParagraphChange,
+  insertOoxmlWithRangeFallback,
+  withNativeTrackingDisabled
+} from '../reconciliation/index.js';
 import { applyHighlightToOoxml } from '../../ooxml-formatting-removal.js';
 import {
   detectDocumentFont,
@@ -361,7 +373,8 @@ Return ONLY the JSON array, nothing else:`;
 
               // If target is a list item and content is plain text (no list markers),
               // use OOXML reconciliation to preserve list formatting
-              const contentHasListMarkers = /^(\s*)([-*•]|\d+\.|[a-zA-Z]\.|[ivxlcIVXLC]+\.|\d+\.\d+\.?)\s+/m.test(normalizedContent);
+              const parsedReplacementListData = parseMarkdownList(normalizedContent);
+              const contentHasListMarkers = !!(parsedReplacementListData && parsedReplacementListData.items && parsedReplacementListData.items.some(item => item.type === "numbered" || item.type === "bullet"));
               const contentHasStructuralMarkers = contentHasListMarkers || hasHeadingMarkdown || hasMarkdownTable;
               console.log(`[replace_paragraph] contentHasListMarkers: ${contentHasListMarkers}`);
 
@@ -388,25 +401,16 @@ Return ONLY the JSON array, nothing else:`;
                   );
 
                   if (result.oxml && result.hasChanges) {
-                    const doc = context.document;
-                    // changeTrackingMode is pre-loaded as baseTrackingMode
-
-                    if (redlineEnabled && baseTrackingMode !== Word.ChangeTrackingMode.off) {
-                      doc.changeTrackingMode = Word.ChangeTrackingMode.off;
-                      await context.sync();
-                    }
-
-                    try {
+                    await withNativeTrackingDisabled(context, async () => {
                       targetParagraph.insertOoxml(result.oxml, "Replace");
                       await context.sync();
                       console.log("✅ OOXML list-preserving edit successful");
                       changesApplied++;
-                    } finally {
-                      if (redlineEnabled && baseTrackingMode !== Word.ChangeTrackingMode.off) {
-                        doc.changeTrackingMode = baseTrackingMode;
-                        await context.sync();
-                      }
-                    }
+                    }, {
+                      enabled: redlineEnabled,
+                      baseTrackingMode,
+                      logPrefix: "replace_paragraph/ListPreserve"
+                    });
                     continue; // Skip other handlers
                   }
                 } catch (listPreserveError) {
@@ -417,7 +421,7 @@ Return ONLY the JSON array, nothing else:`;
               // --- END NEW ---
 
               // Check if this is a list or block content with headings/tables - use OOXML pipeline for proper redlines
-              const listData = parseMarkdownList(normalizedContent);
+              const listData = parsedReplacementListData;
               console.log(`[replace_paragraph] listData result: type=${listData?.type}, items=${listData?.items?.length}`);
               const shouldUseBlockPipeline = (listData && listData.type !== 'text') || hasMixedTable;
               if (shouldUseBlockPipeline) {
@@ -468,17 +472,9 @@ Return ONLY the JSON array, nothing else:`;
                       numberingXml: result.numberingXml // Crucial for A, B, C styles
                     });
 
-                    // Temporarily disable Word's track changes to avoid double-tracking
-                    // Our w:ins/w:del ARE the track changes
-                    const doc = context.document;
-                    // changeTrackingMode is pre-loaded as baseTrackingMode
-
-                    if (redlineEnabled && baseTrackingMode !== Word.ChangeTrackingMode.off) {
-                      doc.changeTrackingMode = Word.ChangeTrackingMode.off;
-                      await context.sync();
-                    }
-
-                    try {
+                    // Temporarily disable Word's track changes to avoid double-tracking.
+                    // Our w:ins/w:del markers are authoritative in this insertion path.
+                    await withNativeTrackingDisabled(context, async () => {
                       // Use 'After' if appending at end, 'Replace' if replacing existing paragraph
                       const insertMode = isInsertAtEnd ? 'After' : 'Replace';
                       console.log(`[ListGen] Using insert mode: ${insertMode}`);
@@ -526,13 +522,11 @@ Return ONLY the JSON array, nothing else:`;
                       */
 
                       changesApplied++;
-                    } finally {
-                      // Restore track changes mode
-                      if (redlineEnabled && baseTrackingMode !== Word.ChangeTrackingMode.off) {
-                        doc.changeTrackingMode = baseTrackingMode;
-                        await context.sync();
-                      }
-                    }
+                    }, {
+                      enabled: redlineEnabled,
+                      baseTrackingMode,
+                      logPrefix: "replace_paragraph/ListGen"
+                    });
                   } else {
                     const warnings = Array.isArray(result?.warnings) ? result.warnings.join("; ") : "none";
                     throw new Error(`[ListGen] OOXML pipeline returned invalid list result (isValid=${result?.isValid}, hasOoxml=${!!listOoxml}, warnings=${warnings})`);
@@ -569,28 +563,18 @@ Return ONLY the JSON array, nothing else:`;
                         includeNumbering: false
                       });
 
-                      // Disable track changes temporarily
-                      const doc = context.document;
-                      // changeTrackingMode is pre-loaded
-
-                      if (redlineEnabled && baseTrackingMode !== Word.ChangeTrackingMode.off) {
-                        doc.changeTrackingMode = Word.ChangeTrackingMode.off;
-                        await context.sync();
-                      }
-
-                      try {
+                      await withNativeTrackingDisabled(context, async () => {
                         const insertMode = isInsertAtEnd ? 'After' : 'Replace';
                         console.log(`[TableGen] Using insert mode: ${insertMode}`);
                         targetParagraph.insertOoxml(wrappedOoxml, insertMode);
                         await context.sync();
                         console.log(`✅ OOXML table generation successful`);
                         changesApplied++;
-                      } finally {
-                        if (redlineEnabled && baseTrackingMode !== Word.ChangeTrackingMode.off) {
-                          doc.changeTrackingMode = baseTrackingMode;
-                          await context.sync();
-                        }
-                      }
+                      }, {
+                        enabled: redlineEnabled,
+                        baseTrackingMode,
+                        logPrefix: "replace_paragraph/TableGen"
+                      });
                     } else {
                       console.warn('[TableGen] Pipeline failed, falling back to HTML');
                       const htmlContent = markdownToWordHtml(normalizedContent);
@@ -709,7 +693,8 @@ Return ONLY the JSON array, nothing else:`;
                 }
 
                 // --- NEW: Detect list structures and use OOXML engine for proper numPr ---
-                const hasListMarkers = /^(\s*)([-*•]|\d+\.|[a-zA-Z]\.|[ivxlcIVXLC]+\.|\d+\.\d+\.?)\s+/m.test(contentToParse);
+                const parsedRangeListData = parseMarkdownList(contentToParse);
+                const hasListMarkers = !!(parsedRangeListData && parsedRangeListData.items && parsedRangeListData.items.some(item => item.type === "numbered" || item.type === "bullet"));
 
                 if (hasListMarkers && !isTableReplacement) {
                   console.log("[replace_range] Detected list markers, using OOXML reconciliation");
@@ -736,26 +721,17 @@ Return ONLY the JSON array, nothing else:`;
                     );
 
                     if (result.oxml && result.hasChanges) {
-                      // Temporarily disable track changes to avoid double-tracking
-                      const doc = context.document;
-                      // changeTrackingMode is pre-loaded
-
-                      if (redlineEnabled && baseTrackingMode !== Word.ChangeTrackingMode.off) {
-                        doc.changeTrackingMode = Word.ChangeTrackingMode.off;
-                        await context.sync();
-                      }
-
-                      try {
+                      // Temporarily disable track changes to avoid double-tracking.
+                      await withNativeTrackingDisabled(context, async () => {
                         targetRange.insertOoxml(result.oxml, "Replace");
                         await context.sync();
                         changesApplied++;
                         console.log("✅ OOXML list reconciliation successful for replace_range");
-                      } finally {
-                        if (redlineEnabled && baseTrackingMode !== Word.ChangeTrackingMode.off) {
-                          doc.changeTrackingMode = baseTrackingMode;
-                          await context.sync();
-                        }
-                      }
+                      }, {
+                        enabled: redlineEnabled,
+                        baseTrackingMode,
+                        logPrefix: "replace_range/ListReconcile"
+                      });
                       continue; // Skip HTML fallback
                     }
                   } catch (ooxmlError) {
@@ -1573,278 +1549,6 @@ async function executeResearch(query) {
   }
 }
 
-async function insertOoxmlWithRangeFallback(targetParagraph, wrappedOoxml, insertMode, context, logPrefix = "OOXML") {
-  try {
-    targetParagraph.insertOoxml(wrappedOoxml, insertMode);
-    await context.sync();
-    return;
-  } catch (primaryError) {
-    const isGeneralException = primaryError && primaryError.code === "GeneralException";
-    if (!isGeneralException) {
-      throw primaryError;
-    }
-
-    console.warn(`[${logPrefix}] Paragraph.insertOoxml failed with GeneralException. Retrying via range (${insertMode}).`);
-
-    const fallbackRange = insertMode === "After"
-      ? targetParagraph.getRange("End")
-      : targetParagraph.getRange("Whole");
-
-    fallbackRange.insertOoxml(wrappedOoxml, insertMode);
-    await context.sync();
-  }
-}
-
-function inferNumberingStyleFromMarker(marker) {
-  const m = (marker || "").trim();
-  if (!m) return "decimal";
-  if (/^\d+(?:\.\d+)*\.?$/.test(m) || /^\(\d+\)$/.test(m)) return "decimal";
-  if (/^[ivxlcdm]+\.$/.test(m)) return "lowerRoman";
-  if (/^[IVXLCDM]{2,}\.$/.test(m)) return "upperRoman";
-  if (/^[a-z]\.$/.test(m)) return "lowerAlpha";
-  if (/^[A-Z]\.$/.test(m)) return "upperAlpha";
-  return "decimal";
-}
-
-function escapeXmlText(text) {
-  return String(text || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function toAlphaSequence(value, upper = false) {
-  let n = Math.max(1, Number(value) || 1);
-  let out = "";
-  while (n > 0) {
-    n -= 1;
-    out = String.fromCharCode(97 + (n % 26)) + out;
-    n = Math.floor(n / 26);
-  }
-  return upper ? out.toUpperCase() : out;
-}
-
-function toRoman(value, upper = false) {
-  let n = Math.max(1, Number(value) || 1);
-  const romanPairs = [
-    [1000, "M"],
-    [900, "CM"],
-    [500, "D"],
-    [400, "CD"],
-    [100, "C"],
-    [90, "XC"],
-    [50, "L"],
-    [40, "XL"],
-    [10, "X"],
-    [9, "IX"],
-    [5, "V"],
-    [4, "IV"],
-    [1, "I"]
-  ];
-  let out = "";
-  for (const [num, sym] of romanPairs) {
-    while (n >= num) {
-      out += sym;
-      n -= num;
-    }
-  }
-  return upper ? out : out.toLowerCase();
-}
-
-function buildListMarker(counter, listType, numberingStyle) {
-  if (listType === "bullet") return "-";
-
-  switch (numberingStyle) {
-    case "lowerAlpha":
-      return `${toAlphaSequence(counter, false)}.`;
-    case "upperAlpha":
-      return `${toAlphaSequence(counter, true)}.`;
-    case "lowerRoman":
-      return `${toRoman(counter, false)}.`;
-    case "upperRoman":
-      return `${toRoman(counter, true)}.`;
-    case "decimal":
-    default:
-      return `${counter}.`;
-  }
-}
-
-function buildListMarkdown(itemsWithLevels, listType, numberingStyle) {
-  const levelCounters = new Map();
-  const lines = [];
-
-  for (const item of itemsWithLevels) {
-    const level = Math.max(0, Number(item?.level) || 0);
-    for (const key of Array.from(levelCounters.keys())) {
-      if (key > level) {
-        levelCounters.delete(key);
-      }
-    }
-
-    const nextCounter = (levelCounters.get(level) || 0) + 1;
-    levelCounters.set(level, nextCounter);
-
-    const marker = buildListMarker(nextCounter, listType, numberingStyle);
-    const indent = " ".repeat(level * 4);
-    lines.push(`${indent}${marker} ${item.text || ""}`.trimEnd());
-  }
-
-  return lines.join("\n");
-}
-
-async function applyStructuredListDirectOoxml(context, targetParagraph, parsedListData) {
-  const listItems = (parsedListData?.items || []).filter((item) => item && (item.type === "numbered" || item.type === "bullet"));
-  if (listItems.length === 0) {
-    throw new Error("No list items parsed for structured list conversion.");
-  }
-
-  const listType = parsedListData.type === "bullet" ? "bullet" : "numbered";
-  const numberingStyle = listType === "numbered"
-    ? inferNumberingStyleFromMarker(listItems[0].marker || "")
-    : "decimal";
-
-  const numFmtMap = {
-    decimal: "decimal",
-    lowerAlpha: "lowerLetter",
-    upperAlpha: "upperLetter",
-    lowerRoman: "lowerRoman",
-    upperRoman: "upperRoman"
-  };
-  const numFmt = numFmtMap[numberingStyle] || "decimal";
-
-  let templateNumId = listType === "bullet" ? "1" : "2";
-  const useCustomNumbering = listType === "numbered" && numFmt !== "decimal";
-
-  const firstItem = listItems[0];
-  const firstTextEscaped = escapeXmlText(firstItem.text || "");
-  const firstIlvl = Math.max(0, Math.min(8, firstItem.level || 0));
-
-  let numberingPart = "";
-  if (useCustomNumbering) {
-    templateNumId = "100";
-    numberingPart = `
-            <pkg:part pkg:name="/word/_rels/document.xml.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
-              <pkg:xmlData>
-                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-                  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
-                </Relationships>
-              </pkg:xmlData>
-            </pkg:part>
-            <pkg:part pkg:name="/word/numbering.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml">
-              <pkg:xmlData>
-                <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-                  <w:abstractNum w:abstractNumId="100">
-                    <w:multiLevelType w:val="multilevel"/>
-                    <w:lvl w:ilvl="0">
-                      <w:start w:val="1"/>
-                      <w:numFmt w:val="${numFmt}"/>
-                      <w:lvlText w:val="%1."/>
-                      <w:lvlJc w:val="left"/>
-                      <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr>
-                    </w:lvl>
-                  </w:abstractNum>
-                  <w:num w:numId="100">
-                    <w:abstractNumId w:val="100"/>
-                  </w:num>
-                </w:numbering>
-              </pkg:xmlData>
-            </pkg:part>`;
-  }
-
-  const firstParagraphOoxml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-          <pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
-            <pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
-              <pkg:xmlData>
-                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-                  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
-                </Relationships>
-              </pkg:xmlData>
-            </pkg:part>${numberingPart}
-            <pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">
-              <pkg:xmlData>
-                <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-                  <w:body>
-                    <w:p>
-                      <w:pPr>
-                        <w:pStyle w:val="ListParagraph"/>
-                        <w:numPr>
-                          <w:ilvl w:val="${firstIlvl}"/>
-                          <w:numId w:val="${templateNumId}"/>
-                        </w:numPr>
-                      </w:pPr>
-                      <w:r>
-                        <w:t xml:space="preserve">${firstTextEscaped}</w:t>
-                      </w:r>
-                    </w:p>
-                  </w:body>
-                </w:document>
-              </pkg:xmlData>
-            </pkg:part>
-          </pkg:package>`;
-
-  await insertOoxmlWithRangeFallback(targetParagraph, firstParagraphOoxml, "Replace", context, "StructuredListDirect/First");
-
-  // Resolve actual numId after first insert (Word may remap custom IDs).
-  let resolvedNumId = templateNumId;
-  try {
-    const firstParaOoxmlResult = targetParagraph.getOoxml();
-    await context.sync();
-    const numIdMatch = firstParaOoxmlResult.value.match(/<[\w:]*?numId\s+[\w:]*?val="(\d+)"/i);
-    if (numIdMatch && numIdMatch[1]) {
-      resolvedNumId = numIdMatch[1];
-    }
-  } catch (resolveError) {
-    console.warn("[StructuredListDirect] Could not resolve numId from first inserted item:", resolveError.message);
-  }
-
-  let anchorParagraph = targetParagraph;
-  for (let i = 1; i < listItems.length; i++) {
-    const item = listItems[i];
-    const ilvl = Math.max(0, Math.min(8, item.level || 0));
-    const textEscaped = escapeXmlText(item.text || "");
-
-    const appendParagraphOoxml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-          <pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
-            <pkg:part pkg:name="/_rels/.rels" pkg:contentType="application/vnd.openxmlformats-package.relationships+xml">
-              <pkg:xmlData>
-                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-                  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
-                </Relationships>
-              </pkg:xmlData>
-            </pkg:part>
-            <pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">
-              <pkg:xmlData>
-                <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-                  <w:body>
-                    <w:p>
-                      <w:pPr>
-                        <w:pStyle w:val="ListParagraph"/>
-                        <w:numPr>
-                          <w:ilvl w:val="${ilvl}"/>
-                          <w:numId w:val="${resolvedNumId}"/>
-                        </w:numPr>
-                      </w:pPr>
-                      <w:r>
-                        <w:t xml:space="preserve">${textEscaped}</w:t>
-                      </w:r>
-                    </w:p>
-                  </w:body>
-                </w:document>
-              </pkg:xmlData>
-            </pkg:part>
-          </pkg:package>`;
-
-    await insertOoxmlWithRangeFallback(anchorParagraph, appendParagraphOoxml, "After", context, "StructuredListDirect/Append");
-
-    const nextParagraph = anchorParagraph.getNextOrNullObject();
-    nextParagraph.load("isNullObject");
-    await context.sync();
-    if (!nextParagraph.isNullObject) {
-      anchorParagraph = nextParagraph;
-    }
-  }
-}
-
 /**
  * Maintains a rolling window of chat history while preserving function call/response pairs
  */
@@ -1853,510 +1557,17 @@ async function applyStructuredListDirectOoxml(context, targetParagraph, parsedLi
  * Uses OOXML-first routing for structured content and DMP for plain text edits
  */
 async function routeChangeOperation(change, targetParagraph, context, propertiesPreloaded = false) {
-  // Properties text, style, parentTableCellOrNullObject, parentTableOrNullObject 
-  // should ideally be pre-loaded by the caller (e.g. executeRedline) to avoid syncs here.
-  if (!propertiesPreloaded) {
-    targetParagraph.load("text, style, parentTableCellOrNullObject, parentTableOrNullObject");
-    await context.sync();
-  }
-
-  const originalText = targetParagraph.text;
-  let newContent = change.newContent || change.content || "";
-
-  // Normalize content: Convert literal escape sequences to actual characters
-  // This handles cases where the AI returns "\\n" as a two-character string instead of actual newlines
-  newContent = normalizeContentEscapes(newContent);
-
-  // Treat multi-line marker content as list structure (including A./B./C. and roman markers),
-  // even when the model chose edit_paragraph instead of replace_paragraph.
-  const parsedListData = parseMarkdownList(newContent);
-  const hasStructuredListContent = newContent.includes('\n') && parsedListData && parsedListData.type !== 'text';
-  if (hasStructuredListContent) {
-    console.log("[routeChangeOperation] Detected structured list content, using direct OOXML list conversion");
-    const redlineEnabled = loadRedlineSetting();
-
-    const listItems = (parsedListData.items || []).filter((item) => item && (item.type === "numbered" || item.type === "bullet"));
-    console.log(`[routeChangeOperation] Structured list items parsed: ${listItems.length}`);
-
-    if (listItems.length > 0) {
-      const doc = context.document;
-      doc.load("changeTrackingMode");
-      await context.sync();
-      const baseTrackingMode = doc.changeTrackingMode;
-
-      if (redlineEnabled && baseTrackingMode !== Word.ChangeTrackingMode.off) {
-        doc.changeTrackingMode = Word.ChangeTrackingMode.off;
-        await context.sync();
-      }
-
-      try {
-        await applyStructuredListDirectOoxml(context, targetParagraph, parsedListData);
-      } finally {
-        if (redlineEnabled && baseTrackingMode !== Word.ChangeTrackingMode.off) {
-          doc.changeTrackingMode = baseTrackingMode;
-          await context.sync();
-        }
-      }
-      return;
+  return routeWordParagraphChange(change, targetParagraph, context, {
+    propertiesPreloaded,
+    services: {
+      loadRedlineSetting,
+      loadRedlineAuthor,
+      markdownToWordHtml,
+      preprocessMarkdownForParagraph,
+      applyFormatHintsToRanges,
+      applyFormatRemovalToRanges
     }
-
-    throw new Error("[routeChangeOperation] Structured list conversion failed: no list items parsed.");
-  }
-
-  // 1. Empty original text - try native APIs first
-  if (!originalText || originalText.trim().length === 0) {
-    console.log("Empty paragraph detected");
-
-    // Lists are now handled by the OOXML pipeline (Stage 4) for portability
-
-    // Try to parse as table - use OOXML Hybrid Mode even for empty paragraphs
-    const matchedTable = newContent.includes('|');
-    if (matchedTable) {
-      const tableData = parseTable(newContent);
-      if (tableData.rows.length > 0 || tableData.headers.length > 0) {
-        console.log("Detected table in empty paragraph, using OOXML Hybrid Mode");
-        // Fall through to OOXML Engine (Stage 4) which handles empty original text correctly
-      }
-    } else {
-      // ...Existing formatting/HTML check...
-    }
-
-    // Check if this is simple text with possible formatting
-    // For cells inside tables, prefer OOXML path to avoid nested table issues
-    const hasFormatting = hasInlineMarkdownFormatting(newContent);
-    if (hasFormatting) {
-      console.log("Empty paragraph with formatting - using insertText for simplicity");
-      // For empty paragraphs with simple formatting, just insert the text directly
-      // The formatting will be applied as markdown symbols which is better than nested tables
-      // Use insertText with markdown stripped, then apply formatting separately
-      const { cleanText, formatHints } = await preprocessMarkdownForParagraph(newContent);
-      targetParagraph.insertText(cleanText, "Replace");
-      await context.sync();
-
-      // If there are format hints, apply them using Word's font API
-      if (formatHints.length > 0) {
-        try {
-          await applyFormatHintsToRanges(targetParagraph, cleanText, formatHints, context);
-        } catch (formatError) {
-          console.warn("Could not apply formatting:", formatError);
-        }
-      }
-      return;
-    }
-
-    // Fall back to HTML for other content (no formatting, no tables)
-    console.log("Using HTML insertion for empty paragraph");
-    const htmlContent = markdownToWordHtml(newContent);
-    targetParagraph.insertHtml(htmlContent, "Replace");
-    return;
-  }
-
-  // 2. Check for structured content types
-
-  // Lists are now handled by the OOXML pipeline (Stage 4) for portability
-
-  // NOTE: Table detection removed here. Let applyRedlineToOxml handle tables 
-  // via OOXML Hybrid Mode, which handles both existing tables and text-to-table.
-
-  // 3. Check for block elements (headings, mixed content, etc.)
-  if (hasBlockElements(newContent)) {
-    console.log("Block elements detected, using HTML replacement");
-    const htmlContent = markdownToWordHtml(newContent);
-    targetParagraph.insertHtml(htmlContent, "Replace");
-    return;
-  }
-
-  // 4. Use OOXML Engine V5.1 (Hybrid Mode) for proper track changes
-  // This modifies the DOM in-place, embedding w:ins/w:del directly in the structure
-  console.log("Attempting OOXML Hybrid Mode for text edit");
-  const redlineEnabled = loadRedlineSetting();
-
-  // Get original text and paragraph OOXML
-  if (!propertiesPreloaded) {
-    targetParagraph.load("text");
-    await context.sync();
-  }
-
-  const paragraphOriginalText = targetParagraph.text;
-  let paragraphOoxmlResult = null;
-  let paragraphOoxmlValue = null;
-  try {
-    paragraphOoxmlResult = targetParagraph.getOoxml();
-    await context.sync();
-    paragraphOoxmlValue = paragraphOoxmlResult.value;
-  } catch (ooxmlError) {
-    console.warn("[OxmlEngine] Paragraph.getOoxml failed, trying range.getOoxml", ooxmlError);
-    try {
-      const paragraphRange = targetParagraph.getRange();
-      paragraphOoxmlResult = paragraphRange.getOoxml();
-      await context.sync();
-      paragraphOoxmlValue = paragraphOoxmlResult.value;
-    } catch (rangeError) {
-      console.warn("[OxmlEngine] Range.getOoxml failed for paragraph", rangeError);
-      // Try parent table cell or table as a last resort (pure OOXML path)
-      try {
-        if (!propertiesPreloaded) {
-          targetParagraph.load("parentTableCellOrNullObject, parentTableOrNullObject");
-          await context.sync();
-        }
-
-        if (targetParagraph.parentTableCellOrNullObject && !targetParagraph.parentTableCellOrNullObject.isNullObject) {
-          try {
-            console.warn("[OxmlEngine] Trying parent table cell getOoxml");
-            paragraphOoxmlResult = targetParagraph.parentTableCellOrNullObject.getOoxml();
-            await context.sync();
-            paragraphOoxmlValue = paragraphOoxmlResult.value;
-          } catch (cellError) {
-            console.warn("[OxmlEngine] Parent table cell getOoxml failed, trying cell range", cellError);
-            try {
-              const cellRange = targetParagraph.parentTableCellOrNullObject.getRange();
-              paragraphOoxmlResult = cellRange.getOoxml();
-              await context.sync();
-              paragraphOoxmlValue = paragraphOoxmlResult.value;
-            } catch (cellRangeError) {
-              console.warn("[OxmlEngine] Parent table cell range getOoxml failed", cellRangeError);
-            }
-          }
-        }
-
-        if (!paragraphOoxmlValue && targetParagraph.parentTableOrNullObject && !targetParagraph.parentTableOrNullObject.isNullObject) {
-          try {
-            console.warn("[OxmlEngine] Trying parent table getOoxml");
-            paragraphOoxmlResult = targetParagraph.parentTableOrNullObject.getOoxml();
-            await context.sync();
-            paragraphOoxmlValue = paragraphOoxmlResult.value;
-          } catch (tableError) {
-            console.warn("[OxmlEngine] Parent table getOoxml failed, trying table range", tableError);
-            try {
-              const tableRange = targetParagraph.parentTableOrNullObject.getRange();
-              paragraphOoxmlResult = tableRange.getOoxml();
-              await context.sync();
-              paragraphOoxmlValue = paragraphOoxmlResult.value;
-            } catch (tableRangeError) {
-              console.warn("[OxmlEngine] Parent table range getOoxml failed", tableRangeError);
-            }
-          }
-        }
-      } catch (tableError) {
-        console.warn("[OxmlEngine] Table OOXML fallback failed", tableError);
-      }
-    }
-  }
-
-  if (!paragraphOoxmlValue) {
-    console.warn("[OxmlEngine] Unable to retrieve OOXML for paragraph; skipping OOXML edit");
-    return;
-  }
-
-  console.log("[OxmlEngine] Original text:", paragraphOriginalText.length > 500 ? paragraphOriginalText.substring(0, 500) + "..." : paragraphOriginalText);
-  console.log("[OxmlEngine] Original text length:", paragraphOriginalText.length);
-  const targetParagraphId = extractParagraphIdFromOoxml(paragraphOoxmlValue);
-
-  // Apply redlines using hybrid engine (DOM manipulation approach)
-  const redlineAuthor = loadRedlineAuthor();
-  const result = await applyRedlineToOxml(
-    paragraphOoxmlValue,
-    paragraphOriginalText,
-    newContent,
-    {
-      author: redlineEnabled ? redlineAuthor : undefined,
-      generateRedlines: redlineEnabled,
-      targetParagraphId
-    }
-  );
-
-  if (!result.hasChanges) {
-    console.log("[OxmlEngine] No changes detected by engine");
-    return;
-  }
-
-  // Handle native API formatting for table cells (format addition)
-  if (result.useNativeApi && result.formatHints) {
-    console.log("[OxmlEngine] Using native Font API for table cell formatting");
-    await applyFormatHintsToRanges(targetParagraph, result.originalText, result.formatHints, context);
-    console.log("✅ Native API formatting successful");
-    return;
-  }
-
-  // Handle SURGICAL format changes (pure OOXML at range level, not paragraph level)
-  // This searches for specific text and replaces just that range with OOXML
-  if (result.isSurgicalFormatChange && result.surgicalChanges) {
-    console.log(`[OxmlEngine] Applying ${result.surgicalChanges.length} surgical format changes`);
-
-    const doc = context.document;
-    doc.load("changeTrackingMode");
-    await context.sync();
-
-    const originalMode = doc.changeTrackingMode;
-
-    // Disable track changes - our OOXML has embedded w:del/w:ins
-    if (originalMode !== Word.ChangeTrackingMode.off) {
-      console.log("[OxmlEngine] Temporarily disabling track changes for surgical OOXML");
-      doc.changeTrackingMode = Word.ChangeTrackingMode.off;
-      await context.sync();
-    }
-
-    let successfulSurgicalChanges = 0;
-
-    try {
-      const paragraphRange = targetParagraph.getRange();
-      paragraphRange.load('text');
-      await context.sync();
-
-      for (const change of result.surgicalChanges) {
-        try {
-          console.log(`[OxmlEngine] Surgical: searching for "${change.searchText}"`);
-
-          // Search for the specific text within the paragraph
-          const searchResults = paragraphRange.search(change.searchText, {
-            matchCase: true,
-            matchWholeWord: false
-          });
-          searchResults.load('items/text');
-          await context.sync();
-
-          if (searchResults.items.length > 0) {
-            // Replace at range level - NOT paragraph level
-            const targetRange = searchResults.items[0];
-            targetRange.insertOoxml(change.replacementOoxml, 'Replace');
-            await context.sync();
-            console.log(`[OxmlEngine] ✅ Surgical replacement applied for "${change.searchText}"`);
-            successfulSurgicalChanges++;
-          } else {
-            console.warn(`[OxmlEngine] Text not found for surgical replacement: "${change.searchText}"`);
-          }
-        } catch (changeError) {
-          console.warn(`[OxmlEngine] Failed to apply surgical change: ${changeError.message}`);
-        }
-      }
-
-      if (successfulSurgicalChanges === result.surgicalChanges.length) {
-        console.log("✅ Surgical format changes completed");
-      } else {
-        console.warn(`[OxmlEngine] Surgical replacements applied: ${successfulSurgicalChanges}/${result.surgicalChanges.length}`);
-      }
-    } finally {
-      // Restore track changes mode
-      if (originalMode !== Word.ChangeTrackingMode.off) {
-        doc.changeTrackingMode = originalMode;
-        await context.sync();
-      }
-    }
-
-    if (successfulSurgicalChanges === result.surgicalChanges.length) {
-      return;
-    }
-
-    console.warn("[OxmlEngine] Surgical format removal incomplete; no fallback configured");
-    return;
-  }
-
-  // Handle native API format REMOVAL (e.g., unbold, unitalicize)
-  // This uses Word's Font API which properly tracks format changes
-  if (result.useNativeApi && result.formatRemovalHints) {
-    console.log("[OxmlEngine] Using native Font API for format removal");
-    await applyFormatRemovalToRanges(targetParagraph, result.originalText, result.formatRemovalHints, context);
-    console.log("✅ Native API format removal successful");
-    return;
-  }
-
-  console.log("[OxmlEngine] Generated OOXML with track changes, length:", result.oxml.length);
-
-  try {
-    // The hybrid engine embeds w:ins/w:del directly in the DOM structure
-    // For TEXT changes (w:ins/w:del), we disable Word's track changes to prevent double-tracking
-    // For FORMAT-ONLY changes (w:rPrChange), we KEEP track changes ON so Word surfaces our markers
-    const doc = context.document;
-    doc.load("changeTrackingMode");
-    await context.sync();
-
-    const originalMode = doc.changeTrackingMode;
-    // CRITICAL: Always disable native tracking for OOXML insertion (Stage 4)
-    // because our hybrid engine already embeds surgical w:ins/w:del/w:rPrChange.
-    // Otherwise Word redlines the entire Ooxml replacement as a paragraph change.
-    const shouldDisableTracking = originalMode !== Word.ChangeTrackingMode.off;
-    console.log(`[OxmlEngine] Current track changes mode: ${originalMode}, redlineEnabled: ${redlineEnabled}, isFormatOnly: ${result.isFormatOnly}, shouldDisableTracking: ${shouldDisableTracking}`);
-
-    // Only disable track changes for TEXT changes (with w:ins/w:del)
-    // Keep track changes ON for format-only changes so Word surfaces w:rPrChange
-    if (shouldDisableTracking) {
-      console.log("[OxmlEngine] Temporarily disabling Word track changes for text-based OOXML insertion");
-      doc.changeTrackingMode = Word.ChangeTrackingMode.off;
-      await context.sync();
-    }
-
-    try {
-      // Insert the modified OOXML - since it's a paragraph-level replacement,
-      // and our DOM already contains the track change markers embedded in the structure,
-      // Word should render them as track changes
-      targetParagraph.insertOoxml(result.oxml, 'Replace');
-      await context.sync();
-      console.log("✅ OOXML Hybrid Mode reconciliation successful");
-
-      // WORKAROUND: If this was a list transformation, insert dummy paragraph to force Word re-evaluation
-      // Detect if the result contains list formatting
-      if (result.oxml.includes('<w:numPr>') || result.oxml.includes('ListParagraph')) {
-        try {
-          console.log('[OxmlEngine] Detected list in result, applying spacing workaround');
-
-          // Count how many paragraphs were generated (count <w:p> tags)
-          const pCount = (result.oxml.match(/<w:p>/g) || []).length;
-
-          if (pCount > 1) {
-            // Reload paragraphs to get the newly inserted ones
-            const paragraphs = context.document.body.paragraphs;
-            paragraphs.load("items/text");
-            await context.sync();
-
-            // Find the target paragraph index
-            const targetIdx = targetParagraph.index || 0;
-
-            // Insert dummy paragraph after the last list item
-            if (targetIdx + pCount - 1 < paragraphs.items.length) {
-              const lastListItem = paragraphs.items[targetIdx + pCount - 1];
-              const dummyPara = lastListItem.insertParagraph("", "After");
-              await context.sync();
-
-              console.log(`[OxmlEngine] Inserted dummy spacing paragraph after ${pCount} list items`);
-
-              // Force Word to re-evaluate
-              await context.sync();
-
-              // TEMP: Leave dummy paragraph to test if it fixes formatting
-              // dummyPara.delete();
-              // await context.sync();
-
-              console.log(`[OxmlEngine] Left dummy spacing paragraph for testing`);
-            }
-          }
-        } catch (spacingError) {
-          console.warn(`[OxmlEngine] Spacing workaround failed (non-critical):`, spacingError.message);
-        }
-      }
-    } finally {
-      // Restore track changes mode (only if we disabled it)
-      if (shouldDisableTracking) {
-        console.log(`[OxmlEngine] Restoring track changes mode to: ${originalMode}`);
-        doc.changeTrackingMode = originalMode;
-        await context.sync();
-      }
-    }
-  } catch (insertError) {
-    console.error("❌ OOXML insertion failed:", insertError.message);
-    // Fallback to simple text replacement
-    console.log("Falling back to simple text replacement");
-    targetParagraph.insertText(newContent, "Replace");
-    await context.sync();
-  }
-}
-
-/**
- * Extracts a paragraph identity token from OOXML (`w14:paraId` when present).
- *
- * @param {string} ooxml - OOXML payload
- * @returns {string|null}
- */
-function extractParagraphIdFromOoxml(ooxml) {
-  if (!ooxml || typeof ooxml !== 'string') return null;
-  const match = ooxml.match(/\b(?:w14:paraId|w:paraId|paraId)="([^"]+)"/i);
-  return match ? match[1] : null;
-}
-
-function buildListFallbackHtml(normalizedContent, listData) {
-  const listHtml = buildHtmlFromListData(listData);
-  if (listHtml) {
-    return markdownToWordHtml(listHtml);
-  }
-  return markdownToWordHtml(normalizedContent);
-}
-
-function buildHtmlFromListData(listData) {
-  if (!listData || !Array.isArray(listData.items) || listData.items.length === 0) {
-    return "";
-  }
-
-  const root = { type: "root", children: [] };
-  const listStack = [];
-
-  const renderInline = (text) => markdownToWordHtmlInline(text || "");
-
-  for (const item of listData.items) {
-    if (item.type === "text") {
-      listStack.length = 0;
-      if (item.text && item.text.trim().length > 0) {
-        root.children.push({ type: "p", html: renderInline(item.text) });
-      }
-      continue;
-    }
-
-    const level = Math.max(0, item.level || 0);
-    while (listStack.length > level) {
-      listStack.pop();
-    }
-
-    const parent = level === 0 ? root : (listStack[level - 1]?.lastItem || root);
-    if (!parent.children) parent.children = [];
-
-    const tag = item.type === "bullet" ? "ul" : "ol";
-    const styleType = item.type === "bullet"
-      ? getBulletListStyle(level)
-      : getNumberedListStyle(item.marker);
-
-    let listNode = parent.children[parent.children.length - 1];
-    if (!listNode || listNode.type !== "list" || listNode.tag !== tag || listNode.styleType !== styleType) {
-      listNode = { type: "list", tag, styleType, items: [] };
-      parent.children.push(listNode);
-    }
-
-    const listItem = { type: "li", html: renderInline(item.text || ""), children: [] };
-    listNode.items.push(listItem);
-
-    listStack.length = level;
-    listStack[level] = { listNode, lastItem: listItem };
-  }
-
-  return renderNodes(root.children);
-}
-
-function renderNodes(nodes) {
-  if (!nodes || nodes.length === 0) return "";
-  return nodes.map(renderNode).join("");
-}
-
-function renderNode(node) {
-  if (!node) return "";
-  if (node.type === "p") {
-    return `<p>${node.html}</p>`;
-  }
-  if (node.type === "list") {
-    const style = `style="list-style-type: ${node.styleType}; margin-left: 0; padding-left: 40px; margin-bottom: 10px;"`;
-    const items = node.items.map(renderListItem).join("");
-    return `<${node.tag} ${style}>${items}</${node.tag}>`;
-  }
-  return "";
-}
-
-function renderListItem(item) {
-  const children = renderNodes(item.children);
-  return `<li style="margin-bottom: 5px;">${item.html}${children}</li>`;
-}
-
-function getBulletListStyle(level) {
-  const styles = ["disc", "circle", "square"];
-  return styles[level % styles.length];
-}
-
-function getNumberedListStyle(marker) {
-  const raw = (marker || "").trim();
-  if (!raw) return "decimal";
-
-  const cleaned = raw.replace(/^\(|\)$/g, "").replace(/\.$/, "").trim();
-  if (/^\d+(\.\d+)*$/.test(cleaned)) return "decimal";
-  if (/^[A-Z]$/.test(cleaned)) return "upper-alpha";
-  if (/^[a-z]$/.test(cleaned)) return "lower-alpha";
-  if (/^[IVXLCDM]+$/.test(cleaned)) return "upper-roman";
-  if (/^[ivxlcdm]+$/.test(cleaned)) return "lower-roman";
-  return "decimal";
+  });
 }
 
 /**
@@ -2631,32 +1842,13 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
         const normalizedNumberingStyle = numberingStyle || "decimal";
         console.log(`[executeEditList] Target list format: ${normalizedListType}, numberingStyle: ${normalizedNumberingStyle}`);
 
-        // Detect hierarchy from leading whitespace indentation (4 spaces = 1 level)
-        // Also strip any leading list markers from items to avoid doubled numbering
-        const markersRegex = /^((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s*)/;
-
-        // Analyze items for hierarchy based on leading whitespace
-        const itemsWithLevels = newItems.map(rawItem => {
-          const item = String(rawItem ?? "");
-          // Count leading spaces/tabs
-          const indentMatch = item.match(/^(\s*)/);
-          const indentSize = indentMatch ? indentMatch[1].length : 0;
-          const level = Math.floor(indentSize / 4); // 4 spaces per level
-
-          // Strip leading whitespace
-          let stripped = item.trim();
-
-          // Also strip any list markers (1., a., -, etc.)
-          const markerMatch = stripped.match(markersRegex);
-          if (markerMatch) {
-            stripped = stripped.replace(markersRegex, '');
-            console.log(`[executeEditList] Stripped marker: "${markerMatch[1].trim()}" from item`);
+        const itemsWithLevels = normalizeListItemsWithLevels(newItems, { indentSpaces: 4 });
+        for (const item of itemsWithLevels) {
+          if (item.removedMarker) {
+            console.log(`[executeEditList] Stripped marker: "${item.removedMarker}" from item`);
           }
-
-          console.log(`[executeEditList] Level: ${level}, Text: "${stripped.substring(0, 40)}..."`);
-
-          return { text: stripped.trim(), level };
-        });
+          console.log(`[executeEditList] Level: ${item.level}, Text: "${item.text.substring(0, 40)}..."`);
+        }
 
         const existingCount = endIdx - startIdx + 1;
         const newCount = itemsWithLevels.length;

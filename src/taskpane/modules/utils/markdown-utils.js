@@ -1,7 +1,7 @@
 /* global Word */
 
 import { marked } from 'marked';
-import { preprocessMarkdown } from '../reconciliation/index.js';
+import { preprocessMarkdown, parseMarkdownListContent } from '../reconciliation/index.js';
 
 // Cached document font - set by detectDocumentFont() before edits
 let cachedDocumentFont = "Calibri"; // Safe default for Word
@@ -339,55 +339,15 @@ async function applyFormatRemovalToRanges(paragraph, text, formatRemovalHints, c
  * Supports numbered lists (1. item) and bullet lists (- item, * item)
  */
 function parseMarkdownList(content) {
-  if (!content) return null;
+  const parsed = parseMarkdownListContent(content);
+  if (!parsed) return null;
 
-  const lines = content.trim().split('\n');
-  const items = [];
-
-  for (const line of lines) {
-    if (!line.trim()) continue;
-
-    // Unified marker regex matching NumberingService and Pipeline
-    // REQUIREMENT: Marker must be followed by whitespace or end-of-line to distinguish from bold/italic
-    // Matches: "* item", "1. item", "1.item" (no space - allowed by some parsers but ambiguous),
-    // BUT we want to enforce space for bullets to avoid *Bold* confusion.
-    // The previous regex was: /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])\s*)(.*)$/
-    // New regex uses lookahead (?=\s|$) to ensure marker is separate.
-    const markerRegex = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|\d+\.|[ivxlcIVXLC]+\.|[-*•])(?=\s|$)\s*)(.*)$/;
-    const match = line.match(markerRegex);
-
-    if (match) {
-      const indent = match[1];
-      const marker = match[2].trim();
-      const text = match[3];
-      const level = Math.floor(indent.length / 2); // 2 spaces per level
-
-      // Determine type based on marker
-      const isBullet = /^[-*•]$/.test(marker);
-      items.push({
-        type: isBullet ? 'bullet' : 'numbered',
-        level,
-        text: text.trim(),
-        marker: marker
-      });
-      continue;
-    }
-
-    // If line doesn't match list pattern, still include as text
-    items.push({ type: 'text', level: 0, text: line.trim() });
-  }
-
-  if (items.length === 0) return null;
-
-  // Determine primary type (numbered or bullet)
-  const hasNumbered = items.some(i => i.type === 'numbered');
-  const hasBullet = items.some(i => i.type === 'bullet');
+  const lines = String(content || '').trim().split('\n').filter(line => line.trim().length > 0);
+  const hasNumbered = parsed.items.some(i => i.type === 'numbered');
+  const hasBullet = parsed.items.some(i => i.type === 'bullet');
   console.log(`[parseMarkdownList] Processing ${lines.length} lines. hasNumbered=${hasNumbered}, hasBullet=${hasBullet}`);
 
-  return {
-    type: hasNumbered ? 'numbered' : (hasBullet ? 'bullet' : 'text'),
-    items: items
-  };
+  return parsed;
 }
 
 /**

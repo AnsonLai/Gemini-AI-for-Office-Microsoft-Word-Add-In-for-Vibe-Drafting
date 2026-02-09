@@ -33,6 +33,10 @@ export {
 // Table/list tools
 export { generateTableOoxml } from './services/table-reconciliation.js';
 export { NumberingService } from './services/numbering-service.js';
+export { buildReconciliationPlan, RoutePlanKind, normalizeContentEscapesForRouting } from './orchestration/route-plan.js';
+export { parseMarkdownListContent, hasListItems } from './orchestration/list-parsing.js';
+export { buildListMarkdown, inferNumberingStyleFromMarker, normalizeListItemsWithLevels } from './orchestration/list-markdown.js';
 
 // Core types/constants
 export { DiffOp, RunKind, ContainerKind, ContentType, NS_W, escapeXml } from './core/types.js';
+export { extractParagraphIdFromOoxml } from './core/ooxml-identifiers.js';

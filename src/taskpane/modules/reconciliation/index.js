@@ -14,6 +14,7 @@ export { NumberingService } from './services/numbering-service.js';
 
 // Core types
 export { DiffOp, RunKind, ContainerKind, ContentType, NS_W, NS_R, escapeXml, getNextRevisionId, resetRevisionIdCounter } from './core/types.js';
+export { extractParagraphIdFromOoxml } from './core/ooxml-identifiers.js';
 
 // Individual stage functions (for advanced usage)
 export { ingestOoxml, ingestTableToVirtualGrid } from './pipeline/ingestion.js';
@@ -24,6 +25,9 @@ export { serializeToOoxml, wrapInDocumentFragment } from './pipeline/serializati
 
 // Integration helpers (for Word Add-in)
 export { applyReconciliationToParagraph, applyReconciliationToParagraphBatch, shouldUseOoxmlReconciliation, getAuthorForTracking } from './integration/integration.js';
+export { getParagraphOoxmlWithFallback, insertOoxmlWithRangeFallback, withNativeTrackingDisabled } from './integration/word-ooxml.js';
+export { applyStructuredListDirectOoxml } from './integration/word-structured-list.js';
+export { routeWordParagraphChange } from './integration/word-route-change.js';
 
 // OOXML Engine V5.1 - Hybrid Mode (DOM-based manipulation)
 export { applyRedlineToOxml, sanitizeAiResponse, parseOoxml, serializeOoxml } from './engine/oxml-engine.js';
@@ -33,4 +37,9 @@ export { generateTableOoxml, diffTablesWithVirtualGrid, serializeVirtualGridToOo
 
 // Comment Engine
 export { injectCommentsIntoOoxml, injectCommentsIntoPackage, buildCommentElement, buildCommentsPartXml } from './services/comment-engine.js';
+
+// Command-layer orchestration helpers (Word-agnostic planners)
+export { buildReconciliationPlan, RoutePlanKind, normalizeContentEscapesForRouting } from './orchestration/route-plan.js';
+export { parseMarkdownListContent, hasListItems } from './orchestration/list-parsing.js';
+export { buildListMarkdown, inferNumberingStyleFromMarker, normalizeListItemsWithLevels } from './orchestration/list-markdown.js';
 

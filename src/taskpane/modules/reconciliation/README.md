@@ -10,9 +10,14 @@ Core code is organized by concern:
 
 - `adapters/` runtime adapters (`xml-adapter`, `logger`)
 - `core/` shared types/constants + revision/offset/XML-query policy helpers
+  - includes OOXML identifier extraction utilities
 - `engine/` router + mode implementations
   - includes focused formatting helpers (`format-paragraph-targeting`, `format-span-application`)
 - `pipeline/` run-model reconciliation pipeline stages + shared list marker parser
   - includes hot-path indexed patch lookups for diff application
 - `services/` table/comment/numbering services + shared package builder
-- `integration/` Word API bridge only
+- `orchestration/` Word-agnostic planning helpers for command adapters
+  - includes shared markdown list parsing, list markdown builders, and list-item normalization helpers
+- `integration/` Word API bridge + shared Word-only OOXML interop helpers
+  - includes legacy structured-list insertion fallback helpers extracted from command layer
+  - includes shared paragraph route/apply helper (`word-route-change.js`) used by command adapters

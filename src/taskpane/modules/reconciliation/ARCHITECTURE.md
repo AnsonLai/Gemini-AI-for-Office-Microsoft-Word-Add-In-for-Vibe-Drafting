@@ -17,6 +17,7 @@ reconciliation/
 │   └── xml-adapter.js
 ├── core/
 │   ├── paragraph-offset-policy.js
+│   ├── ooxml-identifiers.js
 │   ├── xml-query.js
 │   └── types.js
 ├── engine/
@@ -54,8 +55,15 @@ reconciliation/
 │   ├── numbering-service.js
 │   ├── package-builder.js
 │   └── table-reconciliation.js
+├── orchestration/
+│   ├── route-plan.js
+│   ├── list-markdown.js
+│   └── list-parsing.js
 ├── integration/
-│   └── integration.js
+│   ├── integration.js
+│   ├── word-ooxml.js
+│   ├── word-route-change.js
+│   └── word-structured-list.js
 ├── index.js
 └── standalone.js
 ```
@@ -71,6 +79,8 @@ reconciliation/
   - Shared enums/constants (`RunKind`, `DiffOp`, `NS_W`) and revision metadata utilities.
 - `core/paragraph-offset-policy.js`
   - Canonical paragraph-boundary separator policy used across extraction/ingestion/reconstruction.
+- `core/ooxml-identifiers.js`
+  - Shared OOXML identity extractors (`w14:paraId` and related paragraph tokens).
 - `core/xml-query.js`
   - Shared namespace-safe XML query helpers for first/all lookups and parser-error detection.
 - `pipeline/*`
@@ -101,6 +111,14 @@ reconciliation/
   - Handles comments-part wiring and relationship/content-type updates.
 - `services/package-builder.js`
   - Shared `pkg:package` builders for document fragments, paragraph-only packages, and comments package variants.
+- `orchestration/route-plan.js`
+  - Word-agnostic route planner for command adapters (`buildReconciliationPlan`).
+  - Classifies content into deterministic apply kinds (`structured_list_direct`, `empty_formatted_text`, `empty_html`, `block_html`, `ooxml_engine`).
+- `orchestration/list-markdown.js`
+  - Shared list markdown builders/marker-style helpers used by command adapters (`buildListMarkdown`, numbering style inference, list-item normalization).
+- `orchestration/list-parsing.js`
+  - Shared markdown list parsing for command adapters (`parseMarkdownListContent`).
+  - Removes duplicate list marker regex/parsing logic from command utility surfaces.
 - `engine/oxml-engine.js`
   - Main router/orchestrator for text + formatting reconciliation.
   - Chooses modes and delegates work.
@@ -130,6 +148,16 @@ reconciliation/
   - Table reconciliation/text-to-table transformation flows extracted from router.
 - `integration/integration.js`
   - Word API bridge (`paragraph.getOoxml()/insertOoxml()`).
+- `integration/word-ooxml.js`
+  - Shared Word-only OOXML interop helpers:
+    - OOXML read fallback chain (paragraph/range/table-cell/table)
+    - OOXML insert fallback (`Paragraph.insertOoxml` -> range fallback on `GeneralException`)
+    - temporary native tracking toggles around OOXML apply operations
+- `integration/word-structured-list.js`
+  - Legacy direct structured-list OOXML insertion fallback extracted from command layer for reuse and isolation.
+- `integration/word-route-change.js`
+  - Shared Word paragraph route/apply helper used by command adapters to keep `agentic-tools` thin.
+  - Owns reconciliation route execution and fallback sequencing for single-paragraph edits.
 - `index.js`
   - Main public API surface.
 - `standalone.js`
@@ -194,11 +222,15 @@ contains explicit redline markup (`w:ins`/`w:del`) when redlines are enabled.
 ## Current Migration Status (Command Layer -> Reconciliation)
 
 - Reconciliation now owns shared list marker parsing, content analysis, list generation, numbering service, and package builders.
+- `routeChangeOperation` command-layer decisioning now uses reconciliation `buildReconciliationPlan(...)`.
+- Word-specific OOXML fallback/toggle helpers are centralized in `integration/word-ooxml.js` and consumed by command-layer routes.
+- Command-layer markdown list parsing now delegates to reconciliation `orchestration/list-parsing.js`.
+- Structured list `edit_paragraph` application now prefers reconciliation list-generation output (with numbering package wiring) before legacy direct list insertion fallback.
+- Command-layer list markdown builders, paragraph-id extraction, and direct structured-list fallback are now extracted to reconciliation modules.
+- Command-layer `routeChangeOperation(...)` is now a thin wrapper over reconciliation `integration/word-route-change.js`.
+- Command-layer list item normalization in `executeEditList(...)` now delegates to reconciliation orchestration helpers.
 - `modules/commands/agentic-tools.js` still contains migration debt:
-  - route-level decision branching (`routeChangeOperation`)
-  - Word OOXML read fallback chain (paragraph/range/table-cell/table)
-  - OOXML insert fallback helper and repeated tracking-mode toggles
-  - command-local list helper duplication (`parseMarkdownList`, marker/numbering helpers, direct structured-list OOXML builder)
+  - compatibility wrapper `parseMarkdownList(...)` remains in `markdown-utils` (delegating to reconciliation parser)
 - Intended direction:
   - reconciliation modules produce deterministic operation plans/results
   - integration modules own reusable Word-specific apply/read/toggle adapters
