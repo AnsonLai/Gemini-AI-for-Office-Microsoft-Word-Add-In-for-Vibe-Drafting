@@ -1,27 +1,42 @@
 # Reconciliation Local MCP (`docx`)
 
-Local MCP server for creating and editing `.docx` files with the reconciliation engine.
+Local MCP server for creating and editing `.docx` files using the standalone OOXML reconciliation engine.
 
-## Features
+This server is intended for local automation and testing without Word JS APIs.
+
+## What It Supports
 
 - `docx_new`: create a minimal valid `.docx` session
-- `docx_open`: open an existing `.docx`
-- `docx_list_paragraphs`: inspect paragraph ids + text
-- `docx_edit_paragraph`: edit one paragraph with reconciliation logic
-- `docx_add_comment`: add OOXML comments anchored in paragraph text
+- `docx_open`: open an existing `.docx` file into a session
+- `docx_list_paragraphs`: inspect paragraph ids + text for targeting
+- `docx_edit_paragraph`: edit one paragraph via reconciliation (`applyRedlineToOxml`)
+- `docx_add_comment`: add OOXML comments anchored to text
 - `docx_save_as`: write session to disk
-- `docx_close`: close session
+- `docx_close`: close and release session memory
+
+## Architecture Alignment
+
+The MCP server uses the same reconciliation modules documented in:
+- `src/taskpane/modules/reconciliation/ARCHITECTURE.md`
+
+Key points:
+- Edits are OOXML-first and reconciliation-driven.
+- Redlines are emitted as OOXML revision markup (`w:ins`/`w:del`) when enabled.
+- Numbering/comment artifacts are merged into package parts when required.
+- No Word-native fallback is available in MCP mode.
+
+If reconciliation returns `useNativeApi`, the tool errors because there is no Word runtime in MCP.
 
 ## Install
 
-From the repo root:
+From repository root:
 
 ```bash
 cd mcp/docx-server
 npm install
 ```
 
-Or from repo root without changing directories:
+Or:
 
 ```bash
 npm run mcp:docx:install
@@ -33,17 +48,17 @@ npm run mcp:docx:install
 npm start
 ```
 
-The server runs over stdio (for MCP clients).
+The server uses stdio transport (for MCP clients).
 
-From repo root:
+From repository root:
 
 ```bash
 npm run mcp:docx
 ```
 
-## Claude Code MCP config example
+## Claude Code MCP Config Example
 
-Adjust the absolute path for your machine:
+Adjust the path for your machine:
 
 ```json
 {
@@ -51,22 +66,68 @@ Adjust the absolute path for your machine:
     "docx": {
       "command": "node",
       "args": [
-        "C:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/mcp/docx-server/src/server.mjs"
+        "[root directory]/mcp/docx-server/src/server.mjs"
       ]
     }
   }
 }
 ```
 
-## Notes
+## Typical Workflow
 
-- Session default redline mode:
-  - set during `docx_new` or `docx_open` with `generateRedlines`
-  - defaults to `true`
-- Per edit override:
-  - `docx_edit_paragraph.generateRedlines` overrides the session default for that call
-- `docx_new` minimal package includes:
-  - `[Content_Types].xml`
-  - `_rels/.rels`
-  - `word/document.xml`
-  - `word/_rels/document.xml.rels`
+1. Create or open a session: `docx_new` or `docx_open`
+2. Discover targets: `docx_list_paragraphs`
+3. Edit by id: `docx_edit_paragraph`
+4. Optionally annotate: `docx_add_comment`
+5. Persist: `docx_save_as`
+6. Cleanup: `docx_close`
+
+## Redline Behavior
+
+Session default:
+- `generateRedlines` on `docx_new` / `docx_open` (default `true`)
+
+Per-call override:
+- `docx_edit_paragraph.generateRedlines`
+
+When `generateRedlines=true`:
+- Text edits are written with OOXML revisions (`w:ins`/`w:del`)
+- Output is saved as tracked changes in the document package
+
+When `generateRedlines=false`:
+- Content is rewritten without revision wrappers
+
+## Tool Notes
+
+### `docx_edit_paragraph`
+
+Input:
+- `paragraphId` must come from `docx_list_paragraphs`
+- `newText` accepts plain text and markdown hints supported by reconciliation
+
+Output fields include:
+- `changed`
+- `generateRedlines`
+- `sourceType` (`package`, `document`, or `fragment`)
+- `updatedText`
+
+For list-style edits, if numbering definitions are produced, the server merges `word/numbering.xml` and related package metadata automatically.
+
+### `docx_add_comment`
+
+Anchors comments by `textToFind` inside the target paragraph and merges:
+- `word/comments.xml`
+- content type overrides
+- document relationships
+
+## Current Constraints
+
+- Paragraph-scoped editing only (`docx_edit_paragraph` edits one paragraph handle).
+- No Word JS features (selection, native comments API, native list API).
+- Operations that require native Word fallback are rejected in local MCP mode.
+
+## Troubleshooting
+
+- "Unknown paragraph id": refresh ids using `docx_list_paragraphs` after edits.
+- "requires Word native API fallback": the requested transform is not fully OOXML-compatible in standalone mode.
+- Save output frequently with `docx_save_as` during iterative edits.

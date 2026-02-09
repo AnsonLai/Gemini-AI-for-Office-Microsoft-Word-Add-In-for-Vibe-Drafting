@@ -39,13 +39,18 @@ reconciliation/
 │   ├── ingestion-paragraph.js
 │   ├── ingestion-table.js
 │   ├── ingestion-xml.js
+│   ├── content-analysis.js
 │   ├── diff-engine.js
+│   ├── list-generation.js
 │   ├── list-markers.js
 │   ├── patching.js
 │   ├── serialization.js
 │   └── markdown-processor.js
 ├── services/
+│   ├── comment-builders.js
 │   ├── comment-engine.js
+│   ├── comment-locator.js
+│   ├── comment-package.js
 │   ├── numbering-service.js
 │   ├── package-builder.js
 │   └── table-reconciliation.js
@@ -77,12 +82,23 @@ reconciliation/
   - Virtual-grid table ingestion and merged-cell parsing.
 - `pipeline/ingestion-xml.js`
   - Shared ingestion helpers for child-node traversal and attribute serialization.
+- `pipeline/content-analysis.js`
+  - Shared text classification/parsing helpers for list/table/paragraph detection.
 - `pipeline/list-markers.js`
   - Shared list marker regex/detection helpers used by router/pipeline/patching.
+- `pipeline/list-generation.js`
+  - Generates list/table blocks from markdown lines.
+  - Emits paragraph OOXML + optional `numberingXml` payload.
 - `services/table-reconciliation.js`
   - Virtual-grid table diff and OOXML table serialization.
 - `services/comment-engine.js`
   - OOXML-only comment insertion logic.
+- `services/comment-builders.js`
+  - Builds comment XML fragments and comment reference nodes.
+- `services/comment-locator.js`
+  - Locates target runs/ranges for comment anchoring in OOXML.
+- `services/comment-package.js`
+  - Handles comments-part wiring and relationship/content-type updates.
 - `services/package-builder.js`
   - Shared `pkg:package` builders for document fragments, paragraph-only packages, and comments package variants.
 - `engine/oxml-engine.js`
@@ -141,6 +157,9 @@ The router:
    - Reconstruction mode
    - List pipeline generation
 
+When list-target content is detected, the router delegates to `ReconciliationPipeline.executeListGeneration(...)`,
+which returns OOXML list paragraphs and numbering definitions suitable for `insertOoxml`.
+
 ### 3) Mode Execution
 
 - Surgical mode:
@@ -154,6 +173,36 @@ The router:
 
 - Returns `{ oxml, hasChanges }` to caller.
 - Caller decides how/where OOXML is inserted or written back.
+- List-generation paths may also return `numberingXml` for package wrapping.
+
+## List Edit Integration (Command Layer)
+
+`executeEditList` in `modules/commands/agentic-tools.js` now uses a two-stage reconciliation strategy:
+
+1. Build normalized list markdown from tool args (`listType`, `numberingStyle`, indentation levels).
+2. Run `applyRedlineToOxml(...)` over the full selected range.
+3. If reconciliation reports no changes (`hasChanges === false`), force structural conversion via
+   `ReconciliationPipeline.executeListGeneration(...)` and replace with wrapped OOXML + numbering.
+
+This fallback is required for cases where source text is already similar (for example manual `A.`, `B.`, `C.` text)
+but paragraphs are not true Word list items. In those cases, textual diff can be a no-op while structural list
+conversion is still required.
+
+Native Word tracking is intentionally disabled during insertion for these list operations because the OOXML already
+contains explicit redline markup (`w:ins`/`w:del`) when redlines are enabled.
+
+## Current Migration Status (Command Layer -> Reconciliation)
+
+- Reconciliation now owns shared list marker parsing, content analysis, list generation, numbering service, and package builders.
+- `modules/commands/agentic-tools.js` still contains migration debt:
+  - route-level decision branching (`routeChangeOperation`)
+  - Word OOXML read fallback chain (paragraph/range/table-cell/table)
+  - OOXML insert fallback helper and repeated tracking-mode toggles
+  - command-local list helper duplication (`parseMarkdownList`, marker/numbering helpers, direct structured-list OOXML builder)
+- Intended direction:
+  - reconciliation modules produce deterministic operation plans/results
+  - integration modules own reusable Word-specific apply/read/toggle adapters
+  - command modules remain thin tool orchestration and error handling layers
 
 ## Key Design Notes
 
