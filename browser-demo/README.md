@@ -4,10 +4,36 @@ No-build browser demo for the standalone OOXML reconciliation engine.
 
 It demonstrates end-to-end `.docx` mutation in the browser, including text redlines, formatting, list/table transforms, comments, and highlights.
 
+## Modes
+
+### Chat Mode (Primary)
+
+Interactive **contract redline review** powered by Gemini AI:
+
+1. Upload a `.docx` document
+2. Enter your Gemini API key
+3. Type a review instruction (e.g., "Review this contract and flag clauses that deviate from market standards")
+4. Gemini analyzes the full document text and returns structured operations (redlines, comments, highlights)
+5. Operations are applied to the document OOXML
+6. Download the marked-up result
+7. Continue the conversation for follow-up reviews
+
+The chat supports multi-turn conversation — Gemini retains context from previous turns.
+
+### Kitchen-Sink Mode (Legacy)
+
+One-click demo that applies a fixed set of operations to marker paragraphs:
+
+1. Text rewrite on `DEMO_TEXT_TARGET` (Gemini-backed when key is present; deterministic fallback otherwise)
+2. Format-only change on `DEMO FORMAT TARGET` (markdown hints)
+3. List generation on `DEMO_LIST_TARGET` (with numbering artifact handling)
+4. Table transformation on `DEMO_TABLE_TARGET`
+5. Gemini surprise tool action (`comment`, `highlight`, or `redline`)
+
 ## Files
 
-- `browser-demo/demo.html`: static UI
-- `browser-demo/demo.js`: browser module pipeline
+- `browser-demo/demo.html`: static UI (chat layout + styles)
+- `browser-demo/demo.js`: browser module pipeline (chat engine + OOXML operations)
 
 The demo imports reconciliation APIs from:
 - `src/taskpane/modules/reconciliation/standalone.js`
@@ -22,16 +48,6 @@ Operationally:
 - Preserves track changes via OOXML revision tags (`w:ins`/`w:del`).
 - Handles package-level artifacts for numbering/comments when needed.
 - Validates resulting package structure before download.
-
-## What The Demo Applies
-
-1. Text rewrite on `DEMO_TEXT_TARGET` (Gemini-backed when key is present; deterministic fallback otherwise)
-2. Format-only change on `DEMO FORMAT TARGET` (markdown hints)
-3. List generation on `DEMO_LIST_TARGET` (with numbering artifact handling)
-4. Table transformation on `DEMO_TABLE_TARGET`
-5. Gemini surprise tool action (`comment`, `highlight`, or `redline`)
-
-The demo ensures marker paragraphs exist before running.
 
 ## Run
 
@@ -49,42 +65,56 @@ Do not use `file://`.
 
 ## Gemini API Key
 
-- Enter key in the page and click `Save Gemini Key`
+- Enter key in the top bar and click `Save Key`
 - Stored in browser `localStorage` for that origin
 - Used for:
-  - text rewrite suggestion
-  - surprise tool action selection
+  - Chat mode: multi-turn contract review and analysis
+  - Kitchen-Sink mode: text rewrite suggestion + surprise tool action
 
-If Gemini is unavailable, the demo continues with fallback behavior.
+If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior. Chat mode requires a valid API key.
 
-## Pipeline Overview
+## Chat Pipeline
+
+1. Upload `.docx` → read with JSZip
+2. Extract all paragraph text from `word/document.xml`
+3. Build Gemini system instruction with full document listing
+4. User types review instruction → sent as multi-turn chat
+5. Gemini responds with explanation + JSON array of operations (`redline`/`comment`/`highlight`)
+6. Operations applied paragraph-by-paragraph using reconciliation engine
+7. Numbering/comments package artifacts merged if emitted
+8. Output validated; download button enabled
+9. Paragraph listing refreshed for next turn
+
+## Kitchen-Sink Pipeline
 
 1. Read uploaded `.docx` using JSZip
 2. Parse `word/document.xml`
 3. Apply operations by exact target marker paragraph
 4. Extract replacement nodes from reconciliation output (`package`, `document`, or fragment)
 5. Merge numbering/comments package artifacts if emitted
-6. Validate resulting package:
-   - `word/document.xml` well-formed
-   - `w:sectPr` body ordering valid
-   - numbering/comments parts + relationships + content types consistent
+6. Validate resulting package
 7. Download mutated `.docx`
 
 ## Important Behavior Notes
 
 - Redlines are generated via OOXML, not Word runtime state.
+- Chat mode sends the full document text to Gemini for analysis.
+- Multi-turn chat history is maintained in-memory (lost on page refresh).
 - List/table operations can emit package output and extra parts.
 - Numbering merge is additive when missing; existing numbering part is preserved.
 - Comments merge into `word/comments.xml` and related package metadata.
 
 ## Known Limits
 
-- Targeting uses exact marker paragraph text, not semantic search.
-- Demo applies a fixed operation sequence; it is not a general-purpose editor UI.
+- Chat mode targeting uses exact paragraph text match (as provided by Gemini from the document listing).
+- Kitchen-sink mode targeting uses exact marker paragraph text, not semantic search.
 - Browser runtime constraints apply (memory/file size/network for Gemini).
+- Document text extraction is plain-text only (no formatting or style metadata sent to Gemini).
+- Multi-turn history is in-memory; refreshing the page resets the conversation.
 
 ## Troubleshooting
 
-- "Target paragraph not found": verify marker paragraphs still exist in the uploaded doc.
+- "Target paragraph not found": Gemini may have slightly modified the paragraph text when referencing it. Check the engine log for details.
 - Validation error about numbering/comments: check whether package relationships or content types were removed by prior tooling.
-- No Gemini output: verify API key and network access; fallback path should still run.
+- No Gemini output: verify API key and network access; kitchen-sink fallback path should still run.
+- Chat input disabled: upload a `.docx` file first to enable the chat.

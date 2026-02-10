@@ -1,130 +1,413 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>OOXML Engine Browser Demo</title>
+  <title>Contract Redline Review — Browser Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #f6f8fb;
-      --card: #ffffff;
-      --text: #1b2333;
-      --muted: #52607a;
-      --accent: #0b5fff;
-      --border: #d8e0ef;
+      --bg: #0f1117;
+      --card: #1a1d2b;
+      --text: #e2e8f0;
+      --muted: #8892a8;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --border: #2a2e3f;
+      --user-bubble: #312e81;
+      --ai-bubble: #1e293b;
+      --system-bubble: #1c2333;
+      --success: #10b981;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --radius: 10px;
     }
-    body {
-      margin: 0;
-      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-      background: linear-gradient(160deg, #eef4ff 0%, var(--bg) 45%, #eef7f2 100%);
-      color: var(--text);
-    }
-    .wrap {
-      max-width: 900px;
-      margin: 32px auto;
-      padding: 0 16px 24px;
-    }
-    .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      box-shadow: 0 10px 30px rgba(31, 51, 89, 0.08);
-      padding: 20px;
-    }
-    h1 {
-      margin: 0 0 6px;
-      font-size: 24px;
-    }
-    p {
-      margin: 0 0 14px;
-      color: var(--muted);
-      line-height: 1.45;
-    }
-    .row {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 12px;
-      align-items: center;
-      margin-top: 12px;
-    }
-    input[type="file"], input[type="text"], button {
-      font-size: 14px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      padding: 10px 12px;
-      width: 100%;
+
+    * {
       box-sizing: border-box;
-      background: #fff;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
       color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
     }
-    button {
-      cursor: pointer;
-      background: var(--accent);
-      border-color: var(--accent);
-      color: #fff;
+
+    /* ── Top Bar ─────────────────────────────────────── */
+    .top-bar {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    .top-bar h1 {
+      font-size: 16px;
       font-weight: 600;
-      width: auto;
-      min-width: 190px;
+      white-space: nowrap;
+      background: linear-gradient(135deg, var(--accent), #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
     }
-    button:disabled {
-      opacity: 0.6;
+
+    .top-bar .spacer {
+      flex: 1;
+    }
+
+    .top-bar input[type="file"] {
+      font-size: 12px;
+      color: var(--muted);
+      max-width: 220px;
+    }
+
+    .top-bar input[type="file"]::file-selector-button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 5px 10px;
+      cursor: pointer;
+      font-size: 12px;
+      margin-right: 6px;
+    }
+
+    .top-bar input[type="text"],
+    .top-bar input[type="password"] {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+      color: var(--text);
+      width: 160px;
+    }
+
+    .top-bar input::placeholder {
+      color: var(--muted);
+    }
+
+    .top-bar button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background .15s;
+    }
+
+    .top-bar button:hover {
+      background: var(--accent-hover);
+    }
+
+    .top-bar .sep {
+      width: 1px;
+      height: 24px;
+      background: var(--border);
+    }
+
+    /* ── Chat Area ────────────────────────────────────── */
+    .chat-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      scroll-behavior: smooth;
+    }
+
+    #chat-messages::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    #chat-messages::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+
+    .msg {
+      max-width: 85%;
+      padding: 12px 16px;
+      border-radius: var(--radius);
+      line-height: 1.55;
+      font-size: 14px;
+      animation: fadeIn .2s ease;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .msg.user {
+      align-self: flex-end;
+      background: var(--user-bubble);
+      border-bottom-right-radius: 3px;
+      color: #c7d2fe;
+    }
+
+    .msg.assistant {
+      align-self: flex-start;
+      background: var(--ai-bubble);
+      border-bottom-left-radius: 3px;
+    }
+
+    .msg.system {
+      align-self: center;
+      background: var(--system-bubble);
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+      max-width: 90%;
+    }
+
+    .msg.system.success {
+      border-left: 3px solid var(--success);
+    }
+
+    .msg.system.warn {
+      border-left: 3px solid var(--warn);
+    }
+
+    .msg.system.error {
+      border-left: 3px solid var(--danger);
+    }
+
+    /* Operation summary within assistant messages */
+    .op-summary {
+      margin-top: 10px;
+      border-top: 1px solid var(--border);
+      padding-top: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .op-summary .op-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 0;
+    }
+
+    .op-badge {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .op-badge.redline {
+      background: #7f1d1d;
+      color: #fca5a5;
+    }
+
+    .op-badge.comment {
+      background: #1e3a5f;
+      color: #93c5fd;
+    }
+
+    .op-badge.highlight {
+      background: #713f12;
+      color: #fde68a;
+    }
+
+    /* ── Input Area ───────────────────────────────────── */
+    .input-area {
+      border-top: 1px solid var(--border);
+      background: var(--card);
+      padding: 14px 20px;
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      flex-shrink: 0;
+    }
+
+    #chat-input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+      resize: none;
+      min-height: 42px;
+      max-height: 120px;
+      line-height: 1.4;
+      outline: none;
+      transition: border-color .15s;
+    }
+
+    #chat-input:focus {
+      border-color: var(--accent);
+    }
+
+    #chat-input::placeholder {
+      color: var(--muted);
+    }
+
+    .input-area button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      padding: 10px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s;
+      white-space: nowrap;
+    }
+
+    .input-area button:hover {
+      background: var(--accent-hover);
+    }
+
+    .input-area button:disabled {
+      opacity: 0.5;
       cursor: not-allowed;
     }
-    .status {
-      margin-top: 12px;
-      font-weight: 600;
-      min-height: 20px;
+
+    #downloadBtn {
+      background: var(--success);
     }
-    pre {
-      margin-top: 12px;
-      background: #0f172a;
-      color: #d6e1ff;
-      padding: 12px;
-      border-radius: 8px;
-      overflow: auto;
-      min-height: 180px;
+
+    #downloadBtn:hover {
+      background: #34d399;
+    }
+
+    /* ── Bottom Log (collapsed by default) ────────────── */
+    .log-panel {
+      border-top: 1px solid var(--border);
+      background: var(--bg);
+      flex-shrink: 0;
+    }
+
+    .log-toggle {
+      width: 100%;
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 11px;
+      padding: 6px 20px;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .log-toggle:hover {
+      color: var(--text);
+    }
+
+    #log {
+      display: none;
+      background: #0a0d14;
+      color: #94a3b8;
+      padding: 10px 20px;
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+      font-size: 11px;
+      line-height: 1.4;
       white-space: pre-wrap;
       word-break: break-word;
-      font-size: 12px;
-      line-height: 1.4;
+      max-height: 200px;
+      overflow-y: auto;
     }
-    .hint {
-      margin-top: 10px;
-      font-size: 12px;
+
+    /* ── Kitchen-sink legacy row (inside top bar) ─── */
+    .legacy-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .legacy-row button {
+      background: transparent;
+      border: 1px solid var(--border);
       color: var(--muted);
+      font-size: 11px;
+      padding: 4px 10px;
+    }
+
+    .legacy-row button:hover {
+      color: var(--text);
+      border-color: var(--muted);
+      background: transparent;
     }
   </style>
 </head>
+
 <body>
-  <div class="wrap">
-    <div class="card">
-      <h1>OOXML Engine Kitchen-Sink Browser Demo</h1>
-      <p>
-        Upload a <code>.docx</code> file, run a kitchen-sink transform (text edit, formatting,
-        bullets/sub-bullets, and table), and download a modified document.
-      </p>
 
-      <div class="row">
-        <input id="docxFile" type="file" accept=".docx" />
-        <button id="runBtn">Run Kitchen Sink</button>
-      </div>
+  <!-- ── Top Bar ──────────────────────────────────── -->
+  <div class="top-bar">
+    <h1>Contract Redline Review</h1>
+    <div class="spacer"></div>
 
-      <div class="row">
-        <input id="authorInput" type="text" value="Browser Demo AI" />
-        <span></span>
-      </div>
+    <input id="docxFile" type="file" accept=".docx" />
+    <div class="sep"></div>
+    <input id="geminiApiKeyInput" type="password" placeholder="Gemini API key" />
+    <button id="saveGeminiKeyBtn">Save Key</button>
+    <div class="sep"></div>
+    <input id="authorInput" type="text" value="Browser Demo AI" placeholder="Author name" />
+    <div class="sep"></div>
+    <div class="legacy-row">
+      <button id="runBtn" title="Run the original kitchen-sink demo">Kitchen Sink</button>
+    </div>
+  </div>
 
-      <div class="row">
-        <input id="geminiApiKeyInput" type="password" placeholder="Gemini API key (stored in this browser)" />
-        <button id="saveGeminiKeyBtn" type="button">Save Gemini Key</button>
-      </div>
-
-      <div id="status" class="status"></div>
-      <pre id="log"></pre>
-      <div class="hint">
-        Note: this demo uses CDN ESM dependencies and should be served from a local/static web server (not <code>file://</code>).
+  <!-- ── Chat Messages ───────────────────────────── -->
+  <div class="chat-area">
+    <div id="chat-messages">
+      <div class="msg system">
+        Upload a <code>.docx</code> contract, enter your Gemini API key, and ask the AI to review it.
       </div>
     </div>
+  </div>
+
+  <!-- ── Input Area ──────────────────────────────── -->
+  <div class="input-area">
+    <textarea id="chat-input" rows="1"
+      placeholder="e.g. Review this contract and flag clauses that deviate from market standards…" disabled></textarea>
+    <button id="sendBtn" disabled>Send</button>
+    <button id="downloadBtn" style="display:none;" disabled>Download</button>
+  </div>
+
+  <!-- ── Log Panel ───────────────────────────────── -->
+  <div class="log-panel">
+    <button class="log-toggle" id="logToggle">▶ Engine log</button>
+    <pre id="log"></pre>
   </div>
 
   <script type="importmap">
@@ -134,6 +417,7 @@
       }
     }
   </script>
-  <script type="module" src="./demo.js?v=2026-02-06-8"></script>
+  <script type="module" src="./demo.js?v=2026-02-09-chat"></script>
 </body>
+
 </html>
