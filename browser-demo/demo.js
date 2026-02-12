@@ -13,10 +13,12 @@ import {
     stripLeadingParagraphMarker as stripLeadingParagraphMarkerShared,
     splitLeadingParagraphMarker as splitLeadingParagraphMarkerShared,
     resolveTargetParagraph as resolveTargetParagraphShared,
-    synthesizeTableMarkdownFromMultilineCellEdit
+    synthesizeTableMarkdownFromMultilineCellEdit,
+    synthesizeExpandedListScopeEdit,
+    planListInsertionOnlyEdit
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 
-const DEMO_VERSION = '2026-02-12-chat-table-row-mirror';
+const DEMO_VERSION = '2026-02-12-chat-list-numbering-isolation';
 const GEMINI_API_KEY_STORAGE_KEY = 'browserDemo.geminiApiKey';
 const DEMO_MARKERS = [
     'DEMO_TEXT_TARGET',
@@ -245,8 +247,96 @@ function extractReplacementNodes(outputOxml) {
     return { replacementNodes: nodes, numberingXml: null };
 }
 
+function getDirectWordChild(element, localName) {
+    if (!element) return null;
+    return Array.from(element.childNodes || []).find(
+        node => node && node.nodeType === 1 && node.namespaceURI === NS_W && node.localName === localName
+    ) || null;
+}
+
+function getNextTrackedChangeId(xmlDoc) {
+    let maxId = 999;
+    const revisionNodes = [
+        ...Array.from(xmlDoc.getElementsByTagNameNS(NS_W, 'ins')),
+        ...Array.from(xmlDoc.getElementsByTagNameNS(NS_W, 'del'))
+    ];
+    for (const node of revisionNodes) {
+        const raw = node.getAttribute('w:id') || node.getAttribute('id') || '';
+        const parsed = Number.parseInt(raw, 10);
+        if (Number.isFinite(parsed)) maxId = Math.max(maxId, parsed);
+    }
+    return maxId + 1;
+}
+
+function ensureListProperties(xmlDoc, paragraph, ilvl, numId) {
+    let pPr = getDirectWordChild(paragraph, 'pPr');
+    if (!pPr) {
+        pPr = xmlDoc.createElementNS(NS_W, 'w:pPr');
+        paragraph.insertBefore(pPr, paragraph.firstChild);
+    }
+
+    let numPr = getDirectWordChild(pPr, 'numPr');
+    if (!numPr) {
+        numPr = xmlDoc.createElementNS(NS_W, 'w:numPr');
+        pPr.appendChild(numPr);
+    }
+
+    let ilvlEl = getDirectWordChild(numPr, 'ilvl');
+    if (!ilvlEl) {
+        ilvlEl = xmlDoc.createElementNS(NS_W, 'w:ilvl');
+        numPr.appendChild(ilvlEl);
+    }
+    ilvlEl.setAttribute('w:val', String(Math.max(0, Number.parseInt(ilvl, 10) || 0)));
+
+    let numIdEl = getDirectWordChild(numPr, 'numId');
+    if (!numIdEl) {
+        numIdEl = xmlDoc.createElementNS(NS_W, 'w:numId');
+        numPr.appendChild(numIdEl);
+    }
+    numIdEl.setAttribute('w:val', String(numId));
+}
+
+function buildInsertedListParagraph(xmlDoc, anchorParagraph, entry, revisionId, author, dateIso) {
+    const paragraph = xmlDoc.createElementNS(NS_W, 'w:p');
+
+    const anchorPPr = getDirectWordChild(anchorParagraph, 'pPr');
+    if (anchorPPr) {
+        paragraph.appendChild(anchorPPr.cloneNode(true));
+    }
+    ensureListProperties(xmlDoc, paragraph, entry.ilvl, entry.numId);
+
+    const ins = xmlDoc.createElementNS(NS_W, 'w:ins');
+    ins.setAttribute('w:id', String(revisionId));
+    ins.setAttribute('w:author', author || 'Browser Demo AI');
+    ins.setAttribute('w:date', dateIso);
+
+    const run = xmlDoc.createElementNS(NS_W, 'w:r');
+    const anchorFirstRun = Array.from(anchorParagraph.getElementsByTagNameNS(NS_W, 'r'))[0] || null;
+    const anchorRunPr = anchorFirstRun ? getDirectWordChild(anchorFirstRun, 'rPr') : null;
+    if (anchorRunPr) {
+        run.appendChild(anchorRunPr.cloneNode(true));
+    }
+
+    const textNode = xmlDoc.createElementNS(NS_W, 'w:t');
+    const safeText = String(entry.text || '').trim();
+    if (/^\s|\s$/.test(safeText)) textNode.setAttribute('xml:space', 'preserve');
+    textNode.textContent = safeText;
+    run.appendChild(textNode);
+    ins.appendChild(run);
+    paragraph.appendChild(ins);
+
+    return paragraph;
+}
+
+function serializeParagraphRangeAsDocument(paragraphs, serializer) {
+    const paragraphXml = (paragraphs || [])
+        .map(p => serializer.serializeToString(p))
+        .join('');
+    return `<w:document xmlns:w="${NS_W}"><w:body>${paragraphXml}</w:body></w:document>`;
+}
+
 // ── Apply operations (per-paragraph) ───────────────────
-async function applyToParagraphByExactText(documentXml, targetText, modifiedText, author, targetRef = null) {
+async function applyToParagraphByExactText(documentXml, targetText, modifiedText, author, targetRef = null, runtimeContext = null) {
     const parser = new DOMParser();
     const serializer = new XMLSerializer();
     const xmlDoc = parser.parseFromString(documentXml, 'application/xml');
@@ -262,14 +352,61 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
             onWarn: message => log(message)
         })
         : null;
-    const effectiveModifiedText = synthesizedTableMarkdown || modifiedText;
+    let effectiveModifiedText = synthesizedTableMarkdown || modifiedText;
     const useTableScope = !!containingTable && isMarkdownTableText(effectiveModifiedText);
     if (useTableScope) {
         log('[Table] Markdown table edit detected in table cell target; applying reconciliation at table scope.');
     }
 
-    const scopedXml = serializer.serializeToString(useTableScope ? containingTable : targetParagraph);
-    const result = await applyRedlineToOxml(scopedXml, currentParagraphText || targetText, effectiveModifiedText, {
+    const insertionOnlyPlan = !useTableScope
+        ? planListInsertionOnlyEdit(targetParagraph, effectiveModifiedText, {
+            currentParagraphText,
+            onInfo: message => log(message),
+            onWarn: message => log(message)
+        })
+        : null;
+    if (insertionOnlyPlan && insertionOnlyPlan.entries.length > 0) {
+        log(`[List] Applying insertion-only list redline heuristic (${insertionOnlyPlan.entries.length} new item(s)).`);
+        const parent = targetParagraph.parentNode;
+        if (!parent) throw new Error('Target paragraph has no parent for list insertion');
+        const insertionPoint = targetParagraph.nextSibling;
+        const dateIso = new Date().toISOString();
+        let revisionId = getNextTrackedChangeId(xmlDoc);
+        for (const entry of insertionOnlyPlan.entries) {
+            const listParagraph = buildInsertedListParagraph(
+                xmlDoc,
+                targetParagraph,
+                { ...entry, numId: insertionOnlyPlan.numId },
+                revisionId++,
+                author,
+                dateIso
+            );
+            parent.insertBefore(listParagraph, insertionPoint);
+        }
+        normalizeBodySectionOrder(xmlDoc);
+        return { documentXml: serializer.serializeToString(xmlDoc), hasChanges: true, numberingXml: null };
+    }
+
+    const listScopeEdit = !useTableScope
+        ? synthesizeExpandedListScopeEdit(targetParagraph, effectiveModifiedText, {
+            currentParagraphText,
+            onInfo: message => log(message),
+            onWarn: message => log(message)
+        })
+        : null;
+    const useListScope = !!listScopeEdit && Array.isArray(listScopeEdit.paragraphs) && listScopeEdit.paragraphs.length > 0;
+    if (useListScope) {
+        effectiveModifiedText = listScopeEdit.modifiedText;
+    }
+
+    const originalTextForApply = useListScope
+        ? listScopeEdit.originalText
+        : (currentParagraphText || targetText);
+    const scopedXml = useTableScope
+        ? serializer.serializeToString(containingTable)
+        : (useListScope ? serializeParagraphRangeAsDocument(listScopeEdit.paragraphs, serializer) : serializer.serializeToString(targetParagraph));
+
+    const result = await applyRedlineToOxml(scopedXml, originalTextForApply, effectiveModifiedText, {
         author,
         generateRedlines: true,
         // Preserve table wrapper when table markdown should reconcile the full table.
@@ -284,11 +421,23 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
     if (typeof result.oxml !== 'string') {
         throw new Error('Reconciliation engine did not return OOXML for a changed redline operation');
     }
-    const { replacementNodes, numberingXml } = extractReplacementNodes(result.oxml);
-    const scopeNode = useTableScope ? containingTable : targetParagraph;
-    const parent = scopeNode.parentNode;
-    for (const node of replacementNodes) parent.insertBefore(xmlDoc.importNode(node, true), scopeNode);
-    parent.removeChild(scopeNode);
+    const extracted = extractReplacementNodes(result.oxml);
+    let replacementNodes = extracted.replacementNodes;
+    let numberingXml = extracted.numberingXml;
+    if (numberingXml && runtimeContext?.numberingIdState) {
+        const normalizedNumbering = remapNumberingPayloadForDocument(numberingXml, replacementNodes, runtimeContext.numberingIdState);
+        replacementNodes = normalizedNumbering.replacementNodes;
+        numberingXml = normalizedNumbering.numberingXml;
+    }
+    const scopeNodes = useTableScope
+        ? [containingTable]
+        : (useListScope ? listScopeEdit.paragraphs : [targetParagraph]);
+    const anchorNode = scopeNodes[0];
+    const parent = anchorNode.parentNode;
+    for (const node of replacementNodes) parent.insertBefore(xmlDoc.importNode(node, true), anchorNode);
+    for (const scopeNode of scopeNodes) {
+        if (scopeNode && scopeNode.parentNode === parent) parent.removeChild(scopeNode);
+    }
     normalizeBodySectionOrder(xmlDoc);
     return { documentXml: serializer.serializeToString(xmlDoc), hasChanges: true, numberingXml };
 }
@@ -327,18 +476,164 @@ async function applyCommentToParagraphByExactText(documentXml, targetText, textT
     return { documentXml: serializer.serializeToString(xmlDoc), hasChanges: true, commentsXml: commentResult.commentsXml || null, warnings: commentResult.warnings || [] };
 }
 
-async function runOperation(documentXml, op, author) {
+async function runOperation(documentXml, op, author, runtimeContext = null) {
     if (op.type === 'highlight') return applyHighlightToParagraphByExactText(documentXml, op.target, op.textToHighlight, op.color, author, op.targetRef);
     if (op.type === 'comment') return applyCommentToParagraphByExactText(documentXml, op.target, op.textToComment, op.commentContent, author, op.targetRef);
-    return applyToParagraphByExactText(documentXml, op.target, op.modified, author, op.targetRef);
+    return applyToParagraphByExactText(documentXml, op.target, op.modified, author, op.targetRef, runtimeContext);
 }
 
 // ── Package artifact helpers ───────────────────────────
-async function ensureNumberingArtifacts(zip, numberingXml) {
-    if (!numberingXml) return;
+function getAttributeFirst(element, names) {
+    for (const name of names) {
+        const value = element.getAttribute(name);
+        if (value != null && value !== '') return value;
+    }
+    return null;
+}
+
+function getElementId(element, idNames) {
+    const raw = getAttributeFirst(element, idNames);
+    const parsed = Number.parseInt(String(raw || ''), 10);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function setElementId(element, preferredName, idValue) {
+    element.setAttribute(preferredName, String(idValue));
+}
+
+function setElementVal(element, value) {
+    element.setAttribute('w:val', String(value));
+}
+
+function getNumberingMaxIds(numberingXml) {
+    if (!numberingXml) return { maxNumId: 999, maxAbstractNumId: 999 };
+    const doc = parseXmlStrict(numberingXml, 'word/numbering.xml');
+    const abstractNums = Array.from(doc.getElementsByTagNameNS('*', 'abstractNum'));
+    const nums = Array.from(doc.getElementsByTagNameNS('*', 'num'));
+    let maxNumId = 999;
+    let maxAbstractNumId = 999;
+    for (const abstractNum of abstractNums) {
+        const id = getElementId(abstractNum, ['w:abstractNumId', 'abstractNumId']);
+        if (id != null) maxAbstractNumId = Math.max(maxAbstractNumId, id);
+    }
+    for (const num of nums) {
+        const id = getElementId(num, ['w:numId', 'numId']);
+        if (id != null) maxNumId = Math.max(maxNumId, id);
+    }
+    return { maxNumId, maxAbstractNumId };
+}
+
+async function createNumberingIdState(zip) {
     const existing = await zip.file('word/numbering.xml')?.async('string');
-    if (!existing) { log('[Demo] Adding numbering.xml'); zip.file('word/numbering.xml', numberingXml); }
-    else { log('[Demo] Existing numbering.xml; keeping original'); }
+    const { maxNumId, maxAbstractNumId } = getNumberingMaxIds(existing || '');
+    return {
+        nextNumId: Math.max(1000, maxNumId + 1),
+        nextAbstractNumId: Math.max(1000, maxAbstractNumId + 1)
+    };
+}
+
+function remapNumberingPayloadForDocument(numberingXml, replacementNodes, numberingIdState) {
+    const parser = new DOMParser();
+    const serializer = new XMLSerializer();
+    const numberingDoc = parseXmlStrict(numberingXml, 'incoming numberingXml');
+
+    const abstractNumMap = new Map();
+    const numIdMap = new Map();
+
+    const abstractNums = Array.from(numberingDoc.getElementsByTagNameNS('*', 'abstractNum'));
+    for (const abstractNum of abstractNums) {
+        const oldId = getElementId(abstractNum, ['w:abstractNumId', 'abstractNumId']);
+        if (oldId == null) continue;
+        const newId = numberingIdState.nextAbstractNumId++;
+        abstractNumMap.set(oldId, newId);
+        setElementId(abstractNum, 'w:abstractNumId', newId);
+    }
+
+    const nums = Array.from(numberingDoc.getElementsByTagNameNS('*', 'num'));
+    for (const num of nums) {
+        const oldNumId = getElementId(num, ['w:numId', 'numId']);
+        if (oldNumId == null) continue;
+        const newNumId = numberingIdState.nextNumId++;
+        numIdMap.set(oldNumId, newNumId);
+        setElementId(num, 'w:numId', newNumId);
+
+        const abstractNumIdNode = Array.from(num.getElementsByTagNameNS('*', 'abstractNumId'))[0] || null;
+        if (abstractNumIdNode) {
+            const oldAbsRef = getElementId(abstractNumIdNode, ['w:val', 'val']);
+            if (oldAbsRef != null && abstractNumMap.has(oldAbsRef)) {
+                setElementVal(abstractNumIdNode, abstractNumMap.get(oldAbsRef));
+            }
+        }
+    }
+
+    const clonedNodes = replacementNodes.map(node => node.cloneNode(true));
+    for (const node of clonedNodes) {
+        const numIdNodes = Array.from(node.getElementsByTagNameNS('*', 'numId'));
+        for (const numIdNode of numIdNodes) {
+            const oldNumRef = getElementId(numIdNode, ['w:val', 'val']);
+            if (oldNumRef != null && numIdMap.has(oldNumRef)) {
+                setElementVal(numIdNode, numIdMap.get(oldNumRef));
+            }
+        }
+    }
+
+    const remappedNumberingXml = serializer.serializeToString(numberingDoc);
+    return {
+        numberingXml: remappedNumberingXml,
+        replacementNodes: clonedNodes
+    };
+}
+
+function mergeNumberingXml(existingNumberingXml, incomingNumberingXml) {
+    const parser = new DOMParser();
+    const serializer = new XMLSerializer();
+    const existingDoc = parseXmlStrict(existingNumberingXml, 'word/numbering.xml (existing)');
+    const incomingDoc = parseXmlStrict(incomingNumberingXml, 'word/numbering.xml (incoming)');
+    const existingRoot = existingDoc.documentElement;
+
+    const existingAbstractIds = new Set(
+        Array.from(existingDoc.getElementsByTagNameNS('*', 'abstractNum'))
+            .map(node => getElementId(node, ['w:abstractNumId', 'abstractNumId']))
+            .filter(id => id != null)
+    );
+    const existingNumIds = new Set(
+        Array.from(existingDoc.getElementsByTagNameNS('*', 'num'))
+            .map(node => getElementId(node, ['w:numId', 'numId']))
+            .filter(id => id != null)
+    );
+
+    for (const incomingAbstract of Array.from(incomingDoc.getElementsByTagNameNS('*', 'abstractNum'))) {
+        const incomingId = getElementId(incomingAbstract, ['w:abstractNumId', 'abstractNumId']);
+        if (incomingId == null || existingAbstractIds.has(incomingId)) continue;
+        existingRoot.appendChild(existingDoc.importNode(incomingAbstract, true));
+        existingAbstractIds.add(incomingId);
+    }
+
+    for (const incomingNum of Array.from(incomingDoc.getElementsByTagNameNS('*', 'num'))) {
+        const incomingId = getElementId(incomingNum, ['w:numId', 'numId']);
+        if (incomingId == null || existingNumIds.has(incomingId)) continue;
+        existingRoot.appendChild(existingDoc.importNode(incomingNum, true));
+        existingNumIds.add(incomingId);
+    }
+
+    return serializer.serializeToString(existingDoc);
+}
+
+async function ensureNumberingArtifacts(zip, numberingXmlList) {
+    const incomingPayloads = (Array.isArray(numberingXmlList) ? numberingXmlList : [numberingXmlList]).filter(Boolean);
+    if (incomingPayloads.length === 0) return;
+
+    const existing = await zip.file('word/numbering.xml')?.async('string');
+    let mergedNumberingXml = existing || null;
+    for (const incomingNumbering of incomingPayloads) {
+        mergedNumberingXml = mergedNumberingXml
+            ? mergeNumberingXml(mergedNumberingXml, incomingNumbering)
+            : incomingNumbering;
+    }
+
+    if (!existing) log('[Demo] Adding numbering.xml');
+    else log('[Demo] Merging numbering.xml payload(s) into existing numbering definitions');
+    zip.file('word/numbering.xml', mergedNumberingXml);
 
     const parser = new DOMParser();
     const serializer = new XMLSerializer();
@@ -545,6 +840,7 @@ function buildSystemInstruction(paragraphs) {
         '- For EXISTING TABLE STRUCTURE changes (add/remove/reorder rows/columns), the "modified" value MUST be the FULL markdown table for that target table, not a single cell value.',
         '- For table structure changes, target any paragraph within that table and include the correct "targetRef".',
         '- If you can only express it as multiline cell text (example: "Title:\\nDate:"), the client may convert it to full table markdown automatically, but returning full markdown table is preferred.',
+        '- For list insertion in the middle of an existing list, return list markdown that includes the existing target item followed by inserted item(s), each on its own list line.',
         '- You CAN apply formatting like bold and underline using redline operations.',
         '- To underline a title, use: { "type": "redline", "target": "Title Text", "modified": "++Title Text++" }',
         '- To bold a word, use: { "type": "redline", "target": "Some text here", "modified": "Some **text** here" }',
@@ -677,18 +973,21 @@ async function applyChatOperations(zip, operations, author) {
     if (!documentXml) throw new Error('word/document.xml not found');
     parseXmlStrict(documentXml, 'word/document.xml');
 
-    let capturedNumberingXml = null;
+    const capturedNumberingXml = [];
     const capturedCommentsXml = [];
     const results = [];
+    const runtimeContext = {
+        numberingIdState: await createNumberingIdState(zip)
+    };
 
     for (const op of operations) {
         const targetRefLabel = op.targetRef ? `[P${op.targetRef}] ` : '';
         const label = `${op.type}: ${targetRefLabel}"${(op.target || '').slice(0, 50)}…"`;
         log(`Applying: ${label}`);
         try {
-            const step = await runOperation(documentXml, op, author);
+            const step = await runOperation(documentXml, op, author, runtimeContext);
             documentXml = step.documentXml;
-            if (step.numberingXml) capturedNumberingXml = step.numberingXml;
+            if (step.numberingXml) capturedNumberingXml.push(step.numberingXml);
             if (step.commentsXml) capturedCommentsXml.push(step.commentsXml);
             if (step.warnings?.length > 0) {
                 for (const warning of step.warnings) log(`  warning: ${warning}`);
@@ -986,8 +1285,11 @@ async function runKitchenSink(inputFile, author, geminiApiKey) {
     parseXmlStrict(documentXml, 'word/document.xml (input)');
     documentXml = ensureDemoTargets(documentXml);
 
-    let capturedNumberingXml = null;
+    const capturedNumberingXml = [];
     const capturedCommentsXml = [];
+    const runtimeContext = {
+        numberingIdState: await createNumberingIdState(zip)
+    };
     const fallbackRedlineText = 'DEMO_TEXT_TARGET rewritten with extra words from the browser demo.';
     const fallbackToolOperation = { type: 'comment', label: 'AI Surprise Fallback', target: 'DEMO FORMAT TARGET', textToComment: 'FORMAT', commentContent: 'Fallback AI action: please review the formatting language here.' };
     let geminiRedlineText = fallbackRedlineText;
@@ -1020,17 +1322,17 @@ async function runKitchenSink(inputFile, author, geminiApiKey) {
     for (const op of operations) {
         log(`Running: ${op.label}`);
         let step;
-        try { step = await runOperation(documentXml, op, author); }
+        try { step = await runOperation(documentXml, op, author, runtimeContext); }
         catch (error) {
             const msg = error?.message || String(error);
             const isSurprise = op.label === 'Gemini Surprise Tool Action' || op.label === 'AI Surprise Fallback';
             if (!isSurprise || !msg.includes('Target paragraph not found')) throw error;
             log(`[WARN] ${msg}`);
             log('[WARN] Retrying on safe target.');
-            step = await runOperation(documentXml, buildSurpriseFallbackOperation(op), author);
+            step = await runOperation(documentXml, buildSurpriseFallbackOperation(op), author, runtimeContext);
         }
         documentXml = step.documentXml;
-        if (step.numberingXml) capturedNumberingXml = step.numberingXml;
+        if (step.numberingXml) capturedNumberingXml.push(step.numberingXml);
         if (step.commentsXml) capturedCommentsXml.push(step.commentsXml);
         if (step.warnings?.length > 0) for (const w of step.warnings) log(`  warning: ${w}`);
         log(`  changed: ${step.hasChanges}`);

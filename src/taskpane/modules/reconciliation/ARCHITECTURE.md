@@ -18,6 +18,7 @@ reconciliation/
 ├── core/
 │   ├── paragraph-offset-policy.js
 │   ├── paragraph-targeting.js
+│   ├── list-targeting.js
 │   ├── table-targeting.js
 │   ├── ooxml-identifiers.js
 │   ├── xml-query.js
@@ -89,6 +90,10 @@ reconciliation/
   - Shared heuristics for table-structure intent from per-cell edits.
   - Provides markdown table synthesis from multiline table-cell edits so standalone callers can promote ambiguous cell redlines into full table-scope reconciliation.
   - Supports symmetric signature-row mirroring (for example `Title:` -> inserted `Date:` across peer columns).
+- `core/list-targeting.js`
+  - Shared heuristics for list-structure intent from per-item edits.
+  - Provides insertion-only list planning for multiline middle-insert patterns so callers can add only new list items as redlines.
+  - Provides contiguous list-block synthesis fallback for ambiguous/more complex multiline list edits.
 - `core/ooxml-identifiers.js`
   - Shared OOXML identity extractors (`w14:paraId` and related paragraph tokens).
 - `core/xml-query.js`
@@ -175,6 +180,7 @@ reconciliation/
   - Normalizes native-API fallback responses for standalone consumers (returns unchanged OOXML + warning when Word-native apply is required).
   - Re-exports shared paragraph-targeting helpers for browser/Node integrations.
   - Re-exports shared table-targeting heuristics for browser/Node integrations.
+  - Re-exports shared list-targeting heuristics for browser/Node integrations.
 
 ## End-to-End Flow
 

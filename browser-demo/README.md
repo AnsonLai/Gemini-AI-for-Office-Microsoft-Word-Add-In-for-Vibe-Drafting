@@ -105,6 +105,14 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 - If Gemini returns multiline cell text (for example `Title:\nDate:`) instead of full markdown table, the demo now attempts a shared-core heuristic that synthesizes a full markdown table and applies reconciliation at table scope.
 - For symmetric two-column signature rows (same label in both columns, e.g. `Title:`), synthesized insertion rows are mirrored across both columns (e.g. `Date:` on both sides).
 
+### List Structure Edits (Chat)
+
+- When a target paragraph is part of an OOXML numbered/bulleted list and a redline contains multiline list content, the demo can promote the edit to **contiguous list-block scope**.
+- This helps "insert item between N and N+1" requests by preserving surrounding list items in the same list block, instead of rewriting only one paragraph.
+- For supported middle-insert patterns, the demo now uses an **insertion-only** heuristic first, adding only new list paragraph(s) as redlines and leaving existing items untouched.
+- List heuristics use shared reconciliation core helpers exported via `standalone.js` (`planListInsertionOnlyEdit`, `synthesizeExpandedListScopeEdit`).
+- List numbering payloads are remapped to fresh `numId`/`abstractNumId` values and merged into existing `word/numbering.xml`, preventing accidental continuation or style collision with distant lists.
+
 ## Kitchen-Sink Pipeline
 
 1. Read uploaded `.docx` using JSZip
@@ -136,7 +144,7 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 
 - "Target paragraph not found": Gemini may have slightly modified the paragraph text when referencing it. Check the engine log for details.
 - "Format-only fallback requires native Word API": this operation was a pure formatting change where the engine could not safely localize spans in OOXML. The browser demo skips it; use a more specific target (`targetRef` + exact paragraph text) or run through the add-in Word path.
-- Demo version in log does not match expected (`v2026-02-12-chat-table-row-mirror`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
+- Demo version in log does not match expected (`v2026-02-12-chat-list-numbering-isolation`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
 - Validation error about numbering/comments: check whether package relationships or content types were removed by prior tooling.
 - No Gemini output: verify API key and network access; kitchen-sink fallback path should still run.
 - Chat input disabled: upload a `.docx` file first to enable the chat.

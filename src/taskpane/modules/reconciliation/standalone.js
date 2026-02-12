@@ -87,3 +87,9 @@ export {
     resolveTargetParagraph
 } from './core/paragraph-targeting.js';
 export { synthesizeTableMarkdownFromMultilineCellEdit } from './core/table-targeting.js';
+export {
+    getParagraphListInfo,
+    collectContiguousListParagraphBlock,
+    synthesizeExpandedListScopeEdit,
+    planListInsertionOnlyEdit
+} from './core/list-targeting.js';

@@ -31,6 +31,12 @@ export {
     resolveTargetParagraph
 } from './core/paragraph-targeting.js';
 export { synthesizeTableMarkdownFromMultilineCellEdit } from './core/table-targeting.js';
+export {
+    getParagraphListInfo,
+    collectContiguousListParagraphBlock,
+    synthesizeExpandedListScopeEdit,
+    planListInsertionOnlyEdit
+} from './core/list-targeting.js';
 
 // Individual stage functions (for advanced usage)
 export { ingestOoxml, ingestTableToVirtualGrid } from './pipeline/ingestion.js';
