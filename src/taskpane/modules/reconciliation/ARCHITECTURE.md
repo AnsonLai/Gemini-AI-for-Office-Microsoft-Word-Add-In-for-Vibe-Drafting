@@ -18,6 +18,7 @@ reconciliation/
 ├── core/
 │   ├── paragraph-offset-policy.js
 │   ├── paragraph-targeting.js
+│   ├── table-targeting.js
 │   ├── ooxml-identifiers.js
 │   ├── xml-query.js
 │   └── types.js
@@ -83,6 +84,11 @@ reconciliation/
 - `core/paragraph-targeting.js`
   - Shared paragraph target resolution for per-paragraph operations.
   - Provides `targetRef` parsing (`P#`), strict/fuzzy text matching, and marker stripping helpers used by standalone consumers.
+  - Provides table-targeting helpers (`isMarkdownTableText`, containing-word-element lookup) for table-scope operation routing in browser/Node integrations.
+- `core/table-targeting.js`
+  - Shared heuristics for table-structure intent from per-cell edits.
+  - Provides markdown table synthesis from multiline table-cell edits so standalone callers can promote ambiguous cell redlines into full table-scope reconciliation.
+  - Supports symmetric signature-row mirroring (for example `Title:` -> inserted `Date:` across peer columns).
 - `core/ooxml-identifiers.js`
   - Shared OOXML identity extractors (`w14:paraId` and related paragraph tokens).
 - `core/xml-query.js`
@@ -168,6 +174,7 @@ reconciliation/
   - Public API surface with no Word API exports.
   - Normalizes native-API fallback responses for standalone consumers (returns unchanged OOXML + warning when Word-native apply is required).
   - Re-exports shared paragraph-targeting helpers for browser/Node integrations.
+  - Re-exports shared table-targeting heuristics for browser/Node integrations.
 
 ## End-to-End Flow
 

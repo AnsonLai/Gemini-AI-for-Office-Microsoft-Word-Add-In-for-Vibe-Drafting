@@ -5,15 +5,18 @@ import {
     injectCommentsIntoOoxml,
     configureLogger,
     getParagraphText as getParagraphTextFromOxml,
+    isMarkdownTableText,
+    findContainingWordElement,
     findParagraphByStrictText as findParagraphByStrictTextShared,
     findParagraphByBestTextMatch,
     parseParagraphReference as parseParagraphReferenceShared,
     stripLeadingParagraphMarker as stripLeadingParagraphMarkerShared,
     splitLeadingParagraphMarker as splitLeadingParagraphMarkerShared,
-    resolveTargetParagraph as resolveTargetParagraphShared
+    resolveTargetParagraph as resolveTargetParagraphShared,
+    synthesizeTableMarkdownFromMultilineCellEdit
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 
-const DEMO_VERSION = '2026-02-12-chat-targeting-core';
+const DEMO_VERSION = '2026-02-12-chat-table-row-mirror';
 const GEMINI_API_KEY_STORAGE_KEY = 'browserDemo.geminiApiKey';
 const DEMO_MARKERS = [
     'DEMO_TEXT_TARGET',
@@ -250,8 +253,28 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
     const resolved = resolveTargetParagraph(xmlDoc, targetText, targetRef, 'redline');
     const targetParagraph = resolved.paragraph;
     const currentParagraphText = getParagraphText(targetParagraph).trim();
-    const paragraphXml = serializer.serializeToString(targetParagraph);
-    const result = await applyRedlineToOxml(paragraphXml, currentParagraphText || targetText, modifiedText, { author, generateRedlines: true });
+    const containingTable = findContainingWordElement(targetParagraph, 'tbl');
+    const synthesizedTableMarkdown = containingTable
+        ? synthesizeTableMarkdownFromMultilineCellEdit(targetParagraph, modifiedText, {
+            tableElement: containingTable,
+            currentParagraphText,
+            onInfo: message => log(message),
+            onWarn: message => log(message)
+        })
+        : null;
+    const effectiveModifiedText = synthesizedTableMarkdown || modifiedText;
+    const useTableScope = !!containingTable && isMarkdownTableText(effectiveModifiedText);
+    if (useTableScope) {
+        log('[Table] Markdown table edit detected in table cell target; applying reconciliation at table scope.');
+    }
+
+    const scopedXml = serializer.serializeToString(useTableScope ? containingTable : targetParagraph);
+    const result = await applyRedlineToOxml(scopedXml, currentParagraphText || targetText, effectiveModifiedText, {
+        author,
+        generateRedlines: true,
+        // Preserve table wrapper when table markdown should reconcile the full table.
+        _isolatedTableCell: useTableScope
+    });
     if (!result?.hasChanges) return { documentXml, hasChanges: false, numberingXml: null };
     if (result.useNativeApi && !result.oxml) {
         const warning = 'Format-only fallback requires native Word API; browser demo skipped this operation.';
@@ -262,9 +285,10 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
         throw new Error('Reconciliation engine did not return OOXML for a changed redline operation');
     }
     const { replacementNodes, numberingXml } = extractReplacementNodes(result.oxml);
-    const parent = targetParagraph.parentNode;
-    for (const node of replacementNodes) parent.insertBefore(xmlDoc.importNode(node, true), targetParagraph);
-    parent.removeChild(targetParagraph);
+    const scopeNode = useTableScope ? containingTable : targetParagraph;
+    const parent = scopeNode.parentNode;
+    for (const node of replacementNodes) parent.insertBefore(xmlDoc.importNode(node, true), scopeNode);
+    parent.removeChild(scopeNode);
     normalizeBodySectionOrder(xmlDoc);
     return { documentXml: serializer.serializeToString(xmlDoc), hasChanges: true, numberingXml };
 }
@@ -518,6 +542,9 @@ function buildSystemInstruction(paragraphs) {
         '  - ++underline text++ → wraps text in underline (use double plus signs)',
         '  - Bullet lists: start each line with "- " for top-level bullets, "  - " for nested bullets',
         '  - Tables: use markdown table syntax (e.g., "| Col1 | Col2 |\\n|---|---|\\n| val | val |")',
+        '- For EXISTING TABLE STRUCTURE changes (add/remove/reorder rows/columns), the "modified" value MUST be the FULL markdown table for that target table, not a single cell value.',
+        '- For table structure changes, target any paragraph within that table and include the correct "targetRef".',
+        '- If you can only express it as multiline cell text (example: "Title:\\nDate:"), the client may convert it to full table markdown automatically, but returning full markdown table is preferred.',
         '- You CAN apply formatting like bold and underline using redline operations.',
         '- To underline a title, use: { "type": "redline", "target": "Title Text", "modified": "++Title Text++" }',
         '- To bold a word, use: { "type": "redline", "target": "Some text here", "modified": "Some **text** here" }',

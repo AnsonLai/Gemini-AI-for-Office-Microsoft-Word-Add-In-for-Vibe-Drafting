@@ -37,7 +37,7 @@ One-click demo that applies a fixed set of operations to marker paragraphs:
 
 The demo imports reconciliation APIs from:
 - `src/taskpane/modules/reconciliation/standalone.js`
-  - including shared paragraph-targeting helpers (`resolveTargetParagraph`, marker parsing, strict/fuzzy matching)
+  - including shared paragraph/table-targeting helpers (`resolveTargetParagraph`, marker parsing, strict/fuzzy matching, markdown-table detection, containing-table lookup)
 
 ## Architecture Alignment
 
@@ -96,6 +96,15 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 - Redline diffing uses the resolved paragraph's current text, which reduces failures when model-provided `target` text drifts slightly.
 - Target resolution is delegated to shared reconciliation core helpers (exported via `standalone.js`) so non-demo consumers can reuse the same behavior.
 
+### Table Structure Edits (Chat)
+
+- When a redline target paragraph is inside a table cell and `modified` is markdown table text, the demo applies reconciliation at **table scope** (the containing `w:tbl`) instead of single-paragraph scope.
+- This is required for structural updates like adding/removing/reordering rows.
+- For these edits, Gemini should return the **full target table** as markdown in `modified` and include accurate `targetRef`.
+- Table-scope detection uses shared reconciliation core helpers (exported via `standalone.js`) so other projects can reuse the same targeting behavior.
+- If Gemini returns multiline cell text (for example `Title:\nDate:`) instead of full markdown table, the demo now attempts a shared-core heuristic that synthesizes a full markdown table and applies reconciliation at table scope.
+- For symmetric two-column signature rows (same label in both columns, e.g. `Title:`), synthesized insertion rows are mirrored across both columns (e.g. `Date:` on both sides).
+
 ## Kitchen-Sink Pipeline
 
 1. Read uploaded `.docx` using JSZip
@@ -127,7 +136,7 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 
 - "Target paragraph not found": Gemini may have slightly modified the paragraph text when referencing it. Check the engine log for details.
 - "Format-only fallback requires native Word API": this operation was a pure formatting change where the engine could not safely localize spans in OOXML. The browser demo skips it; use a more specific target (`targetRef` + exact paragraph text) or run through the add-in Word path.
-- Demo version in log does not match expected (`v2026-02-12-chat-targeting-core`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
+- Demo version in log does not match expected (`v2026-02-12-chat-table-row-mirror`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
 - Validation error about numbering/comments: check whether package relationships or content types were removed by prior tooling.
 - No Gemini output: verify API key and network access; kitchen-sink fallback path should still run.
 - Chat input disabled: upload a `.docx` file first to enable the chat.

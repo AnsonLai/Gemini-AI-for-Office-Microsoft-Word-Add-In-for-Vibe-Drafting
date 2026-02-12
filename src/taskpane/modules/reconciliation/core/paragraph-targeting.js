@@ -9,6 +9,8 @@ function toArray(nodeList) {
     return Array.from(nodeList || []);
 }
 
+export const WORD_MAIN_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+
 function getElementsByLocalName(node, localName) {
     if (!node) return [];
 
@@ -62,6 +64,17 @@ export function getDocumentParagraphNodes(xmlDoc) {
  */
 export function normalizeWhitespaceForTargeting(text) {
     return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Detects markdown table syntax used for table reconciliation.
+ *
+ * @param {string} text - Candidate markdown text
+ * @returns {boolean}
+ */
+export function isMarkdownTableText(text) {
+    const trimmed = String(text || '').trim();
+    return /^\|.+\|/.test(trimmed) && trimmed.includes('\n');
 }
 
 /**
@@ -125,6 +138,29 @@ export function findParagraphByReference(xmlDoc, targetRef) {
     if (!Number.isInteger(targetRef) || targetRef < 1) return null;
     const paragraphs = getDocumentParagraphNodes(xmlDoc);
     return paragraphs[targetRef - 1] || null;
+}
+
+/**
+ * Finds the closest ancestor matching Word namespace + localName.
+ *
+ * @param {Node|null|undefined} node - Start node
+ * @param {string} localName - WordprocessingML local element name (for example `tbl`, `tc`)
+ * @param {string} [namespaceUri] - Namespace URI to match
+ * @returns {Element|null}
+ */
+export function findContainingWordElement(node, localName, namespaceUri = WORD_MAIN_NS) {
+    let current = node;
+    while (current) {
+        if (
+            current.nodeType === 1 &&
+            current.namespaceURI === namespaceUri &&
+            current.localName === localName
+        ) {
+            return current;
+        }
+        current = current.parentNode;
+    }
+    return null;
 }
 
 /**

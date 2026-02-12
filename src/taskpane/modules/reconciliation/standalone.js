@@ -72,14 +72,18 @@ export { buildListMarkdown, inferNumberingStyleFromMarker, normalizeListItemsWit
 export { DiffOp, RunKind, ContainerKind, ContentType, NS_W, escapeXml } from './core/types.js';
 export { extractParagraphIdFromOoxml } from './core/ooxml-identifiers.js';
 export {
+    WORD_MAIN_NS,
     getParagraphText,
     getDocumentParagraphNodes,
     normalizeWhitespaceForTargeting,
+    isMarkdownTableText,
     parseParagraphReference,
     stripLeadingParagraphMarker,
     splitLeadingParagraphMarker,
+    findContainingWordElement,
     findParagraphByReference,
     findParagraphByStrictText,
     findParagraphByBestTextMatch,
     resolveTargetParagraph
 } from './core/paragraph-targeting.js';
+export { synthesizeTableMarkdownFromMultilineCellEdit } from './core/table-targeting.js';
