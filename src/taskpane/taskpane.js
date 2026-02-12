@@ -52,6 +52,7 @@ marked.setOptions({
 // ==================== CONFIGURATION CONSTANTS ====================
 
 const DEFAULT_AUTHOR = "Gemini AI";
+const GLANCE_COLLAPSED_STORAGE_KEY = "glanceCollapsed";
 
 // Safety settings for Gemini API (disable all safety blocks)
 const SAFETY_SETTINGS_BLOCK_NONE = [
@@ -294,6 +295,13 @@ Office.onReady((info) => {
 
     // Add event listener for Glance refresh
     document.getElementById("refresh-glance-button").onclick = runGlanceChecks;
+    document.getElementById("toggle-glance-button").onclick = () => {
+      const container = document.getElementById("glance-container");
+      if (!container) return;
+      const shouldCollapse = !container.classList.contains("collapsed");
+      saveGlanceCollapsedState(shouldCollapse);
+      applyGlanceCollapsedState(shouldCollapse);
+    };
 
     // Add event listener for Add Glance Card
     document.getElementById("add-glance-card-button").onclick = () => {
@@ -697,6 +705,24 @@ function saveGlanceSettings(settings) {
   localStorage.setItem("glanceSettings", JSON.stringify(settings));
 }
 
+function loadGlanceCollapsedState() {
+  return localStorage.getItem(GLANCE_COLLAPSED_STORAGE_KEY) === "true";
+}
+
+function saveGlanceCollapsedState(isCollapsed) {
+  localStorage.setItem(GLANCE_COLLAPSED_STORAGE_KEY, isCollapsed.toString());
+}
+
+function applyGlanceCollapsedState(isCollapsed = loadGlanceCollapsedState()) {
+  const container = document.getElementById("glance-container");
+  const toggleButton = document.getElementById("toggle-glance-button");
+  if (!container || !toggleButton) return;
+
+  container.classList.toggle("collapsed", isCollapsed);
+  toggleButton.setAttribute("aria-expanded", (!isCollapsed).toString());
+  toggleButton.setAttribute("title", isCollapsed ? "Show Glance results" : "Hide Glance results");
+}
+
 function setupAccordion(headerId, contentId) {
   const header = document.getElementById(headerId);
   const content = document.getElementById(contentId);
@@ -731,6 +757,7 @@ function renderGlanceMain() {
   }
 
   if (container) container.style.display = "block";
+  applyGlanceCollapsedState();
 
   settings.forEach(item => {
     const div = document.createElement("div");

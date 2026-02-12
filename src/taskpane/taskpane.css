@@ -590,6 +590,33 @@ hr {
 }
 
 /* Glance Feature Styles */
+#glance-container {
+    background: var(--surface-color);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 12px;
+    transition: box-shadow var(--transition-speed);
+}
+
+#glance-container:hover {
+    box-shadow: var(--shadow-hover);
+}
+
+#glance-content {
+    max-height: 1000px;
+    opacity: 1;
+    overflow: hidden;
+    margin-top: 4px;
+    transition: max-height 0.25s ease, opacity 0.2s ease, margin-top 0.2s ease;
+}
+
+#glance-container.collapsed #glance-content {
+    max-height: 0;
+    opacity: 0;
+    margin-top: 0;
+    pointer-events: none;
+}
+
 .glance-item {
     margin-bottom: 10px;
     padding: 10px;
@@ -667,14 +694,21 @@ hr {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 8px;
+    margin-bottom: 0;
 }
 
 .section-header h3 {
     margin: 0;
 }
 
-#refresh-glance-button {
+.glance-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+#refresh-glance-button,
+#toggle-glance-button {
     background: transparent;
     color: var(--text-secondary);
     padding: 4px;
@@ -683,6 +717,21 @@ hr {
     min-width: unset;
     border: none;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+#refresh-glance-button:hover,
+#toggle-glance-button:hover {
+    color: var(--text-color);
+    background: #f3f4f6;
+}
+
+#toggle-glance-button .glance-toggle-arrow {
+    display: inline-block;
+    transition: transform 0.2s ease;
+}
+
+#glance-container.collapsed #toggle-glance-button .glance-toggle-arrow {
+    transform: rotate(-90deg);
 }
 
 

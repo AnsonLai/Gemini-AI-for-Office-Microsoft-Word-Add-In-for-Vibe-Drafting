@@ -56,17 +56,24 @@
       <div id="glance-container" class="ms-Grid-col ms-sm12">
         <div class="section-header">
           <h3>Glance</h3>
-          <button id="refresh-glance-button" title="Refresh Checks">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M23 4v6h-6"></path>
-              <path d="M1 20v-6h6"></path>
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-            </svg>
-          </button>
+          <div class="glance-actions">
+            <button id="refresh-glance-button" title="Refresh Checks">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M23 4v6h-6"></path>
+                <path d="M1 20v-6h6"></path>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+              </svg>
+            </button>
+            <button id="toggle-glance-button" title="Hide Glance results" aria-expanded="true" aria-controls="glance-content">
+              <span class="glance-toggle-arrow">&#9662;</span>
+            </button>
+          </div>
         </div>
-        <div id="glance-list">
-          <!-- Dynamic Glance Items will be injected here -->
+        <div id="glance-content">
+          <div id="glance-list">
+            <!-- Dynamic Glance Items will be injected here -->
+          </div>
         </div>
       </div>
     </div>
