@@ -200,6 +200,10 @@ Handled within `pipeline.js` (`executeListGeneration`).
 *   **`types.js`**: Defines the `RunModel`, `DiffOp` enums, and XML Namespaces (`NS_W`).
 *   **`integration.js`**: Bridges the pure logic with the Office.js environment (helper functions for checking availability).
 *   **`ooxml-formatting-removal.js`**: Provides surgical utilities for adding/removing specific formatting tags from OOXML runs (e.g., highlights).
+*   **`post-processing.js`**: Post-operation utilities shared across all consumers:
+    *   `sanitizeNestedParagraphs(xmlDoc)` — Detects and flattens invalid nested `w:p` elements inside `w:tc` (table cells).
+    *   `FORMATTING_CAPABILITIES` — Constant manifest describing all formatting syntax the engine accepts in `modifiedText`.
+    *   `buildFormattingCapabilitiesPrompt()` — Generates multi-line prompt text from the capabilities manifest for AI system prompts.
 
 ## 5. Critical Data Structures
 

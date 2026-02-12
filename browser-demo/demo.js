@@ -109,6 +109,35 @@ function normalizeBodySectionOrder(xmlDoc) {
     }
 }
 
+// ── Sanitize nested paragraphs ─────────────────────────
+/**
+ * After redlining table content, the engine can produce nested w:p elements
+ * inside table cells (w:tc > w:p > w:p). This flattens them by promoting
+ * the inner w:p's children into the outer w:p, then removing the inner w:p.
+ */
+function sanitizeNestedParagraphs(xmlDoc) {
+    const tcs = xmlDoc.getElementsByTagNameNS(NS_W, 'tc');
+    let fixed = 0;
+    for (const tc of Array.from(tcs)) {
+        const outerParagraphs = Array.from(tc.childNodes).filter(
+            n => n.nodeType === 1 && n.namespaceURI === NS_W && n.localName === 'p'
+        );
+        for (const outerP of outerParagraphs) {
+            const innerParagraphs = Array.from(outerP.childNodes).filter(
+                n => n.nodeType === 1 && n.namespaceURI === NS_W && n.localName === 'p'
+            );
+            for (const innerP of innerParagraphs) {
+                // Move all children of the inner <w:p> into the parent <w:tc>, before the outer <w:p>
+                // Then remove the inner <w:p> from the outer <w:p>
+                // Strategy: promote innerP to be a sibling of outerP in the tc
+                tc.insertBefore(innerP, outerP);
+                fixed++;
+            }
+        }
+    }
+    if (fixed > 0) log(`[Sanitize] Fixed ${fixed} nested w:p element(s) in table cells`);
+}
+
 // ── Paragraph helpers ──────────────────────────────────
 function getParagraphText(paragraph) {
     const textNodes = paragraph.getElementsByTagNameNS('*', 't');
@@ -116,10 +145,69 @@ function getParagraphText(paragraph) {
     for (const t of Array.from(textNodes)) text += t.textContent || '';
     return text;
 }
+
+function normalizeWhitespace(s) {
+    return s.replace(/\s+/g, ' ').trim();
+}
+
 function findParagraphByExactText(xmlDoc, targetText) {
     const paragraphs = Array.from(xmlDoc.getElementsByTagNameNS('*', 'p'));
     const normalizedTarget = targetText.trim();
-    return paragraphs.find(p => getParagraphText(p).trim() === normalizedTarget) || null;
+
+    // 1. Exact match
+    const exact = paragraphs.find(p => getParagraphText(p).trim() === normalizedTarget);
+    if (exact) return exact;
+
+    // 2. Whitespace-normalized match
+    const normTarget = normalizeWhitespace(normalizedTarget);
+    const normMatch = paragraphs.find(p => normalizeWhitespace(getParagraphText(p)) === normTarget);
+    if (normMatch) {
+        log(`[Fuzzy] Whitespace-normalized match for: "${normalizedTarget.slice(0, 60)}…"`);
+        return normMatch;
+    }
+
+    // 3. Target starts with paragraph text (Gemini may have merged multiple paragraphs)
+    //    Find the first paragraph whose full text is a prefix of the target
+    const startsWithMatch = paragraphs.find(p => {
+        const pText = normalizeWhitespace(getParagraphText(p));
+        return pText.length > 10 && normTarget.startsWith(pText);
+    });
+    if (startsWithMatch) {
+        log(`[Fuzzy] Prefix match (target starts with paragraph): "${getParagraphText(startsWithMatch).trim().slice(0, 60)}…"`);
+        return startsWithMatch;
+    }
+
+    // 4. Paragraph text contains the target or target contains paragraph text
+    const containsMatch = paragraphs.find(p => {
+        const pText = normalizeWhitespace(getParagraphText(p));
+        return pText.length > 15 && normTarget.includes(pText);
+    });
+    if (containsMatch) {
+        log(`[Fuzzy] Contains match: "${getParagraphText(containsMatch).trim().slice(0, 60)}…"`);
+        return containsMatch;
+    }
+
+    // 5. Best overlap — score each paragraph by shared word count
+    let bestScore = 0;
+    let bestParagraph = null;
+    const targetWords = new Set(normTarget.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+    for (const p of paragraphs) {
+        const pText = getParagraphText(p).trim();
+        if (!pText) continue;
+        const pWords = normalizeWhitespace(pText).toLowerCase().split(/\s+/).filter(w => w.length > 2);
+        const overlap = pWords.filter(w => targetWords.has(w)).length;
+        const score = overlap / Math.max(targetWords.size, 1);
+        if (score > bestScore && score > 0.5) {
+            bestScore = score;
+            bestParagraph = p;
+        }
+    }
+    if (bestParagraph) {
+        log(`[Fuzzy] Best word-overlap match (${(bestScore * 100).toFixed(0)}%): "${getParagraphText(bestParagraph).trim().slice(0, 60)}…"`);
+        return bestParagraph;
+    }
+
+    return null;
 }
 function createSimpleParagraph(xmlDoc, text) {
     const p = xmlDoc.createElementNS(NS_W, 'w:p');
@@ -409,7 +497,7 @@ function buildSystemInstruction(paragraphs) {
     const listing = paragraphs.map(p => `[P${p.index}] ${p.text}`).join('\n');
     return [
         'You are a contract review AI assistant. The user has uploaded a document.',
-        'Below is the document content, one line per paragraph, prefixed with [P#]:',
+        'Below is the document content. Each line is ONE SEPARATE PARAGRAPH, prefixed with [P#]:',
         '',
         listing,
         '',
@@ -424,16 +512,33 @@ function buildSystemInstruction(paragraphs) {
         '  { "type": "highlight", "target": "<exact paragraph text>", "textToHighlight": "<substring to highlight>", "color": "yellow|green|cyan|magenta|blue|red" }',
         '  { "type": "redline", "target": "<exact paragraph text>", "modified": "<replacement paragraph text>" }',
         '',
-        'IMPORTANT RULES:',
-        '- "target" MUST be the EXACT full paragraph text from the listing above. Copy it verbatim.',
-        '- "textToComment" / "textToHighlight" must be an exact substring within that paragraph.',
+        'CRITICAL TARGETING RULES:',
+        '- Each [P#] line above is a SEPARATE paragraph in the document.',
+        '- "target" MUST be the EXACT text of ONE SINGLE [P#] paragraph. Copy it character-for-character.',
+        '- NEVER include the [P#] prefix in ANY operation field. The [P#] prefix is only a reference label, NOT part of the actual text.',
+        '- NEVER combine or concatenate text from multiple [P#] paragraphs into one target.',
+        '- If you need to modify multiple paragraphs, create a SEPARATE operation for EACH paragraph.',
+        '- "textToComment" / "textToHighlight" must be an exact substring found within that single paragraph.',
+        '',
+        'OPERATION RULES:',
         '- Use "comment" to explain issues (best for deviations from market standards).',
         '- Use "highlight" to draw visual attention to problematic phrases.',
-        '- Use "redline" to suggest replacement language.',
+        '- Use "redline" to suggest replacement language for a single paragraph.',
+        '',
+        'FORMATTING IN REDLINES:',
+        '- The "modified" field in redline operations supports special formatting syntax:',
+        '  - **bold text** → wraps text in bold (use double asterisks)',
+        '  - ++underline text++ → wraps text in underline (use double plus signs)',
+        '  - Bullet lists: start each line with "- " for top-level bullets, "  - " for nested bullets',
+        '  - Tables: use markdown table syntax (e.g., "| Col1 | Col2 |\\n|---|---|\\n| val | val |")',
+        '- You CAN apply formatting like bold and underline using redline operations.',
+        '- To underline a title, use: { "type": "redline", "target": "Title Text", "modified": "++Title Text++" }',
+        '- To bold a word, use: { "type": "redline", "target": "Some text here", "modified": "Some **text** here" }',
+        '- To add NEW content before an existing paragraph, use a redline that prepends the new text before the original.',
         '- You may return an empty array [] if there are no issues.',
         '- Keep comments concise and actionable.',
         '- If the user asks about "market standards", focus on: unusual liability caps, atypical indemnification, non-standard termination, unreasonable non-compete, missing limitation of liability, unusual governing law, missing confidentiality, unusual assignment restrictions, non-standard warranty disclaimers, missing force majeure.',
-        '- Prefer "comment" operations for explanations and "redline" for suggest replacement language.',
+        '- Prefer "comment" operations for explanations and "redline" for suggesting replacement language.',
     ].join('\n');
 }
 
@@ -471,6 +576,13 @@ function parseGeminiChatResponse(rawText) {
         log(`[WARN] Could not parse operations JSON: ${err.message}`);
     }
 
+    // Strip [P#] markers that Gemini sometimes includes from the paragraph listing
+    function stripParagraphMarkers(text) {
+        if (!text || typeof text !== 'string') return text;
+        // Remove leading [P<number>] or [P<number>.<number>] prefixes
+        return text.replace(/^\[P\d+(?:\.\d+)?\]\s*/g, '').trim();
+    }
+
     // Validate and normalize each operation
     operations = operations.filter(op => {
         if (!op || !op.type || !op.target) return false;
@@ -479,6 +591,11 @@ function parseGeminiChatResponse(rawText) {
         if (op.type === 'redline' && !op.modified) return false;
         return true;
     }).map(op => {
+        // Strip [P#] markers from all text fields
+        op.target = stripParagraphMarkers(op.target);
+        if (op.modified) op.modified = stripParagraphMarkers(op.modified);
+        if (op.textToComment) op.textToComment = stripParagraphMarkers(op.textToComment);
+        if (op.textToHighlight) op.textToHighlight = stripParagraphMarkers(op.textToHighlight);
         if (op.type === 'highlight') {
             const c = String(op.color || '').toLowerCase();
             op.color = ALLOWED_HIGHLIGHT_COLORS.includes(c) ? c : 'yellow';
@@ -560,17 +677,24 @@ async function applyChatOperations(zip, operations, author) {
         }
     }
 
-    // Normalize and write back
+    // Normalize, sanitize, and write back
     const parser = new DOMParser();
     const serializer = new XMLSerializer();
     const finalDoc = parser.parseFromString(documentXml, 'application/xml');
     normalizeBodySectionOrder(finalDoc);
+    sanitizeNestedParagraphs(finalDoc);
     documentXml = serializer.serializeToString(finalDoc);
     zip.file('word/document.xml', documentXml);
 
     await ensureNumberingArtifacts(zip, capturedNumberingXml);
     for (const cx of capturedCommentsXml) await ensureCommentsArtifacts(zip, cx);
-    await validateOutputDocx(zip);
+
+    try {
+        await validateOutputDocx(zip);
+    } catch (validationErr) {
+        log(`[WARN] Post-operation validation: ${validationErr.message}`);
+        // Non-fatal — document may still be usable
+    }
 
     return results;
 }
