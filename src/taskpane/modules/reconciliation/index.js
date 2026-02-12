@@ -15,6 +15,18 @@ export { NumberingService } from './services/numbering-service.js';
 // Core types
 export { DiffOp, RunKind, ContainerKind, ContentType, NS_W, NS_R, escapeXml, getNextRevisionId, resetRevisionIdCounter } from './core/types.js';
 export { extractParagraphIdFromOoxml } from './core/ooxml-identifiers.js';
+export {
+    getParagraphText,
+    getDocumentParagraphNodes,
+    normalizeWhitespaceForTargeting,
+    parseParagraphReference,
+    stripLeadingParagraphMarker,
+    splitLeadingParagraphMarker,
+    findParagraphByReference,
+    findParagraphByStrictText,
+    findParagraphByBestTextMatch,
+    resolveTargetParagraph
+} from './core/paragraph-targeting.js';
 
 // Individual stage functions (for advanced usage)
 export { ingestOoxml, ingestTableToVirtualGrid } from './pipeline/ingestion.js';

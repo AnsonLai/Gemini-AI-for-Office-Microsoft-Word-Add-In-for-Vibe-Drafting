@@ -71,3 +71,15 @@ export { buildListMarkdown, inferNumberingStyleFromMarker, normalizeListItemsWit
 // Core types/constants
 export { DiffOp, RunKind, ContainerKind, ContentType, NS_W, escapeXml } from './core/types.js';
 export { extractParagraphIdFromOoxml } from './core/ooxml-identifiers.js';
+export {
+    getParagraphText,
+    getDocumentParagraphNodes,
+    normalizeWhitespaceForTargeting,
+    parseParagraphReference,
+    stripLeadingParagraphMarker,
+    splitLeadingParagraphMarker,
+    findParagraphByReference,
+    findParagraphByStrictText,
+    findParagraphByBestTextMatch,
+    resolveTargetParagraph
+} from './core/paragraph-targeting.js';

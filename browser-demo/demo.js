@@ -3,10 +3,17 @@ import {
     applyRedlineToOxml,
     applyHighlightToOoxml,
     injectCommentsIntoOoxml,
-    configureLogger
+    configureLogger,
+    getParagraphText as getParagraphTextFromOxml,
+    findParagraphByStrictText as findParagraphByStrictTextShared,
+    findParagraphByBestTextMatch,
+    parseParagraphReference as parseParagraphReferenceShared,
+    stripLeadingParagraphMarker as stripLeadingParagraphMarkerShared,
+    splitLeadingParagraphMarker as splitLeadingParagraphMarkerShared,
+    resolveTargetParagraph as resolveTargetParagraphShared
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 
-const DEMO_VERSION = '2026-02-12-chat-target-ref';
+const DEMO_VERSION = '2026-02-12-chat-targeting-core';
 const GEMINI_API_KEY_STORAGE_KEY = 'browserDemo.geminiApiKey';
 const DEMO_MARKERS = [
     'DEMO_TEXT_TARGET',
@@ -140,151 +147,39 @@ function sanitizeNestedParagraphs(xmlDoc) {
 
 // ── Paragraph helpers ──────────────────────────────────
 function getParagraphText(paragraph) {
-    const textNodes = paragraph.getElementsByTagNameNS('*', 't');
-    let text = '';
-    for (const t of Array.from(textNodes)) text += t.textContent || '';
-    return text;
-}
-
-function normalizeWhitespace(s) {
-    return s.replace(/\s+/g, ' ').trim();
-}
-
-function getDocumentParagraphNodes(xmlDoc) {
-    const body = getBodyElement(xmlDoc);
-    if (body) return Array.from(body.getElementsByTagNameNS(NS_W, 'p'));
-    return Array.from(xmlDoc.getElementsByTagNameNS('*', 'p'));
+    return getParagraphTextFromOxml(paragraph);
 }
 
 function findParagraphByStrictText(xmlDoc, targetText) {
-    const paragraphs = getDocumentParagraphNodes(xmlDoc);
-    const normalizedTarget = String(targetText || '').trim();
-    if (!normalizedTarget) return null;
-
-    const exact = paragraphs.find(p => getParagraphText(p).trim() === normalizedTarget);
-    if (exact) return exact;
-
-    const normTarget = normalizeWhitespace(normalizedTarget);
-    return paragraphs.find(p => normalizeWhitespace(getParagraphText(p)) === normTarget) || null;
+    return findParagraphByStrictTextShared(xmlDoc, targetText);
 }
 
 function findParagraphByExactText(xmlDoc, targetText) {
-    const paragraphs = getDocumentParagraphNodes(xmlDoc);
-    const normalizedTarget = String(targetText || '').trim();
-    if (!normalizedTarget) return null;
-    const strictMatch = findParagraphByStrictText(xmlDoc, normalizedTarget);
-    if (strictMatch) return strictMatch;
-    const normTarget = normalizeWhitespace(normalizedTarget);
-
-    // 1. Target starts with paragraph text (Gemini may have merged multiple paragraphs)
-    //    Find the first paragraph whose full text is a prefix of the target
-    const startsWithMatch = paragraphs.find(p => {
-        const pText = normalizeWhitespace(getParagraphText(p));
-        return pText.length > 10 && normTarget.startsWith(pText);
+    return findParagraphByBestTextMatch(xmlDoc, targetText, {
+        onInfo: message => log(message)
     });
-    if (startsWithMatch) {
-        log(`[Fuzzy] Prefix match (target starts with paragraph): "${getParagraphText(startsWithMatch).trim().slice(0, 60)}…"`);
-        return startsWithMatch;
-    }
-
-    // 2. Paragraph text contains the target or target contains paragraph text
-    const containsMatch = paragraphs.find(p => {
-        const pText = normalizeWhitespace(getParagraphText(p));
-        return pText.length > 15 && normTarget.includes(pText);
-    });
-    if (containsMatch) {
-        log(`[Fuzzy] Contains match: "${getParagraphText(containsMatch).trim().slice(0, 60)}…"`);
-        return containsMatch;
-    }
-
-    // 3. Best overlap — score each paragraph by shared word count
-    let bestScore = 0;
-    let bestParagraph = null;
-    const targetWords = new Set(normTarget.toLowerCase().split(/\s+/).filter(w => w.length > 2));
-    for (const p of paragraphs) {
-        const pText = getParagraphText(p).trim();
-        if (!pText) continue;
-        const pWords = normalizeWhitespace(pText).toLowerCase().split(/\s+/).filter(w => w.length > 2);
-        const overlap = pWords.filter(w => targetWords.has(w)).length;
-        const score = overlap / Math.max(targetWords.size, 1);
-        if (score > bestScore && score > 0.5) {
-            bestScore = score;
-            bestParagraph = p;
-        }
-    }
-    if (bestParagraph) {
-        log(`[Fuzzy] Best word-overlap match (${(bestScore * 100).toFixed(0)}%): "${getParagraphText(bestParagraph).trim().slice(0, 60)}…"`);
-        return bestParagraph;
-    }
-
-    return null;
 }
 
 function parseParagraphReference(rawValue) {
-    if (rawValue == null) return null;
-    if (typeof rawValue === 'number' && Number.isInteger(rawValue) && rawValue > 0) return rawValue;
-    const text = String(rawValue).trim();
-    if (!text) return null;
-    const prefixed = text.match(/^\[?P(\d+)(?:\.\d+)?\]?$/i);
-    if (prefixed) return Number.parseInt(prefixed[1], 10);
-    const numeric = text.match(/^(\d+)$/);
-    if (numeric) return Number.parseInt(numeric[1], 10);
-    return null;
+    return parseParagraphReferenceShared(rawValue);
 }
 
 function stripLeadingParagraphMarker(text) {
-    if (text == null) return '';
-    return String(text).replace(/^\s*\[P\d+(?:\.\d+)?\]\s*/i, '').trim();
+    return stripLeadingParagraphMarkerShared(text);
 }
 
 function splitLeadingParagraphMarker(text) {
-    const raw = String(text || '');
-    const marker = raw.match(/^\s*\[P(\d+)(?:\.\d+)?\]\s*/i);
-    if (!marker) return { text: raw.trim(), targetRef: null };
-    return {
-        text: raw.replace(/^\s*\[P\d+(?:\.\d+)?\]\s*/i, '').trim(),
-        targetRef: Number.parseInt(marker[1], 10)
-    };
-}
-
-function findParagraphByReference(xmlDoc, targetRef) {
-    if (!Number.isInteger(targetRef) || targetRef < 1) return null;
-    const paragraphs = getDocumentParagraphNodes(xmlDoc);
-    return paragraphs[targetRef - 1] || null;
+    return splitLeadingParagraphMarkerShared(text);
 }
 
 function resolveTargetParagraph(xmlDoc, targetText, targetRef, opType) {
-    const cleanTargetText = String(targetText || '').trim();
-    const parsedRef = parseParagraphReference(targetRef);
-
-    if (cleanTargetText) {
-        const strictMatch = findParagraphByStrictText(xmlDoc, cleanTargetText);
-        if (strictMatch) return { paragraph: strictMatch, resolvedBy: 'strict_text' };
-    }
-
-    if (parsedRef) {
-        const byRef = findParagraphByReference(xmlDoc, parsedRef);
-        if (byRef) {
-            if (cleanTargetText) {
-                const byRefText = getParagraphText(byRef).trim();
-                if (normalizeWhitespace(byRefText) !== normalizeWhitespace(cleanTargetText)) {
-                    log(`[Target] Using [P${parsedRef}] fallback for ${opType}; target text drifted.`);
-                }
-            } else {
-                log(`[Target] Using [P${parsedRef}] fallback for ${opType}.`);
-            }
-            return { paragraph: byRef, resolvedBy: 'ref' };
-        }
-    }
-
-    if (cleanTargetText) {
-        const fuzzyMatch = findParagraphByExactText(xmlDoc, cleanTargetText);
-        if (fuzzyMatch) return { paragraph: fuzzyMatch, resolvedBy: 'fuzzy_text' };
-    }
-
-    if (cleanTargetText) throw new Error(`Target paragraph not found: "${cleanTargetText}"`);
-    if (parsedRef) throw new Error(`Target paragraph reference not found: [P${parsedRef}]`);
-    throw new Error('Operation target missing: provide "target" text or "targetRef" ([P#]).');
+    return resolveTargetParagraphShared(xmlDoc, {
+        targetText,
+        targetRef,
+        opType,
+        onInfo: message => log(message),
+        onWarn: message => log(message)
+    });
 }
 
 function createSimpleParagraph(xmlDoc, text) {

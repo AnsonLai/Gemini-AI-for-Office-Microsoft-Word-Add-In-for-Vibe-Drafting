@@ -17,6 +17,7 @@ reconciliation/
 │   └── xml-adapter.js
 ├── core/
 │   ├── paragraph-offset-policy.js
+│   ├── paragraph-targeting.js
 │   ├── ooxml-identifiers.js
 │   ├── xml-query.js
 │   └── types.js
@@ -79,6 +80,9 @@ reconciliation/
   - Shared enums/constants (`RunKind`, `DiffOp`, `NS_W`) and revision metadata utilities.
 - `core/paragraph-offset-policy.js`
   - Canonical paragraph-boundary separator policy used across extraction/ingestion/reconstruction.
+- `core/paragraph-targeting.js`
+  - Shared paragraph target resolution for per-paragraph operations.
+  - Provides `targetRef` parsing (`P#`), strict/fuzzy text matching, and marker stripping helpers used by standalone consumers.
 - `core/ooxml-identifiers.js`
   - Shared OOXML identity extractors (`w14:paraId` and related paragraph tokens).
 - `core/xml-query.js`
@@ -163,6 +167,7 @@ reconciliation/
 - `standalone.js`
   - Public API surface with no Word API exports.
   - Normalizes native-API fallback responses for standalone consumers (returns unchanged OOXML + warning when Word-native apply is required).
+  - Re-exports shared paragraph-targeting helpers for browser/Node integrations.
 
 ## End-to-End Flow
 
