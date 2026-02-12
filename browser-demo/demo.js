@@ -18,7 +18,7 @@ import {
     planListInsertionOnlyEdit
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 
-const DEMO_VERSION = '2026-02-12-chat-list-numbering-isolation';
+const DEMO_VERSION = '2026-02-12-chat-list-style-control-2';
 const GEMINI_API_KEY_STORAGE_KEY = 'browserDemo.geminiApiKey';
 const DEMO_MARKERS = [
     'DEMO_TEXT_TARGET',
@@ -836,6 +836,9 @@ function buildSystemInstruction(paragraphs) {
         '  - **bold text** → wraps text in bold (use double asterisks)',
         '  - ++underline text++ → wraps text in underline (use double plus signs)',
         '  - Bullet lists: start each line with "- " for top-level bullets, "  - " for nested bullets',
+        '  - Ordered lists: use exactly one marker per line (examples: "1. ...", "A. ...", "a. ...", "I. ...", "i. ...")',
+        '  - NEVER double-mark a list item (invalid: "- A. ...", "1. a. ..."). Use only the final desired marker.',
+        '  - For ordered lists, do not include marker characters inside item text.',
         '  - Tables: use markdown table syntax (e.g., "| Col1 | Col2 |\\n|---|---|\\n| val | val |")',
         '- For EXISTING TABLE STRUCTURE changes (add/remove/reorder rows/columns), the "modified" value MUST be the FULL markdown table for that target table, not a single cell value.',
         '- For table structure changes, target any paragraph within that table and include the correct "targetRef".',

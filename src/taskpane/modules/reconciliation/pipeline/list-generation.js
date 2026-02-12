@@ -3,7 +3,7 @@
  */
 
 import { preprocessMarkdown } from './markdown-processor.js';
-import { matchListMarker, extractListMarker, stripListMarker } from './list-markers.js';
+import { matchListMarker, stripListMarker } from './list-markers.js';
 import { serializeToOoxml } from './serialization.js';
 import { generateTableOoxml } from '../services/table-reconciliation.js';
 import { parseTable } from './content-analysis.js';
@@ -35,7 +35,8 @@ export async function executeListGeneration(options) {
         numberingService
     } = options;
 
-    const lineMetadata = buildLineMetadata(cleanText);
+    const normalizedListText = normalizeCompositeListMarkers(cleanText);
+    const lineMetadata = buildLineMetadata(normalizedListText);
     const rawLines = lineMetadata.map(line => line.raw);
     const results = [];
 
@@ -157,6 +158,44 @@ function buildLineMetadata(cleanText) {
                 isTableSeparator: /^\s*\|?[\s:-]*-[-\s|:]*\|?\s*$/.test(raw)
             };
         });
+}
+
+function normalizeCompositeListMarkers(text) {
+    const lines = String(text || '').split('\n');
+    const nonEmptyIndexes = lines
+        .map((line, index) => ({ line, index }))
+        .filter(entry => entry.line.trim().length > 0);
+    if (nonEmptyIndexes.length < 2) return text;
+
+    const rewrites = [];
+    let rewrittenCount = 0;
+
+    for (const { line, index } of nonEmptyIndexes) {
+        const outerMarkerMatch = matchListMarker(line);
+        if (!outerMarkerMatch) return text;
+
+        const stripped = stripListMarker(line);
+        const innerMarkerMatch = matchListMarker(stripped);
+        if (!innerMarkerMatch) return text;
+
+        const outerMarker = (outerMarkerMatch[2] || '').trim();
+        const innerMarker = (innerMarkerMatch[2] || '').trim();
+        if (!outerMarker || !innerMarker || outerMarker === innerMarker) return text;
+
+        const indent = outerMarkerMatch[1] || '';
+        const rewritten = `${indent}${stripped.trimStart()}`;
+        rewrites.push({ index, rewritten });
+        rewrittenCount++;
+    }
+
+    if (rewrittenCount < 2) return text;
+
+    const updated = lines.slice();
+    for (const rewrite of rewrites) {
+        updated[rewrite.index] = rewrite.rewritten;
+    }
+    log(`[ListGen] Normalized ${rewrittenCount} composite list markers (e.g., "- A." -> "A.").`);
+    return updated.join('\n');
 }
 
 function collectMarkdownTableBlock(lineMetadata, index) {

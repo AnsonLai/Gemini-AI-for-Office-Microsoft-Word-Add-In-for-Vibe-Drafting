@@ -112,6 +112,8 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 - For supported middle-insert patterns, the demo now uses an **insertion-only** heuristic first, adding only new list paragraph(s) as redlines and leaving existing items untouched.
 - List heuristics use shared reconciliation core helpers exported via `standalone.js` (`planListInsertionOnlyEdit`, `synthesizeExpandedListScopeEdit`).
 - List numbering payloads are remapped to fresh `numId`/`abstractNumId` values and merged into existing `word/numbering.xml`, preventing accidental continuation or style collision with distant lists.
+- Composite list markers are normalized in list generation (for example `- A. Item` becomes `A. Item`) so ordered list style can be inferred correctly and marker text is not duplicated in content.
+- List conversion now bypasses text-only no-op short-circuits when loose list markers are present, so existing marker-prefixed plain text (`A.`, `B.`, `C.`) can still be converted into true Word list structure.
 
 ## Kitchen-Sink Pipeline
 
@@ -144,7 +146,7 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 
 - "Target paragraph not found": Gemini may have slightly modified the paragraph text when referencing it. Check the engine log for details.
 - "Format-only fallback requires native Word API": this operation was a pure formatting change where the engine could not safely localize spans in OOXML. The browser demo skips it; use a more specific target (`targetRef` + exact paragraph text) or run through the add-in Word path.
-- Demo version in log does not match expected (`v2026-02-12-chat-list-numbering-isolation`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
+- Demo version in log does not match expected (`v2026-02-12-chat-list-style-control-2`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
 - Validation error about numbering/comments: check whether package relationships or content types were removed by prior tooling.
 - No Gemini output: verify API key and network access; kitchen-sink fallback path should still run.
 - Chat input disabled: upload a `.docx` file first to enable the chat.

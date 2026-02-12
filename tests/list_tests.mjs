@@ -566,6 +566,41 @@ E. Item five`;
     }
 }
 
+// --- Test 14: Structural list conversion must bypass no-op guard ---
+// Reproduces cases where text is already marker-prefixed (A./B./C.)
+// and should still be converted into a true Word list.
+async function testStructuralListConversionBypassesNoOp() {
+    console.log('\n=== Test 14: Structural List Conversion Bypasses No-Op ===');
+
+    const pipeline = new ReconciliationPipeline({
+        generateRedlines: false,
+        author: 'Test',
+        numberingService: new NumberingService()
+    });
+
+    const originalOoxml = '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:r><w:t>A. First recital clause.</w:t><w:br/><w:t>B. Second recital clause.</w:t><w:br/><w:t>C. Third recital clause.</w:t></w:r></w:p>';
+    const modifiedText = `A. First recital clause.
+B. Second recital clause.
+C. Third recital clause.`;
+
+    try {
+        const result = await pipeline.execute(originalOoxml, modifiedText);
+        const ooxml = result.ooxml || '';
+
+        const hasNumPr = ooxml.includes('<w:numPr>');
+        const pCount = (ooxml.match(/<w:p\b/g) || []).length;
+        const unchanged = ooxml === originalOoxml;
+
+        if (hasNumPr && pCount >= 3 && !unchanged) {
+            console.log('✅ PASS: Structural list conversion executed even when textual content matched.');
+        } else {
+            console.log('❌ FAIL:', { hasNumPr, pCount, unchanged });
+        }
+    } catch (e) {
+        console.error('❌ ERROR:', e);
+    }
+}
+
 // --- Main Runner ---
 (async () => {
     console.log('STARTING LIST TESTS...');
@@ -585,6 +620,7 @@ E. Item five`;
     await testLowerAlphaList();
     await testListWithRedlines();
     await testSingleNumberingDefinition();
+    await testStructuralListConversionBypassesNoOp();
 
     console.log('\nALL LIST TESTS COMPLETE.');
 })();

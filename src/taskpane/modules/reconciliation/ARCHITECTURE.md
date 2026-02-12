@@ -111,8 +111,10 @@ reconciliation/
   - Shared text classification/parsing helpers for list/table/paragraph detection.
 - `pipeline/list-markers.js`
   - Shared list marker regex/detection helpers used by router/pipeline/patching.
+  - Router and pipeline now share loose-marker list-target gating so structural list conversion is not skipped by text-only no-op checks.
 - `pipeline/list-generation.js`
   - Generates list/table blocks from markdown lines.
+  - Normalizes composite list markers (for example `- A.`) to single-marker form before numbering-style detection.
   - Emits paragraph OOXML + optional `numberingXml` payload.
 - `services/table-reconciliation.js`
   - Virtual-grid table diff and OOXML table serialization.

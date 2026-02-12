@@ -6,7 +6,7 @@
 
 import { ingestOoxml } from './ingestion.js';
 import { preprocessMarkdown } from './markdown-processor.js';
-import { isListTargetStrict } from './list-markers.js';
+import { isListTargetLoose, isListTargetStrict } from './list-markers.js';
 import { computeWordLevelDiffOps } from './diff-engine.js';
 import { splitRunsAtDiffBoundaries, applyPatches } from './patching.js';
 import { serializeToOoxml, wrapInDocumentFragment } from './serialization.js';
@@ -98,8 +98,18 @@ export class ReconciliationPipeline {
             log(`[Reconcile] Preprocessed: ${formatHints.length} format hints`);
             await this.maybeYield(runModel.length, Math.max(acceptedText.length, cleanText.length));
 
+            // Detect list-target content before any no-op short-circuit.
+            // Structural conversion may still be required even when text is identical
+            // (for example plain "A./B./C." lines -> true Word numbered list paragraphs).
+            const isTargetListStrict = isListTargetStrict(cleanText);
+            const isTargetListLoose = isListTargetLoose(cleanText);
+            const isTargetList = isTargetListStrict || isTargetListLoose;
+            if (!isTargetListStrict && isTargetListLoose) {
+                log('[Reconcile] List-target detected via loose marker parsing; bypassing no-op short-circuit for structural conversion.');
+            }
+
             // Early exit if no change
-            if (acceptedText === cleanText && formatHints.length === 0) {
+            if (acceptedText === cleanText && formatHints.length === 0 && !isTargetList) {
                 log('[Reconcile] No changes detected');
                 return {
                     ooxml: originalOoxml,
@@ -120,9 +130,6 @@ export class ReconciliationPipeline {
 
             // Count actual paragraph elements ingested
             const paragraphCount = runModel.filter(r => r.kind === RunKind.PARAGRAPH_START).length;
-
-            // Detect if this is a list transformation (e.g., paragraph with newlines)
-            const isTargetList = isListTargetStrict(cleanText);
 
             log(`[Reconcile] isTargetList: ${isTargetList}, paragraphCount: ${paragraphCount}`);
 
