@@ -85,6 +85,15 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 8. Output validated; download button enabled
 9. Paragraph listing refreshed for next turn
 
+### Chat Targeting
+
+- Chat operations support `targetRef` (for example `P12`) in addition to `target` text.
+- The demo resolves targets in this order:
+  1. strict text match
+  2. `targetRef` paragraph index fallback
+  3. fuzzy text match fallback
+- Redline diffing uses the resolved paragraph's current text, which reduces failures when model-provided `target` text drifts slightly.
+
 ## Kitchen-Sink Pipeline
 
 1. Read uploaded `.docx` using JSZip
@@ -106,7 +115,7 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 
 ## Known Limits
 
-- Chat mode targeting uses exact paragraph text match (as provided by Gemini from the document listing).
+- Chat mode may still skip some format-only operations when the reconciliation engine requests native Word API fallback (`useNativeApi`) and no OOXML payload is returned.
 - Kitchen-sink mode targeting uses exact marker paragraph text, not semantic search.
 - Browser runtime constraints apply (memory/file size/network for Gemini).
 - Document text extraction is plain-text only (no formatting or style metadata sent to Gemini).
@@ -115,6 +124,8 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 ## Troubleshooting
 
 - "Target paragraph not found": Gemini may have slightly modified the paragraph text when referencing it. Check the engine log for details.
+- "Format-only fallback requires native Word API": this operation was a pure formatting change where the engine could not safely localize spans in OOXML. The browser demo skips it; use a more specific target (`targetRef` + exact paragraph text) or run through the add-in Word path.
+- Demo version in log does not match expected (`v2026-02-12-chat-target-ref`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
 - Validation error about numbering/comments: check whether package relationships or content types were removed by prior tooling.
 - No Gemini output: verify API key and network access; kitchen-sink fallback path should still run.
 - Chat input disabled: upload a `.docx` file first to enable the chat.

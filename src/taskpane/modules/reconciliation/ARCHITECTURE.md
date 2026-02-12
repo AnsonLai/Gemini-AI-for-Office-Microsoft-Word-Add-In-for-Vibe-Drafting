@@ -162,6 +162,7 @@ reconciliation/
   - Main public API surface.
 - `standalone.js`
   - Public API surface with no Word API exports.
+  - Normalizes native-API fallback responses for standalone consumers (returns unchanged OOXML + warning when Word-native apply is required).
 
 ## End-to-End Flow
 

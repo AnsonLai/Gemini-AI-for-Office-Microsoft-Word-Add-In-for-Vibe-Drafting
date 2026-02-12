@@ -6,7 +6,7 @@ import {
     configureLogger
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 
-const DEMO_VERSION = '2026-02-09-chat';
+const DEMO_VERSION = '2026-02-12-chat-target-ref';
 const GEMINI_API_KEY_STORAGE_KEY = 'browserDemo.geminiApiKey';
 const DEMO_MARKERS = [
     'DEMO_TEXT_TARGET',
@@ -150,23 +150,33 @@ function normalizeWhitespace(s) {
     return s.replace(/\s+/g, ' ').trim();
 }
 
-function findParagraphByExactText(xmlDoc, targetText) {
-    const paragraphs = Array.from(xmlDoc.getElementsByTagNameNS('*', 'p'));
-    const normalizedTarget = targetText.trim();
+function getDocumentParagraphNodes(xmlDoc) {
+    const body = getBodyElement(xmlDoc);
+    if (body) return Array.from(body.getElementsByTagNameNS(NS_W, 'p'));
+    return Array.from(xmlDoc.getElementsByTagNameNS('*', 'p'));
+}
 
-    // 1. Exact match
+function findParagraphByStrictText(xmlDoc, targetText) {
+    const paragraphs = getDocumentParagraphNodes(xmlDoc);
+    const normalizedTarget = String(targetText || '').trim();
+    if (!normalizedTarget) return null;
+
     const exact = paragraphs.find(p => getParagraphText(p).trim() === normalizedTarget);
     if (exact) return exact;
 
-    // 2. Whitespace-normalized match
     const normTarget = normalizeWhitespace(normalizedTarget);
-    const normMatch = paragraphs.find(p => normalizeWhitespace(getParagraphText(p)) === normTarget);
-    if (normMatch) {
-        log(`[Fuzzy] Whitespace-normalized match for: "${normalizedTarget.slice(0, 60)}…"`);
-        return normMatch;
-    }
+    return paragraphs.find(p => normalizeWhitespace(getParagraphText(p)) === normTarget) || null;
+}
 
-    // 3. Target starts with paragraph text (Gemini may have merged multiple paragraphs)
+function findParagraphByExactText(xmlDoc, targetText) {
+    const paragraphs = getDocumentParagraphNodes(xmlDoc);
+    const normalizedTarget = String(targetText || '').trim();
+    if (!normalizedTarget) return null;
+    const strictMatch = findParagraphByStrictText(xmlDoc, normalizedTarget);
+    if (strictMatch) return strictMatch;
+    const normTarget = normalizeWhitespace(normalizedTarget);
+
+    // 1. Target starts with paragraph text (Gemini may have merged multiple paragraphs)
     //    Find the first paragraph whose full text is a prefix of the target
     const startsWithMatch = paragraphs.find(p => {
         const pText = normalizeWhitespace(getParagraphText(p));
@@ -177,7 +187,7 @@ function findParagraphByExactText(xmlDoc, targetText) {
         return startsWithMatch;
     }
 
-    // 4. Paragraph text contains the target or target contains paragraph text
+    // 2. Paragraph text contains the target or target contains paragraph text
     const containsMatch = paragraphs.find(p => {
         const pText = normalizeWhitespace(getParagraphText(p));
         return pText.length > 15 && normTarget.includes(pText);
@@ -187,7 +197,7 @@ function findParagraphByExactText(xmlDoc, targetText) {
         return containsMatch;
     }
 
-    // 5. Best overlap — score each paragraph by shared word count
+    // 3. Best overlap — score each paragraph by shared word count
     let bestScore = 0;
     let bestParagraph = null;
     const targetWords = new Set(normTarget.toLowerCase().split(/\s+/).filter(w => w.length > 2));
@@ -209,6 +219,74 @@ function findParagraphByExactText(xmlDoc, targetText) {
 
     return null;
 }
+
+function parseParagraphReference(rawValue) {
+    if (rawValue == null) return null;
+    if (typeof rawValue === 'number' && Number.isInteger(rawValue) && rawValue > 0) return rawValue;
+    const text = String(rawValue).trim();
+    if (!text) return null;
+    const prefixed = text.match(/^\[?P(\d+)(?:\.\d+)?\]?$/i);
+    if (prefixed) return Number.parseInt(prefixed[1], 10);
+    const numeric = text.match(/^(\d+)$/);
+    if (numeric) return Number.parseInt(numeric[1], 10);
+    return null;
+}
+
+function stripLeadingParagraphMarker(text) {
+    if (text == null) return '';
+    return String(text).replace(/^\s*\[P\d+(?:\.\d+)?\]\s*/i, '').trim();
+}
+
+function splitLeadingParagraphMarker(text) {
+    const raw = String(text || '');
+    const marker = raw.match(/^\s*\[P(\d+)(?:\.\d+)?\]\s*/i);
+    if (!marker) return { text: raw.trim(), targetRef: null };
+    return {
+        text: raw.replace(/^\s*\[P\d+(?:\.\d+)?\]\s*/i, '').trim(),
+        targetRef: Number.parseInt(marker[1], 10)
+    };
+}
+
+function findParagraphByReference(xmlDoc, targetRef) {
+    if (!Number.isInteger(targetRef) || targetRef < 1) return null;
+    const paragraphs = getDocumentParagraphNodes(xmlDoc);
+    return paragraphs[targetRef - 1] || null;
+}
+
+function resolveTargetParagraph(xmlDoc, targetText, targetRef, opType) {
+    const cleanTargetText = String(targetText || '').trim();
+    const parsedRef = parseParagraphReference(targetRef);
+
+    if (cleanTargetText) {
+        const strictMatch = findParagraphByStrictText(xmlDoc, cleanTargetText);
+        if (strictMatch) return { paragraph: strictMatch, resolvedBy: 'strict_text' };
+    }
+
+    if (parsedRef) {
+        const byRef = findParagraphByReference(xmlDoc, parsedRef);
+        if (byRef) {
+            if (cleanTargetText) {
+                const byRefText = getParagraphText(byRef).trim();
+                if (normalizeWhitespace(byRefText) !== normalizeWhitespace(cleanTargetText)) {
+                    log(`[Target] Using [P${parsedRef}] fallback for ${opType}; target text drifted.`);
+                }
+            } else {
+                log(`[Target] Using [P${parsedRef}] fallback for ${opType}.`);
+            }
+            return { paragraph: byRef, resolvedBy: 'ref' };
+        }
+    }
+
+    if (cleanTargetText) {
+        const fuzzyMatch = findParagraphByExactText(xmlDoc, cleanTargetText);
+        if (fuzzyMatch) return { paragraph: fuzzyMatch, resolvedBy: 'fuzzy_text' };
+    }
+
+    if (cleanTargetText) throw new Error(`Target paragraph not found: "${cleanTargetText}"`);
+    if (parsedRef) throw new Error(`Target paragraph reference not found: [P${parsedRef}]`);
+    throw new Error('Operation target missing: provide "target" text or "targetRef" ([P#]).');
+}
+
 function createSimpleParagraph(xmlDoc, text) {
     const p = xmlDoc.createElementNS(NS_W, 'w:p');
     const r = xmlDoc.createElementNS(NS_W, 'w:r');
@@ -250,6 +328,9 @@ function extractFromPackage(packageXml) {
 }
 
 function extractReplacementNodes(outputOxml) {
+    if (typeof outputOxml !== 'string' || !outputOxml.trim()) {
+        throw new Error('Reconciliation engine returned no OOXML payload for this operation');
+    }
     const parser = new DOMParser();
     if (outputOxml.includes('<pkg:package')) return extractFromPackage(outputOxml);
     if (outputOxml.includes('<w:document')) {
@@ -267,15 +348,24 @@ function extractReplacementNodes(outputOxml) {
 }
 
 // ── Apply operations (per-paragraph) ───────────────────
-async function applyToParagraphByExactText(documentXml, targetText, modifiedText, author) {
+async function applyToParagraphByExactText(documentXml, targetText, modifiedText, author, targetRef = null) {
     const parser = new DOMParser();
     const serializer = new XMLSerializer();
     const xmlDoc = parser.parseFromString(documentXml, 'application/xml');
-    const targetParagraph = findParagraphByExactText(xmlDoc, targetText);
-    if (!targetParagraph) throw new Error(`Target paragraph not found: "${targetText}"`);
+    const resolved = resolveTargetParagraph(xmlDoc, targetText, targetRef, 'redline');
+    const targetParagraph = resolved.paragraph;
+    const currentParagraphText = getParagraphText(targetParagraph).trim();
     const paragraphXml = serializer.serializeToString(targetParagraph);
-    const result = await applyRedlineToOxml(paragraphXml, targetText, modifiedText, { author, generateRedlines: true });
-    if (!result.hasChanges) return { documentXml, hasChanges: false, numberingXml: null };
+    const result = await applyRedlineToOxml(paragraphXml, currentParagraphText || targetText, modifiedText, { author, generateRedlines: true });
+    if (!result?.hasChanges) return { documentXml, hasChanges: false, numberingXml: null };
+    if (result.useNativeApi && !result.oxml) {
+        const warning = 'Format-only fallback requires native Word API; browser demo skipped this operation.';
+        log(`[WARN] ${warning}`);
+        return { documentXml, hasChanges: false, numberingXml: null, warnings: [warning] };
+    }
+    if (typeof result.oxml !== 'string') {
+        throw new Error('Reconciliation engine did not return OOXML for a changed redline operation');
+    }
     const { replacementNodes, numberingXml } = extractReplacementNodes(result.oxml);
     const parent = targetParagraph.parentNode;
     for (const node of replacementNodes) parent.insertBefore(xmlDoc.importNode(node, true), targetParagraph);
@@ -284,12 +374,12 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
     return { documentXml: serializer.serializeToString(xmlDoc), hasChanges: true, numberingXml };
 }
 
-async function applyHighlightToParagraphByExactText(documentXml, targetText, textToHighlight, color, author) {
+async function applyHighlightToParagraphByExactText(documentXml, targetText, textToHighlight, color, author, targetRef = null) {
     const parser = new DOMParser();
     const serializer = new XMLSerializer();
     const xmlDoc = parser.parseFromString(documentXml, 'application/xml');
-    const targetParagraph = findParagraphByExactText(xmlDoc, targetText);
-    if (!targetParagraph) throw new Error(`Target paragraph not found for highlight: "${targetText}"`);
+    const resolved = resolveTargetParagraph(xmlDoc, targetText, targetRef, 'highlight');
+    const targetParagraph = resolved.paragraph;
     const paragraphXml = serializer.serializeToString(targetParagraph);
     const highlightedXml = applyHighlightToOoxml(paragraphXml, textToHighlight, color, { generateRedlines: true, author });
     if (!highlightedXml || highlightedXml === paragraphXml) return { documentXml, hasChanges: false };
@@ -301,12 +391,12 @@ async function applyHighlightToParagraphByExactText(documentXml, targetText, tex
     return { documentXml: serializer.serializeToString(xmlDoc), hasChanges: true };
 }
 
-async function applyCommentToParagraphByExactText(documentXml, targetText, textToComment, commentContent, author) {
+async function applyCommentToParagraphByExactText(documentXml, targetText, textToComment, commentContent, author, targetRef = null) {
     const parser = new DOMParser();
     const serializer = new XMLSerializer();
     const xmlDoc = parser.parseFromString(documentXml, 'application/xml');
-    const targetParagraph = findParagraphByExactText(xmlDoc, targetText);
-    if (!targetParagraph) throw new Error(`Target paragraph not found for comment: "${targetText}"`);
+    const resolved = resolveTargetParagraph(xmlDoc, targetText, targetRef, 'comment');
+    const targetParagraph = resolved.paragraph;
     const paragraphXml = serializer.serializeToString(targetParagraph);
     const commentResult = injectCommentsIntoOoxml(paragraphXml, [{ paragraphIndex: 1, textToFind: textToComment, commentContent }], { author });
     if (!commentResult.commentsApplied) return { documentXml, hasChanges: false, commentsXml: null, warnings: commentResult.warnings || [] };
@@ -319,9 +409,9 @@ async function applyCommentToParagraphByExactText(documentXml, targetText, textT
 }
 
 async function runOperation(documentXml, op, author) {
-    if (op.type === 'highlight') return applyHighlightToParagraphByExactText(documentXml, op.target, op.textToHighlight, op.color, author);
-    if (op.type === 'comment') return applyCommentToParagraphByExactText(documentXml, op.target, op.textToComment, op.commentContent, author);
-    return applyToParagraphByExactText(documentXml, op.target, op.modified, author);
+    if (op.type === 'highlight') return applyHighlightToParagraphByExactText(documentXml, op.target, op.textToHighlight, op.color, author, op.targetRef);
+    if (op.type === 'comment') return applyCommentToParagraphByExactText(documentXml, op.target, op.textToComment, op.commentContent, author, op.targetRef);
+    return applyToParagraphByExactText(documentXml, op.target, op.modified, author, op.targetRef);
 }
 
 // ── Package artifact helpers ───────────────────────────
@@ -508,12 +598,14 @@ function buildSystemInstruction(paragraphs) {
         '',
         'PART 2: A JSON array of operations. Each operation is one of:',
         '',
-        '  { "type": "comment", "target": "<exact paragraph text>", "textToComment": "<substring to anchor on>", "commentContent": "<your comment>" }',
-        '  { "type": "highlight", "target": "<exact paragraph text>", "textToHighlight": "<substring to highlight>", "color": "yellow|green|cyan|magenta|blue|red" }',
-        '  { "type": "redline", "target": "<exact paragraph text>", "modified": "<replacement paragraph text>" }',
+        '  { "type": "comment", "targetRef": "P12", "target": "<exact paragraph text>", "textToComment": "<substring to anchor on>", "commentContent": "<your comment>" }',
+        '  { "type": "highlight", "targetRef": "P12", "target": "<exact paragraph text>", "textToHighlight": "<substring to highlight>", "color": "yellow|green|cyan|magenta|blue|red" }',
+        '  { "type": "redline", "targetRef": "P12", "target": "<exact paragraph text>", "modified": "<replacement paragraph text>" }',
         '',
         'CRITICAL TARGETING RULES:',
         '- Each [P#] line above is a SEPARATE paragraph in the document.',
+        '- Always include "targetRef" using the paragraph label (example: "P12").',
+        '- "targetRef" must point to the same paragraph as "target".',
         '- "target" MUST be the EXACT text of ONE SINGLE [P#] paragraph. Copy it character-for-character.',
         '- NEVER include the [P#] prefix in ANY operation field. The [P#] prefix is only a reference label, NOT part of the actual text.',
         '- NEVER combine or concatenate text from multiple [P#] paragraphs into one target.',
@@ -576,32 +668,39 @@ function parseGeminiChatResponse(rawText) {
         log(`[WARN] Could not parse operations JSON: ${err.message}`);
     }
 
-    // Strip [P#] markers that Gemini sometimes includes from the paragraph listing
-    function stripParagraphMarkers(text) {
-        if (!text || typeof text !== 'string') return text;
-        // Remove leading [P<number>] or [P<number>.<number>] prefixes
-        return text.replace(/^\[P\d+(?:\.\d+)?\]\s*/g, '').trim();
-    }
-
     // Validate and normalize each operation
-    operations = operations.filter(op => {
-        if (!op || !op.type || !op.target) return false;
-        if (op.type === 'comment' && (!op.textToComment || !op.commentContent)) return false;
-        if (op.type === 'highlight' && !op.textToHighlight) return false;
-        if (op.type === 'redline' && !op.modified) return false;
-        return true;
-    }).map(op => {
-        // Strip [P#] markers from all text fields
-        op.target = stripParagraphMarkers(op.target);
-        if (op.modified) op.modified = stripParagraphMarkers(op.modified);
-        if (op.textToComment) op.textToComment = stripParagraphMarkers(op.textToComment);
-        if (op.textToHighlight) op.textToHighlight = stripParagraphMarkers(op.textToHighlight);
-        if (op.type === 'highlight') {
-            const c = String(op.color || '').toLowerCase();
-            op.color = ALLOWED_HIGHLIGHT_COLORS.includes(c) ? c : 'yellow';
-        }
-        return op;
-    });
+    operations = operations
+        .map(op => {
+            if (!op || typeof op !== 'object') return null;
+            const type = String(op.type || '').toLowerCase().trim();
+            if (!type) return null;
+
+            const splitTarget = splitLeadingParagraphMarker(op.target);
+            const explicitRef = parseParagraphReference(op.targetRef ?? op.paragraphRef ?? op.paragraphIndex ?? op.targetIndex);
+            const targetRef = explicitRef || splitTarget.targetRef || null;
+            const target = splitTarget.text;
+
+            const normalizedOp = { ...op, type, target, targetRef };
+            if (normalizedOp.modified != null) normalizedOp.modified = stripLeadingParagraphMarker(normalizedOp.modified);
+            if (normalizedOp.textToComment != null) normalizedOp.textToComment = stripLeadingParagraphMarker(normalizedOp.textToComment);
+            if (normalizedOp.textToHighlight != null) normalizedOp.textToHighlight = stripLeadingParagraphMarker(normalizedOp.textToHighlight);
+            if (normalizedOp.commentContent != null) normalizedOp.commentContent = String(normalizedOp.commentContent).trim();
+
+            if (type === 'highlight') {
+                const c = String(normalizedOp.color || '').toLowerCase();
+                normalizedOp.color = ALLOWED_HIGHLIGHT_COLORS.includes(c) ? c : 'yellow';
+            }
+
+            return normalizedOp;
+        })
+        .filter(op => {
+            if (!op || !op.type) return false;
+            if (!op.target && !op.targetRef) return false;
+            if (op.type === 'comment' && (!op.textToComment || !op.commentContent)) return false;
+            if (op.type === 'highlight' && !op.textToHighlight) return false;
+            if (op.type === 'redline' && !op.modified) return false;
+            return op.type === 'comment' || op.type === 'highlight' || op.type === 'redline';
+        });
 
     return { explanation: explanationText || '(No explanation provided)', operations };
 }
@@ -661,13 +760,17 @@ async function applyChatOperations(zip, operations, author) {
     const results = [];
 
     for (const op of operations) {
-        const label = `${op.type}: "${(op.target || '').slice(0, 50)}…"`;
+        const targetRefLabel = op.targetRef ? `[P${op.targetRef}] ` : '';
+        const label = `${op.type}: ${targetRefLabel}"${(op.target || '').slice(0, 50)}…"`;
         log(`Applying: ${label}`);
         try {
             const step = await runOperation(documentXml, op, author);
             documentXml = step.documentXml;
             if (step.numberingXml) capturedNumberingXml = step.numberingXml;
             if (step.commentsXml) capturedCommentsXml.push(step.commentsXml);
+            if (step.warnings?.length > 0) {
+                for (const warning of step.warnings) log(`  warning: ${warning}`);
+            }
             results.push({ ...op, success: step.hasChanges, error: null });
             log(`  → ${step.hasChanges ? 'applied' : 'no change'}`);
         } catch (err) {
