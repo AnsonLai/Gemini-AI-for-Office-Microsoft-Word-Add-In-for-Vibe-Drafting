@@ -18,7 +18,7 @@ import {
     planListInsertionOnlyEdit
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 
-const DEMO_VERSION = '2026-02-12-chat-list-style-control-2';
+const DEMO_VERSION = '2026-02-12-chat-docx-preview-4';
 const GEMINI_API_KEY_STORAGE_KEY = 'browserDemo.geminiApiKey';
 const DEMO_MARKERS = [
     'DEMO_TEXT_TARGET',
@@ -35,6 +35,11 @@ const NUMBERING_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wo
 const COMMENTS_REL_TYPE = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments';
 const COMMENTS_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml';
 
+// docx-preview browser build expects a global JSZip symbol.
+if (typeof window !== 'undefined' && !window.JSZip) {
+    window.JSZip = JSZip;
+}
+
 // ── DOM refs ───────────────────────────────────────────
 const fileInput = document.getElementById('docxFile');
 const authorInput = document.getElementById('authorInput');
@@ -47,12 +52,17 @@ const chatMessages = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
 const sendBtn = document.getElementById('sendBtn');
 const downloadBtn = document.getElementById('downloadBtn');
+const docxPreviewEl = document.getElementById('docxPreview');
+const previewStatusEl = document.getElementById('previewStatus');
+const refreshPreviewBtn = document.getElementById('refreshPreviewBtn');
 
 // ── State ──────────────────────────────────────────────
 let currentZip = null;           // JSZip instance of the working document
 let documentParagraphs = [];     // [{ index, text }] extracted from current docx
 let chatHistory = [];            // Gemini multi-turn history [{ role, parts }]
 let operationCount = 0;          // total operations applied across turns
+let previewRenderer = null;      // docxjs renderAsync function
+let previewRenderToken = 0;      // guards stale async preview writes
 
 // ── Utility ────────────────────────────────────────────
 function log(message) {
@@ -67,6 +77,108 @@ function addMsg(role, html) {
     chatMessages.appendChild(el);
     chatMessages.scrollTop = chatMessages.scrollHeight;
     return el;
+}
+
+function setPreviewStatus(message, level = 'info') {
+    if (!previewStatusEl) return;
+    previewStatusEl.textContent = message;
+    previewStatusEl.classList.remove('success', 'error');
+    if (level === 'success') previewStatusEl.classList.add('success');
+    if (level === 'error') previewStatusEl.classList.add('error');
+}
+
+function getPreviewTimestamp() {
+    return new Date().toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+}
+
+function logPreviewDiagnostics(stage, error = null) {
+    const details = {
+        stage,
+        hasWindowDocx: typeof window !== 'undefined' && !!window.docx,
+        hasRenderAsyncGlobal: typeof window !== 'undefined' && typeof window.docx?.renderAsync === 'function',
+        hasWindowJSZip: typeof window !== 'undefined' && !!window.JSZip,
+        jszipLoadAsyncType: typeof window !== 'undefined' ? typeof window.JSZip?.loadAsync : 'n/a',
+        moduleJsZipLoadAsyncType: typeof JSZip?.loadAsync
+    };
+    log(`[Preview][Diag] ${JSON.stringify(details)}`);
+    console.info('[Preview][Diag]', details);
+    if (error) {
+        console.error('[Preview][Error]', error);
+        if (error?.stack) log(`[Preview][Stack] ${error.stack}`);
+    }
+}
+
+async function resolvePreviewRenderer() {
+    logPreviewDiagnostics('resolvePreviewRenderer:start');
+    if (previewRenderer) return previewRenderer;
+
+    if (typeof window.docx?.renderAsync === 'function') {
+        previewRenderer = window.docx.renderAsync.bind(window.docx);
+        log('[Preview] Using global window.docx.renderAsync');
+        return previewRenderer;
+    }
+
+    try {
+        const module = await import('https://esm.sh/docx-preview@0.3.6');
+        const renderAsync = module?.renderAsync || module?.default?.renderAsync;
+        if (typeof renderAsync === 'function') {
+            previewRenderer = renderAsync;
+            log('[Preview] Using dynamically imported docx-preview renderAsync');
+            return previewRenderer;
+        }
+    } catch (error) {
+        log(`[WARN] Failed to dynamically load docxjs: ${error?.message || String(error)}`);
+        logPreviewDiagnostics('resolvePreviewRenderer:dynamic-import-failed', error);
+    }
+
+    logPreviewDiagnostics('resolvePreviewRenderer:unavailable');
+    throw new Error('docxjs renderer unavailable');
+}
+
+async function renderPreviewFromZip(zip, sourceLabel = 'Document') {
+    if (!docxPreviewEl) return;
+    const renderToken = ++previewRenderToken;
+    setPreviewStatus(`Rendering preview (${sourceLabel})...`);
+    if (refreshPreviewBtn) refreshPreviewBtn.disabled = true;
+    logPreviewDiagnostics(`renderPreviewFromZip:start:${sourceLabel}`);
+
+    try {
+        if (!zip) throw new Error('No document loaded');
+        const renderAsync = await resolvePreviewRenderer();
+        const blob = await zip.generateAsync({ type: 'blob' });
+        const buffer = await blob.arrayBuffer();
+
+        if (renderToken !== previewRenderToken) return;
+
+        docxPreviewEl.replaceChildren();
+        await renderAsync(buffer, docxPreviewEl, null, {
+            inWrapper: true,
+            renderChanges: true,
+            renderHeaders: true,
+            renderFooters: true,
+            renderFootnotes: true,
+            renderEndnotes: true,
+            useBase64URL: true
+        });
+
+        if (renderToken !== previewRenderToken) return;
+        setPreviewStatus(`Preview updated (${sourceLabel}) at ${getPreviewTimestamp()}`, 'success');
+    } catch (error) {
+        const message = error?.message || String(error);
+        if (renderToken === previewRenderToken) {
+            setPreviewStatus(`Preview failed: ${message}`, 'error');
+        }
+        log(`[WARN] Preview render failed: ${message}`);
+        logPreviewDiagnostics(`renderPreviewFromZip:failed:${sourceLabel}`, error);
+    } finally {
+        if (renderToken === previewRenderToken && refreshPreviewBtn) {
+            refreshPreviewBtn.disabled = !currentZip;
+        }
+    }
 }
 
 // ── Gemini API Key Persistence ─────────────────────────
@@ -1075,6 +1187,7 @@ fileInput.addEventListener('change', async () => {
 
         chatInput.disabled = false;
         sendBtn.disabled = false;
+        await renderPreviewFromZip(currentZip, 'Upload');
         chatInput.focus();
     } catch (err) {
         addMsg('system error', `Failed to load document: ${escapeHtml(err.message || String(err))}`);
@@ -1120,6 +1233,7 @@ async function handleSend() {
 
             // Re-extract paragraphs after modifications
             documentParagraphs = await extractDocumentParagraphs(currentZip);
+            await renderPreviewFromZip(currentZip, 'Chat');
 
             assistantHtml += buildOpSummaryHtml(opResults);
 
@@ -1179,6 +1293,16 @@ logToggle.addEventListener('click', () => {
     logEl.style.display = isVisible ? 'none' : 'block';
     logToggle.textContent = isVisible ? '▶ Engine log' : '▼ Engine log';
 });
+
+if (refreshPreviewBtn) {
+    refreshPreviewBtn.addEventListener('click', async () => {
+        if (!currentZip) {
+            setPreviewStatus('Upload a .docx file before refreshing preview.');
+            return;
+        }
+        await renderPreviewFromZip(currentZip, 'Manual Refresh');
+    });
+}
 
 // Save Gemini API key
 saveGeminiKeyBtn.addEventListener('click', () => {
@@ -1346,7 +1470,7 @@ async function runKitchenSink(inputFile, author, geminiApiKey) {
     await ensureNumberingArtifacts(zip, capturedNumberingXml);
     for (const cx of capturedCommentsXml) await ensureCommentsArtifacts(zip, cx);
     await validateOutputDocx(zip);
-    return await zip.generateAsync({ type: 'blob' });
+    return zip;
 }
 
 // Kitchen-sink button
@@ -1361,9 +1485,19 @@ runBtn.addEventListener('click', async () => {
         const geminiApiKey = geminiApiKeyInput?.value.trim() || '';
         if (geminiApiKey) setStoredGeminiApiKey(geminiApiKey);
         log(`[Demo] Version: ${DEMO_VERSION}`);
-        const output = await runKitchenSink(file, author, geminiApiKey);
+        const outputZip = await runKitchenSink(file, author, geminiApiKey);
+        const output = await outputZip.generateAsync({ type: 'blob' });
         const outputName = file.name.replace(/\.docx$/i, '') + '-kitchen-sink-demo.docx';
         downloadBlob(output, outputName);
+        currentZip = outputZip;
+        documentParagraphs = await extractDocumentParagraphs(currentZip);
+        chatHistory = [];
+        operationCount = 0;
+        sendBtn.disabled = false;
+        chatInput.disabled = false;
+        downloadBtn.style.display = '';
+        downloadBtn.disabled = false;
+        await renderPreviewFromZip(currentZip, 'Kitchen Sink');
         addMsg('system success', 'Kitchen-sink demo completed. Document downloaded.');
         log('Kitchen-sink demo completed successfully.');
     } catch (err) {

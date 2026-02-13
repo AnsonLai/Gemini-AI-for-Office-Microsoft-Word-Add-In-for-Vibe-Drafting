@@ -42,6 +42,21 @@
       overflow: hidden;
     }
 
+    .main-layout {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      overflow: hidden;
+    }
+
+    .chat-column {
+      flex: 1 1 58%;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
     /* ── Top Bar ─────────────────────────────────────── */
     .top-bar {
       background: var(--card);
@@ -365,6 +380,103 @@
       border-color: var(--muted);
       background: transparent;
     }
+
+    /* ── Preview Pane ─────────────────────────────── */
+    .preview-column {
+      flex: 0 0 42%;
+      min-width: 340px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      border-left: 1px solid var(--border);
+      background: #121626;
+    }
+
+    .preview-header {
+      border-bottom: 1px solid var(--border);
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      background: #171c2d;
+    }
+
+    .preview-title {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #cbd5e1;
+      text-transform: uppercase;
+    }
+
+    .preview-header button {
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      border-radius: 7px;
+      font-size: 11px;
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+
+    .preview-header button:hover {
+      border-color: var(--muted);
+      color: var(--text);
+    }
+
+    .preview-header button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #previewStatus {
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--muted);
+      padding: 8px 14px;
+      background: #12182a;
+    }
+
+    #previewStatus.success {
+      color: #6ee7b7;
+    }
+
+    #previewStatus.error {
+      color: #fca5a5;
+    }
+
+    .docx-preview-host {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 14px;
+      background: radial-gradient(circle at 20% 0%, #1e2438, #0e1322 58%);
+    }
+
+    .docx-preview-host .docx-wrapper {
+      background: transparent !important;
+      padding: 0 !important;
+    }
+
+    .docx-preview-host .docx {
+      margin: 0 auto 18px;
+      box-shadow: 0 20px 40px rgba(2, 6, 23, 0.45);
+      border-radius: 2px;
+    }
+
+    @media (max-width: 980px) {
+      .main-layout {
+        flex-direction: column;
+      }
+
+      .preview-column {
+        flex: 0 0 44%;
+        min-width: 0;
+        border-left: none;
+        border-top: 1px solid var(--border);
+      }
+    }
   </style>
 </head>
 
@@ -387,29 +499,44 @@
     </div>
   </div>
 
-  <!-- ── Chat Messages ───────────────────────────── -->
-  <div class="chat-area">
-    <div id="chat-messages">
-      <div class="msg system">
-        Upload a <code>.docx</code> contract, enter your Gemini API key, and ask the AI to review it.
+  <div class="main-layout">
+    <div class="chat-column">
+      <!-- ── Chat Messages ───────────────────────────── -->
+      <div class="chat-area">
+        <div id="chat-messages">
+          <div class="msg system">
+            Upload a <code>.docx</code> contract, enter your Gemini API key, and ask the AI to review it.
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Input Area ──────────────────────────────── -->
+      <div class="input-area">
+        <textarea id="chat-input" rows="1"
+          placeholder="e.g. Review this contract and flag clauses that deviate from market standards…" disabled></textarea>
+        <button id="sendBtn" disabled>Send</button>
+        <button id="downloadBtn" style="display:none;" disabled>Download</button>
+      </div>
+
+      <!-- ── Log Panel ───────────────────────────────── -->
+      <div class="log-panel">
+        <button class="log-toggle" id="logToggle">▶ Engine log</button>
+        <pre id="log"></pre>
       </div>
     </div>
+
+    <aside class="preview-column">
+      <div class="preview-header">
+        <div class="preview-title">Live Redline Preview</div>
+        <button id="refreshPreviewBtn" disabled>Refresh</button>
+      </div>
+      <div id="previewStatus">Upload a .docx file to render preview.</div>
+      <div id="docxPreview" class="docx-preview-host"></div>
+    </aside>
   </div>
 
-  <!-- ── Input Area ──────────────────────────────── -->
-  <div class="input-area">
-    <textarea id="chat-input" rows="1"
-      placeholder="e.g. Review this contract and flag clauses that deviate from market standards…" disabled></textarea>
-    <button id="sendBtn" disabled>Send</button>
-    <button id="downloadBtn" style="display:none;" disabled>Download</button>
-  </div>
-
-  <!-- ── Log Panel ───────────────────────────────── -->
-  <div class="log-panel">
-    <button class="log-toggle" id="logToggle">▶ Engine log</button>
-    <pre id="log"></pre>
-  </div>
-
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://unpkg.com/docx-preview@0.3.6/dist/docx-preview.min.js"></script>
   <script type="importmap">
     {
       "imports": {
@@ -417,7 +544,7 @@
       }
     }
   </script>
-  <script type="module" src="./demo.js?v=2026-02-12-chat-list-style-control-2"></script>
+  <script type="module" src="./demo.js?v=2026-02-12-chat-docx-preview-4"></script>
 </body>
 
 </html>

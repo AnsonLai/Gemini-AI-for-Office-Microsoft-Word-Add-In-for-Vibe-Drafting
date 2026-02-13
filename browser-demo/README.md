@@ -3,6 +3,7 @@
 No-build browser demo for the standalone OOXML reconciliation engine.
 
 It demonstrates end-to-end `.docx` mutation in the browser, including text redlines, formatting, list/table transforms, comments, and highlights.
+It also renders a live side-by-side preview using `docxjs` so tracked changes can be reviewed immediately.
 
 ## Modes
 
@@ -17,6 +18,8 @@ Interactive **contract redline review** powered by Gemini AI:
 5. Operations are applied to the document OOXML
 6. Download the marked-up result
 7. Continue the conversation for follow-up reviews
+
+As operations are applied, the right-side preview pane is refreshed from the in-memory `.docx` package.
 
 The chat supports multi-turn conversation — Gemini retains context from previous turns.
 
@@ -33,7 +36,9 @@ One-click demo that applies a fixed set of operations to marker paragraphs:
 ## Files
 
 - `browser-demo/demo.html`: static UI (chat layout + styles)
+  - includes right-side `docxjs` (`docx-preview`) live preview pane
 - `browser-demo/demo.js`: browser module pipeline (chat engine + OOXML operations)
+  - renders preview with `renderChanges` enabled so insertions/deletions are visible
 
 The demo imports reconciliation APIs from:
 - `src/taskpane/modules/reconciliation/standalone.js`
@@ -146,7 +151,7 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 
 - "Target paragraph not found": Gemini may have slightly modified the paragraph text when referencing it. Check the engine log for details.
 - "Format-only fallback requires native Word API": this operation was a pure formatting change where the engine could not safely localize spans in OOXML. The browser demo skips it; use a more specific target (`targetRef` + exact paragraph text) or run through the add-in Word path.
-- Demo version in log does not match expected (`v2026-02-12-chat-list-style-control-2`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
+- Demo version in log does not match expected (`v2026-02-12-chat-docx-preview-4`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
 - Validation error about numbering/comments: check whether package relationships or content types were removed by prior tooling.
 - No Gemini output: verify API key and network access; kitchen-sink fallback path should still run.
 - Chat input disabled: upload a `.docx` file first to enable the chat.
