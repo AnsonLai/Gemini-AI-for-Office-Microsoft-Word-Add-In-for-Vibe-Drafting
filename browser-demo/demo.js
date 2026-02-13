@@ -4,7 +4,10 @@ import {
     applyHighlightToOoxml,
     injectCommentsIntoOoxml,
     configureLogger,
+    ReconciliationPipeline,
+    preprocessMarkdown,
     getParagraphText as getParagraphTextFromOxml,
+    normalizeWhitespaceForTargeting,
     buildTargetReferenceSnapshot,
     isMarkdownTableText,
     findContainingWordElement,
@@ -14,12 +17,16 @@ import {
     stripLeadingParagraphMarker as stripLeadingParagraphMarkerShared,
     splitLeadingParagraphMarker as splitLeadingParagraphMarkerShared,
     resolveTargetParagraphWithSnapshot as resolveTargetParagraphWithSnapshotShared,
+    parseMarkdownListContent,
+    hasListItems,
+    inferNumberingStyleFromMarker,
+    getParagraphListInfo,
     synthesizeTableMarkdownFromMultilineCellEdit,
     synthesizeExpandedListScopeEdit,
     planListInsertionOnlyEdit
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 
-const DEMO_VERSION = '2026-02-13-chat-docx-preview-5';
+const DEMO_VERSION = '2026-02-13-chat-docx-preview-6';
 const GEMINI_API_KEY_STORAGE_KEY = 'browserDemo.geminiApiKey';
 const DEMO_MARKERS = [
     'DEMO_TEXT_TARGET',
@@ -449,6 +456,130 @@ function serializeParagraphRangeAsDocument(paragraphs, serializer) {
     return `<w:document xmlns:w="${NS_W}"><w:body>${paragraphXml}</w:body></w:document>`;
 }
 
+function parseSingleLineListCandidate(text) {
+    const rawText = String(text || '');
+    if (!rawText.trim()) return null;
+    if (rawText.includes('\n')) return null;
+
+    const parsed = parseMarkdownListContent(rawText);
+    if (!parsed || !hasListItems(parsed) || !Array.isArray(parsed.items) || parsed.items.length !== 1) return null;
+
+    const item = parsed.items[0];
+    if (!item || (item.type !== 'numbered' && item.type !== 'bullet')) return null;
+
+    const marker = String(item.marker || '').trim();
+    const numberingStyle = item.type === 'numbered'
+        ? inferNumberingStyleFromMarker(marker || '1.')
+        : 'bullet';
+
+    return {
+        type: item.type,
+        marker,
+        numberingStyle,
+        contentText: String(item.text || '').trim(),
+        normalizedContent: normalizeWhitespaceForTargeting(String(item.text || ''))
+    };
+}
+
+function overwriteParagraphNumIds(paragraphNodes, targetNumId) {
+    if (!Array.isArray(paragraphNodes) || !targetNumId) return;
+    for (const node of paragraphNodes) {
+        const numIdNodes = Array.from(node.getElementsByTagNameNS('*', 'numId'));
+        for (const numIdNode of numIdNodes) {
+            setElementVal(numIdNode, targetNumId);
+        }
+    }
+}
+
+function extractFirstParagraphNumId(paragraphNodes) {
+    for (const node of paragraphNodes || []) {
+        const numIdNodes = Array.from(node.getElementsByTagNameNS('*', 'numId'));
+        for (const numIdNode of numIdNodes) {
+            const numId = getElementId(numIdNode, ['w:val', 'val']);
+            if (numId != null) return String(numId);
+        }
+    }
+    return null;
+}
+
+async function trySingleParagraphListStructuralFallback({
+    xmlDoc,
+    serializer,
+    targetParagraph,
+    currentParagraphText,
+    modifiedText,
+    author,
+    runtimeContext
+}) {
+    if (!targetParagraph || getParagraphListInfo(targetParagraph)) return null;
+
+    const modifiedRawText = String(modifiedText || '');
+    const modifiedCleanText = preprocessMarkdown(modifiedRawText).cleanText || modifiedRawText;
+    const modifiedCandidate = parseSingleLineListCandidate(modifiedRawText) || parseSingleLineListCandidate(modifiedCleanText);
+    if (!modifiedCandidate) return null;
+
+    const currentCandidate = parseSingleLineListCandidate(currentParagraphText);
+    const normalizedCurrentRaw = normalizeWhitespaceForTargeting(currentParagraphText);
+    const normalizedModifiedRaw = normalizeWhitespaceForTargeting(modifiedCleanText);
+    const sameRawText = normalizedCurrentRaw && normalizedCurrentRaw === normalizedModifiedRaw;
+    const sameListText = currentCandidate && currentCandidate.type === modifiedCandidate.type &&
+        currentCandidate.normalizedContent === modifiedCandidate.normalizedContent;
+    if (!sameRawText && !sameListText) return null;
+
+    const fallbackPipeline = runtimeContext?.singleParagraphListPipeline ||
+        new ReconciliationPipeline({ generateRedlines: true, author: author || 'Browser Demo AI' });
+    if (runtimeContext && !runtimeContext.singleParagraphListPipeline) {
+        runtimeContext.singleParagraphListPipeline = fallbackPipeline;
+    }
+
+    log('[List] No textual diff but list marker detected; forcing structural list conversion fallback.');
+    const listInput = `${modifiedCandidate.marker} ${modifiedCandidate.contentText}`.trim();
+    const fallbackResult = await fallbackPipeline.executeListGeneration(
+        listInput,
+        null,
+        null,
+        currentParagraphText
+    );
+    const fallbackOxml = fallbackResult?.oxml || fallbackResult?.ooxml || '';
+    const fallbackIsValid = fallbackResult?.isValid !== false;
+    if (!fallbackOxml || !fallbackIsValid) {
+        log('[List] Structural list fallback produced no valid OOXML payload.');
+        return null;
+    }
+
+    const extracted = extractReplacementNodes(fallbackOxml);
+    let replacementNodes = extracted.replacementNodes;
+    let numberingXml = extracted.numberingXml || fallbackResult?.numberingXml || null;
+    if (numberingXml && runtimeContext?.numberingIdState) {
+        const normalizedNumbering = remapNumberingPayloadForDocument(numberingXml, replacementNodes, runtimeContext.numberingIdState);
+        replacementNodes = normalizedNumbering.replacementNodes;
+        numberingXml = normalizedNumbering.numberingXml;
+    }
+
+    const numberingKey = `${modifiedCandidate.type}:${modifiedCandidate.numberingStyle}:single`;
+    if (runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
+        const sharedNumId = runtimeContext.listFallbackSharedNumIdByKey.get(numberingKey);
+        if (sharedNumId) {
+            overwriteParagraphNumIds(replacementNodes, sharedNumId);
+            numberingXml = null;
+            log(`[List] Reusing shared list numbering (${numberingKey} -> numId ${sharedNumId}).`);
+        } else {
+            const generatedNumId = extractFirstParagraphNumId(replacementNodes);
+            if (generatedNumId) {
+                runtimeContext.listFallbackSharedNumIdByKey.set(numberingKey, generatedNumId);
+                log(`[List] Captured shared list numbering (${numberingKey} -> numId ${generatedNumId}).`);
+            }
+        }
+    }
+
+    const parent = targetParagraph.parentNode;
+    if (!parent) return null;
+    for (const node of replacementNodes) parent.insertBefore(xmlDoc.importNode(node, true), targetParagraph);
+    parent.removeChild(targetParagraph);
+    normalizeBodySectionOrder(xmlDoc);
+    return { documentXml: serializer.serializeToString(xmlDoc), hasChanges: true, numberingXml };
+}
+
 // ── Apply operations (per-paragraph) ───────────────────
 async function applyToParagraphByExactText(documentXml, targetText, modifiedText, author, targetRef = null, runtimeContext = null) {
     const parser = new DOMParser();
@@ -526,7 +657,21 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
         // Preserve table wrapper when table markdown should reconcile the full table.
         _isolatedTableCell: useTableScope
     });
-    if (!result?.hasChanges) return { documentXml, hasChanges: false, numberingXml: null };
+    if (!result?.hasChanges) {
+        if (!useTableScope && !useListScope) {
+            const listFallback = await trySingleParagraphListStructuralFallback({
+                xmlDoc,
+                serializer,
+                targetParagraph,
+                currentParagraphText,
+                modifiedText: effectiveModifiedText,
+                author,
+                runtimeContext
+            });
+            if (listFallback) return listFallback;
+        }
+        return { documentXml, hasChanges: false, numberingXml: null };
+    }
     if (result.useNativeApi && !result.oxml) {
         const warning = 'Format-only fallback requires native Word API; browser demo skipped this operation.';
         log(`[WARN] ${warning}`);
@@ -1096,7 +1241,9 @@ async function applyChatOperations(zip, operations, author) {
     const snapshotDoc = parseXmlStrict(documentXml, 'word/document.xml (target snapshot)');
     const runtimeContext = {
         numberingIdState: await createNumberingIdState(zip),
-        targetRefSnapshot: buildTargetReferenceSnapshot(snapshotDoc)
+        targetRefSnapshot: buildTargetReferenceSnapshot(snapshotDoc),
+        singleParagraphListPipeline: new ReconciliationPipeline({ generateRedlines: true, author }),
+        listFallbackSharedNumIdByKey: new Map()
     };
 
     for (const op of operations) {
