@@ -86,6 +86,7 @@ reconciliation/
   - Shared paragraph target resolution for per-paragraph operations.
   - Provides `targetRef` parsing (`P#`), strict/fuzzy text matching, and marker stripping helpers used by standalone consumers.
   - Provides table-targeting helpers (`isMarkdownTableText`, containing-word-element lookup) for table-scope operation routing in browser/Node integrations.
+  - Multi-operation standalone/chat callers should keep a turn-start paragraph snapshot when applying sequential structural edits, then use it to detect and correct `targetRef` drift before applying later ops.
 - `core/table-targeting.js`
   - Shared heuristics for table-structure intent from per-cell edits.
   - Provides markdown table synthesis from multiline table-cell edits so standalone callers can promote ambiguous cell redlines into full table-scope reconciliation.

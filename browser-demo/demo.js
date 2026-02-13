@@ -5,6 +5,8 @@ import {
     injectCommentsIntoOoxml,
     configureLogger,
     getParagraphText as getParagraphTextFromOxml,
+    getDocumentParagraphNodes,
+    normalizeWhitespaceForTargeting,
     isMarkdownTableText,
     findContainingWordElement,
     findParagraphByStrictText as findParagraphByStrictTextShared,
@@ -18,7 +20,7 @@ import {
     planListInsertionOnlyEdit
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 
-const DEMO_VERSION = '2026-02-12-chat-docx-preview-4';
+const DEMO_VERSION = '2026-02-13-chat-docx-preview-5';
 const GEMINI_API_KEY_STORAGE_KEY = 'browserDemo.geminiApiKey';
 const DEMO_MARKERS = [
     'DEMO_TEXT_TARGET',
@@ -289,14 +291,106 @@ function splitLeadingParagraphMarker(text) {
     return splitLeadingParagraphMarkerShared(text);
 }
 
-function resolveTargetParagraph(xmlDoc, targetText, targetRef, opType) {
-    return resolveTargetParagraphShared(xmlDoc, {
+function isParagraphInTable(paragraph) {
+    return !!findContainingWordElement(paragraph, 'tbl');
+}
+
+function buildParagraphReferenceSnapshot(documentXml) {
+    const xmlDoc = parseXmlStrict(documentXml, 'word/document.xml (target snapshot)');
+    const paragraphs = getDocumentParagraphNodes(xmlDoc);
+    const snapshot = new Map();
+    for (let i = 0; i < paragraphs.length; i++) {
+        const paragraph = paragraphs[i];
+        const text = getParagraphText(paragraph).trim();
+        snapshot.set(i + 1, {
+            text,
+            normalizedText: normalizeWhitespaceForTargeting(text),
+            inTable: isParagraphInTable(paragraph)
+        });
+    }
+    return snapshot;
+}
+
+function findStrictTargetCandidates(xmlDoc, targetText) {
+    const normalizedTarget = normalizeWhitespaceForTargeting(targetText);
+    if (!normalizedTarget) return [];
+    const paragraphs = getDocumentParagraphNodes(xmlDoc);
+    const candidates = [];
+    for (let i = 0; i < paragraphs.length; i++) {
+        const paragraph = paragraphs[i];
+        const paragraphText = getParagraphText(paragraph).trim();
+        if (!paragraphText) continue;
+        if (normalizeWhitespaceForTargeting(paragraphText) !== normalizedTarget) continue;
+        candidates.push({
+            paragraph,
+            index: i + 1,
+            inTable: isParagraphInTable(paragraph)
+        });
+    }
+    return candidates;
+}
+
+function selectBestTargetCandidate(candidates, parsedRef, expectedInTable = null) {
+    if (!Array.isArray(candidates) || candidates.length === 0) return null;
+    let scoped = candidates.slice();
+    if (typeof expectedInTable === 'boolean') {
+        const sameContext = scoped.filter(candidate => candidate.inTable === expectedInTable);
+        if (sameContext.length > 0) scoped = sameContext;
+    }
+    if (Number.isInteger(parsedRef) && parsedRef > 0) {
+        scoped.sort((a, b) => Math.abs(a.index - parsedRef) - Math.abs(b.index - parsedRef));
+    }
+    return scoped[0] || null;
+}
+
+function resolveTargetParagraph(xmlDoc, targetText, targetRef, opType, runtimeContext = null) {
+    const resolved = resolveTargetParagraphShared(xmlDoc, {
         targetText,
         targetRef,
         opType,
         onInfo: message => log(message),
         onWarn: message => log(message)
     });
+
+    const parsedRef = parseParagraphReference(targetRef);
+    if (!parsedRef || resolved?.resolvedBy !== 'ref') return resolved;
+
+    const cleanTargetText = String(targetText || '').trim();
+    const snapshotEntry = runtimeContext?.targetRefSnapshot?.get(parsedRef) || null;
+    const expectedText = cleanTargetText || snapshotEntry?.text || '';
+    const expectedNorm = normalizeWhitespaceForTargeting(expectedText);
+    if (!expectedNorm) return resolved;
+
+    const byRefNorm = normalizeWhitespaceForTargeting(getParagraphText(resolved.paragraph));
+    if (byRefNorm === expectedNorm) return resolved;
+
+    const candidateTexts = [];
+    if (cleanTargetText) candidateTexts.push(cleanTargetText);
+    if (snapshotEntry?.text) {
+        const snapshotNorm = normalizeWhitespaceForTargeting(snapshotEntry.text);
+        if (snapshotNorm && !candidateTexts.some(text => normalizeWhitespaceForTargeting(text) === snapshotNorm)) {
+            candidateTexts.push(snapshotEntry.text);
+        }
+    }
+
+    let bestCandidate = null;
+    for (const candidateText of candidateTexts) {
+        const candidates = findStrictTargetCandidates(xmlDoc, candidateText);
+        const selected = selectBestTargetCandidate(candidates, parsedRef, snapshotEntry?.inTable);
+        if (!selected) continue;
+        if (!bestCandidate) bestCandidate = selected;
+        if (selected.paragraph !== resolved.paragraph) {
+            bestCandidate = selected;
+            break;
+        }
+    }
+
+    if (bestCandidate && bestCandidate.paragraph !== resolved.paragraph) {
+        log(`[Target] [P${parsedRef}] appears stale after prior edits; using strict text rematch for ${opType}.`);
+        return { paragraph: bestCandidate.paragraph, resolvedBy: 'strict_text_after_ref_drift' };
+    }
+
+    return resolved;
 }
 
 function createSimpleParagraph(xmlDoc, text) {
@@ -452,7 +546,7 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
     const parser = new DOMParser();
     const serializer = new XMLSerializer();
     const xmlDoc = parser.parseFromString(documentXml, 'application/xml');
-    const resolved = resolveTargetParagraph(xmlDoc, targetText, targetRef, 'redline');
+    const resolved = resolveTargetParagraph(xmlDoc, targetText, targetRef, 'redline', runtimeContext);
     const targetParagraph = resolved.paragraph;
     const currentParagraphText = getParagraphText(targetParagraph).trim();
     const containingTable = findContainingWordElement(targetParagraph, 'tbl');
@@ -554,11 +648,11 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
     return { documentXml: serializer.serializeToString(xmlDoc), hasChanges: true, numberingXml };
 }
 
-async function applyHighlightToParagraphByExactText(documentXml, targetText, textToHighlight, color, author, targetRef = null) {
+async function applyHighlightToParagraphByExactText(documentXml, targetText, textToHighlight, color, author, targetRef = null, runtimeContext = null) {
     const parser = new DOMParser();
     const serializer = new XMLSerializer();
     const xmlDoc = parser.parseFromString(documentXml, 'application/xml');
-    const resolved = resolveTargetParagraph(xmlDoc, targetText, targetRef, 'highlight');
+    const resolved = resolveTargetParagraph(xmlDoc, targetText, targetRef, 'highlight', runtimeContext);
     const targetParagraph = resolved.paragraph;
     const paragraphXml = serializer.serializeToString(targetParagraph);
     const highlightedXml = applyHighlightToOoxml(paragraphXml, textToHighlight, color, { generateRedlines: true, author });
@@ -571,11 +665,11 @@ async function applyHighlightToParagraphByExactText(documentXml, targetText, tex
     return { documentXml: serializer.serializeToString(xmlDoc), hasChanges: true };
 }
 
-async function applyCommentToParagraphByExactText(documentXml, targetText, textToComment, commentContent, author, targetRef = null) {
+async function applyCommentToParagraphByExactText(documentXml, targetText, textToComment, commentContent, author, targetRef = null, runtimeContext = null) {
     const parser = new DOMParser();
     const serializer = new XMLSerializer();
     const xmlDoc = parser.parseFromString(documentXml, 'application/xml');
-    const resolved = resolveTargetParagraph(xmlDoc, targetText, targetRef, 'comment');
+    const resolved = resolveTargetParagraph(xmlDoc, targetText, targetRef, 'comment', runtimeContext);
     const targetParagraph = resolved.paragraph;
     const paragraphXml = serializer.serializeToString(targetParagraph);
     const commentResult = injectCommentsIntoOoxml(paragraphXml, [{ paragraphIndex: 1, textToFind: textToComment, commentContent }], { author });
@@ -589,8 +683,8 @@ async function applyCommentToParagraphByExactText(documentXml, targetText, textT
 }
 
 async function runOperation(documentXml, op, author, runtimeContext = null) {
-    if (op.type === 'highlight') return applyHighlightToParagraphByExactText(documentXml, op.target, op.textToHighlight, op.color, author, op.targetRef);
-    if (op.type === 'comment') return applyCommentToParagraphByExactText(documentXml, op.target, op.textToComment, op.commentContent, author, op.targetRef);
+    if (op.type === 'highlight') return applyHighlightToParagraphByExactText(documentXml, op.target, op.textToHighlight, op.color, author, op.targetRef, runtimeContext);
+    if (op.type === 'comment') return applyCommentToParagraphByExactText(documentXml, op.target, op.textToComment, op.commentContent, author, op.targetRef, runtimeContext);
     return applyToParagraphByExactText(documentXml, op.target, op.modified, author, op.targetRef, runtimeContext);
 }
 
@@ -1092,7 +1186,8 @@ async function applyChatOperations(zip, operations, author) {
     const capturedCommentsXml = [];
     const results = [];
     const runtimeContext = {
-        numberingIdState: await createNumberingIdState(zip)
+        numberingIdState: await createNumberingIdState(zip),
+        targetRefSnapshot: buildParagraphReferenceSnapshot(documentXml)
     };
 
     for (const op of operations) {

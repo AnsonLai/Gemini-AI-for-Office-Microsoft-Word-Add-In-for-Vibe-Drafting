@@ -96,8 +96,9 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 - Chat operations support `targetRef` (for example `P12`) in addition to `target` text.
 - The demo resolves targets in this order:
   1. `targetRef` paragraph index (when provided)
-  2. strict text match
-  3. fuzzy text match fallback
+  2. when `targetRef` drifts after earlier same-turn structural edits, strict text rematch using the turn-start paragraph snapshot (preferring the original table/body context)
+  3. strict text match
+  4. fuzzy text match fallback
 - Redline diffing uses the resolved paragraph's current text, which reduces failures when model-provided `target` text drifts slightly.
 - Target resolution is delegated to shared reconciliation core helpers (exported via `standalone.js`) so non-demo consumers can reuse the same behavior.
 
@@ -151,7 +152,7 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 
 - "Target paragraph not found": Gemini may have slightly modified the paragraph text when referencing it. Check the engine log for details.
 - "Format-only fallback requires native Word API": this operation was a pure formatting change where the engine could not safely localize spans in OOXML. The browser demo skips it; use a more specific target (`targetRef` + exact paragraph text) or run through the add-in Word path.
-- Demo version in log does not match expected (`v2026-02-12-chat-docx-preview-4`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
+- Demo version in log does not match expected (`v2026-02-13-chat-docx-preview-5`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
 - Validation error about numbering/comments: check whether package relationships or content types were removed by prior tooling.
 - No Gemini output: verify API key and network access; kitchen-sink fallback path should still run.
 - Chat input disabled: upload a `.docx` file first to enable the chat.
