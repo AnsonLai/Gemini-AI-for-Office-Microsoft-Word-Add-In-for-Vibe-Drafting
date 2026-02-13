@@ -28,7 +28,9 @@ export {
     findParagraphByReference,
     findParagraphByStrictText,
     findParagraphByBestTextMatch,
-    resolveTargetParagraph
+    resolveTargetParagraph,
+    buildTargetReferenceSnapshot,
+    resolveTargetParagraphWithSnapshot
 } from './core/paragraph-targeting.js';
 export { synthesizeTableMarkdownFromMultilineCellEdit } from './core/table-targeting.js';
 export {

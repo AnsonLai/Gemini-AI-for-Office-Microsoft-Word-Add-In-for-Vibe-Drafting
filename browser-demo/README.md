@@ -100,7 +100,7 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
   3. strict text match
   4. fuzzy text match fallback
 - Redline diffing uses the resolved paragraph's current text, which reduces failures when model-provided `target` text drifts slightly.
-- Target resolution is delegated to shared reconciliation core helpers (exported via `standalone.js`) so non-demo consumers can reuse the same behavior.
+- Target resolution is delegated to shared reconciliation core helpers (exported via `standalone.js`), including turn-snapshot drift correction (`buildTargetReferenceSnapshot`, `resolveTargetParagraphWithSnapshot`), so non-demo consumers can reuse the same behavior.
 
 ### Table Structure Edits (Chat)
 

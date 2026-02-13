@@ -5,8 +5,7 @@ import {
     injectCommentsIntoOoxml,
     configureLogger,
     getParagraphText as getParagraphTextFromOxml,
-    getDocumentParagraphNodes,
-    normalizeWhitespaceForTargeting,
+    buildTargetReferenceSnapshot,
     isMarkdownTableText,
     findContainingWordElement,
     findParagraphByStrictText as findParagraphByStrictTextShared,
@@ -14,7 +13,7 @@ import {
     parseParagraphReference as parseParagraphReferenceShared,
     stripLeadingParagraphMarker as stripLeadingParagraphMarkerShared,
     splitLeadingParagraphMarker as splitLeadingParagraphMarkerShared,
-    resolveTargetParagraph as resolveTargetParagraphShared,
+    resolveTargetParagraphWithSnapshot as resolveTargetParagraphWithSnapshotShared,
     synthesizeTableMarkdownFromMultilineCellEdit,
     synthesizeExpandedListScopeEdit,
     planListInsertionOnlyEdit
@@ -291,106 +290,15 @@ function splitLeadingParagraphMarker(text) {
     return splitLeadingParagraphMarkerShared(text);
 }
 
-function isParagraphInTable(paragraph) {
-    return !!findContainingWordElement(paragraph, 'tbl');
-}
-
-function buildParagraphReferenceSnapshot(documentXml) {
-    const xmlDoc = parseXmlStrict(documentXml, 'word/document.xml (target snapshot)');
-    const paragraphs = getDocumentParagraphNodes(xmlDoc);
-    const snapshot = new Map();
-    for (let i = 0; i < paragraphs.length; i++) {
-        const paragraph = paragraphs[i];
-        const text = getParagraphText(paragraph).trim();
-        snapshot.set(i + 1, {
-            text,
-            normalizedText: normalizeWhitespaceForTargeting(text),
-            inTable: isParagraphInTable(paragraph)
-        });
-    }
-    return snapshot;
-}
-
-function findStrictTargetCandidates(xmlDoc, targetText) {
-    const normalizedTarget = normalizeWhitespaceForTargeting(targetText);
-    if (!normalizedTarget) return [];
-    const paragraphs = getDocumentParagraphNodes(xmlDoc);
-    const candidates = [];
-    for (let i = 0; i < paragraphs.length; i++) {
-        const paragraph = paragraphs[i];
-        const paragraphText = getParagraphText(paragraph).trim();
-        if (!paragraphText) continue;
-        if (normalizeWhitespaceForTargeting(paragraphText) !== normalizedTarget) continue;
-        candidates.push({
-            paragraph,
-            index: i + 1,
-            inTable: isParagraphInTable(paragraph)
-        });
-    }
-    return candidates;
-}
-
-function selectBestTargetCandidate(candidates, parsedRef, expectedInTable = null) {
-    if (!Array.isArray(candidates) || candidates.length === 0) return null;
-    let scoped = candidates.slice();
-    if (typeof expectedInTable === 'boolean') {
-        const sameContext = scoped.filter(candidate => candidate.inTable === expectedInTable);
-        if (sameContext.length > 0) scoped = sameContext;
-    }
-    if (Number.isInteger(parsedRef) && parsedRef > 0) {
-        scoped.sort((a, b) => Math.abs(a.index - parsedRef) - Math.abs(b.index - parsedRef));
-    }
-    return scoped[0] || null;
-}
-
 function resolveTargetParagraph(xmlDoc, targetText, targetRef, opType, runtimeContext = null) {
-    const resolved = resolveTargetParagraphShared(xmlDoc, {
+    return resolveTargetParagraphWithSnapshotShared(xmlDoc, {
         targetText,
         targetRef,
         opType,
+        targetRefSnapshot: runtimeContext?.targetRefSnapshot || null,
         onInfo: message => log(message),
         onWarn: message => log(message)
     });
-
-    const parsedRef = parseParagraphReference(targetRef);
-    if (!parsedRef || resolved?.resolvedBy !== 'ref') return resolved;
-
-    const cleanTargetText = String(targetText || '').trim();
-    const snapshotEntry = runtimeContext?.targetRefSnapshot?.get(parsedRef) || null;
-    const expectedText = cleanTargetText || snapshotEntry?.text || '';
-    const expectedNorm = normalizeWhitespaceForTargeting(expectedText);
-    if (!expectedNorm) return resolved;
-
-    const byRefNorm = normalizeWhitespaceForTargeting(getParagraphText(resolved.paragraph));
-    if (byRefNorm === expectedNorm) return resolved;
-
-    const candidateTexts = [];
-    if (cleanTargetText) candidateTexts.push(cleanTargetText);
-    if (snapshotEntry?.text) {
-        const snapshotNorm = normalizeWhitespaceForTargeting(snapshotEntry.text);
-        if (snapshotNorm && !candidateTexts.some(text => normalizeWhitespaceForTargeting(text) === snapshotNorm)) {
-            candidateTexts.push(snapshotEntry.text);
-        }
-    }
-
-    let bestCandidate = null;
-    for (const candidateText of candidateTexts) {
-        const candidates = findStrictTargetCandidates(xmlDoc, candidateText);
-        const selected = selectBestTargetCandidate(candidates, parsedRef, snapshotEntry?.inTable);
-        if (!selected) continue;
-        if (!bestCandidate) bestCandidate = selected;
-        if (selected.paragraph !== resolved.paragraph) {
-            bestCandidate = selected;
-            break;
-        }
-    }
-
-    if (bestCandidate && bestCandidate.paragraph !== resolved.paragraph) {
-        log(`[Target] [P${parsedRef}] appears stale after prior edits; using strict text rematch for ${opType}.`);
-        return { paragraph: bestCandidate.paragraph, resolvedBy: 'strict_text_after_ref_drift' };
-    }
-
-    return resolved;
 }
 
 function createSimpleParagraph(xmlDoc, text) {
@@ -1185,9 +1093,10 @@ async function applyChatOperations(zip, operations, author) {
     const capturedNumberingXml = [];
     const capturedCommentsXml = [];
     const results = [];
+    const snapshotDoc = parseXmlStrict(documentXml, 'word/document.xml (target snapshot)');
     const runtimeContext = {
         numberingIdState: await createNumberingIdState(zip),
-        targetRefSnapshot: buildParagraphReferenceSnapshot(documentXml)
+        targetRefSnapshot: buildTargetReferenceSnapshot(snapshotDoc)
     };
 
     for (const op of operations) {

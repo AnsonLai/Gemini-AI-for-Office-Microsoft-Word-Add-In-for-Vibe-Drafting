@@ -305,3 +305,132 @@ export function resolveTargetParagraph(xmlDoc, options = {}) {
     if (parsedRef) throw new Error(`Target paragraph reference not found: [P${parsedRef}]`);
     throw new Error('Operation target missing: provide "target" text or "targetRef" ([P#]).');
 }
+
+function isParagraphInTable(paragraph) {
+    return !!findContainingWordElement(paragraph, 'tbl');
+}
+
+function findStrictTargetCandidates(xmlDoc, targetText) {
+    const normalizedTarget = normalizeWhitespaceForTargeting(targetText);
+    if (!normalizedTarget) return [];
+
+    const paragraphs = getDocumentParagraphNodes(xmlDoc);
+    const candidates = [];
+    for (let i = 0; i < paragraphs.length; i++) {
+        const paragraph = paragraphs[i];
+        const paragraphText = getParagraphText(paragraph).trim();
+        if (!paragraphText) continue;
+        if (normalizeWhitespaceForTargeting(paragraphText) !== normalizedTarget) continue;
+        candidates.push({
+            paragraph,
+            index: i + 1,
+            inTable: isParagraphInTable(paragraph)
+        });
+    }
+    return candidates;
+}
+
+function selectBestTargetCandidate(candidates, parsedRef, expectedInTable = null) {
+    if (!Array.isArray(candidates) || candidates.length === 0) return null;
+
+    let scoped = candidates.slice();
+    if (typeof expectedInTable === 'boolean') {
+        const sameContext = scoped.filter(candidate => candidate.inTable === expectedInTable);
+        if (sameContext.length > 0) scoped = sameContext;
+    }
+
+    if (Number.isInteger(parsedRef) && parsedRef > 0) {
+        scoped.sort((a, b) => Math.abs(a.index - parsedRef) - Math.abs(b.index - parsedRef));
+    }
+
+    return scoped[0] || null;
+}
+
+/**
+ * Builds a turn-start paragraph snapshot keyed by 1-based paragraph index.
+ *
+ * Intended for callers that apply multiple operations sequentially and need to
+ * detect `targetRef` drift after earlier structural edits.
+ *
+ * @param {Document|Element|null|undefined} xmlDoc - OOXML document root
+ * @returns {Map<number, { text: string, normalizedText: string, inTable: boolean }>}
+ */
+export function buildTargetReferenceSnapshot(xmlDoc) {
+    const paragraphs = getDocumentParagraphNodes(xmlDoc);
+    const snapshot = new Map();
+    for (let i = 0; i < paragraphs.length; i++) {
+        const paragraph = paragraphs[i];
+        const text = getParagraphText(paragraph).trim();
+        snapshot.set(i + 1, {
+            text,
+            normalizedText: normalizeWhitespaceForTargeting(text),
+            inTable: isParagraphInTable(paragraph)
+        });
+    }
+    return snapshot;
+}
+
+/**
+ * Resolves a paragraph using the standard resolver, then corrects stale
+ * `targetRef` mappings via strict rematch when a turn-start snapshot is provided.
+ *
+ * @param {Document|Element|null|undefined} xmlDoc - OOXML document
+ * @param {{
+ *   targetText?: string,
+ *   targetRef?: string|number|null,
+ *   opType?: string,
+ *   targetRefSnapshot?: Map<number, { text?: string, inTable?: boolean }>|null,
+ *   onInfo?: (msg:string)=>void,
+ *   onWarn?: (msg:string)=>void
+ * }} options - Resolution options
+ * @returns {{ paragraph: Element, resolvedBy: 'ref'|'strict_text'|'fuzzy_text'|'strict_text_after_ref_drift' }}
+ */
+export function resolveTargetParagraphWithSnapshot(xmlDoc, options = {}) {
+    const onInfo = typeof options.onInfo === 'function' ? options.onInfo : () => {};
+    const resolved = resolveTargetParagraph(xmlDoc, options);
+
+    const parsedRef = parseParagraphReference(options.targetRef);
+    if (!parsedRef || resolved?.resolvedBy !== 'ref') return resolved;
+
+    const snapshotEntry = options.targetRefSnapshot instanceof Map
+        ? (options.targetRefSnapshot.get(parsedRef) || null)
+        : null;
+    if (!snapshotEntry) return resolved;
+
+    const cleanTargetText = String(options.targetText || '').trim();
+    const expectedText = cleanTargetText || snapshotEntry.text || '';
+    const expectedNorm = normalizeWhitespaceForTargeting(expectedText);
+    if (!expectedNorm) return resolved;
+
+    const resolvedNorm = normalizeWhitespaceForTargeting(getParagraphText(resolved.paragraph));
+    if (resolvedNorm === expectedNorm) return resolved;
+
+    const candidateTexts = [];
+    if (cleanTargetText) candidateTexts.push(cleanTargetText);
+    if (snapshotEntry.text) {
+        const snapshotNorm = normalizeWhitespaceForTargeting(snapshotEntry.text);
+        if (snapshotNorm && !candidateTexts.some(text => normalizeWhitespaceForTargeting(text) === snapshotNorm)) {
+            candidateTexts.push(snapshotEntry.text);
+        }
+    }
+
+    let bestCandidate = null;
+    for (const candidateText of candidateTexts) {
+        const candidates = findStrictTargetCandidates(xmlDoc, candidateText);
+        const selected = selectBestTargetCandidate(candidates, parsedRef, snapshotEntry.inTable);
+        if (!selected) continue;
+        if (!bestCandidate) bestCandidate = selected;
+        if (selected.paragraph !== resolved.paragraph) {
+            bestCandidate = selected;
+            break;
+        }
+    }
+
+    if (bestCandidate && bestCandidate.paragraph !== resolved.paragraph) {
+        const opType = options.opType || 'operation';
+        onInfo(`[Target] [P${parsedRef}] appears stale after prior edits; using strict text rematch for ${opType}.`);
+        return { paragraph: bestCandidate.paragraph, resolvedBy: 'strict_text_after_ref_drift' };
+    }
+
+    return resolved;
+}

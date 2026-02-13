@@ -86,7 +86,7 @@ reconciliation/
   - Shared paragraph target resolution for per-paragraph operations.
   - Provides `targetRef` parsing (`P#`), strict/fuzzy text matching, and marker stripping helpers used by standalone consumers.
   - Provides table-targeting helpers (`isMarkdownTableText`, containing-word-element lookup) for table-scope operation routing in browser/Node integrations.
-  - Multi-operation standalone/chat callers should keep a turn-start paragraph snapshot when applying sequential structural edits, then use it to detect and correct `targetRef` drift before applying later ops.
+  - Provides turn-snapshot helpers (`buildTargetReferenceSnapshot`, `resolveTargetParagraphWithSnapshot`) for multi-operation standalone/chat callers to detect and correct `targetRef` drift after sequential structural edits.
 - `core/table-targeting.js`
   - Shared heuristics for table-structure intent from per-cell edits.
   - Provides markdown table synthesis from multiline table-cell edits so standalone callers can promote ambiguous cell redlines into full table-scope reconciliation.
@@ -182,6 +182,7 @@ reconciliation/
   - Public API surface with no Word API exports.
   - Normalizes native-API fallback responses for standalone consumers (returns unchanged OOXML + warning when Word-native apply is required).
   - Re-exports shared paragraph-targeting helpers for browser/Node integrations.
+  - Re-exports turn-snapshot drift-correction helpers (`buildTargetReferenceSnapshot`, `resolveTargetParagraphWithSnapshot`) for browser/Node integrations that apply multiple operations per turn.
   - Re-exports shared table-targeting heuristics for browser/Node integrations.
   - Re-exports shared list-targeting heuristics for browser/Node integrations.
 
