@@ -66,4 +66,8 @@ export { injectCommentsIntoOoxml, injectCommentsIntoPackage, buildCommentElement
 export { buildReconciliationPlan, RoutePlanKind, normalizeContentEscapesForRouting } from './orchestration/route-plan.js';
 export { parseMarkdownListContent, hasListItems } from './orchestration/list-parsing.js';
 export { buildListMarkdown, inferNumberingStyleFromMarker, normalizeListItemsWithLevels } from './orchestration/list-markdown.js';
+export {
+    buildSingleLineListStructuralFallbackPlan,
+    executeSingleLineListStructuralFallback
+} from './orchestration/list-structural-fallback.js';
 

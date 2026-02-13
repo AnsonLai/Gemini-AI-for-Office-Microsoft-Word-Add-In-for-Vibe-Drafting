@@ -61,7 +61,8 @@ reconciliation/
 ├── orchestration/
 │   ├── route-plan.js
 │   ├── list-markdown.js
-│   └── list-parsing.js
+│   ├── list-parsing.js
+│   └── list-structural-fallback.js
 ├── integration/
 │   ├── integration.js
 │   ├── word-ooxml.js
@@ -137,6 +138,11 @@ reconciliation/
 - `orchestration/list-parsing.js`
   - Shared markdown list parsing for command adapters (`parseMarkdownListContent`).
   - Removes duplicate list marker regex/parsing logic from command utility surfaces.
+- `orchestration/list-structural-fallback.js`
+  - Shared no-op fallback planning/execution for single-line marker text (`1.`, `A.`, etc.) so plain marker text can be promoted to true OOXML list structure.
+  - Exposes reusable helpers (`buildSingleLineListStructuralFallbackPlan`, `executeSingleLineListStructuralFallback`) for standalone/browser consumers.
+  - Supports optional fallback on already list-bound paragraphs (`allowExistingList`) so callers can detach from an existing list chain and create an isolated list sequence.
+  - Applies numeric start overrides from explicit markers (`1.`, `2.`, etc.) at both num-level (`w:lvlOverride/w:startOverride`) and abstract-level (`w:lvl/w:start`) so isolated converted headers do not continue unrelated ordered lists across renderers.
 - `engine/oxml-engine.js`
   - Main router/orchestrator for text + formatting reconciliation.
   - Chooses modes and delegates work.
@@ -181,8 +187,11 @@ reconciliation/
 - `standalone.js`
   - Public API surface with no Word API exports.
   - Normalizes native-API fallback responses for standalone consumers (returns unchanged OOXML + warning when Word-native apply is required).
+  - Provides `applyRedlineToOxmlWithListFallback(...)` for consumers that want automatic single-line structural list fallback; by default this fallback is preferred before regular redline apply for matching no-text-diff marker cases.
+  - `applyRedlineToOxmlWithListFallback(...)` supports `listFallbackAllowExistingList` (default `true`) to allow re-listing paragraphs that are already in another list chain.
   - Re-exports shared paragraph-targeting helpers for browser/Node integrations.
   - Re-exports turn-snapshot drift-correction helpers (`buildTargetReferenceSnapshot`, `resolveTargetParagraphWithSnapshot`) for browser/Node integrations that apply multiple operations per turn.
+  - Re-exports standalone list-fallback planning/execution helpers (`buildSingleLineListStructuralFallbackPlan`, `executeSingleLineListStructuralFallback`).
   - Re-exports shared table-targeting heuristics for browser/Node integrations.
   - Re-exports shared list-targeting heuristics for browser/Node integrations.
 

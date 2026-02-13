@@ -4,10 +4,7 @@ import {
     applyHighlightToOoxml,
     injectCommentsIntoOoxml,
     configureLogger,
-    ReconciliationPipeline,
-    preprocessMarkdown,
     getParagraphText as getParagraphTextFromOxml,
-    normalizeWhitespaceForTargeting,
     buildTargetReferenceSnapshot,
     isMarkdownTableText,
     findContainingWordElement,
@@ -17,16 +14,14 @@ import {
     stripLeadingParagraphMarker as stripLeadingParagraphMarkerShared,
     splitLeadingParagraphMarker as splitLeadingParagraphMarkerShared,
     resolveTargetParagraphWithSnapshot as resolveTargetParagraphWithSnapshotShared,
-    parseMarkdownListContent,
-    hasListItems,
-    inferNumberingStyleFromMarker,
-    getParagraphListInfo,
+    buildSingleLineListStructuralFallbackPlan,
+    executeSingleLineListStructuralFallback,
     synthesizeTableMarkdownFromMultilineCellEdit,
     synthesizeExpandedListScopeEdit,
     planListInsertionOnlyEdit
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 
-const DEMO_VERSION = '2026-02-13-chat-docx-preview-6';
+const DEMO_VERSION = '2026-02-13-chat-docx-preview-11';
 const GEMINI_API_KEY_STORAGE_KEY = 'browserDemo.geminiApiKey';
 const DEMO_MARKERS = [
     'DEMO_TEXT_TARGET',
@@ -456,31 +451,6 @@ function serializeParagraphRangeAsDocument(paragraphs, serializer) {
     return `<w:document xmlns:w="${NS_W}"><w:body>${paragraphXml}</w:body></w:document>`;
 }
 
-function parseSingleLineListCandidate(text) {
-    const rawText = String(text || '');
-    if (!rawText.trim()) return null;
-    if (rawText.includes('\n')) return null;
-
-    const parsed = parseMarkdownListContent(rawText);
-    if (!parsed || !hasListItems(parsed) || !Array.isArray(parsed.items) || parsed.items.length !== 1) return null;
-
-    const item = parsed.items[0];
-    if (!item || (item.type !== 'numbered' && item.type !== 'bullet')) return null;
-
-    const marker = String(item.marker || '').trim();
-    const numberingStyle = item.type === 'numbered'
-        ? inferNumberingStyleFromMarker(marker || '1.')
-        : 'bullet';
-
-    return {
-        type: item.type,
-        marker,
-        numberingStyle,
-        contentText: String(item.text || '').trim(),
-        normalizedContent: normalizeWhitespaceForTargeting(String(item.text || ''))
-    };
-}
-
 function overwriteParagraphNumIds(paragraphNodes, targetNumId) {
     if (!Array.isArray(paragraphNodes) || !targetNumId) return;
     for (const node of paragraphNodes) {
@@ -511,43 +481,28 @@ async function trySingleParagraphListStructuralFallback({
     author,
     runtimeContext
 }) {
-    if (!targetParagraph || getParagraphListInfo(targetParagraph)) return null;
+    if (!targetParagraph) return null;
 
-    const modifiedRawText = String(modifiedText || '');
-    const modifiedCleanText = preprocessMarkdown(modifiedRawText).cleanText || modifiedRawText;
-    const modifiedCandidate = parseSingleLineListCandidate(modifiedRawText) || parseSingleLineListCandidate(modifiedCleanText);
-    if (!modifiedCandidate) return null;
-
-    const currentCandidate = parseSingleLineListCandidate(currentParagraphText);
-    const normalizedCurrentRaw = normalizeWhitespaceForTargeting(currentParagraphText);
-    const normalizedModifiedRaw = normalizeWhitespaceForTargeting(modifiedCleanText);
-    const sameRawText = normalizedCurrentRaw && normalizedCurrentRaw === normalizedModifiedRaw;
-    const sameListText = currentCandidate && currentCandidate.type === modifiedCandidate.type &&
-        currentCandidate.normalizedContent === modifiedCandidate.normalizedContent;
-    if (!sameRawText && !sameListText) return null;
-
-    const fallbackPipeline = runtimeContext?.singleParagraphListPipeline ||
-        new ReconciliationPipeline({ generateRedlines: true, author: author || 'Browser Demo AI' });
-    if (runtimeContext && !runtimeContext.singleParagraphListPipeline) {
-        runtimeContext.singleParagraphListPipeline = fallbackPipeline;
-    }
+    const scopedParagraphOxml = serializer.serializeToString(targetParagraph);
+    const fallbackPlan = buildSingleLineListStructuralFallbackPlan({
+        oxml: scopedParagraphOxml,
+        originalText: currentParagraphText,
+        modifiedText,
+        allowExistingList: true
+    });
+    if (!fallbackPlan) return null;
 
     log('[List] No textual diff but list marker detected; forcing structural list conversion fallback.');
-    const listInput = `${modifiedCandidate.marker} ${modifiedCandidate.contentText}`.trim();
-    const fallbackResult = await fallbackPipeline.executeListGeneration(
-        listInput,
-        null,
-        null,
-        currentParagraphText
-    );
-    const fallbackOxml = fallbackResult?.oxml || fallbackResult?.ooxml || '';
-    const fallbackIsValid = fallbackResult?.isValid !== false;
-    if (!fallbackOxml || !fallbackIsValid) {
+    const fallbackResult = await executeSingleLineListStructuralFallback(fallbackPlan, {
+        author,
+        generateRedlines: true
+    });
+    if (!fallbackResult?.hasChanges || !fallbackResult?.oxml) {
         log('[List] Structural list fallback produced no valid OOXML payload.');
         return null;
     }
 
-    const extracted = extractReplacementNodes(fallbackOxml);
+    const extracted = extractReplacementNodes(fallbackResult.oxml);
     let replacementNodes = extracted.replacementNodes;
     let numberingXml = extracted.numberingXml || fallbackResult?.numberingXml || null;
     if (numberingXml && runtimeContext?.numberingIdState) {
@@ -556,20 +511,24 @@ async function trySingleParagraphListStructuralFallback({
         numberingXml = normalizedNumbering.numberingXml;
     }
 
-    const numberingKey = `${modifiedCandidate.type}:${modifiedCandidate.numberingStyle}:single`;
-    if (runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
-        const sharedNumId = runtimeContext.listFallbackSharedNumIdByKey.get(numberingKey);
+    const numberingKey = fallbackResult?.listStructuralFallbackKey || fallbackPlan?.numberingKey || null;
+    const hasExplicitStartAt = Number.isInteger(fallbackPlan?.startAt) && fallbackPlan.startAt > 0;
+    if (!hasExplicitStartAt && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
+        const sharedNumId = numberingKey ? runtimeContext.listFallbackSharedNumIdByKey.get(numberingKey) : null;
         if (sharedNumId) {
             overwriteParagraphNumIds(replacementNodes, sharedNumId);
             numberingXml = null;
             log(`[List] Reusing shared list numbering (${numberingKey} -> numId ${sharedNumId}).`);
-        } else {
+        } else if (numberingKey) {
             const generatedNumId = extractFirstParagraphNumId(replacementNodes);
             if (generatedNumId) {
                 runtimeContext.listFallbackSharedNumIdByKey.set(numberingKey, generatedNumId);
                 log(`[List] Captured shared list numbering (${numberingKey} -> numId ${generatedNumId}).`);
             }
         }
+    } else if (hasExplicitStartAt) {
+        const isolatedNumId = extractFirstParagraphNumId(replacementNodes);
+        log(`[List] Using isolated list numbering with explicit start ${fallbackPlan.startAt}${isolatedNumId ? ` (numId ${isolatedNumId})` : ''}.`);
     }
 
     const parent = targetParagraph.parentNode;
@@ -644,6 +603,19 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
         effectiveModifiedText = listScopeEdit.modifiedText;
     }
 
+    if (!useTableScope && !useListScope) {
+        const listFallback = await trySingleParagraphListStructuralFallback({
+            xmlDoc,
+            serializer,
+            targetParagraph,
+            currentParagraphText,
+            modifiedText: effectiveModifiedText,
+            author,
+            runtimeContext
+        });
+        if (listFallback) return listFallback;
+    }
+
     const originalTextForApply = useListScope
         ? listScopeEdit.originalText
         : (currentParagraphText || targetText);
@@ -657,21 +629,7 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
         // Preserve table wrapper when table markdown should reconcile the full table.
         _isolatedTableCell: useTableScope
     });
-    if (!result?.hasChanges) {
-        if (!useTableScope && !useListScope) {
-            const listFallback = await trySingleParagraphListStructuralFallback({
-                xmlDoc,
-                serializer,
-                targetParagraph,
-                currentParagraphText,
-                modifiedText: effectiveModifiedText,
-                author,
-                runtimeContext
-            });
-            if (listFallback) return listFallback;
-        }
-        return { documentXml, hasChanges: false, numberingXml: null };
-    }
+    if (!result?.hasChanges) return { documentXml, hasChanges: false, numberingXml: null };
     if (result.useNativeApi && !result.oxml) {
         const warning = 'Format-only fallback requires native Word API; browser demo skipped this operation.';
         log(`[WARN] ${warning}`);
@@ -1242,7 +1200,6 @@ async function applyChatOperations(zip, operations, author) {
     const runtimeContext = {
         numberingIdState: await createNumberingIdState(zip),
         targetRefSnapshot: buildTargetReferenceSnapshot(snapshotDoc),
-        singleParagraphListPipeline: new ReconciliationPipeline({ generateRedlines: true, author }),
         listFallbackSharedNumIdByKey: new Map()
     };
 

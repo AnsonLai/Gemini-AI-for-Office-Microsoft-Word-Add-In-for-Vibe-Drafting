@@ -17,7 +17,7 @@ Core code is organized by concern:
   - includes hot-path indexed patch lookups for diff application
 - `services/` table/comment/numbering services + shared package builder
 - `orchestration/` Word-agnostic planning helpers for command adapters
-  - includes shared markdown list parsing, list markdown builders, and list-item normalization helpers
+  - includes shared markdown list parsing, list markdown builders, list-item normalization helpers, and single-line structural list fallback helpers
 - `integration/` Word API bridge + shared Word-only OOXML interop helpers
   - includes legacy structured-list insertion fallback helpers extracted from command layer
   - includes shared paragraph route/apply helper (`word-route-change.js`) used by command adapters
