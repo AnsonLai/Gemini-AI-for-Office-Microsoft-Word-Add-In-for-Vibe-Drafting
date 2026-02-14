@@ -514,9 +514,6 @@ async function trySingleParagraphListStructuralFallback({
 
     const numberingKey = fallbackResult?.listStructuralFallbackKey || fallbackPlan?.numberingKey || null;
     const hasExplicitStartAt = Number.isInteger(fallbackPlan?.startAt) && fallbackPlan.startAt > 0;
-    const explicitSequenceByKey = runtimeContext?.listFallbackExplicitSequenceByKey instanceof Map
-        ? runtimeContext.listFallbackExplicitSequenceByKey
-        : null;
     if (!hasExplicitStartAt && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
         const sharedNumId = numberingKey ? runtimeContext.listFallbackSharedNumIdByKey.get(numberingKey) : null;
         if (sharedNumId) {
@@ -533,26 +530,10 @@ async function trySingleParagraphListStructuralFallback({
     } else if (hasExplicitStartAt) {
         const explicitStart = fallbackPlan.startAt;
         const generatedNumId = extractFirstParagraphNumId(replacementNodes);
-        const sequence = numberingKey && explicitSequenceByKey ? explicitSequenceByKey.get(numberingKey) : null;
-
-        if (sequence && explicitStart === sequence.nextExpectedStart && sequence.numId) {
-            overwriteParagraphNumIds(replacementNodes, sequence.numId);
-            numberingXml = null;
-            sequence.nextExpectedStart += 1;
-            log(`[List] Reusing explicit-start list sequence (${numberingKey} -> numId ${sequence.numId}, next ${sequence.nextExpectedStart}).`);
-        } else {
-            if (numberingKey && explicitSequenceByKey && generatedNumId && explicitStart === 1) {
-                explicitSequenceByKey.set(numberingKey, {
-                    numId: generatedNumId,
-                    nextExpectedStart: 2
-                });
-                log(`[List] Started explicit-start list sequence (${numberingKey} -> numId ${generatedNumId}).`);
-            } else if (numberingKey && explicitSequenceByKey && explicitStart === 1 && !generatedNumId) {
-                explicitSequenceByKey.delete(numberingKey);
-            }
-
-            log(`[List] Using isolated list numbering with explicit start ${explicitStart}${generatedNumId ? ` (numId ${generatedNumId})` : ''}.`);
+        if (numberingKey && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
+            runtimeContext.listFallbackSharedNumIdByKey.delete(numberingKey);
         }
+        log(`[List] Using isolated list numbering with explicit start ${explicitStart}${generatedNumId ? ` (numId ${generatedNumId})` : ''}.`);
     }
 
     const parent = targetParagraph.parentNode;
@@ -1088,6 +1069,7 @@ function buildSystemInstruction(paragraphs) {
         '- For table structure changes, target any paragraph within that table and include the correct "targetRef".',
         '- If you can only express it as multiline cell text (example: "Title:\\nDate:"), the client may convert it to full table markdown automatically, but returning full markdown table is preferred.',
         '- For list insertion in the middle of an existing list, return list markdown that includes the existing target item followed by inserted item(s), each on its own list line.',
+        '- If the target paragraph is in an ordered list, preserve ordered markers for inserted lines (for example use "2.2.1."), not bullet markers.',
         '- You CAN apply formatting like bold and underline using redline operations.',
         '- To underline a title, use: { "type": "redline", "target": "Title Text", "modified": "++Title Text++" }',
         '- To bold a word, use: { "type": "redline", "target": "Some text here", "modified": "Some **text** here" }',
@@ -1227,8 +1209,7 @@ async function applyChatOperations(zip, operations, author) {
     const runtimeContext = {
         numberingIdState: await createNumberingIdState(zip),
         targetRefSnapshot: buildTargetReferenceSnapshot(snapshotDoc),
-        listFallbackSharedNumIdByKey: new Map(),
-        listFallbackExplicitSequenceByKey: new Map()
+        listFallbackSharedNumIdByKey: new Map()
     };
 
     for (const op of operations) {

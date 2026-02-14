@@ -84,6 +84,37 @@ function resolveInsertionLevel(item, anchorLevel, baselineLevel) {
     return Math.max(0, anchorLevel + ((item?.level || 0) - baselineLevel));
 }
 
+function shouldPromoteBulletInsertionsToChildDepth(parsedItems, normalizedTargetText, anchorLevel) {
+    if (!Array.isArray(parsedItems) || parsedItems.length < 2) return false;
+    if (!Number.isInteger(anchorLevel) || anchorLevel < 1) return false;
+
+    const firstItem = parsedItems[0];
+    const trailingListItems = parsedItems.slice(1).filter(item => item.kind === 'list');
+    if (trailingListItems.length === 0) return false;
+    if (trailingListItems.some(item => item.markerType !== 'bullet')) return false;
+    if (trailingListItems.some(item => Number.isInteger(item.outlineLevel))) return false;
+
+    if (firstItem?.kind === 'text') {
+        return isNormalizedTextEqual(firstItem.text, normalizedTargetText);
+    }
+
+    if (firstItem?.kind === 'list' && firstItem.markerType === 'numbered') {
+        return isNormalizedTextEqual(firstItem.text, normalizedTargetText);
+    }
+
+    return false;
+}
+
+function promoteBulletInsertionsToChildDepth(entries, anchorLevel) {
+    return entries.map(entry => {
+        const relativeDepth = Math.max(0, (entry.ilvl || 0) - anchorLevel);
+        return {
+            ...entry,
+            ilvl: Math.min(8, anchorLevel + 1 + relativeDepth)
+        };
+    });
+}
+
 function buildListEntriesForInsertion(parsedItems, normalizedTargetText, anchorLevel, defaultMarkerType) {
     const firstItem = parsedItems[0];
     const trailingListItems = parsedItems.slice(1).filter(item => item.kind === 'list');
@@ -324,11 +355,16 @@ export function planListInsertionOnlyEdit(targetParagraph, modifiedText, options
     const listItemsOnly = parsed.items.filter(item => item.kind === 'list');
     const defaultMarkerType = listItemsOnly[0]?.markerType || 'bullet';
     const anchorLevel = Math.max(0, targetListInfo.ilvl);
-    const entries = buildListEntriesForInsertion(parsed.items, normalizedTargetText, anchorLevel, defaultMarkerType);
+    let entries = buildListEntriesForInsertion(parsed.items, normalizedTargetText, anchorLevel, defaultMarkerType);
 
     if (!entries || entries.length === 0) {
         onWarn('[List] Could not derive insertion-only entries from multiline list edit.');
         return null;
+    }
+
+    if (shouldPromoteBulletInsertionsToChildDepth(parsed.items, normalizedTargetText, anchorLevel)) {
+        entries = promoteBulletInsertionsToChildDepth(entries, anchorLevel);
+        onInfo('[List] Promoted bullet insertion to child depth for nested numbered-list intent.');
     }
 
     onInfo('[List] Planned insertion-only list redline entries (no block rewrite).');

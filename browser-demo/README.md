@@ -5,6 +5,9 @@ No-build browser demo for the standalone OOXML reconciliation engine.
 It demonstrates end-to-end `.docx` mutation in the browser, including text redlines, formatting, list/table transforms, comments, and highlights.
 It also renders a live side-by-side preview using `docxjs` so tracked changes can be reviewed immediately.
 
+> [!IMPORTANT]
+> The `docxjs` preview is not authoritative for Word list behavior. Validate list/numbering correctness against Microsoft Word desktop when debugging reconciliation output.
+
 ## Modes
 
 ### Chat Mode (Primary)
@@ -103,9 +106,9 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 - List conversion now bypasses text-only no-op short-circuits when loose list markers are present, so existing marker-prefixed plain text (`A.`, `B.`, `C.`) can still be converted into true Word list structure.
 - If a single-paragraph redline is a no-op but `modified` is a one-line list marker (for example `1. DEFINITION`), the demo now applies shared standalone fallback helpers (`buildSingleLineListStructuralFallbackPlan`, `executeSingleLineListStructuralFallback`) to force structural list conversion and strip manual marker text into true list numbering.
 - For header conversions, the demo allows this fallback even when a target paragraph is already list-bound, so it can detach from an existing list chain and create an isolated numbering sequence for the converted headers.
-- When explicit numeric markers are applied as a monotonic sequence (`1.`, `2.`, `3.`, ...), fallback seeds the first item with start override and then reuses that generated `numId` across subsequent expected starts so section headers stay on a dedicated list chain.
-- If explicit numeric starts are non-sequential or do not begin at `1`, fallback keeps per-item isolated numbering behavior.
+- For explicit numeric single-line markers (`1.`, `2.`, `3.`, ...), fallback keeps each conversion isolated with its own remapped `numId` plus start override, which avoids accidental continuation through unrelated lists in Word.
 - Explicit composite ordered markers in multiline insertion edits (for example `2.2.1`) now map to deeper OOXML list levels during insertion-only planning, so requested sub-sub items are inserted at the intended depth instead of becoming same-level siblings.
+- When multiline insertion under a nested ordered item is ambiguous (for example model emits bullet marker text), insertion-only heuristics promote inserted lines one level deeper to preserve sub-item intent.
 - Browser demo fallback applies explicit starts with num-level `w:lvlOverride/w:startOverride` only (abstract-level start override disabled) to avoid renderer-wide renumber side effects across unrelated lists.
 - For repeated single-line conversions without explicit numeric starts, the demo reuses a shared generated `numId` per list style so numbering continues across non-contiguous targets.
 
@@ -141,6 +144,7 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 - "Target paragraph not found": Gemini may have slightly modified the paragraph text when referencing it. Check the engine log for details.
 - "Format-only fallback requires native Word API": this operation was a pure formatting change where the engine could not safely localize spans in OOXML. The browser demo skips it; use a more specific target (`targetRef` + exact paragraph text) or run through the add-in Word path.
 - Demo version in log does not match expected (`v2026-02-13-chat-docx-preview-13`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
+- Need Word-grounded list diagnostics: run `tests/word-desktop/list-inspector.ps1` against the generated `.docx` and compare `listId`/`listLevel`/`listValue` for the affected paragraphs.
 - Validation error about numbering/comments: check whether package relationships or content types were removed by prior tooling.
 - No Gemini output: verify API key and network access; kitchen-sink fallback path should still run.
 - Chat input disabled: upload a `.docx` file first to enable the chat.

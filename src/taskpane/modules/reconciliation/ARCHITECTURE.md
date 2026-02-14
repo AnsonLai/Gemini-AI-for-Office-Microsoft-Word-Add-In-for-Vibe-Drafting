@@ -96,6 +96,7 @@ reconciliation/
   - Shared heuristics for list-structure intent from per-item edits.
   - Provides insertion-only list planning for multiline middle-insert patterns so callers can add only new list items as redlines.
   - Supports composite ordered markers (for example `2.2.1`) when deriving insertion levels, so insertion-only plans can create deeper nested levels instead of flattening to same-level siblings.
+  - Promotes ambiguous bullet insertions under nested numbered anchors to child depth so natural-language "add sub-item" requests do not flatten to sibling numbering.
   - Provides contiguous list-block synthesis fallback for ambiguous/more complex multiline list edits.
 - `core/ooxml-identifiers.js`
   - Shared OOXML identity extractors (`w14:paraId` and related paragraph tokens).

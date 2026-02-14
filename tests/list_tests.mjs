@@ -8,6 +8,7 @@ import { NumberingService } from '../src/taskpane/modules/reconciliation/service
 import { ingestOoxml } from '../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
 import { serializeToOoxml } from '../src/taskpane/modules/reconciliation/pipeline/serialization.js';
 import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
+import { planListInsertionOnlyEdit } from '../src/taskpane/modules/reconciliation/core/list-targeting.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -285,6 +286,51 @@ async function verifyListFixes() {
         }
     } else {
         console.log('❌ FAIL: Second paragraph not generated.');
+    }
+}
+
+// --- Test 5b: Insertion-only nested depth for sub-sub ordered intent ---
+function testInsertionOnlyNestedDepthHeuristics() {
+    console.log('\n=== Test: Insertion-Only Nested Depth Heuristics ===');
+
+    const parser = new DOMParser();
+    const paragraphDoc = parser.parseFromString(`
+    <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body>
+            <w:p>
+                <w:pPr>
+                    <w:numPr>
+                        <w:ilvl w:val="1"/>
+                        <w:numId w:val="42"/>
+                    </w:numPr>
+                </w:pPr>
+                <w:r><w:t>This copy is to be used solely for archival purposes to ensure compliance and record-keeping.</w:t></w:r>
+            </w:p>
+        </w:body>
+    </w:document>`, 'application/xml');
+    const targetParagraph = paragraphDoc.getElementsByTagNameNS('*', 'p')[0];
+    const anchorText = 'This copy is to be used solely for archival purposes to ensure compliance and record-keeping.';
+
+    const bulletAmbiguous = `${anchorText}\n  - This archival copy must be legally required by the SEC or FCC.`;
+    const bulletPlan = planListInsertionOnlyEdit(targetParagraph, bulletAmbiguous, {
+        currentParagraphText: anchorText
+    });
+    const bulletIlvl = bulletPlan?.entries?.[0]?.ilvl ?? null;
+    if (bulletPlan && bulletIlvl === 2) {
+        console.log('✅ PASS: Ambiguous bullet insertion promoted to child depth (ilvl=2).');
+    } else {
+        console.log('❌ FAIL: Ambiguous bullet insertion did not promote to child depth.', { bulletIlvl });
+    }
+
+    const explicitComposite = `${anchorText}\n  2.2.1. This archival copy must be legally required by the SEC or FCC.`;
+    const explicitPlan = planListInsertionOnlyEdit(targetParagraph, explicitComposite, {
+        currentParagraphText: anchorText
+    });
+    const explicitIlvl = explicitPlan?.entries?.[0]?.ilvl ?? null;
+    if (explicitPlan && explicitIlvl === 2) {
+        console.log('✅ PASS: Explicit composite marker mapped to ilvl=2.');
+    } else {
+        console.log('❌ FAIL: Explicit composite marker depth mapping incorrect.', { explicitIlvl });
     }
 }
 
@@ -610,6 +656,7 @@ C. Third recital clause.`;
     await testReproListIssue();
     await verifyFixedListConversion();
     await verifyListFixes();
+    testInsertionOnlyNestedDepthHeuristics();
     await testKitchenSinkMarkdown();
     testMixedContentParsing();
 
