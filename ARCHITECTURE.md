@@ -1,10 +1,36 @@
-# Architecture Documentation
+# System Architecture & Project Map
 
-This document outlines the architectural logic of the **Gemini AI for Office Word Add-in**, focusing on the Taskpane, Chat Orchestration, and Command Execution layers.
+## Project Map (The GSD Multi-Project Vision)
+
+This repository serves as a mono-repo for a suite of tools built around a common **OOXML Reconciliation Core**.
+
+```mermaid
+graph TD
+    Core[Reconciliation Core\n/src/taskpane/modules/reconciliation] --> Word[Word Add-in\n/src/taskpane]
+    Core --> Demo[Browser Demo\n/browser-demo]
+    Core --> MCP[MCP Server\n/mcp/docx-server]
+    
+    style Core fill:#f9f,stroke:#333,stroke-width:4px
+```
+
+### Sub-Projects
+1. **[Reconciliation Core](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/src/taskpane/modules/reconciliation)**: The host-independent engine for `.docx` manipulation. No Office.js dependencies.
+2. **[Word Add-in](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/src/taskpane)**: The Microsoft Word implementation. Acts as the primary host.
+3. **[Browser Demo](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/browser-demo)**: Client-side demonstration. Reuses `standalone.js`, handles package-level artifacts (numbering, comments), and validates output package consistency via JSZip.
+4. **[MCP Server](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/mcp/docx-server)**: Node.js automation tool. Uses the same standalone entrypoint to edit paragraphs and annotate documents without a Word host.
+
+> [!TIP]
+> **Cross-Environment Validation**: Demo environments are critical for validating reconciliation changes independently of Word's runtime constraints.
+
+---
+
+# Detailed Architecture: OOXML Reconciliation
+
+This document outlines the architectural logic of the **Gemini AI for Office Word Add-in**, with a deep dive into the **OOXML Reconciliation Engine**.
 
 ## High-Level Architecture
 
-The application follows a **Chat-Centric** architecture where the Taskpane acts as the orchestrator between the User, the Word Document (via Office.js), and the Gemini API.
+The system follows a **Chat-Centric** architecture where the Taskpane acts as the orchestrator between the User, the Word Document (via Office.js), and the Gemini API.
 
 ```mermaid
 graph TD
@@ -22,208 +48,56 @@ graph TD
     rPrChange --> Word
 ```
 
-## Current State: Hybrid Architecture with Migration Path
+---
 
-The system currently operates in a **hybrid mode**, using both Word JS API and OOXML approaches. The goal is to migrate to a **pure OOXML approach** for better portability and consistency.
+## 1. The OOXML Reconciliation Engine (`src/taskpane/modules/reconciliation/`)
 
-### Word JS API Dependencies (Current)
+The core of the project is a portable engine that converts AI-generated Markdown into valid Office Open XML (Word) structures while preserving formatting and generating precise "Track Changes" (Redlines).
 
-The following areas still rely on Word JS API for logic:
+### Hybrid Operating Modes
 
-1. **Context Extraction**: `extractEnhancedDocumentContext()` uses `Word.run()` and `paragraph.load()`
-2. **Document Navigation**: `executeNavigate()` uses `paragraph.select()`
-3. **Comment Operations**: `executeComment()` uses `match.insertComment()`
-4. **Track Changes Management**: `setChangeTrackingForAi()` and `restoreChangeTracking()`
-5. **List Conversion**: `executeConvertHeadersToList()` still uses Word's list API
-6. **Table Operations**: `executeEditTable()` uses Word's table API for some operations
-7. **Search Operations**: `searchWithFallback()` uses `paragraph.search()`
+The engine (`oxml-engine.js`) automatically selects the best strategy based on the operation:
 
-### OOXML Capabilities (Current)
+| Mode | Trigger | Focus |
+|------|---------|-------|
+| **FORMAT-ONLY** | Text unchanged, has formatting | Surgical Bold, Italic, etc. via `w:rPrChange`. |
+| **SURGICAL** | Existing tables detected | Edits that preserve table node integrity. |
+| **RECONSTRUCTION** | Standard text edits | Rebuilds paragraph via RunModel pipeline. |
+| **LIST EXPANSION** | Paragraph -> Markdown List | Generates `w:numPr` and list structure. |
+| **TABLE RECON** | Markdown Table input | Virtual Grid diffing for merged cell safety. |
 
-The following areas are fully managed via the pure OOXML engine:
+### The Reconciliation Pipeline (`pipeline.js`)
 
-1. **Text Editing**: `applyRedlineToOxml()` for paragraph-level edits
-2. **Pure Formatting Changes**: `w:rPrChange` engine for surgical Bold, Italic, etc.
-3. **Highlighting**: `applyHighlightToOoxml()` for surgical highlighting
-4. **List Generation/Editing**: OOXML pipeline for complex structures and `executeEditList` (with OOXML redlines)
-5. **Table Generation**: OOXML pipeline for table creation
-6. **Checkpoint System**: Stores entire document body as OOXML
+Used for text and list operations through a 5-stage process:
+1. **Ingestion**: Flattening OOXML into a linear `RunModel` with offset mapping.
+2. **Markdown Pre-processing**: Stripping markers and capturing `FormatHints`.
+3. **Word-Level Diffing**: Hashing words to unique characters for "native-looking" redlines.
+4. **Patching**: Splitting runs at boundaries and applying `keep`/`insert`/`delete` operations.
+5. **Serialization**: Reconstructing the XML from the patched `RunModel`.
+
+### Key Architectural Concepts
+
+#### Virtual Grid for Tables
+OOXML tables use sparse, row-based structures with complex merges (`vMerge`, `gridSpan`). We convert these into a flat **Virtual Grid** (2D array) for spatial reasoning before diffing, then re-calculate merges during serialization.
+
+#### Surgical Property Modification (`w:rPrChange`)
+To ensure formatting changes appear as native Word formatting comments in the margin (e.g., "Formatted: Bold"), we inject delta snapshots into the `<w:rPr>` element instead of performing full text replacements.
+
+#### Table Cell Paragraph Handling (Unwrap/Rewrap)
+Word's API often returns the entire table when asking for a paragraph inside a cell. We surgically extract the target `w:p`, perform the edit, and wrap it back into a minimal package to avoid nesting tables unexpectedly.
 
 ---
 
-## 1. Taskpane Layer (`src/taskpane/taskpane.js`)
+## 2. Portability Layer
 
-The `taskpane.js` file is the entry point and main controller. It manages the UI, chat state, and the primary "Think-Act" loop.
+The engine is designed to be **Host-Independent**:
+- **XML Utility**: Uses `DOMParser` in browsers and `@xmldom/xmldom` in Node.js.
+- **No Global Dependencies**: Core logic is isolated from `Office.js` globals.
+- **Standalone Entrypoint**: `standalone.js` provides the API for external consumers.
 
-### Key Responsibilities
-1.  **State Management**:
-    *   `chatHistory`: Maintains the conversation context, trimmed to a rolling window (default 10 turns).
-    *   `currentRequestController`: Handles cancellation (AbortController) for long-running requests.
-    *   `toolsExecutedInCurrentRequest`: Tracks success for partial failure recovery.
-
-2.  **Context Extraction (`extractEnhancedDocumentContext`)**:
-    *   **Current Implementation**: Uses Word JS API (`Word.run()`, `paragraph.load()`)
-    *   **Migration Target**: Replace with pure OOXML parsing
-    *   Before every API call, the system "reads" the document.
-    *   **Reliable Extraction**: Always calls `paragraph.load("text")` before processing. This avoids character truncation issues found in some Word API versions, ensuring the OOXML Engine has a full, accurate string for diffing.
-    *   **Enhanced Notation**: It converts Word paragraphs into a metadata-rich textual format for the LLM:
-        *   `[P#|Style] Text...`
-        *   `[P#|ListNumber|L:level|§] Item...` (Captures list structure)
-        *   `[P#|T:row,col] Cell...` (Captures table structure)
-    *   **Purpose**: Gives the LLM precise "anchors" (P-numbers) to reference in its tool calls.
-
-3.  **Chat Orchestration (`sendChatMessage`)**:
-    *   **Preparation**: Locks UI, extracts context, loads settings.
-    *   **The Loop**: A `while(keepLooping)` loop that allows the AI to execute multiple tools in a chain (up to `MAX_LOOPS` = 6).
-    *   **Tool Execution**:
-        *   Parses `candidate.content.parts` for `functionCall`.
-        *   Updates the "Thinking..." UI to show specific actions (e.g., "Applying edits...", "Researching...").
-        *   Executes the corresponding function from `agentic-tools.js`.
-        *   Pushes the `functionResponse` back to `chatHistory`.
-    *   **Recovery Logic**:
-        *   Handles generic API errors.
-        *   **Specific Recovery**: If Gemini gets confused about turn order (Function Call/Response mismatch), it enters a tiered recovery mode:
-            1.  **Tier 1**: Validate/Clean history pairs.
-            2.  **Tier 2**: Wipe all function calls from history (keep only text).
-            3.  **Tier 3**: Fresh start (wipe history, keep system prompt + user message).
-            4.  **Tier 4**: Graceful degradation (stop and show partial success).
-
----
-
-## 2. Command Layer (`src/taskpane/modules/commands/agentic-tools.js`)
-
-This module translates high-level AI instructions (e.g., "Fix the spelling in paragraph 3") into specific document operations.
-
-### Current Hybrid Implementation
-
-The system currently uses a hybrid approach with both Word JS API and OOXML:
-
-#### Word JS API Operations (To be Migrated)
-
-1. **`executeComment()`**: Uses `match.insertComment()` for comment insertion
-2. **`executeNavigate()`**: Uses `paragraph.select()` for navigation
-3. **`executeConvertHeadersToList()`**: Uses Word's list API (`startNewList()`, `attachToList()`)
-4. **`executeEditTable()`**: Uses Word's table API for table operations
-5. **`searchWithFallback()`**: Uses `paragraph.search()` for text search
-
-#### OOXML Operations (Already Portable)
-
-1. **`executeRedline()`**: Uses `applyRedlineToOxml()` for text editing
-2. **`executeHighlight()`**: Uses `applyHighlightToOoxml()` for highlighting
-3. **`executeEditList()`**: Uses OOXML reconciliation for list generation and replacement (`w:ins`/`w:del` when redlines are enabled), then inserts with native tracking temporarily off to avoid double-tracking
-4. **`executeInsertListItem()`**: Uses OOXML for surgical list item insertion
-5. **Pure Formatting**: Surgical `w:rPrChange` for redlining formatting changes
-
-### Migration Strategy
-
-The goal is to replace all Word JS API calls with pure OOXML operations:
-
-1. **Comment Operations**: Replace `insertComment()` with OOXML comment injection
-2. **Navigation**: Replace `paragraph.select()` with OOXML-based position tracking
-3. **List Conversion**: Replace Word list API with OOXML list generation
-4. **Table Operations**: Replace Word table API with OOXML table manipulation
-5. **Search Operations**: Replace `paragraph.search()` with OOXML text parsing
-
----
-
-## 3. Markdown & Conversion Logic
-
-The system allows the AI to write in Markdown, which is then converted to Word-native formats.
-
-### Markdown Processor (`markdown-processor.js`)
-*   **Purpose**: Pre-processing for the **OOXML Engine**.
-*   **Logic**:
-    1.  **Parse**: Regex-based parsing of Markdown symbols (`**bold**`, `*italic*`, `~~strike~~`, `++underline++`).
-    2.  **Strip**: Returns `cleanText` (plain text without markers).
-    3.  **Hints**: Returns an array of `FormatHints` (`{ start, end, format: { bold: true } }`).
-*   **Usage**: The OOXML engine generates the plain text XML, then "paints" these format hints using an **Elementary Segment Splitting** strategy. This ensures that overlapping formats (e.g., ***Bold+Italic***) are handled correctly.
-
-### Markdown Utils (`markdown-utils.js`)
-*   **Purpose**: Pre-processing for the **HTML Fallback** path.
-*   **Logic**: Uses established libraries (likely `marked` or custom parsers) to convert Markdown string -> HTML string (e.g., `**text**` -> `<strong>text</strong>`).
-*   **Usage**: Used when `insertHtml` is safe/preferred (simple text updates without complex nesting or track changes requirements).
-*   **Migration Note**: This HTML fallback should be replaced with pure OOXML generation for consistency.
-
-## 4. Checkpoint System
-
-*   **Location**: `taskpane.js` (`createCheckpoint`, `restoreCheckpoint`).
-*   **Mechanism**: Stores the **Entire Document Body OOXML** in `localStorage`.
-*   **Trigger**: Automatically triggered before *every* destructive tool call (`apply_redlines`, etc.).
-*   **Management**: Implements Quota Management (prunes old checkpoints when 5MB limit is reached).
-*   **Portability**: This system is already OOXML-based and portable.
-
-## 5. Critical Data Flows
-
-### The Context Loop
-1.  **Read**: `Word.run` -> `extractEnhancedDocumentContext` -> `[P1] Text...`
-   - **Migration Target**: Replace Word JS API with pure OOXML parsing
-2.  **Think**: Gemini receives context -> Decides to call `apply_redlines(instruction: "fix typo in P1")`.
-3.  **Act**: `agentic-tools.js` parses instruction -> Locates Paragraph 1 -> Applies Change.
-4.  **Verify**: Loop repeats, updated context effectively verifies the change (AI sees the new text in next turn).
-
-### The Redline/formatted Text Flow
-1.  **Input**: AI generates `newContent` with Markdown (e.g., `Hello **World**`).
-2.  **Detection**: `agentic-tools` detects Markdown markers.
-3.  **Path Selection**:
-    *   **Pure Formatting Mode (Surgical)**: For formatting-only changes (Bold, Italic, U, Strike), the engine modifies `w:rPr` in place and uses `w:rPrChange` for redlines. This is the **preferred high-fidelity path**.
-    *   **Reconstruction Mode**: For combined text and formatting edits, or complex list/table generation. It reconstructs paragraphs and applies explicit `w:val="1"` attributes.
-    *   **Structured List Edits (`edit_list`)**: List ranges are reconciled as OOXML list content. If redlines are enabled, the engine emits `w:ins`/`w:del` markup and insertion is done with native tracking disabled for that operation.
-    *   **Migration Target**: Fully eliminate deprecated fallback methods and rely on Pure Formatting and Reconstruction modes for all edits.
-
-## 6. Migration Plan to Pure OOXML
-
-### Phase 1: Replace Context Extraction
-- **Current**: Uses Word JS API (`Word.run()`, `paragraph.load()`)
-- **Target**: Parse OOXML directly to extract paragraph information
-- **Benefit**: Eliminates dependency on Word API for document reading
-
-### Phase 2: Replace Comment Operations
-- **Current**: Uses `match.insertComment()`
-- **Target**: Inject comments directly into OOXML structure
-- **Benefit**: Portable comment functionality
-
-### Phase 3: Replace Navigation
-- **Current**: Uses `paragraph.select()`
-- **Target**: Implement OOXML-based position tracking and scrolling
-- **Benefit**: Portable navigation across different Word environments
-
-### Phase 4: Replace List Conversion
-- **Current**: Uses Word's list API
-- **Target**: Use OOXML list generation for all list operations
-- **Benefit**: Consistent list handling across environments
-
-### Phase 5: Replace Table Operations
-- **Current**: Uses Word's table API
-- **Target**: Use OOXML table manipulation for all table operations
-- **Benefit**: Portable table functionality
-
-### Phase 6: Replace Search Operations
-- **Current**: Uses `paragraph.search()`
-- **Target**: Implement OOXML text parsing and search
-- **Benefit**: Portable text search functionality
-
-### Phase 7: Finalize Pure OOXML Integration
-- **Target**: Ensure all operations use the OOXML engine and eliminate legacy range manipulation
-- **Benefit**: Consistent behavior and 100% portability of the core engine
-
-## 7. Benefits of Pure OOXML Approach
-
-1. **Portability**: Code can run outside Word add-in environment
-2. **Consistency**: Same behavior across different Word versions
-3. **Maintainability**: Single approach for all document operations
-4. **Testability**: Easier to test with mock OOXML documents
-5. **Future-proof**: Independent of Word JS API changes
-
-## 8. Implementation Guidelines
+## 3. Implementation Workflow
 
 ### For New Features
-1. **Always use OOXML first** for any document manipulation
-2. **Avoid Word JS API** unless absolutely necessary
-3. **Document exceptions** clearly in architecture files
-4. **Create migration tickets** for any Word JS API usage
-
-### For Existing Features
-1. **Prioritize migration** of Word JS API dependencies
-2. **Test thoroughly** after each migration
-3. **Update documentation** to reflect new OOXML approach
-4. **Remove deprecated code** after successful migration
+1. **Prefer OOXML**: Always attempt OOXML-based manipulation first.
+2. **Consult [ROADMAP.md](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/ROADMAP.md)**: Check if a similar pattern is already implemented or planned.
+3. **Update Documentation**: Log architectural decisions in [STATE.md](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/STATE.md).

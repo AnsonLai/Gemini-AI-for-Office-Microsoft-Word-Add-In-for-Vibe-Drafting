@@ -21,7 +21,7 @@ import {
     planListInsertionOnlyEdit
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 
-const DEMO_VERSION = '2026-02-13-chat-docx-preview-11';
+const DEMO_VERSION = '2026-02-13-chat-docx-preview-13';
 const GEMINI_API_KEY_STORAGE_KEY = 'browserDemo.geminiApiKey';
 const DEMO_MARKERS = [
     'DEMO_TEXT_TARGET',
@@ -495,7 +495,8 @@ async function trySingleParagraphListStructuralFallback({
     log('[List] No textual diff but list marker detected; forcing structural list conversion fallback.');
     const fallbackResult = await executeSingleLineListStructuralFallback(fallbackPlan, {
         author,
-        generateRedlines: true
+        generateRedlines: true,
+        setAbstractStartOverride: false
     });
     if (!fallbackResult?.hasChanges || !fallbackResult?.oxml) {
         log('[List] Structural list fallback produced no valid OOXML payload.');
@@ -513,6 +514,9 @@ async function trySingleParagraphListStructuralFallback({
 
     const numberingKey = fallbackResult?.listStructuralFallbackKey || fallbackPlan?.numberingKey || null;
     const hasExplicitStartAt = Number.isInteger(fallbackPlan?.startAt) && fallbackPlan.startAt > 0;
+    const explicitSequenceByKey = runtimeContext?.listFallbackExplicitSequenceByKey instanceof Map
+        ? runtimeContext.listFallbackExplicitSequenceByKey
+        : null;
     if (!hasExplicitStartAt && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
         const sharedNumId = numberingKey ? runtimeContext.listFallbackSharedNumIdByKey.get(numberingKey) : null;
         if (sharedNumId) {
@@ -527,8 +531,28 @@ async function trySingleParagraphListStructuralFallback({
             }
         }
     } else if (hasExplicitStartAt) {
-        const isolatedNumId = extractFirstParagraphNumId(replacementNodes);
-        log(`[List] Using isolated list numbering with explicit start ${fallbackPlan.startAt}${isolatedNumId ? ` (numId ${isolatedNumId})` : ''}.`);
+        const explicitStart = fallbackPlan.startAt;
+        const generatedNumId = extractFirstParagraphNumId(replacementNodes);
+        const sequence = numberingKey && explicitSequenceByKey ? explicitSequenceByKey.get(numberingKey) : null;
+
+        if (sequence && explicitStart === sequence.nextExpectedStart && sequence.numId) {
+            overwriteParagraphNumIds(replacementNodes, sequence.numId);
+            numberingXml = null;
+            sequence.nextExpectedStart += 1;
+            log(`[List] Reusing explicit-start list sequence (${numberingKey} -> numId ${sequence.numId}, next ${sequence.nextExpectedStart}).`);
+        } else {
+            if (numberingKey && explicitSequenceByKey && generatedNumId && explicitStart === 1) {
+                explicitSequenceByKey.set(numberingKey, {
+                    numId: generatedNumId,
+                    nextExpectedStart: 2
+                });
+                log(`[List] Started explicit-start list sequence (${numberingKey} -> numId ${generatedNumId}).`);
+            } else if (numberingKey && explicitSequenceByKey && explicitStart === 1 && !generatedNumId) {
+                explicitSequenceByKey.delete(numberingKey);
+            }
+
+            log(`[List] Using isolated list numbering with explicit start ${explicitStart}${generatedNumId ? ` (numId ${generatedNumId})` : ''}.`);
+        }
     }
 
     const parent = targetParagraph.parentNode;
@@ -571,6 +595,9 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
         : null;
     if (insertionOnlyPlan && insertionOnlyPlan.entries.length > 0) {
         log(`[List] Applying insertion-only list redline heuristic (${insertionOnlyPlan.entries.length} new item(s)).`);
+        for (const entry of insertionOnlyPlan.entries) {
+            log(`[List] Insertion entry resolved: ilvl=${entry.ilvl}, markerType=${entry.markerType}, text="${String(entry.text || '').slice(0, 80)}${String(entry.text || '').length > 80 ? '…' : ''}"`);
+        }
         const parent = targetParagraph.parentNode;
         if (!parent) throw new Error('Target paragraph has no parent for list insertion');
         const insertionPoint = targetParagraph.nextSibling;
@@ -1200,7 +1227,8 @@ async function applyChatOperations(zip, operations, author) {
     const runtimeContext = {
         numberingIdState: await createNumberingIdState(zip),
         targetRefSnapshot: buildTargetReferenceSnapshot(snapshotDoc),
-        listFallbackSharedNumIdByKey: new Map()
+        listFallbackSharedNumIdByKey: new Map(),
+        listFallbackExplicitSequenceByKey: new Map()
     };
 
     for (const op of operations) {

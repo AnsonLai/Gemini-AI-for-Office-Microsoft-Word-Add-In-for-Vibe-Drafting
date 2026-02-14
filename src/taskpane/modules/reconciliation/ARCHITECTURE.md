@@ -95,6 +95,7 @@ reconciliation/
 - `core/list-targeting.js`
   - Shared heuristics for list-structure intent from per-item edits.
   - Provides insertion-only list planning for multiline middle-insert patterns so callers can add only new list items as redlines.
+  - Supports composite ordered markers (for example `2.2.1`) when deriving insertion levels, so insertion-only plans can create deeper nested levels instead of flattening to same-level siblings.
   - Provides contiguous list-block synthesis fallback for ambiguous/more complex multiline list edits.
 - `core/ooxml-identifiers.js`
   - Shared OOXML identity extractors (`w14:paraId` and related paragraph tokens).
@@ -142,7 +143,7 @@ reconciliation/
   - Shared no-op fallback planning/execution for single-line marker text (`1.`, `A.`, etc.) so plain marker text can be promoted to true OOXML list structure.
   - Exposes reusable helpers (`buildSingleLineListStructuralFallbackPlan`, `executeSingleLineListStructuralFallback`) for standalone/browser consumers.
   - Supports optional fallback on already list-bound paragraphs (`allowExistingList`) so callers can detach from an existing list chain and create an isolated list sequence.
-  - Applies numeric start overrides from explicit markers (`1.`, `2.`, etc.) at both num-level (`w:lvlOverride/w:startOverride`) and abstract-level (`w:lvl/w:start`) so isolated converted headers do not continue unrelated ordered lists across renderers.
+  - Applies numeric start overrides from explicit markers (`1.`, `2.`, etc.) at num-level (`w:lvlOverride/w:startOverride`) and optionally abstract-level (`w:lvl/w:start`) via `setAbstractStartOverride`.
 - `engine/oxml-engine.js`
   - Main router/orchestrator for text + formatting reconciliation.
   - Chooses modes and delegates work.

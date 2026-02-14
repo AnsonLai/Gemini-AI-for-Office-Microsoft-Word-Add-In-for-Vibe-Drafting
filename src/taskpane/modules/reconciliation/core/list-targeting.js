@@ -25,6 +25,13 @@ function readValAttribute(element) {
     return element.getAttribute('w:val') || element.getAttribute('val') || null;
 }
 
+function parseOutlineLevelFromMarker(marker) {
+    const normalized = String(marker || '').trim();
+    if (!/^\d+(?:\.\d+)+\.?$/.test(normalized)) return null;
+    const parts = normalized.replace(/\.$/, '').split('.');
+    return Math.max(0, parts.length - 1);
+}
+
 function parseModifiedListItems(modifiedText) {
     const rawLines = String(modifiedText || '').split(/\r?\n/g);
     const items = [];
@@ -34,7 +41,7 @@ function parseModifiedListItems(modifiedText) {
         const line = rawLine.trimEnd();
         if (!line.trim()) continue;
 
-        const markerMatch = line.match(/^(\s*)([-*+\u2022]|\d+\.)\s+(.*)$/);
+        const markerMatch = line.match(/^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|[ivxlcIVXLC]+\.|[-*+\u2022]))\s+(.*)$/);
         if (markerMatch) {
             hasListMarkers = true;
             const marker = markerMatch[2];
@@ -44,6 +51,8 @@ function parseModifiedListItems(modifiedText) {
                 kind: 'list',
                 markerType,
                 level,
+                marker,
+                outlineLevel: markerType === 'numbered' ? parseOutlineLevelFromMarker(marker) : null,
                 text: markerMatch[3].trim()
             });
             continue;
@@ -68,6 +77,13 @@ function isNormalizedTextEqual(a, b) {
     return normalizeWhitespaceForTargeting(a) === normalizeWhitespaceForTargeting(b);
 }
 
+function resolveInsertionLevel(item, anchorLevel, baselineLevel) {
+    if (Number.isInteger(item?.outlineLevel)) {
+        return Math.max(0, item.outlineLevel);
+    }
+    return Math.max(0, anchorLevel + ((item?.level || 0) - baselineLevel));
+}
+
 function buildListEntriesForInsertion(parsedItems, normalizedTargetText, anchorLevel, defaultMarkerType) {
     const firstItem = parsedItems[0];
     const trailingListItems = parsedItems.slice(1).filter(item => item.kind === 'list');
@@ -80,7 +96,7 @@ function buildListEntriesForInsertion(parsedItems, normalizedTargetText, anchorL
     ) {
         const firstTrailingLevel = trailingListItems[0].level;
         return trailingListItems.map(item => ({
-            ilvl: Math.max(0, anchorLevel + (item.level - firstTrailingLevel)),
+            ilvl: resolveInsertionLevel(item, anchorLevel, firstTrailingLevel),
             markerType: item.markerType || defaultMarkerType,
             text: item.text
         }));
@@ -96,7 +112,7 @@ function buildListEntriesForInsertion(parsedItems, normalizedTargetText, anchorL
         return parsedItems
             .slice(1)
             .map(item => ({
-                ilvl: Math.max(0, anchorLevel + (item.level - firstLevel)),
+                ilvl: resolveInsertionLevel(item, anchorLevel, firstLevel),
                 markerType: item.markerType || defaultMarkerType,
                 text: item.text
             }))
@@ -237,7 +253,7 @@ export function synthesizeExpandedListScopeEdit(targetParagraph, modifiedText, o
                 text: blockInfos[targetIndex].text
             },
             ...trailingListItems.map(item => ({
-                level: Math.max(0, anchorLevel + (item.level - firstTrailingLevel)),
+                level: resolveInsertionLevel(item, anchorLevel, firstTrailingLevel),
                 markerType: item.markerType || firstListType,
                 text: item.text
             }))
@@ -246,7 +262,7 @@ export function synthesizeExpandedListScopeEdit(targetParagraph, modifiedText, o
         const anchorLevel = Math.max(0, (blockInfos[targetIndex].list?.ilvl ?? 0) - baseLevel);
         const firstLevel = parsed.items[0].level;
         replacementEntries = parsed.items.map(item => ({
-            level: Math.max(0, anchorLevel + (item.level - firstLevel)),
+            level: resolveInsertionLevel(item, anchorLevel, firstLevel),
             markerType: item.markerType || firstListType,
             text: item.text
         }));

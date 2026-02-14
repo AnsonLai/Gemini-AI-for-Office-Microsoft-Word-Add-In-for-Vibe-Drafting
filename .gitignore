@@ -40,6 +40,8 @@ diff_output.txt
 assets/marketplace/
 
 .agent/
-.agent/skills/skills.md
+.claude/
+.gemini/
+.gsd/
 
 plans/

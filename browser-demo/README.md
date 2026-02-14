@@ -40,25 +40,6 @@ One-click demo that applies a fixed set of operations to marker paragraphs:
 - `browser-demo/demo.js`: browser module pipeline (chat engine + OOXML operations)
   - renders preview with `renderChanges` enabled so insertions/deletions are visible
 
-The demo imports reconciliation APIs from:
-- `src/taskpane/modules/reconciliation/standalone.js`
-  - including shared paragraph/table-targeting helpers (`resolveTargetParagraph`, marker parsing, strict/fuzzy matching, markdown-table detection, containing-table lookup)
-
-## Architecture Alignment
-
-The demo follows the same reconciliation architecture used by the add-in and documented in:
-- `src/taskpane/modules/reconciliation/ARCHITECTURE.md`
-
-Operationally:
-- Uses OOXML-first reconciliation (`applyRedlineToOxml`) for paragraph edits.
-- Preserves track changes via OOXML revision tags (`w:ins`/`w:del`).
-- Handles package-level artifacts for numbering/comments when needed.
-- Validates resulting package structure before download.
-
-## Run
-
-Serve repository root with any static server (required for ES modules), then open:
-
 - `http://localhost:8000/browser-demo/demo.html`
 
 Example:
@@ -122,7 +103,10 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 - List conversion now bypasses text-only no-op short-circuits when loose list markers are present, so existing marker-prefixed plain text (`A.`, `B.`, `C.`) can still be converted into true Word list structure.
 - If a single-paragraph redline is a no-op but `modified` is a one-line list marker (for example `1. DEFINITION`), the demo now applies shared standalone fallback helpers (`buildSingleLineListStructuralFallbackPlan`, `executeSingleLineListStructuralFallback`) to force structural list conversion and strip manual marker text into true list numbering.
 - For header conversions, the demo allows this fallback even when a target paragraph is already list-bound, so it can detach from an existing list chain and create an isolated numbering sequence for the converted headers.
-- When a numeric marker is explicit (`1.`, `2.`, ...), fallback applies a per-item numbering start override and keeps each converted header on isolated numbering so unrelated list sets do not advance header numbering.
+- When explicit numeric markers are applied as a monotonic sequence (`1.`, `2.`, `3.`, ...), fallback seeds the first item with start override and then reuses that generated `numId` across subsequent expected starts so section headers stay on a dedicated list chain.
+- If explicit numeric starts are non-sequential or do not begin at `1`, fallback keeps per-item isolated numbering behavior.
+- Explicit composite ordered markers in multiline insertion edits (for example `2.2.1`) now map to deeper OOXML list levels during insertion-only planning, so requested sub-sub items are inserted at the intended depth instead of becoming same-level siblings.
+- Browser demo fallback applies explicit starts with num-level `w:lvlOverride/w:startOverride` only (abstract-level start override disabled) to avoid renderer-wide renumber side effects across unrelated lists.
 - For repeated single-line conversions without explicit numeric starts, the demo reuses a shared generated `numId` per list style so numbering continues across non-contiguous targets.
 
 ## Kitchen-Sink Pipeline
@@ -156,7 +140,7 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 
 - "Target paragraph not found": Gemini may have slightly modified the paragraph text when referencing it. Check the engine log for details.
 - "Format-only fallback requires native Word API": this operation was a pure formatting change where the engine could not safely localize spans in OOXML. The browser demo skips it; use a more specific target (`targetRef` + exact paragraph text) or run through the add-in Word path.
-- Demo version in log does not match expected (`v2026-02-13-chat-docx-preview-11`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
+- Demo version in log does not match expected (`v2026-02-13-chat-docx-preview-13`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
 - Validation error about numbering/comments: check whether package relationships or content types were removed by prior tooling.
 - No Gemini output: verify API key and network access; kitchen-sink fallback path should still run.
 - Chat input disabled: upload a `.docx` file first to enable the chat.

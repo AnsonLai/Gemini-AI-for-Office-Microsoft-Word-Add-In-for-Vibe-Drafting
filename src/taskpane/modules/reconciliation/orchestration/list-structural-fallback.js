@@ -101,8 +101,9 @@ function extractFirstParagraphNumIdFromOxml(oxml) {
     return null;
 }
 
-function applyStartOverrideToNumberingXml(numberingXml, targetNumId, startAt) {
+function applyStartOverrideToNumberingXml(numberingXml, targetNumId, startAt, options = {}) {
     if (!numberingXml || !targetNumId || !Number.isInteger(startAt) || startAt < 1) return numberingXml;
+    const setAbstractStartOverride = options.setAbstractStartOverride !== false;
     const parser = createParser();
     const serializer = createSerializer();
     const numberingDoc = parser.parseFromString(String(numberingXml || ''), 'application/xml');
@@ -143,9 +144,10 @@ function applyStartOverrideToNumberingXml(numberingXml, targetNumId, startAt) {
     }
     setElementVal(startOverride, startAt);
 
-    // Compatibility: some renderers honor abstract-level <w:start> more reliably
-    // than num-level <w:startOverride>. Set both.
-    if (abstractNumId != null) {
+    // Optional compatibility mode: set abstract-level <w:start> in addition to
+    // num-level <w:startOverride>. This can influence other lists sharing that
+    // abstract definition in some renderers, so callers may disable it.
+    if (setAbstractStartOverride && abstractNumId != null) {
         const abstractNums = Array.from(numberingDoc.getElementsByTagNameNS('*', 'abstractNum'));
         const abstractNum = abstractNums.find(node => {
             const id = getElementId(node, ['w:abstractNumId', 'abstractNumId']);
@@ -237,7 +239,8 @@ export function buildSingleLineListStructuralFallbackPlan(options = {}) {
  * @param {{
  *   author?: string,
  *   generateRedlines?: boolean,
- *   pipeline?: ReconciliationPipeline
+ *   pipeline?: ReconciliationPipeline,
+ *   setAbstractStartOverride?: boolean
  * }} [options={}] - Execution options
  * @returns {Promise<{
  *   hasChanges: boolean,
@@ -279,7 +282,10 @@ export async function executeSingleLineListStructuralFallback(plan, options = {}
     const numberingXmlWithStart = applyStartOverrideToNumberingXml(
         result?.numberingXml || null,
         generatedNumId,
-        Number.isInteger(plan?.startAt) ? plan.startAt : null
+        Number.isInteger(plan?.startAt) ? plan.startAt : null,
+        {
+            setAbstractStartOverride: options.setAbstractStartOverride
+        }
     );
     const isValid = result?.isValid !== false;
     if (!oxml || !isValid) {

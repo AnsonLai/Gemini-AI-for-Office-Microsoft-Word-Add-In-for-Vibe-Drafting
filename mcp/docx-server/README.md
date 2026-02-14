@@ -14,6 +14,13 @@ This server is intended for local automation and testing without Word JS APIs.
 - `docx_save_as`: write session to disk
 - `docx_close`: close and release session memory
 
+## Architecture Alignment (GSD Workflow)
+
+This MCP server is built upon the shared **Reconciliation Core** and follows the global project documentation:
+- **[SPEC.md](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/SPEC.md)**: Host-agnostic vision.
+- **[ARCHITECTURE.md](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/ARCHITECTURE.md)**: Deep technical details of the core engine.
+- **[ROADMAP.md](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/ROADMAP.md)**: The splitting vision for independent sub-projects.
+
 ## Architecture Alignment
 
 The MCP server uses the same reconciliation modules documented in:
