@@ -61,10 +61,12 @@ The engine (`oxml-engine.js`) automatically selects the best strategy based on t
 | Mode | Trigger | Focus |
 |------|---------|-------|
 | **FORMAT-ONLY** | Text unchanged, has formatting | Surgical Bold, Italic, etc. via `w:rPrChange`. |
-| **SURGICAL** | Existing tables detected | Edits that preserve table node integrity. |
+| **FORMAT-REMOVAL** | Clear formatting requested | Explicitly emits "OFF" attributes (e.g., `w:b w:val="0"`). |
+| **SURGICAL** | Existing tables/structure detected | In-place edits that preserve node integrity. |
 | **RECONSTRUCTION** | Standard text edits | Rebuilds paragraph via RunModel pipeline. |
 | **LIST EXPANSION** | Paragraph -> Markdown List | Generates `w:numPr` and list structure. |
 | **TABLE RECON** | Markdown Table input | Virtual Grid diffing for merged cell safety. |
+| **TEXT-TO-TABLE** | Markdown Table -> No Table | Generates a new `w:tbl` from markdown text. |
 
 ### The Reconciliation Pipeline (`pipeline.js`)
 
@@ -101,3 +103,27 @@ The engine is designed to be **Host-Independent**:
 1. **Prefer OOXML**: Always attempt OOXML-based manipulation first.
 2. **Consult [ROADMAP.md](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/ROADMAP.md)**: Check if a similar pattern is already implemented or planned.
 3. **Update Documentation**: Log architectural decisions in [STATE.md](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/STATE.md).
+
+---
+
+## 4. Standalone Integration (`standalone.js`)
+
+The `standalone.js` entry point provides a host-agnostic API for non-Word environments (Browser Demo, MCP Server).
+
+### Key Features
+- **Normalization**: Automatically handles `useNativeApi` fallbacks. If the engine requests a Word-native operation, `standalone.js` intercepts it and returns the original OOXML with a warning, preventing runtime errors in non-Word hosts.
+- **Structural List Fallback**: Provides `applyRedlineToOxmlWithListFallback`. This detects if a redline is a no-op but contains list markers (e.g., "1. "), then forces a structural conversion to a real Word list.
+- **Utility Re-exports**: Centralizes access to:
+    - `configureXmlProvider`: For injecting `xmldom` or `jsdom`.
+    - `paragraph-targeting`: For resolving `[P#]` indices in arbitrary XML documents.
+    - `table-targeting`: For spatial reasoning about tables in flat text.
+
+---
+
+## 5. Deep Dive Documentation
+
+For low-level implementation details of the reconciliation components, refer to the internal module documentation:
+
+- [Reconciliation Core Architecture](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/src/taskpane/modules/reconciliation/ARCHITECTURE.md): Detailed breakdown of `core`, `engine`, `pipeline`, and `services`.
+- [Pipeline Flow](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/src/taskpane/modules/reconciliation/ARCHITECTURE.md#pipeline-flow): 5-stage ingestion and patching lifecycle.
+- [List Integration](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/src/taskpane/modules/reconciliation/ARCHITECTURE.md#list-edit-integration-command-layer): How structural list conversion is handled in the command layer.

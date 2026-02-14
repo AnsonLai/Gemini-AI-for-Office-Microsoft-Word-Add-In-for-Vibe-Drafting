@@ -1171,7 +1171,7 @@ function parseGeminiChatResponse(rawText) {
 }
 
 async function sendGeminiChat(userMessage, paragraphs, apiKey) {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
 
     // Build the request with system instruction and multi-turn history
     const systemInstruction = buildSystemInstruction(paragraphs);
@@ -1512,7 +1512,7 @@ function extractJsonObject(text) {
 }
 
 async function generateGeminiRedlineSuggestion(originalText, apiKey) {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
     const prompt = ['Rewrite the following text as a cleaner sentence for a professional document.', 'Return plain text only, no quotes, markdown, bullets, or explanation.', `Text: ${originalText}`].join('\n');
     const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.4, maxOutputTokens: 80 } }) });
     if (!response.ok) throw new Error(`Gemini API ${response.status}: ${(await response.text()).slice(0, 300)}`);
@@ -1523,7 +1523,7 @@ async function generateGeminiRedlineSuggestion(originalText, apiKey) {
 }
 
 async function generateGeminiToolAction(apiKey) {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
     const prompt = ['You are choosing one surprise action for a DOCX demo pipeline.', 'Return JSON only, no markdown and no commentary.', `Allowed targets: ${DEMO_MARKERS.join(', ')}`, 'Choose exactly one tool:', '- comment -> args: { "target": string, "textToComment": string, "commentContent": string }', '- highlight -> args: { "target": string, "textToHighlight": string, "color": string }', '- redline -> args: { "target": string, "modified": string }', 'Keep args short.', '{ "tool": "comment|highlight|redline", "args": { ... } }'].join('\n');
     const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.9, maxOutputTokens: 200 } }) });
     if (!response.ok) throw new Error(`Gemini API ${response.status}: ${(await response.text()).slice(0, 300)}`);

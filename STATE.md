@@ -17,7 +17,9 @@ This document records the current technical posture and "sacred" decisions of th
 ## Active Blockers
 - **Word Online Redline Bug**: Word Online sometimes ignores `w:rPrChange` during insertion, necessitating the "Surgical Replacement" workaround (wrap original in `w:del`, new in `w:ins`).
 - **Mixed Content Controls**: Nested Content Controls (`w:sdt`) can sometimes cause offset drift during ingestion; requires careful sentinel tracking.
+- **Migration Debt**: Some logic remains in `agentic-tools.js` (e.g., custom markdown preprocessing) that should be migrated to the reconciliation engine.
 
 ## Recent Architectural Shifts
-- **Feb 2026**: Transitioned from fragmented `.md` docs to the **GSD Workflow** (`SPEC`, `ARCH`, `ROADMAP`, `STATE`, `PLAN`, `SUMMARY`).
+- **Feb 2026**: Transitioned from fragmented docs to the **GSD Workflow** (`SPEC`, `ARCH`, `ROADMAP`, `STATE`).
+- **Feb 2026**: Unified router logic in `oxml-engine.js` with specific modes for format removal and text-to-table.
 - **Jan 2026**: Migrated from HTML fallback to pure OOXML for list and table insertion.
