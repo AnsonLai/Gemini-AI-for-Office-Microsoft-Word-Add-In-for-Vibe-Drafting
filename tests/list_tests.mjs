@@ -8,7 +8,10 @@ import { NumberingService } from '../src/taskpane/modules/reconciliation/service
 import { ingestOoxml } from '../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
 import { serializeToOoxml } from '../src/taskpane/modules/reconciliation/pipeline/serialization.js';
 import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
-import { planListInsertionOnlyEdit } from '../src/taskpane/modules/reconciliation/core/list-targeting.js';
+import {
+    planListInsertionOnlyEdit,
+    stripRedundantLeadingListMarkers
+} from '../src/taskpane/modules/reconciliation/core/list-targeting.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -334,6 +337,31 @@ function testInsertionOnlyNestedDepthHeuristics() {
     }
 }
 
+// --- Test 5c: Redundant manual marker stripping for list item text ---
+function testRedundantLeadingListMarkerStripping() {
+    console.log('\n=== Test: Redundant Leading Marker Stripping ===');
+
+    const cases = [
+        { input: '- The Receiving Party retains one copy.', expected: 'The Receiving Party retains one copy.' },
+        { input: '2.1. The Receiving Party retains one copy.', expected: 'The Receiving Party retains one copy.' },
+        { input: '2.1. - The Receiving Party retains one copy.', expected: 'The Receiving Party retains one copy.' },
+        { input: 'Specifically, retention must be legally required by the SEC or FCC.', expected: 'Specifically, retention must be legally required by the SEC or FCC.' }
+    ];
+
+    let failed = 0;
+    for (const testCase of cases) {
+        const actual = stripRedundantLeadingListMarkers(testCase.input);
+        if (actual !== testCase.expected) {
+            failed++;
+            console.log('❌ FAIL:', { input: testCase.input, expected: testCase.expected, actual });
+        }
+    }
+
+    if (failed === 0) {
+        console.log('✅ PASS: Redundant list marker prefixes are stripped as expected.');
+    }
+}
+
 // --- Test 6: Kitchen Sink Markdown (Headings + Lists + Table) ---
 async function testKitchenSinkMarkdown() {
     console.log('\n=== Test: Kitchen Sink Markdown ===');
@@ -415,16 +443,14 @@ C. The Receiving Party agrees to receive and treat such Confidential Information
         const numPrCount = (ooxml.match(/<w:numPr>/g) || []).length;
         // Check: must use upperLetter numbering format
         const hasUpperLetter = (result.numberingXml || '').includes('w:numFmt w:val="upperLetter"');
-        // Check: must have 3 paragraphs with list formatting
-        const listParas = (ooxml.match(/<w:pStyle w:val="ListParagraph"\/>/g) || []).length;
         // Check: text should NOT retain "A. " / "B. " / "C. " prefixes (markers stripped)
         const hasLiteralMarker = ooxml.includes('>A. The Disclosing') || ooxml.includes('>B. The Parties');
 
-        const pass = numPrCount >= 3 && hasUpperLetter && listParas >= 3 && !hasLiteralMarker;
+        const pass = numPrCount >= 3 && hasUpperLetter && !hasLiteralMarker;
         if (pass) {
             console.log('✅ PASS: upperAlpha list created with 3 items, markers stripped, correct numFmt.');
         } else {
-            console.log('❌ FAIL:', { numPrCount, hasUpperLetter, listParas, hasLiteralMarker });
+            console.log('❌ FAIL:', { numPrCount, hasUpperLetter, hasLiteralMarker });
         }
     } catch (e) {
         console.error('❌ ERROR:', e);
@@ -657,6 +683,7 @@ C. Third recital clause.`;
     await verifyFixedListConversion();
     await verifyListFixes();
     testInsertionOnlyNestedDepthHeuristics();
+    testRedundantLeadingListMarkerStripping();
     await testKitchenSinkMarkdown();
     testMixedContentParsing();
 

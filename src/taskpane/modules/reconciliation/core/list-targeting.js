@@ -32,6 +32,28 @@ function parseOutlineLevelFromMarker(marker) {
     return Math.max(0, parts.length - 1);
 }
 
+const REDUNDANT_LIST_PREFIX_REGEX = /^(?:(?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|[ivxlcIVXLC]+\.|[-*+\u2022]))\s+/;
+
+/**
+ * Strips redundant manual list markers from the start of list item text.
+ *
+ * Useful when model output contains doubled markers like:
+ * - "2.1. - Item text"
+ * - "- 2.1. Item text"
+ *
+ * @param {string} text - Candidate list item text
+ * @returns {string}
+ */
+export function stripRedundantLeadingListMarkers(text) {
+    let value = String(text || '').trim();
+    let passes = 0;
+    while (passes < 4 && REDUNDANT_LIST_PREFIX_REGEX.test(value)) {
+        value = value.replace(REDUNDANT_LIST_PREFIX_REGEX, '').trimStart();
+        passes++;
+    }
+    return value.trim();
+}
+
 function parseModifiedListItems(modifiedText) {
     const rawLines = String(modifiedText || '').split(/\r?\n/g);
     const items = [];
@@ -53,7 +75,7 @@ function parseModifiedListItems(modifiedText) {
                 level,
                 marker,
                 outlineLevel: markerType === 'numbered' ? parseOutlineLevelFromMarker(marker) : null,
-                text: markerMatch[3].trim()
+                text: stripRedundantLeadingListMarkers(markerMatch[3])
             });
             continue;
         }

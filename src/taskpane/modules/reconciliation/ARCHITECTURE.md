@@ -95,6 +95,7 @@ reconciliation/
 - `core/list-targeting.js`
   - Shared heuristics for list-structure intent from per-item edits.
   - Provides insertion-only list planning for multiline middle-insert patterns so callers can add only new list items as redlines.
+  - Strips redundant manual marker prefixes from list item text (for example `2.1. - Item`) so existing list items do not receive literal marker text.
   - Supports composite ordered markers (for example `2.2.1`) when deriving insertion levels, so insertion-only plans can create deeper nested levels instead of flattening to same-level siblings.
   - Promotes ambiguous bullet insertions under nested numbered anchors to child depth so natural-language "add sub-item" requests do not flatten to sibling numbering.
   - Provides contiguous list-block synthesis fallback for ambiguous/more complex multiline list edits.
@@ -119,6 +120,7 @@ reconciliation/
 - `pipeline/list-generation.js`
   - Generates list/table blocks from markdown lines.
   - Normalizes composite list markers (for example `- A.`) to single-marker form before numbering-style detection.
+  - Emits list `w:pPr` using explicit `w:numPr` without forcing `ListParagraph` style to avoid Word style-level numbering chain bleed across unrelated content.
   - Emits paragraph OOXML + optional `numberingXml` payload.
 - `services/table-reconciliation.js`
   - Virtual-grid table diff and OOXML table serialization.

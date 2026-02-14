@@ -180,10 +180,11 @@ export class NumberingService {
      * @param {number} ilvl - Indentation level
      * @returns {string} Serialized w:pPr XML
      */
-    buildListPPr(numId, ilvl) {
+    buildListPPr(numId, ilvl, options = {}) {
+        const includeListParagraphStyle = options.includeListParagraphStyle === true;
+        const styleXml = includeListParagraphStyle ? '\n                <w:pStyle w:val="ListParagraph"/>' : '';
         return `
-            <w:pPr>
-                <w:pStyle w:val="ListParagraph"/>
+            <w:pPr>${styleXml}
                 <w:numPr>
                     <w:ilvl w:val="${ilvl}"/>
                     <w:numId w:val="${numId}"/>

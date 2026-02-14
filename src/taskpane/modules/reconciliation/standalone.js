@@ -215,5 +215,6 @@ export {
     getParagraphListInfo,
     collectContiguousListParagraphBlock,
     synthesizeExpandedListScopeEdit,
-    planListInsertionOnlyEdit
+    planListInsertionOnlyEdit,
+    stripRedundantLeadingListMarkers
 } from './core/list-targeting.js';

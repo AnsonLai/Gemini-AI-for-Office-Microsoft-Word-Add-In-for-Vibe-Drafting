@@ -18,10 +18,12 @@ import {
     executeSingleLineListStructuralFallback,
     synthesizeTableMarkdownFromMultilineCellEdit,
     synthesizeExpandedListScopeEdit,
-    planListInsertionOnlyEdit
+    planListInsertionOnlyEdit,
+    getParagraphListInfo,
+    stripRedundantLeadingListMarkers
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 
-const DEMO_VERSION = '2026-02-13-chat-docx-preview-13';
+const DEMO_VERSION = '2026-02-14-chat-docx-preview-16';
 const GEMINI_API_KEY_STORAGE_KEY = 'browserDemo.geminiApiKey';
 const DEMO_MARKERS = [
     'DEMO_TEXT_TARGET',
@@ -472,6 +474,37 @@ function extractFirstParagraphNumId(paragraphNodes) {
     return null;
 }
 
+function buildExplicitDecimalMultilevelNumberingXml(numId, abstractNumId, startAt) {
+    const safeNumId = String(numId);
+    const safeAbstractNumId = String(abstractNumId);
+    const safeStartAt = Number.isInteger(startAt) && startAt > 0 ? startAt : 1;
+    const levelsXml = Array.from({ length: 9 }, (_, level) => {
+        const lvlText = Array.from({ length: level + 1 }, (_, i) => `%${i + 1}`).join('.') + '.';
+        const left = 720 * (level + 1);
+        return `
+        <w:lvl w:ilvl="${level}">
+            <w:start w:val="1"/>
+            <w:numFmt w:val="decimal"/>
+            <w:lvlText w:val="${lvlText}"/>
+            <w:lvlJc w:val="left"/>
+            <w:pPr><w:ind w:left="${left}" w:hanging="360"/></w:pPr>
+        </w:lvl>`;
+    }).join('');
+    return `
+<w:numbering xmlns:w="${NS_W}">
+    <w:abstractNum w:abstractNumId="${safeAbstractNumId}">
+        <w:multiLevelType w:val="multilevel"/>
+        ${levelsXml}
+    </w:abstractNum>
+    <w:num w:numId="${safeNumId}">
+        <w:abstractNumId w:val="${safeAbstractNumId}"/>
+        <w:lvlOverride w:ilvl="0">
+            <w:startOverride w:val="${safeStartAt}"/>
+        </w:lvlOverride>
+    </w:num>
+</w:numbering>`.trim();
+}
+
 async function trySingleParagraphListStructuralFallback({
     xmlDoc,
     serializer,
@@ -488,7 +521,7 @@ async function trySingleParagraphListStructuralFallback({
         oxml: scopedParagraphOxml,
         originalText: currentParagraphText,
         modifiedText,
-        allowExistingList: true
+        allowExistingList: false
     });
     if (!fallbackPlan) return null;
 
@@ -506,14 +539,35 @@ async function trySingleParagraphListStructuralFallback({
     const extracted = extractReplacementNodes(fallbackResult.oxml);
     let replacementNodes = extracted.replacementNodes;
     let numberingXml = extracted.numberingXml || fallbackResult?.numberingXml || null;
-    if (numberingXml && runtimeContext?.numberingIdState) {
-        const normalizedNumbering = remapNumberingPayloadForDocument(numberingXml, replacementNodes, runtimeContext.numberingIdState);
-        replacementNodes = normalizedNumbering.replacementNodes;
-        numberingXml = normalizedNumbering.numberingXml;
+    const hasExplicitStartAt = Number.isInteger(fallbackPlan?.startAt) && fallbackPlan.startAt > 0;
+    const numberingKey = fallbackResult?.listStructuralFallbackKey || fallbackPlan?.numberingKey || null;
+    if (hasExplicitStartAt) {
+        const explicitStart = fallbackPlan.startAt;
+        const numberingState = runtimeContext?.numberingIdState || null;
+        if (numberingState && Number.isInteger(numberingState.nextNumId) && Number.isInteger(numberingState.nextAbstractNumId)) {
+            const dedicatedNumId = numberingState.nextNumId++;
+            const dedicatedAbstractNumId = numberingState.nextAbstractNumId++;
+            overwriteParagraphNumIds(replacementNodes, dedicatedNumId);
+            numberingXml = buildExplicitDecimalMultilevelNumberingXml(dedicatedNumId, dedicatedAbstractNumId, explicitStart);
+            if (numberingKey && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
+                runtimeContext.listFallbackSharedNumIdByKey.delete(numberingKey);
+            }
+            log(`[List] Using dedicated explicit-start numbering (start ${explicitStart}, numId ${dedicatedNumId}, abstractNumId ${dedicatedAbstractNumId}).`);
+        } else {
+            const generatedNumId = extractFirstParagraphNumId(replacementNodes);
+            if (numberingKey && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
+                runtimeContext.listFallbackSharedNumIdByKey.delete(numberingKey);
+            }
+            log(`[List] Using isolated list numbering with explicit start ${explicitStart}${generatedNumId ? ` (numId ${generatedNumId})` : ''}.`);
+        }
+    } else {
+        if (numberingXml && runtimeContext?.numberingIdState) {
+            const normalizedNumbering = remapNumberingPayloadForDocument(numberingXml, replacementNodes, runtimeContext.numberingIdState);
+            replacementNodes = normalizedNumbering.replacementNodes;
+            numberingXml = normalizedNumbering.numberingXml;
+        }
     }
 
-    const numberingKey = fallbackResult?.listStructuralFallbackKey || fallbackPlan?.numberingKey || null;
-    const hasExplicitStartAt = Number.isInteger(fallbackPlan?.startAt) && fallbackPlan.startAt > 0;
     if (!hasExplicitStartAt && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
         const sharedNumId = numberingKey ? runtimeContext.listFallbackSharedNumIdByKey.get(numberingKey) : null;
         if (sharedNumId) {
@@ -527,13 +581,6 @@ async function trySingleParagraphListStructuralFallback({
                 log(`[List] Captured shared list numbering (${numberingKey} -> numId ${generatedNumId}).`);
             }
         }
-    } else if (hasExplicitStartAt) {
-        const explicitStart = fallbackPlan.startAt;
-        const generatedNumId = extractFirstParagraphNumId(replacementNodes);
-        if (numberingKey && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
-            runtimeContext.listFallbackSharedNumIdByKey.delete(numberingKey);
-        }
-        log(`[List] Using isolated list numbering with explicit start ${explicitStart}${generatedNumId ? ` (numId ${generatedNumId})` : ''}.`);
     }
 
     const parent = targetParagraph.parentNode;
@@ -563,6 +610,18 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
         : null;
     let effectiveModifiedText = synthesizedTableMarkdown || modifiedText;
     const useTableScope = !!containingTable && isMarkdownTableText(effectiveModifiedText);
+    const targetListInfo = getParagraphListInfo(targetParagraph);
+    if (
+        targetListInfo &&
+        typeof effectiveModifiedText === 'string' &&
+        !effectiveModifiedText.includes('\n')
+    ) {
+        const strippedListPrefix = stripRedundantLeadingListMarkers(effectiveModifiedText);
+        if (strippedListPrefix && strippedListPrefix !== effectiveModifiedText.trim()) {
+            log('[List] Stripped redundant manual list marker prefix from single-line list item edit.');
+            effectiveModifiedText = strippedListPrefix;
+        }
+    }
     if (useTableScope) {
         log('[Table] Markdown table edit detected in table cell target; applying reconciliation at table scope.');
     }

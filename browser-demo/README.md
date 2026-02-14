@@ -105,10 +105,12 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 - Composite list markers are normalized in list generation (for example `- A. Item` becomes `A. Item`) so ordered list style can be inferred correctly and marker text is not duplicated in content.
 - List conversion now bypasses text-only no-op short-circuits when loose list markers are present, so existing marker-prefixed plain text (`A.`, `B.`, `C.`) can still be converted into true Word list structure.
 - If a single-paragraph redline is a no-op but `modified` is a one-line list marker (for example `1. DEFINITION`), the demo now applies shared standalone fallback helpers (`buildSingleLineListStructuralFallbackPlan`, `executeSingleLineListStructuralFallback`) to force structural list conversion and strip manual marker text into true list numbering.
-- For header conversions, the demo allows this fallback even when a target paragraph is already list-bound, so it can detach from an existing list chain and create an isolated numbering sequence for the converted headers.
-- For explicit numeric single-line markers (`1.`, `2.`, `3.`, ...), fallback keeps each conversion isolated with its own remapped `numId` plus start override, which avoids accidental continuation through unrelated lists in Word.
+- In chat mode, this fallback is intentionally limited to non-list paragraphs (`allowExistingList: false`) so it cannot accidentally rebind existing list items.
+- For header conversions, single-line fallback is intended for non-list header paragraphs to avoid disturbing existing list chains.
+- For explicit numeric single-line markers (`1.`, `2.`, `3.`, ...), fallback now creates a dedicated multilevel decimal-outline definition per converted paragraph (`%1.`, `%1.%2.`, `%1.%2.%3.`, ...), applies a start override, and uses a fresh `numId`; this prevents accidental continuation into unrelated lists and preserves nested numbering markers in Word.
 - Explicit composite ordered markers in multiline insertion edits (for example `2.2.1`) now map to deeper OOXML list levels during insertion-only planning, so requested sub-sub items are inserted at the intended depth instead of becoming same-level siblings.
 - When multiline insertion under a nested ordered item is ambiguous (for example model emits bullet marker text), insertion-only heuristics promote inserted lines one level deeper to preserve sub-item intent.
+- Redundant manual list prefixes in list-item text (for example `- Item`, `2.1. Item`, or `2.1. - Item`) are stripped during list-item reconciliation so marker text is not duplicated in visible content.
 - Browser demo fallback applies explicit starts with num-level `w:lvlOverride/w:startOverride` only (abstract-level start override disabled) to avoid renderer-wide renumber side effects across unrelated lists.
 - For repeated single-line conversions without explicit numeric starts, the demo reuses a shared generated `numId` per list style so numbering continues across non-contiguous targets.
 
@@ -143,7 +145,7 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 
 - "Target paragraph not found": Gemini may have slightly modified the paragraph text when referencing it. Check the engine log for details.
 - "Format-only fallback requires native Word API": this operation was a pure formatting change where the engine could not safely localize spans in OOXML. The browser demo skips it; use a more specific target (`targetRef` + exact paragraph text) or run through the add-in Word path.
-- Demo version in log does not match expected (`v2026-02-13-chat-docx-preview-13`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
+- Demo version in log does not match expected (`v2026-02-14-chat-docx-preview-16`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
 - Need Word-grounded list diagnostics: run `tests/word-desktop/list-inspector.ps1` against the generated `.docx` and compare `listId`/`listLevel`/`listValue` for the affected paragraphs.
 - Validation error about numbering/comments: check whether package relationships or content types were removed by prior tooling.
 - No Gemini output: verify API key and network access; kitchen-sink fallback path should still run.
