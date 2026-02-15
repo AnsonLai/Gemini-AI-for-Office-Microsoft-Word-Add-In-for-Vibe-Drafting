@@ -38,14 +38,19 @@ import {
     resolveParagraphRangeByRefs
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 
-const DEMO_VERSION = '2026-02-15-chat-docx-preview-19';
+const DEMO_VERSION = '2026-02-15-chat-docx-preview-20';
 const GEMINI_API_KEY_STORAGE_KEY = 'browserDemo.geminiApiKey';
+const EDIT_MODE_STORAGE_KEY = 'browserDemo.editMode';
 const DEMO_MARKERS = [
     'DEMO_TEXT_TARGET',
     'DEMO FORMAT TARGET',
     'DEMO_LIST_TARGET',
     'DEMO_TABLE_TARGET'
 ];
+const EDIT_MODE = {
+    REDLINE: 'redline',
+    DIRECT: 'direct'
+};
 const ALLOWED_HIGHLIGHT_COLORS = ['yellow', 'green', 'cyan', 'magenta', 'blue', 'red'];
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const NS_CT = 'http://schemas.openxmlformats.org/package/2006/content-types';
@@ -76,6 +81,7 @@ const downloadXmlBtn = document.getElementById('downloadXmlBtn');
 const docxPreviewEl = document.getElementById('docxPreview');
 const previewStatusEl = document.getElementById('previewStatus');
 const refreshPreviewBtn = document.getElementById('refreshPreviewBtn');
+const editModeInputs = Array.from(document.querySelectorAll('input[name="editMode"]'));
 
 // ── State ──────────────────────────────────────────────
 let currentZip = null;           // JSZip instance of the working document
@@ -84,6 +90,19 @@ let chatHistory = [];            // Gemini multi-turn history [{ role, parts }]
 let operationCount = 0;          // total operations applied across turns
 let previewRenderer = null;      // docxjs renderAsync function
 let previewRenderToken = 0;      // guards stale async preview writes
+let editMode = normalizeEditMode(getStoredEditMode());
+
+function normalizeEditMode(value) {
+    return value === EDIT_MODE.DIRECT ? EDIT_MODE.DIRECT : EDIT_MODE.REDLINE;
+}
+
+function getEditModeLabel(mode = editMode) {
+    return mode === EDIT_MODE.DIRECT ? 'Direct edits' : 'Redlines';
+}
+
+function shouldGenerateRedlines(mode = editMode) {
+    return normalizeEditMode(mode) !== EDIT_MODE.DIRECT;
+}
 
 // ── Utility ────────────────────────────────────────────
 function log(message) {
@@ -213,6 +232,46 @@ function setStoredGeminiApiKey(apiKey) {
         else localStorage.removeItem(GEMINI_API_KEY_STORAGE_KEY);
         return true;
     } catch { return false; }
+}
+
+function getStoredEditMode() {
+    try { return normalizeEditMode(localStorage.getItem(EDIT_MODE_STORAGE_KEY) || EDIT_MODE.REDLINE); }
+    catch { return EDIT_MODE.REDLINE; }
+}
+
+function setStoredEditMode(mode) {
+    try {
+        localStorage.setItem(EDIT_MODE_STORAGE_KEY, normalizeEditMode(mode));
+        return true;
+    } catch { return false; }
+}
+
+function syncEditModeInputs() {
+    const normalized = normalizeEditMode(editMode);
+    for (const input of editModeInputs) {
+        if (!input) continue;
+        input.checked = String(input.value || '') === normalized;
+    }
+}
+
+function setEditMode(nextMode, { announce = true, resetChatHistory = true } = {}) {
+    const normalized = normalizeEditMode(nextMode);
+    const changed = normalized !== editMode;
+    editMode = normalized;
+    syncEditModeInputs();
+    setStoredEditMode(normalized);
+    if (!changed) return;
+
+    if (resetChatHistory) {
+        chatHistory = [];
+    }
+
+    const modeLabel = getEditModeLabel(normalized);
+    log(`[Mode] ${modeLabel} (${shouldGenerateRedlines(normalized) ? 'tracked changes' : 'direct edits'})`);
+    if (announce) {
+        const suffix = resetChatHistory ? ' Chat context reset.' : '';
+        addMsg('system', `Edit mode switched to <strong>${modeLabel}</strong>.${suffix}`);
+    }
 }
 
 // ── XML Helpers (unchanged from original demo) ─────────
@@ -430,7 +489,8 @@ function ensureListProperties(xmlDoc, paragraph, ilvl, numId) {
     numIdEl.setAttribute('w:val', String(numId));
 }
 
-function buildInsertedListParagraph(xmlDoc, anchorParagraph, entry, revisionId, author, dateIso) {
+function buildInsertedListParagraph(xmlDoc, anchorParagraph, entry, revisionId, author, dateIso, options = {}) {
+    const generateRedlines = options.generateRedlines !== false;
     const paragraph = xmlDoc.createElementNS(NS_W, 'w:p');
 
     const anchorPPr = getDirectWordChild(anchorParagraph, 'pPr');
@@ -438,11 +498,6 @@ function buildInsertedListParagraph(xmlDoc, anchorParagraph, entry, revisionId, 
         paragraph.appendChild(anchorPPr.cloneNode(true));
     }
     ensureListProperties(xmlDoc, paragraph, entry.ilvl, entry.numId);
-
-    const ins = xmlDoc.createElementNS(NS_W, 'w:ins');
-    ins.setAttribute('w:id', String(revisionId));
-    ins.setAttribute('w:author', author || 'Browser Demo AI');
-    ins.setAttribute('w:date', dateIso);
 
     const run = xmlDoc.createElementNS(NS_W, 'w:r');
     const anchorFirstRun = Array.from(anchorParagraph.getElementsByTagNameNS(NS_W, 'r'))[0] || null;
@@ -456,8 +511,16 @@ function buildInsertedListParagraph(xmlDoc, anchorParagraph, entry, revisionId, 
     if (/^\s|\s$/.test(safeText)) textNode.setAttribute('xml:space', 'preserve');
     textNode.textContent = safeText;
     run.appendChild(textNode);
-    ins.appendChild(run);
-    paragraph.appendChild(ins);
+    if (generateRedlines) {
+        const ins = xmlDoc.createElementNS(NS_W, 'w:ins');
+        ins.setAttribute('w:id', String(revisionId));
+        ins.setAttribute('w:author', author || 'Browser Demo AI');
+        ins.setAttribute('w:date', dateIso);
+        ins.appendChild(run);
+        paragraph.appendChild(ins);
+    } else {
+        paragraph.appendChild(run);
+    }
 
     return paragraph;
 }
@@ -476,7 +539,8 @@ async function tryExplicitDecimalHeaderListConversion({
     currentParagraphText,
     modifiedText,
     author,
-    runtimeContext
+    runtimeContext,
+    generateRedlines = true
 }) {
     if (!targetParagraph) return null;
     const scopedParagraphOxml = serializer.serializeToString(targetParagraph);
@@ -505,7 +569,7 @@ async function tryExplicitDecimalHeaderListConversion({
         strippedContent,
         {
             author,
-            generateRedlines: true
+            generateRedlines
         }
     );
     if (!redlineResult?.hasChanges || typeof redlineResult?.oxml !== 'string') return null;
@@ -582,7 +646,8 @@ async function trySingleParagraphListStructuralFallback({
     currentParagraphText,
     modifiedText,
     author,
-    runtimeContext
+    runtimeContext,
+    generateRedlines = true
 }) {
     if (!targetParagraph) return null;
 
@@ -598,7 +663,7 @@ async function trySingleParagraphListStructuralFallback({
     log('[List] No textual diff but list marker detected; forcing structural list conversion fallback.');
     const fallbackResult = await executeSingleLineListStructuralFallback(fallbackPlan, {
         author,
-        generateRedlines: true,
+        generateRedlines,
         setAbstractStartOverride: false
     });
     if (!fallbackResult?.hasChanges || !fallbackResult?.oxml) {
@@ -704,7 +769,8 @@ async function trySingleParagraphListStructuralFallback({
 }
 
 // ── Apply operations (per-paragraph) ───────────────────
-async function applyToParagraphByExactText(documentXml, targetText, modifiedText, author, targetRef = null, targetEndRef = null, runtimeContext = null) {
+async function applyToParagraphByExactText(documentXml, targetText, modifiedText, author, targetRef = null, targetEndRef = null, runtimeContext = null, options = {}) {
+    const generateRedlines = options.generateRedlines !== false;
     const parser = new DOMParser();
     const serializer = new XMLSerializer();
     const xmlDoc = parser.parseFromString(documentXml, 'application/xml');
@@ -771,17 +837,19 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
         const parent = targetParagraph.parentNode;
         if (!parent) throw new Error('Target paragraph has no parent for list insertion');
         const insertionPoint = targetParagraph.nextSibling;
-        const dateIso = new Date().toISOString();
-        let revisionId = getNextTrackedChangeId(xmlDoc);
+        const dateIso = generateRedlines ? new Date().toISOString() : null;
+        let revisionId = generateRedlines ? getNextTrackedChangeId(xmlDoc) : null;
         for (const entry of insertionOnlyPlan.entries) {
             const listParagraph = buildInsertedListParagraph(
                 xmlDoc,
                 targetParagraph,
                 { ...entry, numId: insertionOnlyPlan.numId },
-                revisionId++,
+                revisionId,
                 author,
-                dateIso
+                dateIso,
+                { generateRedlines }
             );
+            if (generateRedlines) revisionId += 1;
             parent.insertBefore(listParagraph, insertionPoint);
         }
         normalizeBodySectionOrder(xmlDoc);
@@ -808,7 +876,8 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
             currentParagraphText,
             modifiedText: effectiveModifiedText,
             author,
-            runtimeContext
+            runtimeContext,
+            generateRedlines
         });
         if (explicitHeaderListConversion) return explicitHeaderListConversion;
 
@@ -819,7 +888,8 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
             currentParagraphText,
             modifiedText: effectiveModifiedText,
             author,
-            runtimeContext
+            runtimeContext,
+            generateRedlines
         });
         if (listFallback) return listFallback;
     }
@@ -850,13 +920,13 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
     const result = isTableMarkdownEdit
         ? await reconcileMarkdownTableOoxml(scopedXml, originalTextForApply, effectiveModifiedText, {
             author,
-            generateRedlines: true,
+            generateRedlines,
             // Preserve table wrapper when table markdown should reconcile the full table.
             _isolatedTableCell: useTableScope
         })
         : await applyRedlineToOxml(scopedXml, originalTextForApply, effectiveModifiedText, {
             author,
-            generateRedlines: true,
+            generateRedlines,
             // Preserve table wrapper when table markdown should reconcile the full table.
             _isolatedTableCell: useTableScope
         });
@@ -898,14 +968,15 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
     return { documentXml: serializer.serializeToString(xmlDoc), hasChanges: true, numberingXml };
 }
 
-async function applyHighlightToParagraphByExactText(documentXml, targetText, textToHighlight, color, author, targetRef = null, runtimeContext = null) {
+async function applyHighlightToParagraphByExactText(documentXml, targetText, textToHighlight, color, author, targetRef = null, runtimeContext = null, options = {}) {
+    const generateRedlines = options.generateRedlines !== false;
     const parser = new DOMParser();
     const serializer = new XMLSerializer();
     const xmlDoc = parser.parseFromString(documentXml, 'application/xml');
     const resolved = resolveTargetParagraph(xmlDoc, targetText, targetRef, 'highlight', runtimeContext);
     const targetParagraph = resolved.paragraph;
     const paragraphXml = serializer.serializeToString(targetParagraph);
-    const highlightedXml = applyHighlightToOoxml(paragraphXml, textToHighlight, color, { generateRedlines: true, author });
+    const highlightedXml = applyHighlightToOoxml(paragraphXml, textToHighlight, color, { generateRedlines, author });
     if (!highlightedXml || highlightedXml === paragraphXml) return { documentXml, hasChanges: false };
     const { replacementNodes } = extractReplacementNodes(highlightedXml);
     const parent = targetParagraph.parentNode;
@@ -932,10 +1003,10 @@ async function applyCommentToParagraphByExactText(documentXml, targetText, textT
     return { documentXml: serializer.serializeToString(xmlDoc), hasChanges: true, commentsXml: commentResult.commentsXml || null, warnings: commentResult.warnings || [] };
 }
 
-async function runOperation(documentXml, op, author, runtimeContext = null) {
-    if (op.type === 'highlight') return applyHighlightToParagraphByExactText(documentXml, op.target, op.textToHighlight, op.color, author, op.targetRef, runtimeContext);
+async function runOperation(documentXml, op, author, runtimeContext = null, options = {}) {
+    if (op.type === 'highlight') return applyHighlightToParagraphByExactText(documentXml, op.target, op.textToHighlight, op.color, author, op.targetRef, runtimeContext, options);
     if (op.type === 'comment') return applyCommentToParagraphByExactText(documentXml, op.target, op.textToComment, op.commentContent, author, op.targetRef, runtimeContext);
-    return applyToParagraphByExactText(documentXml, op.target, op.modified, author, op.targetRef, op.targetEndRef, runtimeContext);
+    return applyToParagraphByExactText(documentXml, op.target, op.modified, author, op.targetRef, op.targetEndRef, runtimeContext, options);
 }
 
 // ── Package artifact helpers ───────────────────────────
@@ -1129,10 +1200,13 @@ async function extractDocumentParagraphs(zip) {
 // ── NEW: Gemini Chat Engine ──────────────────────────
 // ══════════════════════════════════════════════════════
 
-function buildSystemInstruction(paragraphs) {
+function buildSystemInstruction(paragraphs, editModeValue = EDIT_MODE.REDLINE) {
+    const normalizedEditMode = normalizeEditMode(editModeValue);
+    const directEditsMode = normalizedEditMode === EDIT_MODE.DIRECT;
     const listing = paragraphs.map(p => `[P${p.index}] ${p.text}`).join('\n');
     return [
         'You are a contract review AI assistant. The user has uploaded a document.',
+        `EDIT MODE: ${directEditsMode ? 'direct edits (apply changes directly, no tracked insert/delete markup)' : 'redlines (tracked changes)'}.`,
         'Below is the document content. Each line is ONE SEPARATE PARAGRAPH, prefixed with [P#]:',
         '',
         listing,
@@ -1164,6 +1238,12 @@ function buildSystemInstruction(paragraphs) {
         '- Use "comment" to explain issues (best for deviations from market standards).',
         '- Use "highlight" to draw visual attention to problematic phrases.',
         '- Use "redline" to suggest replacement language for a single paragraph.',
+        ...(directEditsMode
+            ? [
+                '- In direct-edit mode, prefer "redline" operations for actual language changes.',
+                '- Unless the user explicitly asks for annotations, avoid comment/highlight-only output.'
+            ]
+            : []),
         '',
         'FORMATTING IN REDLINES:',
         '- The "modified" field in redline operations supports special formatting syntax:',
@@ -1263,11 +1343,11 @@ function parseGeminiChatResponse(rawText) {
     return { explanation: explanationText || '(No explanation provided)', operations };
 }
 
-async function sendGeminiChat(userMessage, paragraphs, apiKey) {
+async function sendGeminiChat(userMessage, paragraphs, apiKey, editModeValue = EDIT_MODE.REDLINE) {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
 
     // Build the request with system instruction and multi-turn history
-    const systemInstruction = buildSystemInstruction(paragraphs);
+    const systemInstruction = buildSystemInstruction(paragraphs, editModeValue);
 
     // Build contents array: history + new user message
     const contents = [
@@ -1308,7 +1388,9 @@ async function sendGeminiChat(userMessage, paragraphs, apiKey) {
 // ── NEW: Apply Chat Operations to Document ──────────
 // ══════════════════════════════════════════════════════
 
-async function applyChatOperations(zip, operations, author) {
+async function applyChatOperations(zip, operations, author, editModeValue = EDIT_MODE.REDLINE) {
+    const normalizedEditMode = normalizeEditMode(editModeValue);
+    const generateRedlines = shouldGenerateRedlines(normalizedEditMode);
     let documentXml = await zip.file('word/document.xml')?.async('string');
     if (!documentXml) throw new Error('word/document.xml not found');
     parseXmlStrict(documentXml, 'word/document.xml');
@@ -1333,7 +1415,7 @@ async function applyChatOperations(zip, operations, author) {
         const label = `${op.type}: ${targetRefLabel}"${(op.target || '').slice(0, 50)}…"`;
         log(`Applying: ${label}`);
         try {
-            const step = await runOperation(documentXml, op, author, runtimeContext);
+            const step = await runOperation(documentXml, op, author, runtimeContext, { generateRedlines });
             documentXml = step.documentXml;
             if (step.numberingXml) capturedNumberingXml.push(step.numberingXml);
             if (step.commentsXml) capturedCommentsXml.push(step.commentsXml);
@@ -1453,7 +1535,7 @@ async function handleSend() {
     const thinkingEl = addMsg('system', '⏳ Analyzing document…');
 
     try {
-        const result = await sendGeminiChat(userText, documentParagraphs, apiKey);
+        const result = await sendGeminiChat(userText, documentParagraphs, apiKey, editMode);
 
         // Remove thinking indicator
         thinkingEl.remove();
@@ -1461,9 +1543,9 @@ async function handleSend() {
         let assistantHtml = escapeHtml(result.explanation).replace(/\n/g, '<br>');
 
         if (result.operations.length > 0) {
-            addMsg('system', `Applying ${result.operations.length} operation(s)…`);
+            addMsg('system', `Applying ${result.operations.length} operation(s) in <strong>${getEditModeLabel()}</strong> mode…`);
             const author = authorInput.value.trim() || 'Browser Demo AI';
-            const opResults = await applyChatOperations(currentZip, result.operations, author);
+            const opResults = await applyChatOperations(currentZip, result.operations, author, editMode);
             operationCount += opResults.filter(r => r.success).length;
 
             // Re-extract paragraphs after modifications
@@ -1571,6 +1653,15 @@ saveGeminiKeyBtn.addEventListener('click', () => {
 if (geminiApiKeyInput) {
     const storedKey = getStoredGeminiApiKey();
     if (storedKey) geminiApiKeyInput.value = storedKey;
+}
+
+// Restore + wire edit mode toggle
+setEditMode(editMode, { announce: false, resetChatHistory: false });
+for (const input of editModeInputs) {
+    input?.addEventListener('change', () => {
+        if (!input.checked) return;
+        setEditMode(input.value, { announce: true, resetChatHistory: true });
+    });
 }
 
 // ══════════════════════════════════════════════════════

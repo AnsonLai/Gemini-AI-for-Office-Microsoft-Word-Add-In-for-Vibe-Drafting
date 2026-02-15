@@ -24,6 +24,8 @@
       --warn: #f59e0b;
       --danger: #ef4444;
       --radius: 10px;
+      --toggle-bg: #0f172a;
+      --toggle-border: #334155;
     }
 
     * {
@@ -79,6 +81,43 @@
 
     .top-bar .spacer {
       flex: 1;
+    }
+
+    .edit-mode-toggle {
+      display: inline-flex;
+      align-items: center;
+      background: var(--toggle-bg);
+      border: 1px solid var(--toggle-border);
+      border-radius: 999px;
+      padding: 2px;
+      gap: 2px;
+    }
+
+    .edit-mode-toggle label {
+      position: relative;
+      cursor: pointer;
+    }
+
+    .edit-mode-toggle input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .edit-mode-toggle span {
+      display: inline-block;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      border-radius: 999px;
+      transition: color .15s, background .15s;
+      user-select: none;
+    }
+
+    .edit-mode-toggle input:checked+span {
+      background: var(--accent);
+      color: #fff;
     }
 
     .top-bar input[type="file"] {
@@ -485,6 +524,16 @@
   <!-- ── Top Bar ──────────────────────────────────── -->
   <div class="top-bar">
     <h1>Contract Redline Review</h1>
+    <div class="edit-mode-toggle" role="radiogroup" aria-label="Edit mode">
+      <label>
+        <input type="radio" id="editModeRedline" name="editMode" value="redline" checked />
+        <span>Redlines</span>
+      </label>
+      <label>
+        <input type="radio" id="editModeDirect" name="editMode" value="direct" />
+        <span>Direct edits</span>
+      </label>
+    </div>
     <div class="spacer"></div>
 
     <input id="docxFile" type="file" accept=".docx" />
@@ -528,7 +577,7 @@
 
     <aside class="preview-column">
       <div class="preview-header">
-        <div class="preview-title">Live Redline Preview</div>
+        <div class="preview-title">Live Document Preview</div>
         <button id="refreshPreviewBtn" disabled>Refresh</button>
       </div>
       <div id="previewStatus">Upload a .docx file to render preview.</div>
@@ -545,7 +594,7 @@
       }
     }
   </script>
-  <script type="module" src="./demo.js?v=2026-02-12-chat-docx-preview-4"></script>
+  <script type="module" src="./demo.js?v=2026-02-15-chat-docx-preview-20"></script>
 </body>
 
 </html>

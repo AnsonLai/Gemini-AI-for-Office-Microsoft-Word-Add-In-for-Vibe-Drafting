@@ -15,16 +15,23 @@ It also renders a live side-by-side preview using `docxjs` so tracked changes ca
 Interactive **contract redline review** powered by Gemini AI:
 
 1. Upload a `.docx` document
-2. Enter your Gemini API key
-3. Type a review instruction (e.g., "Review this contract and flag clauses that deviate from market standards")
-4. Gemini analyzes the full document text and returns structured operations (redlines, comments, highlights)
-5. Operations are applied to the document OOXML
-6. Download the marked-up result
-7. Continue the conversation for follow-up reviews
+2. Choose edit mode in the top toggle (`Redlines` or `Direct edits`)
+3. Enter your Gemini API key
+4. Type a review instruction (e.g., "Review this contract and flag clauses that deviate from market standards")
+5. Gemini analyzes the full document text and returns structured operations (redlines, comments, highlights)
+6. Operations are applied to the document OOXML
+7. Download the marked-up result
+8. Continue the conversation for follow-up reviews
 
 As operations are applied, the right-side preview pane is refreshed from the in-memory `.docx` package.
 
 The chat supports multi-turn conversation — Gemini retains context from previous turns.
+
+### Edit Mode Toggle
+
+- `Redlines`: content edits are applied as tracked changes (insertions/deletions).
+- `Direct edits`: content edits are applied directly (no tracked insert/delete markup).
+- Switching mode resets chat turn history so Gemini instructions stay aligned with the selected mode.
 
 ### Kitchen-Sink Mode (Legacy)
 
@@ -128,7 +135,7 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 
 ## Important Behavior Notes
 
-- Redlines are generated via OOXML, not Word runtime state.
+- In `Redlines` mode, tracked insert/delete changes are generated via OOXML (not Word runtime state).
 - Chat mode sends the full document text to Gemini for analysis.
 - Multi-turn chat history is maintained in-memory (lost on page refresh).
 - List/table operations can emit package output and extra parts.
