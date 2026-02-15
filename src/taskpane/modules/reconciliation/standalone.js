@@ -13,7 +13,12 @@ import {
     parseOoxml,
     serializeOoxml
 } from './engine/oxml-engine.js';
+import { parseTable as parseMarkdownTable } from './pipeline/pipeline.js';
 import { wrapInDocumentFragment as wrapInDocumentFragmentShared } from './pipeline/serialization.js';
+import {
+    getParagraphText as getParagraphTextCore,
+    resolveTargetParagraphWithSnapshot as resolveTargetParagraphWithSnapshotCore
+} from './core/paragraph-targeting.js';
 import {
     buildSingleLineListStructuralFallbackPlan,
     executeSingleLineListStructuralFallback,
@@ -46,6 +51,168 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
         };
     }
     return result;
+}
+
+/**
+ * Reconciles a Markdown table against an OOXML scope.
+ *
+ * This centralizes table-specific validation + reconciliation so Word add-in
+ * and browser modules can share the same entrypoint.
+ *
+ * @param {string} oxml - OOXML scope to reconcile (paragraph/range/table package)
+ * @param {string} originalText - Original visible text in that scope
+ * @param {string} markdownTable - Markdown table text
+ * @param {Object} [options={}] - Reconciliation options forwarded to applyRedlineToOxml
+ * @returns {Promise<{ oxml: string, hasChanges: boolean, warnings?: string[], isMarkdownTable: boolean, tableData?: Object }>}
+ */
+export async function reconcileMarkdownTableOoxml(oxml, originalText, markdownTable, options = {}) {
+    const sourceOoxml = typeof oxml === 'string' ? oxml : '';
+    const tableText = typeof markdownTable === 'string' ? markdownTable : String(markdownTable || '');
+    let tableData;
+
+    try {
+        tableData = parseMarkdownTable(tableText);
+    } catch {
+        tableData = { headers: [], rows: [] };
+    }
+
+    const hasTableData = (tableData?.headers?.length || 0) > 0 || (tableData?.rows?.length || 0) > 0;
+    if (!hasTableData) {
+        return {
+            oxml: sourceOoxml,
+            hasChanges: false,
+            isMarkdownTable: false,
+            warnings: ['Could not parse Markdown table from input.']
+        };
+    }
+
+    const result = await applyRedlineToOxml(
+        sourceOoxml,
+        originalText || '',
+        tableText,
+        options
+    );
+
+    return {
+        ...result,
+        isMarkdownTable: true,
+        tableData
+    };
+}
+
+/**
+ * Heuristic detector for paragraphs likely belonging to a table-source block.
+ *
+ * @param {string} text - Paragraph text
+ * @returns {boolean}
+ */
+export function isLikelyStructuredTableSourceParagraph(text) {
+    const normalized = String(text || '').trim();
+    if (!normalized) return false;
+    if (/^and$/i.test(normalized)) return true;
+    if (/^\[.*\]$/.test(normalized)) return true;
+    if (/^\(.*\)$/.test(normalized)) return true;
+    if (/:\s*$/.test(normalized)) return true;
+    if (normalized.length <= 90 && !/[.!?]$/.test(normalized) && /[:\[\]()]/.test(normalized)) return true;
+    if (/^[\[(]/.test(normalized)) return true;
+    return false;
+}
+
+/**
+ * Infers a contiguous paragraph block for table conversion starting from a paragraph.
+ *
+ * @param {Element|null} startParagraph - Starting w:p node
+ * @param {Object} [options={}] - Inference options
+ * @param {number} [options.maxScan=10] - Max sibling paragraphs to inspect
+ * @param {(paragraph: Element) => string} [options.getParagraphText] - Optional text getter
+ * @returns {Element[]|null}
+ */
+export function inferTableReplacementParagraphBlock(startParagraph, options = {}) {
+    const maxScan = Number.isInteger(options?.maxScan) && options.maxScan > 0 ? options.maxScan : 10;
+    const paragraphTextGetter = typeof options?.getParagraphText === 'function'
+        ? options.getParagraphText
+        : getParagraphTextCore;
+
+    if (!startParagraph || !startParagraph.parentNode) return null;
+
+    const block = [startParagraph];
+    let cursor = startParagraph.nextSibling;
+    let scanned = 0;
+
+    while (cursor && scanned < maxScan) {
+        scanned += 1;
+        const nextCursor = cursor.nextSibling;
+        if (cursor.nodeType !== 1 || cursor.namespaceURI !== WORD_MAIN_NS || cursor.localName !== 'p') {
+            cursor = nextCursor;
+            continue;
+        }
+
+        const text = String(paragraphTextGetter(cursor) || '').trim();
+        if (!text) {
+            if (block.length > 1) break;
+            cursor = nextCursor;
+            continue;
+        }
+
+        if (!isLikelyStructuredTableSourceParagraph(text)) break;
+        block.push(cursor);
+        cursor = nextCursor;
+    }
+
+    return block.length > 1 ? block : null;
+}
+
+/**
+ * Resolves a contiguous paragraph range using paragraph references.
+ *
+ * @param {Document} xmlDoc - XML document
+ * @param {string|number|null} startRef - Start paragraph reference (e.g. P12)
+ * @param {string|number|null} endRef - End paragraph reference (e.g. P15)
+ * @param {Object} [options={}] - Resolution options
+ * @param {string} [options.opType='redline'] - Operation type hint
+ * @param {Array|null} [options.targetRefSnapshot=null] - Optional target snapshot
+ * @param {(message: string) => void} [options.onInfo] - Optional info logger
+ * @param {(message: string) => void} [options.onWarn] - Optional warn logger
+ * @returns {Element[]|null}
+ */
+export function resolveParagraphRangeByRefs(xmlDoc, startRef, endRef, options = {}) {
+    if (!xmlDoc || !startRef || !endRef) return null;
+
+    const opType = options?.opType || 'redline';
+    const targetRefSnapshot = options?.targetRefSnapshot || null;
+    const onInfo = typeof options?.onInfo === 'function' ? options.onInfo : () => { };
+    const onWarn = typeof options?.onWarn === 'function' ? options.onWarn : () => { };
+
+    const start = resolveTargetParagraphWithSnapshotCore(xmlDoc, {
+        targetRef: startRef,
+        opType,
+        targetRefSnapshot,
+        onInfo,
+        onWarn
+    })?.paragraph;
+    if (!start) return null;
+
+    const end = resolveTargetParagraphWithSnapshotCore(xmlDoc, {
+        targetRef: endRef,
+        opType,
+        targetRefSnapshot,
+        onInfo,
+        onWarn
+    })?.paragraph;
+    if (!end) return null;
+
+    const allParagraphs = Array.from(xmlDoc.getElementsByTagNameNS('*', 'p'));
+    const startIdx = allParagraphs.indexOf(start);
+    const endIdx = allParagraphs.indexOf(end);
+    if (startIdx < 0 || endIdx < startIdx) return null;
+
+    const range = allParagraphs.slice(startIdx, endIdx + 1);
+    if (range.length === 0) return null;
+
+    const parent = range[0]?.parentNode || null;
+    if (!parent) return null;
+    if (!range.every(node => node && node.parentNode === parent)) return null;
+    return range;
 }
 
 /**

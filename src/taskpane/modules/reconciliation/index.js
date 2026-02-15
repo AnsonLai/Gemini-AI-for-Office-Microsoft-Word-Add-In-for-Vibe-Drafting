@@ -71,3 +71,11 @@ export {
     executeSingleLineListStructuralFallback
 } from './orchestration/list-structural-fallback.js';
 
+// Shared standalone helpers (Word-agnostic)
+export {
+    reconcileMarkdownTableOoxml,
+    isLikelyStructuredTableSourceParagraph,
+    inferTableReplacementParagraphBlock,
+    resolveParagraphRangeByRefs
+} from './standalone.js';
+

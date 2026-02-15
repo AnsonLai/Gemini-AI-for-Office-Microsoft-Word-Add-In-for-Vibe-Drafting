@@ -1,6 +1,7 @@
 import JSZip from 'https://esm.sh/jszip@3.10.1';
 import {
     applyRedlineToOxml,
+    reconcileMarkdownTableOoxml,
     applyHighlightToOoxml,
     injectCommentsIntoOoxml,
     configureLogger,
@@ -32,7 +33,9 @@ import {
     remapNumberingPayloadForDocument,
     overwriteParagraphNumIds,
     extractFirstParagraphNumId,
-    buildExplicitDecimalMultilevelNumberingXml
+    buildExplicitDecimalMultilevelNumberingXml,
+    inferTableReplacementParagraphBlock,
+    resolveParagraphRangeByRefs
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 
 const DEMO_VERSION = '2026-02-15-chat-docx-preview-19';
@@ -701,7 +704,7 @@ async function trySingleParagraphListStructuralFallback({
 }
 
 // ── Apply operations (per-paragraph) ───────────────────
-async function applyToParagraphByExactText(documentXml, targetText, modifiedText, author, targetRef = null, runtimeContext = null) {
+async function applyToParagraphByExactText(documentXml, targetText, modifiedText, author, targetRef = null, targetEndRef = null, runtimeContext = null) {
     const parser = new DOMParser();
     const serializer = new XMLSerializer();
     const xmlDoc = parser.parseFromString(documentXml, 'application/xml');
@@ -719,6 +722,24 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
         : null;
     let effectiveModifiedText = synthesizedTableMarkdown || modifiedText;
     const useTableScope = !!containingTable && isMarkdownTableText(effectiveModifiedText);
+    const isTableMarkdownEdit = isMarkdownTableText(effectiveModifiedText);
+    const explicitRangeParagraphs = targetEndRef
+        ? resolveParagraphRangeByRefs(xmlDoc, targetRef, targetEndRef, {
+            opType: 'redline',
+            targetRefSnapshot: runtimeContext?.targetRefSnapshot || null,
+            onInfo: message => log(message),
+            onWarn: message => log(message)
+        })
+        : null;
+    let inferredTableRangeParagraphs = null;
+    if (!explicitRangeParagraphs && !useTableScope && isTableMarkdownEdit) {
+        inferredTableRangeParagraphs = inferTableReplacementParagraphBlock(targetParagraph, {
+            getParagraphText
+        });
+        if (inferredTableRangeParagraphs?.length > 1) {
+            log(`[Table] Heuristic range expansion selected ${inferredTableRangeParagraphs.length} paragraph(s) for replacement.`);
+        }
+    }
     const targetListInfo = getParagraphListInfo(targetParagraph);
     if (
         targetListInfo &&
@@ -805,17 +826,40 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
 
     const originalTextForApply = useListScope
         ? listScopeEdit.originalText
-        : (currentParagraphText || targetText);
+        : (
+            explicitRangeParagraphs
+                ? explicitRangeParagraphs.map(p => getParagraphText(p)).join('\n')
+                : (inferredTableRangeParagraphs
+                    ? inferredTableRangeParagraphs.map(p => getParagraphText(p)).join('\n')
+                    : (currentParagraphText || targetText))
+        );
     const scopedXml = useTableScope
         ? serializer.serializeToString(containingTable)
-        : (useListScope ? serializeParagraphRangeAsDocument(listScopeEdit.paragraphs, serializer) : serializer.serializeToString(targetParagraph));
+        : (
+            useListScope
+                ? serializeParagraphRangeAsDocument(listScopeEdit.paragraphs, serializer)
+                : (
+                    explicitRangeParagraphs
+                        ? serializeParagraphRangeAsDocument(explicitRangeParagraphs, serializer)
+                        : (inferredTableRangeParagraphs
+                            ? serializeParagraphRangeAsDocument(inferredTableRangeParagraphs, serializer)
+                            : serializer.serializeToString(targetParagraph))
+                )
+        );
 
-    const result = await applyRedlineToOxml(scopedXml, originalTextForApply, effectiveModifiedText, {
-        author,
-        generateRedlines: true,
-        // Preserve table wrapper when table markdown should reconcile the full table.
-        _isolatedTableCell: useTableScope
-    });
+    const result = isTableMarkdownEdit
+        ? await reconcileMarkdownTableOoxml(scopedXml, originalTextForApply, effectiveModifiedText, {
+            author,
+            generateRedlines: true,
+            // Preserve table wrapper when table markdown should reconcile the full table.
+            _isolatedTableCell: useTableScope
+        })
+        : await applyRedlineToOxml(scopedXml, originalTextForApply, effectiveModifiedText, {
+            author,
+            generateRedlines: true,
+            // Preserve table wrapper when table markdown should reconcile the full table.
+            _isolatedTableCell: useTableScope
+        });
     if (!result?.hasChanges) return { documentXml, hasChanges: false, numberingXml: null };
     if (result.useNativeApi && !result.oxml) {
         const warning = 'Format-only fallback requires native Word API; browser demo skipped this operation.';
@@ -835,7 +879,15 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
     }
     const scopeNodes = useTableScope
         ? [containingTable]
-        : (useListScope ? listScopeEdit.paragraphs : [targetParagraph]);
+        : (
+            useListScope
+                ? listScopeEdit.paragraphs
+                : (
+                    explicitRangeParagraphs
+                        ? explicitRangeParagraphs
+                        : (inferredTableRangeParagraphs || [targetParagraph])
+                )
+        );
     const anchorNode = scopeNodes[0];
     const parent = anchorNode.parentNode;
     for (const node of replacementNodes) parent.insertBefore(xmlDoc.importNode(node, true), anchorNode);
@@ -883,7 +935,7 @@ async function applyCommentToParagraphByExactText(documentXml, targetText, textT
 async function runOperation(documentXml, op, author, runtimeContext = null) {
     if (op.type === 'highlight') return applyHighlightToParagraphByExactText(documentXml, op.target, op.textToHighlight, op.color, author, op.targetRef, runtimeContext);
     if (op.type === 'comment') return applyCommentToParagraphByExactText(documentXml, op.target, op.textToComment, op.commentContent, author, op.targetRef, runtimeContext);
-    return applyToParagraphByExactText(documentXml, op.target, op.modified, author, op.targetRef, runtimeContext);
+    return applyToParagraphByExactText(documentXml, op.target, op.modified, author, op.targetRef, op.targetEndRef, runtimeContext);
 }
 
 // ── Package artifact helpers ───────────────────────────
@@ -1095,6 +1147,7 @@ function buildSystemInstruction(paragraphs) {
         '  { "type": "comment", "targetRef": "P12", "target": "<exact paragraph text>", "textToComment": "<substring to anchor on>", "commentContent": "<your comment>" }',
         '  { "type": "highlight", "targetRef": "P12", "target": "<exact paragraph text>", "textToHighlight": "<substring to highlight>", "color": "yellow|green|cyan|magenta|blue|red" }',
         '  { "type": "redline", "targetRef": "P12", "target": "<exact paragraph text>", "modified": "<replacement paragraph text>" }',
+        '  { "type": "redline", "targetRef": "P12", "targetEndRef": "P15", "target": "<exact START paragraph text>", "modified": "<replacement text for P12..P15>" }',
         '',
         'CRITICAL TARGETING RULES:',
         '- Each [P#] line above is a SEPARATE paragraph in the document.',
@@ -1104,6 +1157,7 @@ function buildSystemInstruction(paragraphs) {
         '- NEVER include the [P#] prefix in ANY operation field. The [P#] prefix is only a reference label, NOT part of the actual text.',
         '- NEVER combine or concatenate text from multiple [P#] paragraphs into one target.',
         '- If you need to modify multiple paragraphs, create a SEPARATE operation for EACH paragraph.',
+        '- EXCEPTION: for structural conversions (especially text->table), use ONE redline with "targetRef" as start and "targetEndRef" as end of the contiguous block.',
         '- "textToComment" / "textToHighlight" must be an exact substring found within that single paragraph.',
         '',
         'OPERATION RULES:',
@@ -1120,6 +1174,7 @@ function buildSystemInstruction(paragraphs) {
         '  - NEVER double-mark a list item (invalid: "- A. ...", "1. a. ..."). Use only the final desired marker.',
         '  - For ordered lists, do not include marker characters inside item text.',
         '  - Tables: use markdown table syntax (e.g., "| Col1 | Col2 |\\n|---|---|\\n| val | val |")',
+        '- When converting multiple paragraphs into a table, you MUST set "targetEndRef" to include the full source block.',
         '- For EXISTING TABLE STRUCTURE changes (add/remove/reorder rows/columns), the "modified" value MUST be the FULL markdown table for that target table, not a single cell value.',
         '- For table structure changes, target any paragraph within that table and include the correct "targetRef".',
         '- If you can only express it as multiline cell text (example: "Title:\\nDate:"), the client may convert it to full table markdown automatically, but returning full markdown table is preferred.',
@@ -1179,10 +1234,11 @@ function parseGeminiChatResponse(rawText) {
 
             const splitTarget = splitLeadingParagraphMarker(op.target);
             const explicitRef = parseParagraphReference(op.targetRef ?? op.paragraphRef ?? op.paragraphIndex ?? op.targetIndex);
+            const explicitEndRef = parseParagraphReference(op.targetEndRef ?? op.endTargetRef ?? op.endParagraphRef ?? op.endParagraphIndex);
             const targetRef = explicitRef || splitTarget.targetRef || null;
             const target = splitTarget.text;
 
-            const normalizedOp = { ...op, type, target, targetRef };
+            const normalizedOp = { ...op, type, target, targetRef, targetEndRef: explicitEndRef || null };
             if (normalizedOp.modified != null) normalizedOp.modified = stripLeadingParagraphMarker(normalizedOp.modified);
             if (normalizedOp.textToComment != null) normalizedOp.textToComment = stripLeadingParagraphMarker(normalizedOp.textToComment);
             if (normalizedOp.textToHighlight != null) normalizedOp.textToHighlight = stripLeadingParagraphMarker(normalizedOp.textToHighlight);
@@ -1271,7 +1327,9 @@ async function applyChatOperations(zip, operations, author) {
     };
 
     for (const op of operations) {
-        const targetRefLabel = op.targetRef ? `[P${op.targetRef}] ` : '';
+        const targetRefLabel = op.targetRef
+            ? (op.targetEndRef ? `[P${op.targetRef}-P${op.targetEndRef}] ` : `[P${op.targetRef}] `)
+            : '';
         const label = `${op.type}: ${targetRefLabel}"${(op.target || '').slice(0, 50)}…"`;
         log(`Applying: ${label}`);
         try {

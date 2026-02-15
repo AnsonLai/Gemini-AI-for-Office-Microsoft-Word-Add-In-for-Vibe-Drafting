@@ -2,10 +2,12 @@
 
 import {
   applyRedlineToOxml,
+  reconcileMarkdownTableOoxml,
   applyReconciliationToParagraphBatch,
   ReconciliationPipeline,
   wrapInDocumentFragment,
   parseTable,
+  extractParagraphIdFromOoxml,
   getAuthorForTracking,
   buildListMarkdown,
   normalizeListItemsWithLevels,
@@ -114,7 +116,12 @@ Rules:
 - **PRIORITIZE \`edit_paragraph\`**: This is the NEW preferred method. For ANY text edit (small or large), use \`edit_paragraph\` with the complete rewritten paragraph. The system will automatically compute precise word-level changes using diff-match-patch. This is more reliable than \`modify_text\`.
 - Use "edit_paragraph" for ALL text edits: spelling changes, word replacements, sentence rewrites, or even 60% paragraph rewrites. Just provide the full new paragraph content.
 - Use "replace_paragraph" only when you need to replace with complex formatted content (lists, tables, headings) that requires HTML insertion.
+- If converting text into a Markdown table:
+  - Use "replace_paragraph" when it is a single paragraph.
+  - Use "replace_range" when it spans multiple consecutive paragraphs.
+  - Do NOT use "modify_text" for table conversions.
 - Use "modify_text" ONLY as a fallback for very specific surgical edits where you need to target exact substrings.
+- Never use "modify_text" when the replacement includes line breaks, list markers, headings, or Markdown tables.
 - **CRITICAL LENGTH LIMIT**: For "modify_text", "originalText" MUST be **80 characters or fewer**. This is a hard limit.
 - Use "replace_range" when you need to replace multiple consecutive paragraphs (like converting a bulleted list to a single paragraph).
 - For "replace_range", provide ONLY "paragraphIndex", "endParagraphIndex", "operation", and "content". Do NOT include "originalText" or "replacementText".
@@ -331,14 +338,15 @@ Return ONLY the JSON array, nothing else:`;
             } else if (change.operation === "replace_paragraph") {
               console.log(`Replacing Paragraph ${change.paragraphIndex}`);
 
-              if (change.content === null || change.content === undefined) {
+              const replacementContent = (change.content ?? change.newContent);
+              if (replacementContent === null || replacementContent === undefined) {
                 console.warn("Content is null/undefined for replace_paragraph. Skipping.");
                 continue;
               }
 
               // Normalize content: Convert literal escape sequences to actual characters
               // This handles cases where the AI returns "\\n" as a two-character string instead of actual newlines
-              let normalizedContent = normalizeContentEscapes(change.content || "");
+              let normalizedContent = normalizeContentEscapes(replacementContent || "");
 
               // --- NEW: Detect if target paragraph is already a list item ---
               // If so, we need to preserve its numId/ilvl when replacing content
@@ -546,40 +554,64 @@ Return ONLY the JSON array, nothing else:`;
                 if (tableData.rows.length > 0 || tableData.headers.length > 0) {
                   console.log(`Detected table in replace_paragraph, using OOXML pipeline`);
                   try {
-                    // Create reconciliation pipeline with redline settings
                     const redlineEnabled = loadRedlineSetting();
                     const redlineAuthor = loadRedlineAuthor();
-                    const pipeline = new ReconciliationPipeline({
-                      generateRedlines: redlineEnabled,
-                      author: redlineAuthor
+                    const insertMode = isInsertAtEnd ? "After" : "Replace";
+
+                    const paragraphOoxmlResult = targetParagraph.getOoxml();
+                    await context.sync();
+
+                    const paragraphOoxml = paragraphOoxmlResult?.value || "";
+                    const paragraphId = paragraphOoxml ? extractParagraphIdFromOoxml(paragraphOoxml) : null;
+                    const paragraphText = targetParagraph.text || "";
+
+                    const engineApplied = await tryApplyMarkdownTableWithOxmlEngine({
+                      context,
+                      scope: targetParagraph,
+                      scopeOoxml: paragraphOoxml,
+                      originalText: paragraphText,
+                      modifiedTableMarkdown: normalizedContent,
+                      redlineEnabled,
+                      redlineAuthor,
+                      targetParagraphId: paragraphId,
+                      insertMode,
+                      baseTrackingMode,
+                      logPrefix: "replace_paragraph/TableEngine"
                     });
 
-                    // Execute table generation - this creates OOXML with w:tbl and optional w:ins
-                    const result = pipeline.executeTableGeneration(normalizedContent);
-
-                    if (result.ooxml && result.isValid) {
-                      // Wrap in document fragment
-                      const wrappedOoxml = wrapInDocumentFragment(result.ooxml, {
-                        includeNumbering: false
-                      });
-
-                      await withNativeTrackingDisabled(context, async () => {
-                        const insertMode = isInsertAtEnd ? 'After' : 'Replace';
-                        console.log(`[TableGen] Using insert mode: ${insertMode}`);
-                        targetParagraph.insertOoxml(wrappedOoxml, insertMode);
-                        await context.sync();
-                        console.log(`✅ OOXML table generation successful`);
-                        changesApplied++;
-                      }, {
-                        enabled: redlineEnabled,
-                        baseTrackingMode,
-                        logPrefix: "replace_paragraph/TableGen"
-                      });
-                    } else {
-                      console.warn('[TableGen] Pipeline failed, falling back to HTML');
-                      const htmlContent = markdownToWordHtml(normalizedContent);
-                      targetParagraph.insertHtml(htmlContent, isInsertAtEnd ? "After" : "Replace");
+                    if (engineApplied) {
+                      console.log(`✅ OOXML table reconciliation successful`);
                       changesApplied++;
+                    } else {
+                      console.warn("[TableEngine] No changes from OOXML engine, falling back to pipeline generation");
+                      const pipeline = new ReconciliationPipeline({
+                        generateRedlines: redlineEnabled,
+                        author: redlineAuthor
+                      });
+                      const result = pipeline.executeTableGeneration(normalizedContent);
+
+                      if (result.ooxml && result.isValid) {
+                        const wrappedOoxml = wrapInDocumentFragment(result.ooxml, {
+                          includeNumbering: false
+                        });
+
+                        await withNativeTrackingDisabled(context, async () => {
+                          console.log(`[TableGen] Using insert mode: ${insertMode}`);
+                          targetParagraph.insertOoxml(wrappedOoxml, insertMode);
+                          await context.sync();
+                          console.log(`✅ OOXML table generation successful`);
+                          changesApplied++;
+                        }, {
+                          enabled: redlineEnabled,
+                          baseTrackingMode,
+                          logPrefix: "replace_paragraph/TableGen"
+                        });
+                      } else {
+                        console.warn("[TableGen] Pipeline failed, falling back to HTML");
+                        const htmlContent = markdownToWordHtml(normalizedContent);
+                        targetParagraph.insertHtml(htmlContent, insertMode);
+                        changesApplied++;
+                      }
                     }
                   } catch (tableError) {
                     console.error(`Error in OOXML table generation:`, tableError);
@@ -684,12 +716,50 @@ Return ONLY the JSON array, nothing else:`;
                   targetRange = startPara.getRange().expandTo(endPara.getRange());
                 }
 
-                // Use 'content' field for replace_range (not replacementText)
-                const contentToParse = change.content || change.replacementText || "";
+                // Primary payload is "content", but tolerate "newContent" for model drift.
+                const contentToParse = change.content || change.newContent || change.replacementText || "";
 
                 if (!contentToParse || contentToParse.trim().length === 0) {
                   console.warn("Empty content for replace_range. Skipping.");
                   continue;
+                }
+
+                // Detect markdown table and reconcile with OOXML engine first.
+                const parsedRangeTable = parseTable(contentToParse);
+                const hasMarkdownTable = parsedRangeTable.rows.length > 0 || parsedRangeTable.headers.length > 0;
+                if (hasMarkdownTable && targetRange) {
+                  console.log("[replace_range] Detected markdown table, using OOXML reconciliation");
+                  try {
+                    targetRange.load("text");
+                    const rangeOoxmlResult = targetRange.getOoxml();
+                    await context.sync();
+
+                    const rangeOriginalText = targetRange.text || "";
+                    const redlineEnabled = loadRedlineSetting();
+                    const redlineAuthor = loadRedlineAuthor();
+
+                    const engineApplied = await tryApplyMarkdownTableWithOxmlEngine({
+                      context,
+                      scope: targetRange,
+                      scopeOoxml: rangeOoxmlResult?.value || "",
+                      originalText: rangeOriginalText,
+                      modifiedTableMarkdown: contentToParse,
+                      redlineEnabled,
+                      redlineAuthor,
+                      insertMode: "Replace",
+                      baseTrackingMode,
+                      logPrefix: "replace_range/TableEngine"
+                    });
+
+                    if (engineApplied) {
+                      changesApplied++;
+                      console.log("✅ OOXML table reconciliation successful for replace_range");
+                      continue; // Skip HTML fallback
+                    }
+                  } catch (tableEngineError) {
+                    console.warn("[replace_range] OOXML table reconciliation failed, falling back to HTML:", tableEngineError);
+                    // Fall through to existing fallback path.
+                  }
                 }
 
                 // --- NEW: Detect list structures and use OOXML engine for proper numPr ---
@@ -1568,6 +1638,67 @@ async function routeChangeOperation(change, targetParagraph, context, properties
       applyFormatRemovalToRanges
     }
   });
+}
+
+/**
+ * Applies markdown-table reconciliation using the same OOXML engine path used by standalone/browser demo.
+ *
+ * @param {Object} params - Reconciliation params
+ * @param {Word.RequestContext} params.context - Word request context
+ * @param {Word.Paragraph|Word.Range} params.scope - Paragraph or range to replace
+ * @param {string} params.scopeOoxml - OOXML for the scope
+ * @param {string} params.originalText - Original visible text for diffing
+ * @param {string} params.modifiedTableMarkdown - Markdown table text
+ * @param {boolean} params.redlineEnabled - Whether to generate track changes
+ * @param {string} params.redlineAuthor - Redline author
+ * @param {string|null} [params.targetParagraphId] - Optional paragraph id hint
+ * @param {"Replace"|"After"} [params.insertMode="Replace"] - Word insertion mode
+ * @param {Word.ChangeTrackingMode | null} [params.baseTrackingMode] - Base tracking mode for restoration
+ * @param {string} [params.logPrefix="TableEngine"] - Log prefix
+ * @returns {Promise<boolean>} True when reconciliation produced and applied changes
+ */
+async function tryApplyMarkdownTableWithOxmlEngine({
+  context,
+  scope,
+  scopeOoxml,
+  originalText,
+  modifiedTableMarkdown,
+  redlineEnabled,
+  redlineAuthor,
+  targetParagraphId = null,
+  insertMode = "Replace",
+  baseTrackingMode = null,
+  logPrefix = "TableEngine"
+}) {
+  if (!scope || !scopeOoxml || !modifiedTableMarkdown) {
+    return false;
+  }
+
+  const result = await reconcileMarkdownTableOoxml(
+    scopeOoxml,
+    originalText || "",
+    modifiedTableMarkdown,
+    {
+      author: redlineEnabled ? redlineAuthor : undefined,
+      generateRedlines: redlineEnabled,
+      ...(targetParagraphId ? { targetParagraphId } : {})
+    }
+  );
+
+  if (!result?.hasChanges || typeof result?.oxml !== "string") {
+    return false;
+  }
+
+  await withNativeTrackingDisabled(context, async () => {
+    scope.insertOoxml(result.oxml, insertMode);
+    await context.sync();
+  }, {
+    enabled: redlineEnabled,
+    baseTrackingMode,
+    logPrefix
+  });
+
+  return true;
 }
 
 /**
