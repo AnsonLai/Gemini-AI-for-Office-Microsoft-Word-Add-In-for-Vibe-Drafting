@@ -203,7 +203,7 @@ reconciliation/
   - Re-exports turn-snapshot drift-correction helpers (`buildTargetReferenceSnapshot`, `resolveTargetParagraphWithSnapshot`) for browser/Node integrations that apply multiple operations per turn.
   - Re-exports standalone list-fallback planning/execution/sequence helpers (`buildSingleLineListStructuralFallbackPlan`, `executeSingleLineListStructuralFallback`, `resolveSingleLineListFallbackNumberingAction`, `recordSingleLineListFallbackExplicitSequence`, `clearSingleLineListFallbackExplicitSequence`, `enforceListBindingOnParagraphNodes`, `stripSingleLineListMarkerPrefix`).
   - Re-exports dynamic numbering allocation helpers (`createDynamicNumberingIdState`, `reserveNextNumberingId`, `reserveNextNumberingIdPair`) so host adapters can share collision-safe numbering ID assignment logic.
-  - Re-exports `mergeNumberingXmlBySchemaOrder(...)` so host adapters can merge numbering payloads without violating OOXML numbering element order.
+  - Re-exports numbering payload helpers (`remapNumberingPayloadForDocument`, `overwriteParagraphNumIds`, `extractFirstParagraphNumId`, `buildExplicitDecimalMultilevelNumberingXml`, `mergeNumberingXmlBySchemaOrder`) so browser/demo/test hosts can avoid duplicating Word-sensitive numbering transforms.
   - Re-exports shared table-targeting heuristics for browser/Node integrations.
   - Re-exports shared list-targeting heuristics for browser/Node integrations.
 

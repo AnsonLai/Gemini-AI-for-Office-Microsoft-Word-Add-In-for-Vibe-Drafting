@@ -27,9 +27,12 @@ import {
     stripRedundantLeadingListMarkers,
     stripSingleLineListMarkerPrefix,
     createDynamicNumberingIdState,
-    reserveNextNumberingId,
     reserveNextNumberingIdPair,
-    mergeNumberingXmlBySchemaOrder
+    mergeNumberingXmlBySchemaOrder,
+    remapNumberingPayloadForDocument,
+    overwriteParagraphNumIds,
+    extractFirstParagraphNumId,
+    buildExplicitDecimalMultilevelNumberingXml
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 
 const DEMO_VERSION = '2026-02-15-chat-docx-preview-19';
@@ -463,58 +466,6 @@ function serializeParagraphRangeAsDocument(paragraphs, serializer) {
     return `<w:document xmlns:w="${NS_W}"><w:body>${paragraphXml}</w:body></w:document>`;
 }
 
-function overwriteParagraphNumIds(paragraphNodes, targetNumId) {
-    if (!Array.isArray(paragraphNodes) || !targetNumId) return;
-    for (const node of paragraphNodes) {
-        const numIdNodes = Array.from(node.getElementsByTagNameNS('*', 'numId'));
-        for (const numIdNode of numIdNodes) {
-            setElementVal(numIdNode, targetNumId);
-        }
-    }
-}
-
-function extractFirstParagraphNumId(paragraphNodes) {
-    for (const node of paragraphNodes || []) {
-        const numIdNodes = Array.from(node.getElementsByTagNameNS('*', 'numId'));
-        for (const numIdNode of numIdNodes) {
-            const numId = getElementId(numIdNode, ['w:val', 'val']);
-            if (numId != null) return String(numId);
-        }
-    }
-    return null;
-}
-
-function buildExplicitDecimalMultilevelNumberingXml(numId, abstractNumId, startAt) {
-    const safeNumId = String(numId);
-    const safeAbstractNumId = String(abstractNumId);
-    const safeStartAt = Number.isInteger(startAt) && startAt > 0 ? startAt : 1;
-    const levelsXml = Array.from({ length: 9 }, (_, level) => {
-        const lvlText = Array.from({ length: level + 1 }, (_, i) => `%${i + 1}`).join('.') + '.';
-        const left = 720 * (level + 1);
-        return `
-        <w:lvl w:ilvl="${level}">
-            <w:start w:val="1"/>
-            <w:numFmt w:val="decimal"/>
-            <w:lvlText w:val="${lvlText}"/>
-            <w:lvlJc w:val="left"/>
-            <w:pPr><w:ind w:left="${left}" w:hanging="360"/></w:pPr>
-        </w:lvl>`;
-    }).join('');
-    return `
-<w:numbering xmlns:w="${NS_W}">
-    <w:abstractNum w:abstractNumId="${safeAbstractNumId}">
-        <w:multiLevelType w:val="multilevel"/>
-        ${levelsXml}
-    </w:abstractNum>
-    <w:num w:numId="${safeNumId}">
-        <w:abstractNumId w:val="${safeAbstractNumId}"/>
-        <w:lvlOverride w:ilvl="0">
-            <w:startOverride w:val="${safeStartAt}"/>
-        </w:lvlOverride>
-    </w:num>
-</w:numbering>`.trim();
-}
-
 async function tryExplicitDecimalHeaderListConversion({
     xmlDoc,
     serializer,
@@ -936,88 +887,12 @@ async function runOperation(documentXml, op, author, runtimeContext = null) {
 }
 
 // ── Package artifact helpers ───────────────────────────
-function getAttributeFirst(element, names) {
-    for (const name of names) {
-        const value = element.getAttribute(name);
-        if (value != null && value !== '') return value;
-    }
-    return null;
-}
-
-function getElementId(element, idNames) {
-    const raw = getAttributeFirst(element, idNames);
-    const parsed = Number.parseInt(String(raw || ''), 10);
-    return Number.isFinite(parsed) ? parsed : null;
-}
-
-function setElementId(element, preferredName, idValue) {
-    element.setAttribute(preferredName, String(idValue));
-}
-
-function setElementVal(element, value) {
-    element.setAttribute('w:val', String(value));
-}
-
 async function createNumberingIdState(zip) {
     const existing = await zip.file('word/numbering.xml')?.async('string');
     return createDynamicNumberingIdState(existing || '', {
         minId: 1,
         maxPreferred: 32767
     });
-}
-
-function remapNumberingPayloadForDocument(numberingXml, replacementNodes, numberingIdState) {
-    const parser = new DOMParser();
-    const serializer = new XMLSerializer();
-    const numberingDoc = parseXmlStrict(numberingXml, 'incoming numberingXml');
-
-    const abstractNumMap = new Map();
-    const numIdMap = new Map();
-
-    const abstractNums = Array.from(numberingDoc.getElementsByTagNameNS('*', 'abstractNum'));
-    for (const abstractNum of abstractNums) {
-        const oldId = getElementId(abstractNum, ['w:abstractNumId', 'abstractNumId']);
-        if (oldId == null) continue;
-        const newId = reserveNextNumberingId(numberingIdState, 'abstract');
-        if (newId == null) continue;
-        abstractNumMap.set(oldId, newId);
-        setElementId(abstractNum, 'w:abstractNumId', newId);
-    }
-
-    const nums = Array.from(numberingDoc.getElementsByTagNameNS('*', 'num'));
-    for (const num of nums) {
-        const oldNumId = getElementId(num, ['w:numId', 'numId']);
-        if (oldNumId == null) continue;
-        const newNumId = reserveNextNumberingId(numberingIdState, 'num');
-        if (newNumId == null) continue;
-        numIdMap.set(oldNumId, newNumId);
-        setElementId(num, 'w:numId', newNumId);
-
-        const abstractNumIdNode = Array.from(num.getElementsByTagNameNS('*', 'abstractNumId'))[0] || null;
-        if (abstractNumIdNode) {
-            const oldAbsRef = getElementId(abstractNumIdNode, ['w:val', 'val']);
-            if (oldAbsRef != null && abstractNumMap.has(oldAbsRef)) {
-                setElementVal(abstractNumIdNode, abstractNumMap.get(oldAbsRef));
-            }
-        }
-    }
-
-    const clonedNodes = replacementNodes.map(node => node.cloneNode(true));
-    for (const node of clonedNodes) {
-        const numIdNodes = Array.from(node.getElementsByTagNameNS('*', 'numId'));
-        for (const numIdNode of numIdNodes) {
-            const oldNumRef = getElementId(numIdNode, ['w:val', 'val']);
-            if (oldNumRef != null && numIdMap.has(oldNumRef)) {
-                setElementVal(numIdNode, numIdMap.get(oldNumRef));
-            }
-        }
-    }
-
-    const remappedNumberingXml = serializer.serializeToString(numberingDoc);
-    return {
-        numberingXml: remappedNumberingXml,
-        replacementNodes: clonedNodes
-    };
 }
 
 function mergeNumberingXml(existingNumberingXml, incomingNumberingXml) {
