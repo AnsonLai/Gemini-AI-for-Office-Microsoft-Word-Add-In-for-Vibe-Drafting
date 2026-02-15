@@ -1,5 +1,7 @@
 # Change Summary
 
+> Role: **Session summary log** of what happened and what changed.
+
 ## [2026-02-13] Documentation Consolidation (GSD Transition)
 
 ### What Happened

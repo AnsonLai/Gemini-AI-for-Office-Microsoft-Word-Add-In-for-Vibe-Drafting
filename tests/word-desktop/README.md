@@ -2,6 +2,14 @@
 
 `docxjs` preview is useful for quick feedback, but Microsoft Word desktop is the source of truth for list interpretation.
 
+For quick package-level XML inspection before/after running Word COM checks, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tests/docx-harness/docx-xml-harness.ps1 -Action summary -InputPath "tests/Sample NDA.docx" -AsJson
+```
+
+See `tests/docx-harness/README.md` for full commands (`list`, `extract`, `show`, `grep`, `query`).
+
 Use this script to inspect how Word itself sees paragraph numbering:
 
 ```powershell

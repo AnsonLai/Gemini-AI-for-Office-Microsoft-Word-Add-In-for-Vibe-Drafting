@@ -1,5 +1,7 @@
 # System Architecture & Project Map
 
+> Role: **System understanding** and technical design map for the host-agnostic OOXML engine and its runtimes.
+
 ## Project Map (The GSD Multi-Project Vision)
 
 This repository serves as a mono-repo for a suite of tools built around a common **OOXML Reconciliation Core**.

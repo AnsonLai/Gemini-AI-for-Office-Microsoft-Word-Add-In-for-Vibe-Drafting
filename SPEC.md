@@ -1,5 +1,16 @@
 # Project Overview & Architecture Context
 
+## GSD Documentation Contract
+
+| File | Role |
+|------|------|
+| `SPEC.md` | Project vision and operating principles (**always loaded**). |
+| `ARCHITECTURE.md` | System understanding and technical design map. |
+| `ROADMAP.md` | Direction of travel: what is done, in progress, and next. |
+| `STATE.md` | Durable memory across sessions: decisions, blockers, and current position. |
+| `PLAN.md` | Atomic execution plan with XML-structured task blocks and verification steps. |
+| `SUMMARY.md` | Session outcome log: what happened and what changed. |
+
 ## Project Purpose
 This is a **Microsoft Word add-in** that integrates **Gemini AI**. It provides Gemini with **agentic tools** to directly edit and markup the document within Word.
 

@@ -1,5 +1,7 @@
 # Project State: Gemini Word Add-in
 
+> Role: **Memory across sessions** for decisions, blockers, and the current technical position.
+
 This document records the current technical posture and "sacred" decisions of the project.
 
 ## Current Posture

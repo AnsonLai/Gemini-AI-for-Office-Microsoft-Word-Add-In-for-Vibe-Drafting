@@ -1,5 +1,7 @@
 # Project Roadmap
 
+> Role: **Where we are going** and status tracking of what is done, in progress, and planned.
+
 This document tracks the migration progress from Word JS API to pure OOXML for 100% portability.
 
 ## Current Phase: Phase 2 (Feature Migration)

@@ -224,6 +224,24 @@ npm run lint:fix
 - Check the console for error messages
 - Enable verbose logging in `taskpane.js` if needed
 
+### DOCX XML Harness (Testing)
+
+For package-level debugging (without opening Word), use the XML harness:
+
+```powershell
+npm run docx:harness -- -Action summary -InputPath "tests/Sample NDA.docx" -AsJson
+```
+
+You can also list parts, grep XML, run XPath queries, and extract the package:
+
+```powershell
+npm run docx:harness -- -Action list -InputPath "tests/Sample NDA.docx"
+npm run docx:harness -- -Action grep -InputPath "tests/Sample NDA.docx" -Pattern "<w:numPr>"
+npm run docx:harness -- -Action query -InputPath "tests/Sample NDA.docx" -Part "word/numbering.xml" -XPath "//w:num"
+```
+
+See `tests/docx-harness/README.md` for full usage.
+
 The add-in uses Google Gemini models (e.g., `gemini-1.5-flash`, `gemini-1.5-pro`). You can modify the default models in [`taskpane.js`](src/taskpane/taskpane.js).
 
 ```javascript
