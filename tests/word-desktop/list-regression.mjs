@@ -8,7 +8,10 @@ import {
     applyRedlineToOxmlWithListFallback,
     getDocumentParagraphNodes,
     getParagraphText,
-    planListInsertionOnlyEdit
+    planListInsertionOnlyEdit,
+    createDynamicNumberingIdState,
+    reserveNextNumberingId,
+    mergeNumberingXmlBySchemaOrder
 } from '../../src/taskpane/modules/reconciliation/standalone.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -127,32 +130,11 @@ function setElementVal(element, value) {
     element.setAttribute('w:val', String(value));
 }
 
-function getNumberingMaxIds(numberingXml) {
-    const numberingDoc = parseXmlStrict(numberingXml, 'word/numbering.xml');
-    const abstractNums = Array.from(numberingDoc.getElementsByTagNameNS('*', 'abstractNum'));
-    const nums = Array.from(numberingDoc.getElementsByTagNameNS('*', 'num'));
-    let maxNumId = 999;
-    let maxAbstractNumId = 999;
-
-    for (const abstractNum of abstractNums) {
-        const id = getElementId(abstractNum, ['w:abstractNumId', 'abstractNumId']);
-        if (id != null) maxAbstractNumId = Math.max(maxAbstractNumId, id);
-    }
-    for (const num of nums) {
-        const id = getElementId(num, ['w:numId', 'numId']);
-        if (id != null) maxNumId = Math.max(maxNumId, id);
-    }
-
-    return { maxNumId, maxAbstractNumId };
-}
-
 function createNumberingIdState(numberingXml) {
-    const { maxNumId, maxAbstractNumId } = getNumberingMaxIds(numberingXml);
-    const reservedMinDynamicId = 40000;
-    return {
-        nextNumId: Math.max(reservedMinDynamicId, maxNumId + 1),
-        nextAbstractNumId: Math.max(reservedMinDynamicId, maxAbstractNumId + 1)
-    };
+    return createDynamicNumberingIdState(numberingXml || '', {
+        minId: 1,
+        maxPreferred: 32767
+    });
 }
 
 function remapNumberingPayloadForDocument(numberingXml, replacementNodes, numberingIdState) {
@@ -165,7 +147,8 @@ function remapNumberingPayloadForDocument(numberingXml, replacementNodes, number
     for (const abstractNum of abstractNums) {
         const oldId = getElementId(abstractNum, ['w:abstractNumId', 'abstractNumId']);
         if (oldId == null) continue;
-        const newId = numberingIdState.nextAbstractNumId++;
+        const newId = reserveNextNumberingId(numberingIdState, 'abstract');
+        if (newId == null) continue;
         abstractNumMap.set(oldId, newId);
         setElementId(abstractNum, 'w:abstractNumId', newId);
     }
@@ -174,7 +157,8 @@ function remapNumberingPayloadForDocument(numberingXml, replacementNodes, number
     for (const num of nums) {
         const oldNumId = getElementId(num, ['w:numId', 'numId']);
         if (oldNumId == null) continue;
-        const newNumId = numberingIdState.nextNumId++;
+        const newNumId = reserveNextNumberingId(numberingIdState, 'num');
+        if (newNumId == null) continue;
         numIdMap.set(oldNumId, newNumId);
         setElementId(num, 'w:numId', newNumId);
 
@@ -205,37 +189,7 @@ function remapNumberingPayloadForDocument(numberingXml, replacementNodes, number
 }
 
 function mergeNumberingXml(existingNumberingXml, incomingNumberingXml) {
-    const serializer = new XMLSerializer();
-    const existingDoc = parseXmlStrict(existingNumberingXml, 'existing numbering');
-    const incomingDoc = parseXmlStrict(incomingNumberingXml, 'incoming numbering');
-    const existingRoot = existingDoc.documentElement;
-
-    const existingAbstractIds = new Set(
-        Array.from(existingDoc.getElementsByTagNameNS('*', 'abstractNum'))
-            .map(node => getElementId(node, ['w:abstractNumId', 'abstractNumId']))
-            .filter(id => id != null)
-    );
-    const existingNumIds = new Set(
-        Array.from(existingDoc.getElementsByTagNameNS('*', 'num'))
-            .map(node => getElementId(node, ['w:numId', 'numId']))
-            .filter(id => id != null)
-    );
-
-    for (const incomingAbstract of Array.from(incomingDoc.getElementsByTagNameNS('*', 'abstractNum'))) {
-        const incomingId = getElementId(incomingAbstract, ['w:abstractNumId', 'abstractNumId']);
-        if (incomingId == null || existingAbstractIds.has(incomingId)) continue;
-        existingRoot.appendChild(existingDoc.importNode(incomingAbstract, true));
-        existingAbstractIds.add(incomingId);
-    }
-
-    for (const incomingNum of Array.from(incomingDoc.getElementsByTagNameNS('*', 'num'))) {
-        const incomingId = getElementId(incomingNum, ['w:numId', 'numId']);
-        if (incomingId == null || existingNumIds.has(incomingId)) continue;
-        existingRoot.appendChild(existingDoc.importNode(incomingNum, true));
-        existingNumIds.add(incomingId);
-    }
-
-    return serializer.serializeToString(existingDoc);
+    return mergeNumberingXmlBySchemaOrder(existingNumberingXml, incomingNumberingXml);
 }
 
 function getDirectWordChild(element, localName) {
@@ -338,6 +292,22 @@ function assertNumFmtForNumId(numberingXml, numId, expectedNumFmt) {
     assertCondition(!!numFmtNode, `Missing numFmt for numId ${numId}`);
     const actualNumFmt = getAttributeFirst(numFmtNode, ['w:val', 'val']);
     assertCondition(String(actualNumFmt || '') === String(expectedNumFmt), `Expected numFmt ${expectedNumFmt} for numId ${numId}, got ${actualNumFmt}`);
+}
+
+function assertNumberingSchemaOrder(numberingXml) {
+    const numberingDoc = parseXmlStrict(numberingXml, 'merged numbering for schema-order checks');
+    const root = numberingDoc.documentElement;
+    let sawNum = false;
+    for (const child of Array.from(root.childNodes || [])) {
+        if (!child || child.nodeType !== 1 || child.namespaceURI !== NS_W) continue;
+        if (child.localName === 'num') {
+            sawNum = true;
+            continue;
+        }
+        if (child.localName === 'abstractNum' && sawNum) {
+            throw new Error('Invalid numbering order: abstractNum appears after num');
+        }
+    }
 }
 
 function ensureListProperties(xmlDoc, paragraph, ilvl, numId) {
@@ -558,6 +528,7 @@ async function main() {
     for (const binding of headerBindings) {
         assertNumFmtForNumId(mergedNumbering, binding.numId, 'decimal');
     }
+    assertNumberingSchemaOrder(mergedNumbering);
     assertStartOverrideForNumId(mergedNumbering, headerBindings[0].numId, 1);
     assertStartOverrideForNumId(mergedNumbering, headerBindings[1].numId, 2);
     assertStartOverrideForNumId(mergedNumbering, headerBindings[2].numId, 3);

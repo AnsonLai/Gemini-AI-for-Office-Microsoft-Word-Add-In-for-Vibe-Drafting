@@ -148,7 +148,8 @@ reconciliation/
   - Exposes `stripSingleLineListMarkerPrefix(...)` so callers can reliably remove manual list markers before applying text redlines in header-conversion flows.
   - Exposes reusable explicit-numbering sequence helpers (`resolveSingleLineListFallbackNumberingAction`, `recordSingleLineListFallbackExplicitSequence`, `clearSingleLineListFallbackExplicitSequence`) so callers can implement Word-like `startNewList` + `attachToList` behavior across multiple single-paragraph operations in a turn.
   - Consumers may also choose isolated explicit-start numbering (dedicated `numId` per converted header) when Word rendering shows cross-list sequence bleed despite separate list contexts.
-  - Browser/standalone hosts should allocate dynamic numbering IDs from a high reserved range to avoid collisions with generator defaults and template-defined low IDs.
+  - Browser/standalone hosts should allocate numbering IDs dynamically from existing `numbering.xml` occupancy (prefer free IDs within `1..32767`) to avoid collisions and Word renderer inconsistencies from hardcoded high-ID ranges.
+  - When merging numbering payloads into an existing package, preserve schema child order (`w:abstractNum*` before `w:num*`); appending new abstract definitions after `w:num` can render inconsistently in Word desktop.
   - Exposes `enforceListBindingOnParagraphNodes(...)` so callers can force deterministic paragraph `w:numPr` binding (and clear stale paragraph-property change list metadata) when implementing custom list conversion paths.
   - Supports optional fallback on already list-bound paragraphs (`allowExistingList`) so callers can detach from an existing list chain and create an isolated list sequence.
   - Applies numeric start overrides from explicit markers (`1.`, `2.`, etc.) at num-level (`w:lvlOverride/w:startOverride`) and optionally abstract-level (`w:lvl/w:start`) via `setAbstractStartOverride`.
@@ -201,6 +202,8 @@ reconciliation/
   - Re-exports shared paragraph-targeting helpers for browser/Node integrations.
   - Re-exports turn-snapshot drift-correction helpers (`buildTargetReferenceSnapshot`, `resolveTargetParagraphWithSnapshot`) for browser/Node integrations that apply multiple operations per turn.
   - Re-exports standalone list-fallback planning/execution/sequence helpers (`buildSingleLineListStructuralFallbackPlan`, `executeSingleLineListStructuralFallback`, `resolveSingleLineListFallbackNumberingAction`, `recordSingleLineListFallbackExplicitSequence`, `clearSingleLineListFallbackExplicitSequence`, `enforceListBindingOnParagraphNodes`, `stripSingleLineListMarkerPrefix`).
+  - Re-exports dynamic numbering allocation helpers (`createDynamicNumberingIdState`, `reserveNextNumberingId`, `reserveNextNumberingIdPair`) so host adapters can share collision-safe numbering ID assignment logic.
+  - Re-exports `mergeNumberingXmlBySchemaOrder(...)` so host adapters can merge numbering payloads without violating OOXML numbering element order.
   - Re-exports shared table-targeting heuristics for browser/Node integrations.
   - Re-exports shared list-targeting heuristics for browser/Node integrations.
 

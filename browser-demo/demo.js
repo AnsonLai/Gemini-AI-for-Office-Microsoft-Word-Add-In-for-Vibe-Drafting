@@ -25,10 +25,14 @@ import {
     planListInsertionOnlyEdit,
     getParagraphListInfo,
     stripRedundantLeadingListMarkers,
-    stripSingleLineListMarkerPrefix
+    stripSingleLineListMarkerPrefix,
+    createDynamicNumberingIdState,
+    reserveNextNumberingId,
+    reserveNextNumberingIdPair,
+    mergeNumberingXmlBySchemaOrder
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 
-const DEMO_VERSION = '2026-02-14-chat-docx-preview-18';
+const DEMO_VERSION = '2026-02-15-chat-docx-preview-19';
 const GEMINI_API_KEY_STORAGE_KEY = 'browserDemo.geminiApiKey';
 const DEMO_MARKERS = [
     'DEMO_TEXT_TARGET',
@@ -62,6 +66,7 @@ const chatMessages = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
 const sendBtn = document.getElementById('sendBtn');
 const downloadBtn = document.getElementById('downloadBtn');
+const downloadXmlBtn = document.getElementById('downloadXmlBtn');
 const docxPreviewEl = document.getElementById('docxPreview');
 const previewStatusEl = document.getElementById('previewStatus');
 const refreshPreviewBtn = document.getElementById('refreshPreviewBtn');
@@ -560,29 +565,46 @@ async function tryExplicitDecimalHeaderListConversion({
 
     const explicitStart = explicitPlan.startAt;
     const numberingState = runtimeContext?.numberingIdState || null;
-    if (
-        !numberingState ||
-        !Number.isInteger(numberingState.nextNumId) ||
-        !Number.isInteger(numberingState.nextAbstractNumId)
-    ) {
-        return null;
+    let appliedNumId = null;
+    let numberingXml = null;
+
+    if (numberingAction.type === 'explicitReuse' && numberingAction.numId) {
+        appliedNumId = String(numberingAction.numId);
+        log(`[List] Reusing explicit-start list sequence (${numberingAction.numberingKey} -> numId ${appliedNumId}, next ${explicitStart + 1}).`);
+    } else {
+        const reservedPair = reserveNextNumberingIdPair(numberingState);
+        if (!reservedPair) return null;
+
+        appliedNumId = String(reservedPair.numId);
+        numberingXml = buildExplicitDecimalMultilevelNumberingXml(
+            reservedPair.numId,
+            reservedPair.abstractNumId,
+            explicitStart
+        );
+
+        if (numberingAction.type === 'explicitStartNew') {
+            log(`[List] Started explicit-start list sequence (${numberingAction.numberingKey} -> numId ${appliedNumId}).`);
+        }
+        log(`[List] Using isolated explicit-start numbering (start ${explicitStart}, numId ${appliedNumId}, abstractNumId ${reservedPair.abstractNumId}).`);
     }
-    const dedicatedNumId = numberingState.nextNumId++;
-    const dedicatedAbstractNumId = numberingState.nextAbstractNumId++;
-    const appliedNumId = String(dedicatedNumId);
-    const numberingXml = buildExplicitDecimalMultilevelNumberingXml(
-        dedicatedNumId,
-        dedicatedAbstractNumId,
-        explicitStart
-    );
+
     if (explicitPlan.numberingKey && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
         runtimeContext.listFallbackSharedNumIdByKey.delete(explicitPlan.numberingKey);
     }
-    clearSingleLineListFallbackExplicitSequence(
-        runtimeContext?.listFallbackSequenceState || null,
-        numberingAction.numberingKey || explicitPlan.numberingKey
-    );
-    log(`[List] Using isolated explicit-start numbering (start ${explicitStart}, numId ${appliedNumId}, abstractNumId ${dedicatedAbstractNumId}).`);
+
+    if (numberingAction.type === 'explicitStartNew' || numberingAction.type === 'explicitReuse') {
+        recordSingleLineListFallbackExplicitSequence(
+            runtimeContext?.listFallbackSequenceState || null,
+            numberingAction.numberingKey || explicitPlan.numberingKey,
+            appliedNumId,
+            explicitStart
+        );
+    } else {
+        clearSingleLineListFallbackExplicitSequence(
+            runtimeContext?.listFallbackSequenceState || null,
+            numberingAction.numberingKey || explicitPlan.numberingKey
+        );
+    }
 
     enforceListBindingOnParagraphNodes(replacementNodes, {
         numId: appliedNumId,
@@ -643,32 +665,47 @@ async function trySingleParagraphListStructuralFallback({
         const explicitStart = fallbackPlan.startAt;
         let explicitNumIdForBinding = null;
         const numberingState = runtimeContext?.numberingIdState || null;
-        if (numberingState && Number.isInteger(numberingState.nextNumId) && Number.isInteger(numberingState.nextAbstractNumId)) {
-            const dedicatedNumId = numberingState.nextNumId++;
-            const dedicatedAbstractNumId = numberingState.nextAbstractNumId++;
-            overwriteParagraphNumIds(replacementNodes, dedicatedNumId);
-            explicitNumIdForBinding = String(dedicatedNumId);
-            numberingXml = buildExplicitDecimalMultilevelNumberingXml(dedicatedNumId, dedicatedAbstractNumId, explicitStart);
-            if (numberingKey && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
-                runtimeContext.listFallbackSharedNumIdByKey.delete(numberingKey);
-            }
-            clearSingleLineListFallbackExplicitSequence(
-                runtimeContext?.listFallbackSequenceState || null,
-                numberingAction.numberingKey || numberingKey
+        if (numberingAction.type === 'explicitReuse' && numberingAction.numId) {
+            explicitNumIdForBinding = String(numberingAction.numId);
+            numberingXml = null;
+            log(`[List] Reusing explicit-start list sequence (${numberingAction.numberingKey} -> numId ${explicitNumIdForBinding}, next ${explicitStart + 1}).`);
+        } else if (numberingState) {
+            const reservedPair = reserveNextNumberingIdPair(numberingState);
+            if (!reservedPair) return null;
+            overwriteParagraphNumIds(replacementNodes, reservedPair.numId);
+            explicitNumIdForBinding = String(reservedPair.numId);
+            numberingXml = buildExplicitDecimalMultilevelNumberingXml(
+                reservedPair.numId,
+                reservedPair.abstractNumId,
+                explicitStart
             );
-            log(`[List] Using isolated explicit-start numbering (start ${explicitStart}, numId ${dedicatedNumId}, abstractNumId ${dedicatedAbstractNumId}).`);
+            if (numberingAction.type === 'explicitStartNew') {
+                log(`[List] Started explicit-start list sequence (${numberingAction.numberingKey} -> numId ${reservedPair.numId}).`);
+            }
+            log(`[List] Using isolated explicit-start numbering (start ${explicitStart}, numId ${reservedPair.numId}, abstractNumId ${reservedPair.abstractNumId}).`);
         } else {
             const generatedNumId = extractFirstParagraphNumId(replacementNodes);
             explicitNumIdForBinding = generatedNumId ? String(generatedNumId) : null;
-            if (numberingKey && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
-                runtimeContext.listFallbackSharedNumIdByKey.delete(numberingKey);
-            }
+            log(`[List] Using isolated list numbering with explicit start ${explicitStart}${generatedNumId ? ` (numId ${generatedNumId})` : ''}.`);
+        }
+
+        if (numberingKey && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
+            runtimeContext.listFallbackSharedNumIdByKey.delete(numberingKey);
+        }
+        if (numberingAction.type === 'explicitStartNew' || numberingAction.type === 'explicitReuse') {
+            recordSingleLineListFallbackExplicitSequence(
+                runtimeContext?.listFallbackSequenceState || null,
+                numberingAction.numberingKey || numberingKey,
+                explicitNumIdForBinding,
+                explicitStart
+            );
+        } else {
             clearSingleLineListFallbackExplicitSequence(
                 runtimeContext?.listFallbackSequenceState || null,
                 numberingAction.numberingKey || numberingKey
             );
-            log(`[List] Using isolated list numbering with explicit start ${explicitStart}${generatedNumId ? ` (numId ${generatedNumId})` : ''}.`);
         }
+
         if (explicitNumIdForBinding) {
             enforceListBindingOnParagraphNodes(replacementNodes, {
                 numId: explicitNumIdForBinding,
@@ -921,32 +958,12 @@ function setElementVal(element, value) {
     element.setAttribute('w:val', String(value));
 }
 
-function getNumberingMaxIds(numberingXml) {
-    if (!numberingXml) return { maxNumId: 999, maxAbstractNumId: 999 };
-    const doc = parseXmlStrict(numberingXml, 'word/numbering.xml');
-    const abstractNums = Array.from(doc.getElementsByTagNameNS('*', 'abstractNum'));
-    const nums = Array.from(doc.getElementsByTagNameNS('*', 'num'));
-    let maxNumId = 999;
-    let maxAbstractNumId = 999;
-    for (const abstractNum of abstractNums) {
-        const id = getElementId(abstractNum, ['w:abstractNumId', 'abstractNumId']);
-        if (id != null) maxAbstractNumId = Math.max(maxAbstractNumId, id);
-    }
-    for (const num of nums) {
-        const id = getElementId(num, ['w:numId', 'numId']);
-        if (id != null) maxNumId = Math.max(maxNumId, id);
-    }
-    return { maxNumId, maxAbstractNumId };
-}
-
 async function createNumberingIdState(zip) {
     const existing = await zip.file('word/numbering.xml')?.async('string');
-    const { maxNumId, maxAbstractNumId } = getNumberingMaxIds(existing || '');
-    const reservedMinDynamicId = 40000;
-    return {
-        nextNumId: Math.max(reservedMinDynamicId, maxNumId + 1),
-        nextAbstractNumId: Math.max(reservedMinDynamicId, maxAbstractNumId + 1)
-    };
+    return createDynamicNumberingIdState(existing || '', {
+        minId: 1,
+        maxPreferred: 32767
+    });
 }
 
 function remapNumberingPayloadForDocument(numberingXml, replacementNodes, numberingIdState) {
@@ -961,7 +978,8 @@ function remapNumberingPayloadForDocument(numberingXml, replacementNodes, number
     for (const abstractNum of abstractNums) {
         const oldId = getElementId(abstractNum, ['w:abstractNumId', 'abstractNumId']);
         if (oldId == null) continue;
-        const newId = numberingIdState.nextAbstractNumId++;
+        const newId = reserveNextNumberingId(numberingIdState, 'abstract');
+        if (newId == null) continue;
         abstractNumMap.set(oldId, newId);
         setElementId(abstractNum, 'w:abstractNumId', newId);
     }
@@ -970,7 +988,8 @@ function remapNumberingPayloadForDocument(numberingXml, replacementNodes, number
     for (const num of nums) {
         const oldNumId = getElementId(num, ['w:numId', 'numId']);
         if (oldNumId == null) continue;
-        const newNumId = numberingIdState.nextNumId++;
+        const newNumId = reserveNextNumberingId(numberingIdState, 'num');
+        if (newNumId == null) continue;
         numIdMap.set(oldNumId, newNumId);
         setElementId(num, 'w:numId', newNumId);
 
@@ -1002,38 +1021,7 @@ function remapNumberingPayloadForDocument(numberingXml, replacementNodes, number
 }
 
 function mergeNumberingXml(existingNumberingXml, incomingNumberingXml) {
-    const parser = new DOMParser();
-    const serializer = new XMLSerializer();
-    const existingDoc = parseXmlStrict(existingNumberingXml, 'word/numbering.xml (existing)');
-    const incomingDoc = parseXmlStrict(incomingNumberingXml, 'word/numbering.xml (incoming)');
-    const existingRoot = existingDoc.documentElement;
-
-    const existingAbstractIds = new Set(
-        Array.from(existingDoc.getElementsByTagNameNS('*', 'abstractNum'))
-            .map(node => getElementId(node, ['w:abstractNumId', 'abstractNumId']))
-            .filter(id => id != null)
-    );
-    const existingNumIds = new Set(
-        Array.from(existingDoc.getElementsByTagNameNS('*', 'num'))
-            .map(node => getElementId(node, ['w:numId', 'numId']))
-            .filter(id => id != null)
-    );
-
-    for (const incomingAbstract of Array.from(incomingDoc.getElementsByTagNameNS('*', 'abstractNum'))) {
-        const incomingId = getElementId(incomingAbstract, ['w:abstractNumId', 'abstractNumId']);
-        if (incomingId == null || existingAbstractIds.has(incomingId)) continue;
-        existingRoot.appendChild(existingDoc.importNode(incomingAbstract, true));
-        existingAbstractIds.add(incomingId);
-    }
-
-    for (const incomingNum of Array.from(incomingDoc.getElementsByTagNameNS('*', 'num'))) {
-        const incomingId = getElementId(incomingNum, ['w:numId', 'numId']);
-        if (incomingId == null || existingNumIds.has(incomingId)) continue;
-        existingRoot.appendChild(existingDoc.importNode(incomingNum, true));
-        existingNumIds.add(incomingId);
-    }
-
-    return serializer.serializeToString(existingDoc);
+    return mergeNumberingXmlBySchemaOrder(existingNumberingXml, incomingNumberingXml);
 }
 
 async function ensureNumberingArtifacts(zip, numberingXmlList) {
@@ -1493,6 +1481,8 @@ fileInput.addEventListener('change', async () => {
         chatHistory = [];
         operationCount = 0;
         downloadBtn.style.display = 'none';
+        downloadXmlBtn.style.display = '';
+        downloadXmlBtn.disabled = false;
 
         addMsg('system success', `Document loaded: <strong>${documentParagraphs.length} paragraphs</strong> found. You can now ask the AI to review it.`);
         log(`[Demo] v${DEMO_VERSION} — loaded ${file.name} (${documentParagraphs.length} paragraphs)`);
@@ -1552,6 +1542,8 @@ async function handleSend() {
             // Show download button
             downloadBtn.style.display = '';
             downloadBtn.disabled = false;
+            downloadXmlBtn.style.display = '';
+            downloadXmlBtn.disabled = false;
         } else {
             assistantHtml += '<div class="op-summary" style="color:var(--muted)">No document operations returned.</div>';
         }
@@ -1596,6 +1588,23 @@ downloadBtn.addEventListener('click', async () => {
         addMsg('system success', `Downloaded <strong>${escapeHtml(outputName)}</strong>`);
     } catch (err) {
         addMsg('system error', `Download failed: ${escapeHtml(err.message || String(err))}`);
+    }
+});
+
+// Debug XML download button (word/document.xml from current in-memory package)
+downloadXmlBtn.addEventListener('click', async () => {
+    if (!currentZip) return;
+    try {
+        const documentXml = await currentZip.file('word/document.xml')?.async('string');
+        if (!documentXml) throw new Error('word/document.xml not found in current package');
+
+        const xmlBlob = new Blob([documentXml], { type: 'application/xml;charset=utf-8' });
+        const originalName = fileInput.files?.[0]?.name || 'document.docx';
+        const outputName = originalName.replace(/\.docx$/i, '') + '-document.xml';
+        downloadBlob(xmlBlob, outputName);
+        addMsg('system success', `Downloaded <strong>${escapeHtml(outputName)}</strong>`);
+    } catch (err) {
+        addMsg('system error', `XML download failed: ${escapeHtml(err.message || String(err))}`);
     }
 });
 
@@ -1813,6 +1822,8 @@ runBtn.addEventListener('click', async () => {
         chatInput.disabled = false;
         downloadBtn.style.display = '';
         downloadBtn.disabled = false;
+        downloadXmlBtn.style.display = '';
+        downloadXmlBtn.disabled = false;
         await renderPreviewFromZip(currentZip, 'Kitchen Sink');
         addMsg('system success', 'Kitchen-sink demo completed. Document downloaded.');
         log('Kitchen-sink demo completed successfully.');

@@ -45,3 +45,6 @@ assets/marketplace/
 .gsd/
 
 plans/
+
+tests/unzipped Sample NDA/
+tests/Sample NDA.xml
