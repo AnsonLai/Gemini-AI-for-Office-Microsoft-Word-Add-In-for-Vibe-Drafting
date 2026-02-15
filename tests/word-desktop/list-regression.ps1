@@ -1,6 +1,10 @@
-param()
+param(
+    [switch]$OpenXmlOnly,
+    [string]$SourceDocx = 'tests/Sample NDA.docx'
+)
 
 $ErrorActionPreference = 'Stop'
+$knownComBlockedMarker = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '.tmp\word-com-blocked.txt'
 
 function Normalize-Text {
     param([string]$Text)
@@ -76,9 +80,32 @@ function Invoke-InspectorWithRetry {
             }
             return Get-Content -LiteralPath $OutputJsonPath -Raw | ConvertFrom-Json
         } catch {
+            $msg = ($_.Exception.Message | Out-String).ToLowerInvariant()
+            if ($msg.Contains('could not create the work file') -or $msg.Contains('experienced an error trying to open the file') -or $msg.Contains('could not fire the event')) {
+                Set-Content -Path $knownComBlockedMarker -Value ("{0} `n{1}" -f (Get-Date).ToString('s'), $_.Exception.Message) -Encoding UTF8
+                throw "Word COM appears blocked by local Word environment (work-file/event startup error). Run tests/word-desktop/repair-word-workfile.ps1 and Office Quick Repair, then retry. Use -OpenXmlOnly to continue non-COM regression checks."
+            }
             if ($attempt -ge $MaxAttempts) { throw }
             Get-Process WINWORD -ErrorAction SilentlyContinue | Stop-Process -Force
             Start-Sleep -Seconds ([Math]::Min(3, $attempt))
+        }
+    }
+}
+
+function Remove-FileWithRetry {
+    param(
+        [string]$Path,
+        [int]$MaxAttempts = 3
+    )
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            Remove-Item -LiteralPath $Path -Force
+            return
+        } catch {
+            if ($attempt -ge $MaxAttempts) { throw }
+            Get-Process WINWORD -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Seconds ([Math]::Min(2, $attempt))
         }
     }
 }
@@ -88,6 +115,30 @@ $projectRoot = Resolve-Path (Join-Path $scriptRoot '..\..')
 $nodeScript = Join-Path $scriptRoot 'list-regression.mjs'
 $manifestPath = Join-Path $scriptRoot '.tmp\list-regression-paths.json'
 $inspectorScript = Join-Path $scriptRoot 'list-inspector.ps1'
+$sourceExtractFolder = Join-Path $scriptRoot '.tmp\list-regression-source'
+
+$resolvedSourceDocx = $null
+if (-not [string]::IsNullOrWhiteSpace($SourceDocx)) {
+    $candidate = if ([System.IO.Path]::IsPathRooted($SourceDocx)) { $SourceDocx } else { Join-Path $projectRoot $SourceDocx }
+    if (Test-Path -LiteralPath $candidate) {
+        $resolvedSourceDocx = (Resolve-Path -LiteralPath $candidate).Path
+    }
+}
+
+if ($resolvedSourceDocx) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    if (Test-Path $sourceExtractFolder) {
+        Remove-Item $sourceExtractFolder -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $sourceExtractFolder -Force | Out-Null
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($resolvedSourceDocx, $sourceExtractFolder)
+    $env:LIST_REGRESSION_SOURCE_FOLDER = (Resolve-Path -LiteralPath $sourceExtractFolder).Path
+    Write-Host "Using source docx: $resolvedSourceDocx"
+    Write-Host "Extracted source folder: $env:LIST_REGRESSION_SOURCE_FOLDER"
+} else {
+    Remove-Item Env:\LIST_REGRESSION_SOURCE_FOLDER -ErrorAction SilentlyContinue
+    Write-Host "Using default source folder: tests/sample_doc"
+}
 
 Push-Location $projectRoot
 try {
@@ -106,12 +157,8 @@ $outputDocx = [string]$manifest.outputDocx
 $outputInspectorJson = [string]$manifest.outputInspectorJson
 $zipPath = [System.IO.Path]::ChangeExtension($outputDocx, '.zip')
 
-if (Test-Path $outputDocx) {
-    Remove-Item $outputDocx -Force
-}
-if (Test-Path $zipPath) {
-    Remove-Item $zipPath -Force
-}
+Remove-FileWithRetry -Path $outputDocx
+Remove-FileWithRetry -Path $zipPath
 
 Push-Location $workFolder
 try {
@@ -120,6 +167,17 @@ try {
     Pop-Location
 }
 Move-Item -LiteralPath $zipPath -Destination $outputDocx -Force
+
+if ($OpenXmlOnly) {
+    Write-Host "SKIP: OpenXmlOnly mode enabled; skipping Word COM inspector."
+    Write-Host "Output docx: $outputDocx"
+    exit 0
+}
+
+if (Test-Path $knownComBlockedMarker) {
+    $last = Get-Content -LiteralPath $knownComBlockedMarker -Raw
+    throw "Word COM currently marked as blocked from prior run.`n$last`nRun tests/word-desktop/repair-word-workfile.ps1 (and Office Quick Repair if needed), then delete $knownComBlockedMarker and retry."
+}
 
 $rows = Invoke-InspectorWithRetry `
     -InspectorScript $inspectorScript `

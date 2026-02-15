@@ -145,7 +145,10 @@ reconciliation/
 - `orchestration/list-structural-fallback.js`
   - Shared no-op fallback planning/execution for single-line marker text (`1.`, `A.`, etc.) so plain marker text can be promoted to true OOXML list structure.
   - Exposes reusable helpers (`buildSingleLineListStructuralFallbackPlan`, `executeSingleLineListStructuralFallback`) for standalone/browser consumers.
+  - Exposes `stripSingleLineListMarkerPrefix(...)` so callers can reliably remove manual list markers before applying text redlines in header-conversion flows.
   - Exposes reusable explicit-numbering sequence helpers (`resolveSingleLineListFallbackNumberingAction`, `recordSingleLineListFallbackExplicitSequence`, `clearSingleLineListFallbackExplicitSequence`) so callers can implement Word-like `startNewList` + `attachToList` behavior across multiple single-paragraph operations in a turn.
+  - Consumers may also choose isolated explicit-start numbering (dedicated `numId` per converted header) when Word rendering shows cross-list sequence bleed despite separate list contexts.
+  - Browser/standalone hosts should allocate dynamic numbering IDs from a high reserved range to avoid collisions with generator defaults and template-defined low IDs.
   - Exposes `enforceListBindingOnParagraphNodes(...)` so callers can force deterministic paragraph `w:numPr` binding (and clear stale paragraph-property change list metadata) when implementing custom list conversion paths.
   - Supports optional fallback on already list-bound paragraphs (`allowExistingList`) so callers can detach from an existing list chain and create an isolated list sequence.
   - Applies numeric start overrides from explicit markers (`1.`, `2.`, etc.) at num-level (`w:lvlOverride/w:startOverride`) and optionally abstract-level (`w:lvl/w:start`) via `setAbstractStartOverride`.
@@ -197,7 +200,7 @@ reconciliation/
   - `applyRedlineToOxmlWithListFallback(...)` supports `listFallbackAllowExistingList` (default `true`) to allow re-listing paragraphs that are already in another list chain.
   - Re-exports shared paragraph-targeting helpers for browser/Node integrations.
   - Re-exports turn-snapshot drift-correction helpers (`buildTargetReferenceSnapshot`, `resolveTargetParagraphWithSnapshot`) for browser/Node integrations that apply multiple operations per turn.
-  - Re-exports standalone list-fallback planning/execution/sequence helpers (`buildSingleLineListStructuralFallbackPlan`, `executeSingleLineListStructuralFallback`, `resolveSingleLineListFallbackNumberingAction`, `recordSingleLineListFallbackExplicitSequence`, `clearSingleLineListFallbackExplicitSequence`, `enforceListBindingOnParagraphNodes`).
+  - Re-exports standalone list-fallback planning/execution/sequence helpers (`buildSingleLineListStructuralFallbackPlan`, `executeSingleLineListStructuralFallback`, `resolveSingleLineListFallbackNumberingAction`, `recordSingleLineListFallbackExplicitSequence`, `clearSingleLineListFallbackExplicitSequence`, `enforceListBindingOnParagraphNodes`, `stripSingleLineListMarkerPrefix`).
   - Re-exports shared table-targeting heuristics for browser/Node integrations.
   - Re-exports shared list-targeting heuristics for browser/Node integrations.
 

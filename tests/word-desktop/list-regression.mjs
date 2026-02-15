@@ -148,9 +148,10 @@ function getNumberingMaxIds(numberingXml) {
 
 function createNumberingIdState(numberingXml) {
     const { maxNumId, maxAbstractNumId } = getNumberingMaxIds(numberingXml);
+    const reservedMinDynamicId = 40000;
     return {
-        nextNumId: Math.max(1000, maxNumId + 1),
-        nextAbstractNumId: Math.max(1000, maxAbstractNumId + 1)
+        nextNumId: Math.max(reservedMinDynamicId, maxNumId + 1),
+        nextAbstractNumId: Math.max(reservedMinDynamicId, maxAbstractNumId + 1)
     };
 }
 
@@ -309,6 +310,36 @@ function assertStartOverrideForNumId(numberingXml, numId, expectedStart) {
     assertCondition(String(startValue || '') === String(expectedStart), `Expected startOverride ${expectedStart} for numId ${numId}, got ${startValue}`);
 }
 
+function assertNumFmtForNumId(numberingXml, numId, expectedNumFmt) {
+    const numberingDoc = parseXmlStrict(numberingXml, 'merged numbering for numFmt checks');
+    const nums = Array.from(numberingDoc.getElementsByTagNameNS('*', 'num'));
+    const targetNum = nums.find(node => {
+        const id = getAttributeFirst(node, ['w:numId', 'numId']);
+        return String(id || '') === String(numId);
+    });
+    assertCondition(!!targetNum, `Missing <w:num> definition for numId ${numId}`);
+
+    const abstractNumIdNode = Array.from(targetNum.getElementsByTagNameNS('*', 'abstractNumId'))[0] || null;
+    assertCondition(!!abstractNumIdNode, `Missing abstractNumId for numId ${numId}`);
+    const abstractNumId = getAttributeFirst(abstractNumIdNode, ['w:val', 'val']);
+    assertCondition(!!abstractNumId, `Invalid abstractNumId for numId ${numId}`);
+
+    const abstractNums = Array.from(numberingDoc.getElementsByTagNameNS('*', 'abstractNum'));
+    const targetAbstract = abstractNums.find(node => {
+        const id = getAttributeFirst(node, ['w:abstractNumId', 'abstractNumId']);
+        return String(id || '') === String(abstractNumId);
+    });
+    assertCondition(!!targetAbstract, `Missing abstractNum ${abstractNumId} for numId ${numId}`);
+
+    const lvl0 = Array.from(targetAbstract.getElementsByTagNameNS('*', 'lvl'))
+        .find(node => String(getAttributeFirst(node, ['w:ilvl', 'ilvl']) || '0') === '0');
+    assertCondition(!!lvl0, `Missing lvl0 definition for numId ${numId}`);
+    const numFmtNode = Array.from(lvl0.getElementsByTagNameNS('*', 'numFmt'))[0] || null;
+    assertCondition(!!numFmtNode, `Missing numFmt for numId ${numId}`);
+    const actualNumFmt = getAttributeFirst(numFmtNode, ['w:val', 'val']);
+    assertCondition(String(actualNumFmt || '') === String(expectedNumFmt), `Expected numFmt ${expectedNumFmt} for numId ${numId}, got ${actualNumFmt}`);
+}
+
 function ensureListProperties(xmlDoc, paragraph, ilvl, numId) {
     let pPr = getDirectWordChild(paragraph, 'pPr');
     if (!pPr) {
@@ -458,10 +489,19 @@ function applyArchivalNestedInsertion(xmlDoc) {
 
 async function main() {
     const projectRoot = path.resolve(__dirname, '..', '..');
-    const sampleFolder = path.resolve(projectRoot, 'tests', 'sample_doc');
+    const configuredSourceFolder = process.env.LIST_REGRESSION_SOURCE_FOLDER
+        ? path.resolve(projectRoot, process.env.LIST_REGRESSION_SOURCE_FOLDER)
+        : null;
+    const sampleFolder = configuredSourceFolder || path.resolve(projectRoot, 'tests', 'sample_doc');
     const tmpRoot = path.resolve(projectRoot, 'tests', 'word-desktop', '.tmp');
     const workFolder = path.resolve(tmpRoot, 'list-regression-work');
     const pathsManifestPath = path.resolve(tmpRoot, 'list-regression-paths.json');
+    const sourceDocumentXmlPath = path.resolve(sampleFolder, 'word', 'document.xml');
+    const sourceNumberingXmlPath = path.resolve(sampleFolder, 'word', 'numbering.xml');
+
+    if (!fs.existsSync(sourceDocumentXmlPath) || !fs.existsSync(sourceNumberingXmlPath)) {
+        throw new Error(`Invalid regression source folder: ${sampleFolder}`);
+    }
 
     fs.rmSync(workFolder, { recursive: true, force: true });
     fs.mkdirSync(tmpRoot, { recursive: true });
@@ -515,6 +555,9 @@ async function main() {
     assertCondition(headerBindings[2].numId !== exclusion1.numId, 'Header #3 must not share numId with exclusions sub-list.');
     assertCondition(headerBindings[2].numId !== obligation1.numId, 'Header #3 must not share numId with obligations sub-list.');
     assertCondition(archivalNested.numId.length > 0, 'Nested archival insertion has invalid list binding.');
+    for (const binding of headerBindings) {
+        assertNumFmtForNumId(mergedNumbering, binding.numId, 'decimal');
+    }
     assertStartOverrideForNumId(mergedNumbering, headerBindings[0].numId, 1);
     assertStartOverrideForNumId(mergedNumbering, headerBindings[1].numId, 2);
     assertStartOverrideForNumId(mergedNumbering, headerBindings[2].numId, 3);
@@ -526,6 +569,7 @@ async function main() {
     assertStartOverrideForNumId(mergedNumbering, headerBindings[8].numId, 9);
 
     const pathsManifest = {
+        sourceFolder: sampleFolder,
         workFolder,
         outputDocx: path.resolve(tmpRoot, 'list-regression-output.docx'),
         outputInspectorJson: path.resolve(tmpRoot, 'list-regression-inspector.json')
@@ -533,6 +577,7 @@ async function main() {
     fs.writeFileSync(pathsManifestPath, JSON.stringify(pathsManifest, null, 2), 'utf8');
 
     console.log('PASS: Built regression work package.');
+    console.log(`Source folder: ${sampleFolder}`);
     console.log(`Work folder: ${workFolder}`);
     console.log(`Manifest: ${pathsManifestPath}`);
 }

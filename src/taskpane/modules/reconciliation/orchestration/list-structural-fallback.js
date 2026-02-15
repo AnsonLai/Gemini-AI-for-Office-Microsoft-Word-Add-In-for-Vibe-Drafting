@@ -43,6 +43,22 @@ function parseSingleLineListCandidate(text) {
     };
 }
 
+/**
+ * Removes the leading single-line list marker from text when present.
+ *
+ * Example:
+ * - `1. HEADER` -> `HEADER`
+ * - `2.2.1. Clause` -> `Clause`
+ *
+ * @param {string} text - Candidate single-line list text
+ * @returns {string}
+ */
+export function stripSingleLineListMarkerPrefix(text) {
+    const candidate = parseSingleLineListCandidate(text);
+    if (!candidate) return String(text || '').trim();
+    return String(candidate.contentText || '').trim();
+}
+
 function parseMarkerStart(marker, numberingStyle) {
     if (numberingStyle !== 'decimal') return null;
     const match = String(marker || '').trim().match(/^(\d+)\.?$/);

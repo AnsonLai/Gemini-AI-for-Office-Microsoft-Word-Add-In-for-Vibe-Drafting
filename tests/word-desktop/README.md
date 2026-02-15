@@ -42,6 +42,20 @@ Run the end-to-end Word-grounded list regression harness:
 powershell -ExecutionPolicy Bypass -File tests/word-desktop/list-regression.ps1
 ```
 
+By default this harness now uses `tests/Sample NDA.docx` when present (it extracts it into `.tmp`), otherwise it falls back to `tests/sample_doc`.
+
+Use a specific source docx:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tests/word-desktop/list-regression.ps1 -SourceDocx "tests/Sample NDA.docx"
+```
+
+Run OOXML-only regression (skips Word COM inspector, no Word popup risk):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tests/word-desktop/list-regression.ps1 -OpenXmlOnly
+```
+
 If Word shows `Word could not create the work file. Check the temp environment variable.`, run:
 
 ```powershell
@@ -49,6 +63,12 @@ powershell -ExecutionPolicy Bypass -File tests/word-desktop/repair-word-workfile
 ```
 
 Then retry the inspector/regression command.
+
+If Word COM is detected as blocked, the harness writes:
+
+- `tests/word-desktop/.tmp/word-com-blocked.txt`
+
+Delete that marker after fixing the local Word environment, then rerun.
 
 If Word COM is unstable on a machine/session, you can still run the OOXML-side regression build/assertions only:
 
@@ -58,7 +78,7 @@ node tests/word-desktop/list-regression.mjs
 
 What it does:
 
-- Copies `tests/sample_doc` into a temporary working folder
+- Uses extracted source OOXML (`tests/Sample NDA.docx` by default when available, otherwise `tests/sample_doc`) and copies it into a temporary working folder
 - Applies two high-risk list scenarios with reconciliation helpers:
   - non-contiguous section header conversions into ordered list numbering
   - nested insertion under archival exception (`2.2.1`)

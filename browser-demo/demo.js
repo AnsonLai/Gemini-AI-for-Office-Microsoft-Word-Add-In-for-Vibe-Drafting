@@ -24,7 +24,8 @@ import {
     synthesizeExpandedListScopeEdit,
     planListInsertionOnlyEdit,
     getParagraphListInfo,
-    stripRedundantLeadingListMarkers
+    stripRedundantLeadingListMarkers,
+    stripSingleLineListMarkerPrefix
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 
 const DEMO_VERSION = '2026-02-14-chat-docx-preview-18';
@@ -535,8 +536,8 @@ async function tryExplicitDecimalHeaderListConversion({
         return null;
     }
 
-    const strippedContent = stripRedundantLeadingListMarkers(modifiedText);
-    if (!strippedContent || strippedContent === String(modifiedText || '').trim()) return null;
+    const strippedContent = stripSingleLineListMarkerPrefix(explicitPlan.listInput || modifiedText);
+    if (!strippedContent) return null;
 
     log('[List] Applying explicit numeric header conversion with direct list binding.');
     const redlineResult = await applyRedlineToOxml(
@@ -558,35 +559,30 @@ async function tryExplicitDecimalHeaderListConversion({
     );
 
     const explicitStart = explicitPlan.startAt;
-    let appliedNumId = null;
-    let numberingXml = null;
-    if (numberingAction.type === 'explicitReuse' && numberingAction.numId) {
-        appliedNumId = String(numberingAction.numId);
-        log(`[List] Reusing explicit-start list sequence (${numberingAction.numberingKey} -> numId ${appliedNumId}, next ${explicitStart + 1}).`);
-    } else {
-        const numberingState = runtimeContext?.numberingIdState || null;
-        if (
-            !numberingState ||
-            !Number.isInteger(numberingState.nextNumId) ||
-            !Number.isInteger(numberingState.nextAbstractNumId)
-        ) {
-            return null;
-        }
-
-        const dedicatedNumId = numberingState.nextNumId++;
-        const dedicatedAbstractNumId = numberingState.nextAbstractNumId++;
-        appliedNumId = String(dedicatedNumId);
-        numberingXml = buildExplicitDecimalMultilevelNumberingXml(
-            dedicatedNumId,
-            dedicatedAbstractNumId,
-            explicitStart
-        );
-        if (explicitPlan.numberingKey && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
-            runtimeContext.listFallbackSharedNumIdByKey.delete(explicitPlan.numberingKey);
-        }
-        log(`[List] Started explicit-start list sequence (${numberingAction.numberingKey || explicitPlan.numberingKey} -> numId ${appliedNumId}).`);
-        log(`[List] Using dedicated explicit-start numbering (start ${explicitStart}, numId ${appliedNumId}, abstractNumId ${dedicatedAbstractNumId}).`);
+    const numberingState = runtimeContext?.numberingIdState || null;
+    if (
+        !numberingState ||
+        !Number.isInteger(numberingState.nextNumId) ||
+        !Number.isInteger(numberingState.nextAbstractNumId)
+    ) {
+        return null;
     }
+    const dedicatedNumId = numberingState.nextNumId++;
+    const dedicatedAbstractNumId = numberingState.nextAbstractNumId++;
+    const appliedNumId = String(dedicatedNumId);
+    const numberingXml = buildExplicitDecimalMultilevelNumberingXml(
+        dedicatedNumId,
+        dedicatedAbstractNumId,
+        explicitStart
+    );
+    if (explicitPlan.numberingKey && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
+        runtimeContext.listFallbackSharedNumIdByKey.delete(explicitPlan.numberingKey);
+    }
+    clearSingleLineListFallbackExplicitSequence(
+        runtimeContext?.listFallbackSequenceState || null,
+        numberingAction.numberingKey || explicitPlan.numberingKey
+    );
+    log(`[List] Using isolated explicit-start numbering (start ${explicitStart}, numId ${appliedNumId}, abstractNumId ${dedicatedAbstractNumId}).`);
 
     enforceListBindingOnParagraphNodes(replacementNodes, {
         numId: appliedNumId,
@@ -594,12 +590,6 @@ async function tryExplicitDecimalHeaderListConversion({
         clearParagraphPropertyChanges: true,
         removeListPropertyNode: true
     });
-    recordSingleLineListFallbackExplicitSequence(
-        runtimeContext?.listFallbackSequenceState || null,
-        numberingAction.numberingKey || explicitPlan.numberingKey,
-        appliedNumId,
-        explicitStart
-    );
 
     const parent = targetParagraph.parentNode;
     if (!parent) return null;
@@ -651,45 +641,41 @@ async function trySingleParagraphListStructuralFallback({
     );
     if (hasExplicitStartAt) {
         const explicitStart = fallbackPlan.startAt;
-        if (numberingAction.type === 'explicitReuse' && numberingAction.numId) {
-            overwriteParagraphNumIds(replacementNodes, numberingAction.numId);
-            numberingXml = null;
-            recordSingleLineListFallbackExplicitSequence(
-                runtimeContext?.listFallbackSequenceState || null,
-                numberingAction.numberingKey,
-                numberingAction.numId,
-                explicitStart
-            );
-            log(`[List] Reusing explicit-start list sequence (${numberingAction.numberingKey} -> numId ${numberingAction.numId}, next ${explicitStart + 1}).`);
-        } else {
-            const numberingState = runtimeContext?.numberingIdState || null;
-            if (numberingState && Number.isInteger(numberingState.nextNumId) && Number.isInteger(numberingState.nextAbstractNumId)) {
-                const dedicatedNumId = numberingState.nextNumId++;
-                const dedicatedAbstractNumId = numberingState.nextAbstractNumId++;
-                overwriteParagraphNumIds(replacementNodes, dedicatedNumId);
-                numberingXml = buildExplicitDecimalMultilevelNumberingXml(dedicatedNumId, dedicatedAbstractNumId, explicitStart);
-                if (numberingKey && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
-                    runtimeContext.listFallbackSharedNumIdByKey.delete(numberingKey);
-                }
-                recordSingleLineListFallbackExplicitSequence(
-                    runtimeContext?.listFallbackSequenceState || null,
-                    numberingAction.numberingKey || numberingKey,
-                    dedicatedNumId,
-                    explicitStart
-                );
-                log(`[List] Started explicit-start list sequence (${numberingAction.numberingKey || numberingKey} -> numId ${dedicatedNumId}).`);
-                log(`[List] Using dedicated explicit-start numbering (start ${explicitStart}, numId ${dedicatedNumId}, abstractNumId ${dedicatedAbstractNumId}).`);
-            } else {
-                const generatedNumId = extractFirstParagraphNumId(replacementNodes);
-                if (numberingKey && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
-                    runtimeContext.listFallbackSharedNumIdByKey.delete(numberingKey);
-                }
-                clearSingleLineListFallbackExplicitSequence(
-                    runtimeContext?.listFallbackSequenceState || null,
-                    numberingAction.numberingKey || numberingKey
-                );
-                log(`[List] Using isolated list numbering with explicit start ${explicitStart}${generatedNumId ? ` (numId ${generatedNumId})` : ''}.`);
+        let explicitNumIdForBinding = null;
+        const numberingState = runtimeContext?.numberingIdState || null;
+        if (numberingState && Number.isInteger(numberingState.nextNumId) && Number.isInteger(numberingState.nextAbstractNumId)) {
+            const dedicatedNumId = numberingState.nextNumId++;
+            const dedicatedAbstractNumId = numberingState.nextAbstractNumId++;
+            overwriteParagraphNumIds(replacementNodes, dedicatedNumId);
+            explicitNumIdForBinding = String(dedicatedNumId);
+            numberingXml = buildExplicitDecimalMultilevelNumberingXml(dedicatedNumId, dedicatedAbstractNumId, explicitStart);
+            if (numberingKey && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
+                runtimeContext.listFallbackSharedNumIdByKey.delete(numberingKey);
             }
+            clearSingleLineListFallbackExplicitSequence(
+                runtimeContext?.listFallbackSequenceState || null,
+                numberingAction.numberingKey || numberingKey
+            );
+            log(`[List] Using isolated explicit-start numbering (start ${explicitStart}, numId ${dedicatedNumId}, abstractNumId ${dedicatedAbstractNumId}).`);
+        } else {
+            const generatedNumId = extractFirstParagraphNumId(replacementNodes);
+            explicitNumIdForBinding = generatedNumId ? String(generatedNumId) : null;
+            if (numberingKey && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
+                runtimeContext.listFallbackSharedNumIdByKey.delete(numberingKey);
+            }
+            clearSingleLineListFallbackExplicitSequence(
+                runtimeContext?.listFallbackSequenceState || null,
+                numberingAction.numberingKey || numberingKey
+            );
+            log(`[List] Using isolated list numbering with explicit start ${explicitStart}${generatedNumId ? ` (numId ${generatedNumId})` : ''}.`);
+        }
+        if (explicitNumIdForBinding) {
+            enforceListBindingOnParagraphNodes(replacementNodes, {
+                numId: explicitNumIdForBinding,
+                ilvl: 0,
+                clearParagraphPropertyChanges: true,
+                removeListPropertyNode: true
+            });
         }
     } else {
         if (numberingXml && runtimeContext?.numberingIdState) {
@@ -956,9 +942,10 @@ function getNumberingMaxIds(numberingXml) {
 async function createNumberingIdState(zip) {
     const existing = await zip.file('word/numbering.xml')?.async('string');
     const { maxNumId, maxAbstractNumId } = getNumberingMaxIds(existing || '');
+    const reservedMinDynamicId = 40000;
     return {
-        nextNumId: Math.max(1000, maxNumId + 1),
-        nextAbstractNumId: Math.max(1000, maxAbstractNumId + 1)
+        nextNumId: Math.max(reservedMinDynamicId, maxNumId + 1),
+        nextAbstractNumId: Math.max(reservedMinDynamicId, maxAbstractNumId + 1)
     };
 }
 

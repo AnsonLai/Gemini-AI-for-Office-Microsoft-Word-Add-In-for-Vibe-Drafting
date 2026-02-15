@@ -20,7 +20,8 @@ import {
     resolveSingleLineListFallbackNumberingAction,
     recordSingleLineListFallbackExplicitSequence,
     clearSingleLineListFallbackExplicitSequence,
-    enforceListBindingOnParagraphNodes
+    enforceListBindingOnParagraphNodes,
+    stripSingleLineListMarkerPrefix
 } from './orchestration/list-structural-fallback.js';
 
 /**
@@ -195,7 +196,8 @@ export {
     resolveSingleLineListFallbackNumberingAction,
     recordSingleLineListFallbackExplicitSequence,
     clearSingleLineListFallbackExplicitSequence,
-    enforceListBindingOnParagraphNodes
+    enforceListBindingOnParagraphNodes,
+    stripSingleLineListMarkerPrefix
 } from './orchestration/list-structural-fallback.js';
 
 // Core types/constants
