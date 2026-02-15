@@ -16,6 +16,10 @@ import {
     resolveTargetParagraphWithSnapshot as resolveTargetParagraphWithSnapshotShared,
     buildSingleLineListStructuralFallbackPlan,
     executeSingleLineListStructuralFallback,
+    resolveSingleLineListFallbackNumberingAction,
+    recordSingleLineListFallbackExplicitSequence,
+    clearSingleLineListFallbackExplicitSequence,
+    enforceListBindingOnParagraphNodes,
     synthesizeTableMarkdownFromMultilineCellEdit,
     synthesizeExpandedListScopeEdit,
     planListInsertionOnlyEdit,
@@ -23,7 +27,7 @@ import {
     stripRedundantLeadingListMarkers
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 
-const DEMO_VERSION = '2026-02-14-chat-docx-preview-16';
+const DEMO_VERSION = '2026-02-14-chat-docx-preview-18';
 const GEMINI_API_KEY_STORAGE_KEY = 'browserDemo.geminiApiKey';
 const DEMO_MARKERS = [
     'DEMO_TEXT_TARGET',
@@ -505,6 +509,106 @@ function buildExplicitDecimalMultilevelNumberingXml(numId, abstractNumId, startA
 </w:numbering>`.trim();
 }
 
+async function tryExplicitDecimalHeaderListConversion({
+    xmlDoc,
+    serializer,
+    targetParagraph,
+    currentParagraphText,
+    modifiedText,
+    author,
+    runtimeContext
+}) {
+    if (!targetParagraph) return null;
+    const scopedParagraphOxml = serializer.serializeToString(targetParagraph);
+    const explicitPlan = buildSingleLineListStructuralFallbackPlan({
+        oxml: scopedParagraphOxml,
+        originalText: currentParagraphText,
+        modifiedText,
+        allowExistingList: false
+    });
+    if (
+        !explicitPlan ||
+        explicitPlan.numberingKey !== 'numbered:decimal:single' ||
+        !Number.isInteger(explicitPlan.startAt) ||
+        explicitPlan.startAt < 1
+    ) {
+        return null;
+    }
+
+    const strippedContent = stripRedundantLeadingListMarkers(modifiedText);
+    if (!strippedContent || strippedContent === String(modifiedText || '').trim()) return null;
+
+    log('[List] Applying explicit numeric header conversion with direct list binding.');
+    const redlineResult = await applyRedlineToOxml(
+        serializer.serializeToString(targetParagraph),
+        currentParagraphText,
+        strippedContent,
+        {
+            author,
+            generateRedlines: true
+        }
+    );
+    if (!redlineResult?.hasChanges || typeof redlineResult?.oxml !== 'string') return null;
+
+    const extracted = extractReplacementNodes(redlineResult.oxml);
+    const replacementNodes = extracted.replacementNodes;
+    const numberingAction = resolveSingleLineListFallbackNumberingAction(
+        explicitPlan,
+        runtimeContext?.listFallbackSequenceState || null
+    );
+
+    const explicitStart = explicitPlan.startAt;
+    let appliedNumId = null;
+    let numberingXml = null;
+    if (numberingAction.type === 'explicitReuse' && numberingAction.numId) {
+        appliedNumId = String(numberingAction.numId);
+        log(`[List] Reusing explicit-start list sequence (${numberingAction.numberingKey} -> numId ${appliedNumId}, next ${explicitStart + 1}).`);
+    } else {
+        const numberingState = runtimeContext?.numberingIdState || null;
+        if (
+            !numberingState ||
+            !Number.isInteger(numberingState.nextNumId) ||
+            !Number.isInteger(numberingState.nextAbstractNumId)
+        ) {
+            return null;
+        }
+
+        const dedicatedNumId = numberingState.nextNumId++;
+        const dedicatedAbstractNumId = numberingState.nextAbstractNumId++;
+        appliedNumId = String(dedicatedNumId);
+        numberingXml = buildExplicitDecimalMultilevelNumberingXml(
+            dedicatedNumId,
+            dedicatedAbstractNumId,
+            explicitStart
+        );
+        if (explicitPlan.numberingKey && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
+            runtimeContext.listFallbackSharedNumIdByKey.delete(explicitPlan.numberingKey);
+        }
+        log(`[List] Started explicit-start list sequence (${numberingAction.numberingKey || explicitPlan.numberingKey} -> numId ${appliedNumId}).`);
+        log(`[List] Using dedicated explicit-start numbering (start ${explicitStart}, numId ${appliedNumId}, abstractNumId ${dedicatedAbstractNumId}).`);
+    }
+
+    enforceListBindingOnParagraphNodes(replacementNodes, {
+        numId: appliedNumId,
+        ilvl: 0,
+        clearParagraphPropertyChanges: true,
+        removeListPropertyNode: true
+    });
+    recordSingleLineListFallbackExplicitSequence(
+        runtimeContext?.listFallbackSequenceState || null,
+        numberingAction.numberingKey || explicitPlan.numberingKey,
+        appliedNumId,
+        explicitStart
+    );
+
+    const parent = targetParagraph.parentNode;
+    if (!parent) return null;
+    for (const node of replacementNodes) parent.insertBefore(xmlDoc.importNode(node, true), targetParagraph);
+    parent.removeChild(targetParagraph);
+    normalizeBodySectionOrder(xmlDoc);
+    return { documentXml: serializer.serializeToString(xmlDoc), hasChanges: true, numberingXml };
+}
+
 async function trySingleParagraphListStructuralFallback({
     xmlDoc,
     serializer,
@@ -541,24 +645,51 @@ async function trySingleParagraphListStructuralFallback({
     let numberingXml = extracted.numberingXml || fallbackResult?.numberingXml || null;
     const hasExplicitStartAt = Number.isInteger(fallbackPlan?.startAt) && fallbackPlan.startAt > 0;
     const numberingKey = fallbackResult?.listStructuralFallbackKey || fallbackPlan?.numberingKey || null;
+    const numberingAction = resolveSingleLineListFallbackNumberingAction(
+        fallbackPlan,
+        runtimeContext?.listFallbackSequenceState || null
+    );
     if (hasExplicitStartAt) {
         const explicitStart = fallbackPlan.startAt;
-        const numberingState = runtimeContext?.numberingIdState || null;
-        if (numberingState && Number.isInteger(numberingState.nextNumId) && Number.isInteger(numberingState.nextAbstractNumId)) {
-            const dedicatedNumId = numberingState.nextNumId++;
-            const dedicatedAbstractNumId = numberingState.nextAbstractNumId++;
-            overwriteParagraphNumIds(replacementNodes, dedicatedNumId);
-            numberingXml = buildExplicitDecimalMultilevelNumberingXml(dedicatedNumId, dedicatedAbstractNumId, explicitStart);
-            if (numberingKey && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
-                runtimeContext.listFallbackSharedNumIdByKey.delete(numberingKey);
-            }
-            log(`[List] Using dedicated explicit-start numbering (start ${explicitStart}, numId ${dedicatedNumId}, abstractNumId ${dedicatedAbstractNumId}).`);
+        if (numberingAction.type === 'explicitReuse' && numberingAction.numId) {
+            overwriteParagraphNumIds(replacementNodes, numberingAction.numId);
+            numberingXml = null;
+            recordSingleLineListFallbackExplicitSequence(
+                runtimeContext?.listFallbackSequenceState || null,
+                numberingAction.numberingKey,
+                numberingAction.numId,
+                explicitStart
+            );
+            log(`[List] Reusing explicit-start list sequence (${numberingAction.numberingKey} -> numId ${numberingAction.numId}, next ${explicitStart + 1}).`);
         } else {
-            const generatedNumId = extractFirstParagraphNumId(replacementNodes);
-            if (numberingKey && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
-                runtimeContext.listFallbackSharedNumIdByKey.delete(numberingKey);
+            const numberingState = runtimeContext?.numberingIdState || null;
+            if (numberingState && Number.isInteger(numberingState.nextNumId) && Number.isInteger(numberingState.nextAbstractNumId)) {
+                const dedicatedNumId = numberingState.nextNumId++;
+                const dedicatedAbstractNumId = numberingState.nextAbstractNumId++;
+                overwriteParagraphNumIds(replacementNodes, dedicatedNumId);
+                numberingXml = buildExplicitDecimalMultilevelNumberingXml(dedicatedNumId, dedicatedAbstractNumId, explicitStart);
+                if (numberingKey && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
+                    runtimeContext.listFallbackSharedNumIdByKey.delete(numberingKey);
+                }
+                recordSingleLineListFallbackExplicitSequence(
+                    runtimeContext?.listFallbackSequenceState || null,
+                    numberingAction.numberingKey || numberingKey,
+                    dedicatedNumId,
+                    explicitStart
+                );
+                log(`[List] Started explicit-start list sequence (${numberingAction.numberingKey || numberingKey} -> numId ${dedicatedNumId}).`);
+                log(`[List] Using dedicated explicit-start numbering (start ${explicitStart}, numId ${dedicatedNumId}, abstractNumId ${dedicatedAbstractNumId}).`);
+            } else {
+                const generatedNumId = extractFirstParagraphNumId(replacementNodes);
+                if (numberingKey && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
+                    runtimeContext.listFallbackSharedNumIdByKey.delete(numberingKey);
+                }
+                clearSingleLineListFallbackExplicitSequence(
+                    runtimeContext?.listFallbackSequenceState || null,
+                    numberingAction.numberingKey || numberingKey
+                );
+                log(`[List] Using isolated list numbering with explicit start ${explicitStart}${generatedNumId ? ` (numId ${generatedNumId})` : ''}.`);
             }
-            log(`[List] Using isolated list numbering with explicit start ${explicitStart}${generatedNumId ? ` (numId ${generatedNumId})` : ''}.`);
         }
     } else {
         if (numberingXml && runtimeContext?.numberingIdState) {
@@ -566,6 +697,10 @@ async function trySingleParagraphListStructuralFallback({
             replacementNodes = normalizedNumbering.replacementNodes;
             numberingXml = normalizedNumbering.numberingXml;
         }
+        clearSingleLineListFallbackExplicitSequence(
+            runtimeContext?.listFallbackSequenceState || null,
+            numberingAction.numberingKey || numberingKey
+        );
     }
 
     if (!hasExplicitStartAt && runtimeContext?.listFallbackSharedNumIdByKey instanceof Map) {
@@ -671,6 +806,17 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
     }
 
     if (!useTableScope && !useListScope) {
+        const explicitHeaderListConversion = await tryExplicitDecimalHeaderListConversion({
+            xmlDoc,
+            serializer,
+            targetParagraph,
+            currentParagraphText,
+            modifiedText: effectiveModifiedText,
+            author,
+            runtimeContext
+        });
+        if (explicitHeaderListConversion) return explicitHeaderListConversion;
+
         const listFallback = await trySingleParagraphListStructuralFallback({
             xmlDoc,
             serializer,
@@ -1268,7 +1414,10 @@ async function applyChatOperations(zip, operations, author) {
     const runtimeContext = {
         numberingIdState: await createNumberingIdState(zip),
         targetRefSnapshot: buildTargetReferenceSnapshot(snapshotDoc),
-        listFallbackSharedNumIdByKey: new Map()
+        listFallbackSharedNumIdByKey: new Map(),
+        listFallbackSequenceState: {
+            explicitByNumberingKey: new Map()
+        }
     };
 
     for (const op of operations) {
@@ -1591,7 +1740,11 @@ async function runKitchenSink(inputFile, author, geminiApiKey) {
     const capturedNumberingXml = [];
     const capturedCommentsXml = [];
     const runtimeContext = {
-        numberingIdState: await createNumberingIdState(zip)
+        numberingIdState: await createNumberingIdState(zip),
+        listFallbackSharedNumIdByKey: new Map(),
+        listFallbackSequenceState: {
+            explicitByNumberingKey: new Map()
+        }
     };
     const fallbackRedlineText = 'DEMO_TEXT_TARGET rewritten with extra words from the browser demo.';
     const fallbackToolOperation = { type: 'comment', label: 'AI Surprise Fallback', target: 'DEMO FORMAT TARGET', textToComment: 'FORMAT', commentContent: 'Fallback AI action: please review the formatting language here.' };

@@ -51,6 +51,207 @@ function parseMarkerStart(marker, numberingStyle) {
     return Number.isFinite(value) && value > 0 ? value : null;
 }
 
+/**
+ * Resolves how a caller should handle numbering ownership for a single-line
+ * structural list fallback across multi-operation runs.
+ *
+ * @param {{
+ *   numberingKey?: string|null,
+ *   startAt?: number|null
+ * }|null} plan - Single-line fallback plan
+ * @param {{
+ *   explicitByNumberingKey?: Map<string, { numId: string, nextStartAt: number }>
+ * }|null} sequenceState - Optional mutable sequence state
+ * @returns {{
+ *   type: 'none'|'sharedByStyle'|'explicitReuse'|'explicitStartNew'|'explicitIsolated',
+ *   numberingKey: string|null,
+ *   startAt: number|null,
+ *   numId: string|null
+ * }}
+ */
+export function resolveSingleLineListFallbackNumberingAction(plan, sequenceState = null) {
+    const numberingKey = plan?.numberingKey ? String(plan.numberingKey) : null;
+    const startAt = Number.isInteger(plan?.startAt) && plan.startAt > 0 ? plan.startAt : null;
+
+    if (!numberingKey) {
+        return {
+            type: 'none',
+            numberingKey: null,
+            startAt,
+            numId: null
+        };
+    }
+
+    if (startAt == null) {
+        return {
+            type: 'sharedByStyle',
+            numberingKey,
+            startAt: null,
+            numId: null
+        };
+    }
+
+    const explicitMap = sequenceState?.explicitByNumberingKey;
+    if (!(explicitMap instanceof Map)) {
+        return {
+            type: 'explicitIsolated',
+            numberingKey,
+            startAt,
+            numId: null
+        };
+    }
+
+    const existing = explicitMap.get(numberingKey) || null;
+    if (
+        existing &&
+        existing.numId != null &&
+        Number.isInteger(existing.nextStartAt) &&
+        existing.nextStartAt === startAt
+    ) {
+        return {
+            type: 'explicitReuse',
+            numberingKey,
+            startAt,
+            numId: String(existing.numId)
+        };
+    }
+
+    return {
+        type: 'explicitStartNew',
+        numberingKey,
+        startAt,
+        numId: null
+    };
+}
+
+/**
+ * Records/advances explicit numeric single-line sequence state.
+ *
+ * @param {{
+ *   explicitByNumberingKey?: Map<string, { numId: string, nextStartAt: number }>
+ * }|null} sequenceState - Mutable sequence state
+ * @param {string|null} numberingKey - Numbering signature key
+ * @param {string|number|null} numId - Sequence numId
+ * @param {number|null} startAt - Current explicit start marker
+ */
+export function recordSingleLineListFallbackExplicitSequence(sequenceState, numberingKey, numId, startAt) {
+    if (!sequenceState || !(sequenceState.explicitByNumberingKey instanceof Map)) return;
+    if (!numberingKey || numId == null || !Number.isInteger(startAt) || startAt < 1) return;
+
+    sequenceState.explicitByNumberingKey.set(String(numberingKey), {
+        numId: String(numId),
+        nextStartAt: startAt + 1
+    });
+}
+
+/**
+ * Clears explicit sequence tracking for a numbering signature.
+ *
+ * @param {{
+ *   explicitByNumberingKey?: Map<string, { numId: string, nextStartAt: number }>
+ * }|null} sequenceState - Mutable sequence state
+ * @param {string|null} numberingKey - Numbering signature key
+ */
+export function clearSingleLineListFallbackExplicitSequence(sequenceState, numberingKey) {
+    if (!sequenceState || !(sequenceState.explicitByNumberingKey instanceof Map)) return;
+    if (!numberingKey) return;
+    sequenceState.explicitByNumberingKey.delete(String(numberingKey));
+}
+
+function getDirectWordChild(element, localName) {
+    if (!element) return null;
+    return Array.from(element.childNodes || []).find(
+        node =>
+            node &&
+            node.nodeType === 1 &&
+            node.namespaceURI === 'http://schemas.openxmlformats.org/wordprocessingml/2006/main' &&
+            node.localName === localName
+    ) || null;
+}
+
+/**
+ * Forces explicit list bindings on paragraph nodes.
+ *
+ * Useful when callers need deterministic `w:numPr` assignment regardless of
+ * incoming generator quirks or paragraph property tracked-change payloads.
+ *
+ * @param {Node[]|null|undefined} nodes - Candidate nodes containing paragraphs
+ * @param {{
+ *   numId: string|number,
+ *   ilvl?: number,
+ *   clearParagraphPropertyChanges?: boolean,
+ *   removeListPropertyNode?: boolean
+ * }} options - Binding options
+ * @returns {number} Number of paragraph nodes updated
+ */
+export function enforceListBindingOnParagraphNodes(nodes, options = {}) {
+    const numId = options?.numId;
+    if (numId == null) return 0;
+    const ilvl = Number.isInteger(options?.ilvl) ? Math.max(0, options.ilvl) : 0;
+    const clearParagraphPropertyChanges = options?.clearParagraphPropertyChanges !== false;
+    const removeListPropertyNode = options?.removeListPropertyNode !== false;
+
+    const paragraphs = (Array.isArray(nodes) ? nodes : [])
+        .filter(node => node && node.nodeType === 1 && node.localName === 'p');
+    let updated = 0;
+
+    for (const paragraph of paragraphs) {
+        const ownerDoc = paragraph.ownerDocument;
+        if (!ownerDoc) continue;
+
+        let pPr = getDirectWordChild(paragraph, 'pPr');
+        if (!pPr) {
+            pPr = ownerDoc.createElementNS(
+                'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+                'w:pPr'
+            );
+            paragraph.insertBefore(pPr, paragraph.firstChild);
+        }
+
+        if (clearParagraphPropertyChanges) {
+            const pPrChange = getDirectWordChild(pPr, 'pPrChange');
+            if (pPrChange) pPr.removeChild(pPrChange);
+        }
+
+        if (removeListPropertyNode) {
+            const listPr = getDirectWordChild(pPr, 'listPr');
+            if (listPr) pPr.removeChild(listPr);
+        }
+
+        let numPr = getDirectWordChild(pPr, 'numPr');
+        if (!numPr) {
+            numPr = ownerDoc.createElementNS(
+                'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+                'w:numPr'
+            );
+            pPr.appendChild(numPr);
+        }
+
+        let ilvlEl = getDirectWordChild(numPr, 'ilvl');
+        if (!ilvlEl) {
+            ilvlEl = ownerDoc.createElementNS(
+                'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+                'w:ilvl'
+            );
+            numPr.appendChild(ilvlEl);
+        }
+        ilvlEl.setAttribute('w:val', String(ilvl));
+
+        let numIdEl = getDirectWordChild(numPr, 'numId');
+        if (!numIdEl) {
+            numIdEl = ownerDoc.createElementNS(
+                'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+                'w:numId'
+            );
+            numPr.appendChild(numIdEl);
+        }
+        numIdEl.setAttribute('w:val', String(numId));
+        updated++;
+    }
+
+    return updated;
+}
+
 function getFirstParagraphFromOxml(oxml) {
     const parser = createParser();
     const doc = parser.parseFromString(String(oxml || ''), 'application/xml');

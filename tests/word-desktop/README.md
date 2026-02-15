@@ -12,6 +12,11 @@ Optional flags:
 
 - `-OnlyLists`: emit only paragraphs that Word treats as list items
 - `-MaxRows N`: limit output rows
+- `-RetryCount N`: retry COM inspection on transient Word RPC failures (default `3`)
+- `-KillWordBeforeStart`: terminate existing `WINWORD` processes before each attempt (useful for unstable COM sessions)
+- `-OutputPath <file>`: write JSON output directly to file (in addition to stdout)
+
+The inspector now proactively prepares `TEMP/TMP` and Word cache folders (`INetCache\Content.Word`) before launching COM to reduce "Word could not create the work file" failures.
 
 Output fields (JSON):
 
@@ -36,6 +41,14 @@ Run the end-to-end Word-grounded list regression harness:
 ```powershell
 powershell -ExecutionPolicy Bypass -File tests/word-desktop/list-regression.ps1
 ```
+
+If Word shows `Word could not create the work file. Check the temp environment variable.`, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tests/word-desktop/repair-word-workfile.ps1
+```
+
+Then retry the inspector/regression command.
 
 If Word COM is unstable on a machine/session, you can still run the OOXML-side regression build/assertions only:
 

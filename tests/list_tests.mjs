@@ -9,6 +9,12 @@ import { ingestOoxml } from '../src/taskpane/modules/reconciliation/pipeline/ing
 import { serializeToOoxml } from '../src/taskpane/modules/reconciliation/pipeline/serialization.js';
 import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
 import {
+    resolveSingleLineListFallbackNumberingAction,
+    recordSingleLineListFallbackExplicitSequence,
+    clearSingleLineListFallbackExplicitSequence,
+    enforceListBindingOnParagraphNodes
+} from '../src/taskpane/modules/reconciliation/standalone.js';
+import {
     planListInsertionOnlyEdit,
     stripRedundantLeadingListMarkers
 } from '../src/taskpane/modules/reconciliation/core/list-targeting.js';
@@ -362,6 +368,91 @@ function testRedundantLeadingListMarkerStripping() {
     }
 }
 
+// --- Test 5d: Explicit single-line fallback sequence action helpers ---
+function testExplicitSingleLineFallbackSequenceHelpers() {
+    console.log('\n=== Test: Explicit Single-Line Fallback Sequence Helpers ===');
+
+    const state = { explicitByNumberingKey: new Map() };
+    const plan1 = { numberingKey: 'numbered:decimal:single', startAt: 1 };
+    const action1 = resolveSingleLineListFallbackNumberingAction(plan1, state);
+    if (action1.type !== 'explicitStartNew') {
+        console.log('❌ FAIL: Expected explicitStartNew for first marker.', action1);
+        return;
+    }
+
+    recordSingleLineListFallbackExplicitSequence(state, action1.numberingKey, '1000', 1);
+    const plan2 = { numberingKey: 'numbered:decimal:single', startAt: 2 };
+    const action2 = resolveSingleLineListFallbackNumberingAction(plan2, state);
+    if (!(action2.type === 'explicitReuse' && action2.numId === '1000')) {
+        console.log('❌ FAIL: Expected explicitReuse with numId 1000 for second marker.', action2);
+        return;
+    }
+
+    recordSingleLineListFallbackExplicitSequence(state, action2.numberingKey, action2.numId, 2);
+    const restartPlan = { numberingKey: 'numbered:decimal:single', startAt: 1 };
+    const restartAction = resolveSingleLineListFallbackNumberingAction(restartPlan, state);
+    if (restartAction.type !== 'explicitStartNew') {
+        console.log('❌ FAIL: Expected explicitStartNew for restart marker sequence.', restartAction);
+        return;
+    }
+
+    clearSingleLineListFallbackExplicitSequence(state, plan1.numberingKey);
+    const actionAfterClear = resolveSingleLineListFallbackNumberingAction(plan2, state);
+    if (actionAfterClear.type !== 'explicitStartNew') {
+        console.log('❌ FAIL: Expected explicitStartNew after clearing sequence.', actionAfterClear);
+        return;
+    }
+
+    const nonExplicit = resolveSingleLineListFallbackNumberingAction({ numberingKey: 'numbered:decimal:single', startAt: null }, state);
+    if (nonExplicit.type !== 'sharedByStyle') {
+        console.log('❌ FAIL: Expected sharedByStyle for non-explicit plan.', nonExplicit);
+        return;
+    }
+
+    console.log('✅ PASS: Explicit single-line sequence helper behavior is correct.');
+}
+
+// --- Test 5e: Deterministic list binding enforcement for paragraph fragments ---
+function testEnforceListBindingOnParagraphNodes() {
+    console.log('\n=== Test: Enforce List Binding On Paragraph Nodes ===');
+    const parser = new DOMParser();
+    const frag = parser.parseFromString(`
+    <root xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:p>
+            <w:pPr>
+                <w:numPr>
+                    <w:ilvl w:val="0"/>
+                    <w:numId w:val="2"/>
+                </w:numPr>
+                <w:pPrChange w:id="1">
+                    <w:pPr>
+                        <w:numPr>
+                            <w:ilvl w:val="0"/>
+                            <w:numId w:val="2"/>
+                        </w:numPr>
+                    </w:pPr>
+                </w:pPrChange>
+            </w:pPr>
+            <w:r><w:t>Header</w:t></w:r>
+        </w:p>
+    </root>`, 'application/xml');
+
+    const paragraph = frag.getElementsByTagNameNS('*', 'p')[0];
+    const updatedCount = enforceListBindingOnParagraphNodes([paragraph], {
+        numId: 1000,
+        ilvl: 0
+    });
+    const numIdNode = paragraph.getElementsByTagNameNS('*', 'numId')[0];
+    const numId = numIdNode?.getAttribute('w:val') || numIdNode?.getAttribute('val') || '';
+    const hasPPrChange = paragraph.getElementsByTagNameNS('*', 'pPrChange').length > 0;
+
+    if (updatedCount === 1 && numId === '1000' && !hasPPrChange) {
+        console.log('✅ PASS: List binding enforcement rewrote numId and cleared pPrChange.');
+    } else {
+        console.log('❌ FAIL: List binding enforcement result unexpected.', { updatedCount, numId, hasPPrChange });
+    }
+}
+
 // --- Test 6: Kitchen Sink Markdown (Headings + Lists + Table) ---
 async function testKitchenSinkMarkdown() {
     console.log('\n=== Test: Kitchen Sink Markdown ===');
@@ -684,6 +775,8 @@ C. Third recital clause.`;
     await verifyListFixes();
     testInsertionOnlyNestedDepthHeuristics();
     testRedundantLeadingListMarkerStripping();
+    testExplicitSingleLineFallbackSequenceHelpers();
+    testEnforceListBindingOnParagraphNodes();
     await testKitchenSinkMarkdown();
     testMixedContentParsing();
 

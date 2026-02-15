@@ -107,7 +107,9 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 - If a single-paragraph redline is a no-op but `modified` is a one-line list marker (for example `1. DEFINITION`), the demo now applies shared standalone fallback helpers (`buildSingleLineListStructuralFallbackPlan`, `executeSingleLineListStructuralFallback`) to force structural list conversion and strip manual marker text into true list numbering.
 - In chat mode, this fallback is intentionally limited to non-list paragraphs (`allowExistingList: false`) so it cannot accidentally rebind existing list items.
 - For header conversions, single-line fallback is intended for non-list header paragraphs to avoid disturbing existing list chains.
-- For explicit numeric single-line markers (`1.`, `2.`, `3.`, ...), fallback now creates a dedicated multilevel decimal-outline definition per converted paragraph (`%1.`, `%1.%2.`, `%1.%2.%3.`, ...), applies a start override, and uses a fresh `numId`; this prevents accidental continuation into unrelated lists and preserves nested numbering markers in Word.
+- For explicit decimal header markers on non-list paragraphs (for example `1. TITLE`, `2. TITLE`), the demo now prefers a direct redline + deterministic `w:numPr` binding path (instead of list-generation fallback payload binding) and assigns a dedicated numbering sequence for Word-desktop stability.
+- For explicit numeric single-line markers (`1.`, `2.`, `3.`, ...), fallback now starts one dedicated multilevel decimal-outline sequence and reuses that same `numId` for subsequent consecutive markers in the turn (Word-like `startNewList` + `attachToList` behavior).
+- If explicit numeric markers are not consecutive (for example sequence break/restart), fallback starts a new dedicated sequence instead of forcing reuse.
 - Explicit composite ordered markers in multiline insertion edits (for example `2.2.1`) now map to deeper OOXML list levels during insertion-only planning, so requested sub-sub items are inserted at the intended depth instead of becoming same-level siblings.
 - When multiline insertion under a nested ordered item is ambiguous (for example model emits bullet marker text), insertion-only heuristics promote inserted lines one level deeper to preserve sub-item intent.
 - Redundant manual list prefixes in list-item text (for example `- Item`, `2.1. Item`, or `2.1. - Item`) are stripped during list-item reconciliation so marker text is not duplicated in visible content.
@@ -145,7 +147,7 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 
 - "Target paragraph not found": Gemini may have slightly modified the paragraph text when referencing it. Check the engine log for details.
 - "Format-only fallback requires native Word API": this operation was a pure formatting change where the engine could not safely localize spans in OOXML. The browser demo skips it; use a more specific target (`targetRef` + exact paragraph text) or run through the add-in Word path.
-- Demo version in log does not match expected (`v2026-02-14-chat-docx-preview-16`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
+- Demo version in log does not match expected (`v2026-02-14-chat-docx-preview-18`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
 - Need Word-grounded list diagnostics: run `tests/word-desktop/list-inspector.ps1` against the generated `.docx` and compare `listId`/`listLevel`/`listValue` for the affected paragraphs.
 - Validation error about numbering/comments: check whether package relationships or content types were removed by prior tooling.
 - No Gemini output: verify API key and network access; kitchen-sink fallback path should still run.

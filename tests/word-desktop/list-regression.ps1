@@ -54,16 +54,31 @@ function Invoke-InspectorWithRetry {
     param(
         [string]$InspectorScript,
         [string]$DocxPath,
-        [int]$MaxAttempts = 3
+        [string]$OutputJsonPath,
+        [int]$MaxAttempts = 1
     )
 
     for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
         try {
-            return (& $InspectorScript -DocxPath $DocxPath -OnlyLists | ConvertFrom-Json)
+            if (Test-Path $OutputJsonPath) {
+                Remove-Item $OutputJsonPath -Force
+            }
+
+            & powershell -ExecutionPolicy Bypass -File $InspectorScript `
+                -DocxPath $DocxPath `
+                -OnlyLists `
+                -RetryCount 1 `
+                -KillWordBeforeStart `
+                -OutputPath $OutputJsonPath | Out-Null
+
+            if (-not (Test-Path $OutputJsonPath)) {
+                throw "Inspector did not create output JSON at $OutputJsonPath"
+            }
+            return Get-Content -LiteralPath $OutputJsonPath -Raw | ConvertFrom-Json
         } catch {
             if ($attempt -ge $MaxAttempts) { throw }
             Get-Process WINWORD -ErrorAction SilentlyContinue | Stop-Process -Force
-            Start-Sleep -Seconds 2
+            Start-Sleep -Seconds ([Math]::Min(3, $attempt))
         }
     }
 }
@@ -106,8 +121,10 @@ try {
 }
 Move-Item -LiteralPath $zipPath -Destination $outputDocx -Force
 
-$rows = Invoke-InspectorWithRetry -InspectorScript $inspectorScript -DocxPath $outputDocx
-$rows | ConvertTo-Json -Depth 6 | Set-Content -Path $outputInspectorJson -Encoding UTF8
+$rows = Invoke-InspectorWithRetry `
+    -InspectorScript $inspectorScript `
+    -DocxPath $outputDocx `
+    -OutputJsonPath $outputInspectorJson
 
 Assert-ListMarker -Rows $rows -Snippet 'DEFINITION OF CONFIDENTIAL INFORMATION' -ExpectedPrefix '1.'
 Assert-ListMarker -Rows $rows -Snippet 'EXCLUSIONS' -ExpectedPrefix '2.'

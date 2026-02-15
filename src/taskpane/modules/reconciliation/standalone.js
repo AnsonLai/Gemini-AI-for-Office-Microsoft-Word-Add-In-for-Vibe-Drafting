@@ -16,7 +16,11 @@ import {
 import { wrapInDocumentFragment as wrapInDocumentFragmentShared } from './pipeline/serialization.js';
 import {
     buildSingleLineListStructuralFallbackPlan,
-    executeSingleLineListStructuralFallback
+    executeSingleLineListStructuralFallback,
+    resolveSingleLineListFallbackNumberingAction,
+    recordSingleLineListFallbackExplicitSequence,
+    clearSingleLineListFallbackExplicitSequence,
+    enforceListBindingOnParagraphNodes
 } from './orchestration/list-structural-fallback.js';
 
 /**
@@ -187,7 +191,11 @@ export { parseMarkdownListContent, hasListItems } from './orchestration/list-par
 export { buildListMarkdown, inferNumberingStyleFromMarker, normalizeListItemsWithLevels } from './orchestration/list-markdown.js';
 export {
     buildSingleLineListStructuralFallbackPlan,
-    executeSingleLineListStructuralFallback
+    executeSingleLineListStructuralFallback,
+    resolveSingleLineListFallbackNumberingAction,
+    recordSingleLineListFallbackExplicitSequence,
+    clearSingleLineListFallbackExplicitSequence,
+    enforceListBindingOnParagraphNodes
 } from './orchestration/list-structural-fallback.js';
 
 // Core types/constants
