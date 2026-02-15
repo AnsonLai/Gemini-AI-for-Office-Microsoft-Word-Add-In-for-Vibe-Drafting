@@ -51,6 +51,217 @@
       overflow: hidden;
     }
 
+    .library-column {
+      flex: 0 0 280px;
+      min-width: 240px;
+      border-right: 1px solid var(--border);
+      background: #141927;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      transition: flex-basis .18s ease, min-width .18s ease;
+    }
+
+    .library-header {
+      border-bottom: 1px solid var(--border);
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      background: #171c2d;
+    }
+
+    .library-header-main {
+      display: inline-flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .library-title {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: #cbd5e1;
+      white-space: nowrap;
+    }
+
+    .library-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .library-btn {
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      border-radius: 7px;
+      font-size: 11px;
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+
+    .library-btn:hover {
+      border-color: var(--muted);
+      color: var(--text);
+    }
+
+    .library-toggle-btn {
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      border-radius: 7px;
+      font-size: 12px;
+      width: 28px;
+      height: 24px;
+      line-height: 1;
+      padding: 0;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .library-toggle-btn:hover {
+      border-color: var(--muted);
+      color: var(--text);
+    }
+
+    #librarySummary {
+      font-size: 12px;
+      color: var(--muted);
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--border);
+      background: #12182a;
+    }
+
+    .library-dropzone {
+      margin: 12px 14px 8px;
+      border: 1px dashed #3b425a;
+      border-radius: 10px;
+      padding: 14px 12px;
+      text-align: center;
+      color: #9aa5be;
+      font-size: 12px;
+      line-height: 1.45;
+      background: rgba(15, 23, 42, 0.5);
+      transition: border-color .15s, background .15s, color .15s;
+    }
+
+    .library-dropzone.drag-over {
+      border-color: var(--accent);
+      background: rgba(99, 102, 241, 0.12);
+      color: #c7d2fe;
+    }
+
+    .library-items {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 6px 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .library-empty {
+      color: var(--muted);
+      font-size: 12px;
+      border: 1px dashed #364152;
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+      margin: 4px;
+    }
+
+    .library-item {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 10px;
+      background: #11172a;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .library-item-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .library-item-head {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .library-item-checkbox {
+      width: 14px;
+      height: 14px;
+      accent-color: var(--accent);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .library-item-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .library-item-meta {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    .library-remove-btn {
+      border: 1px solid #3b425a;
+      background: transparent;
+      color: #94a3b8;
+      border-radius: 6px;
+      font-size: 10px;
+      padding: 2px 7px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .library-remove-btn:hover {
+      border-color: #64748b;
+      color: #e2e8f0;
+    }
+
+    .library-column.collapsed {
+      flex: 0 0 44px;
+      min-width: 44px;
+    }
+
+    .library-column.collapsed .library-header {
+      justify-content: center;
+      padding: 10px 6px;
+      border-bottom: none;
+    }
+
+    .library-column.collapsed .library-header-main {
+      display: none;
+    }
+
+    .library-column.collapsed #librarySummary,
+    .library-column.collapsed .library-dropzone,
+    .library-column.collapsed .library-items {
+      display: none;
+    }
+
     .chat-column {
       flex: 1 1 58%;
       min-width: 0;
@@ -509,6 +720,14 @@
         flex-direction: column;
       }
 
+      .library-column {
+        flex: 0 0 auto;
+        min-width: 0;
+        max-height: 36vh;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+      }
+
       .preview-column {
         flex: 0 0 44%;
         min-width: 0;
@@ -549,6 +768,28 @@
   </div>
 
   <div class="main-layout">
+    <aside class="library-column">
+      <div class="library-header">
+        <div class="library-header-main">
+          <div class="library-title">Reference Library</div>
+          <div class="library-actions">
+            <button id="libraryAddBtn" class="library-btn" type="button">Add</button>
+            <button id="libraryClearBtn" class="library-btn" type="button">Clear</button>
+          </div>
+        </div>
+        <button id="libraryToggleBtn" class="library-toggle-btn" type="button" aria-label="Collapse library panel"
+          title="Collapse library panel" aria-expanded="true">«</button>
+      </div>
+      <input id="libraryDocxFiles" type="file" accept=".docx" multiple hidden />
+      <div id="librarySummary">No library docs loaded.</div>
+      <div id="libraryDropZone" class="library-dropzone">
+        Drag and drop <code>.docx</code> files here
+      </div>
+      <div id="libraryItems" class="library-items">
+        <div class="library-empty">Library documents will appear here.</div>
+      </div>
+    </aside>
+
     <div class="chat-column">
       <!-- ── Chat Messages ───────────────────────────── -->
       <div class="chat-area">
@@ -594,7 +835,7 @@
       }
     }
   </script>
-  <script type="module" src="./demo.js?v=2026-02-15-chat-docx-preview-20"></script>
+  <script type="module" src="./demo.js?v=2026-02-15-chat-docx-preview-23"></script>
 </body>
 
 </html>

@@ -38,9 +38,13 @@ import {
     resolveParagraphRangeByRefs
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 
-const DEMO_VERSION = '2026-02-15-chat-docx-preview-20';
+const DEMO_VERSION = '2026-02-15-chat-docx-preview-23';
 const GEMINI_API_KEY_STORAGE_KEY = 'browserDemo.geminiApiKey';
 const EDIT_MODE_STORAGE_KEY = 'browserDemo.editMode';
+const LIBRARY_COLLAPSED_STORAGE_KEY = 'browserDemo.libraryCollapsed';
+const LIBRARY_MAX_DOC_CHARS = 12000;
+const LIBRARY_MAX_PROMPT_CHARS = 48000;
+const GEMINI_REQUEST_PREVIEW_CHARS = 2400;
 const DEMO_MARKERS = [
     'DEMO_TEXT_TARGET',
     'DEMO FORMAT TARGET',
@@ -82,6 +86,14 @@ const docxPreviewEl = document.getElementById('docxPreview');
 const previewStatusEl = document.getElementById('previewStatus');
 const refreshPreviewBtn = document.getElementById('refreshPreviewBtn');
 const editModeInputs = Array.from(document.querySelectorAll('input[name="editMode"]'));
+const libraryAddBtn = document.getElementById('libraryAddBtn');
+const libraryClearBtn = document.getElementById('libraryClearBtn');
+const libraryDocxFilesInput = document.getElementById('libraryDocxFiles');
+const libraryDropZone = document.getElementById('libraryDropZone');
+const libraryItemsEl = document.getElementById('libraryItems');
+const librarySummaryEl = document.getElementById('librarySummary');
+const libraryColumnEl = document.querySelector('.library-column');
+const libraryToggleBtn = document.getElementById('libraryToggleBtn');
 
 // ── State ──────────────────────────────────────────────
 let currentZip = null;           // JSZip instance of the working document
@@ -91,6 +103,10 @@ let operationCount = 0;          // total operations applied across turns
 let previewRenderer = null;      // docxjs renderAsync function
 let previewRenderToken = 0;      // guards stale async preview writes
 let editMode = normalizeEditMode(getStoredEditMode());
+let libraryDocuments = [];       // [{ id, name, size, paragraphCount, text, originalTextLength, truncated }]
+let nextLibraryDocId = 1;
+let isLibraryCollapsed = getStoredLibraryCollapsed();
+let lastGeminiRequestDebug = null;
 
 function normalizeEditMode(value) {
     return value === EDIT_MODE.DIRECT ? EDIT_MODE.DIRECT : EDIT_MODE.REDLINE;
@@ -102,6 +118,33 @@ function getEditModeLabel(mode = editMode) {
 
 function shouldGenerateRedlines(mode = editMode) {
     return normalizeEditMode(mode) !== EDIT_MODE.DIRECT;
+}
+
+function formatByteSize(bytes) {
+    const size = Number(bytes) || 0;
+    if (size < 1024) return `${size} B`;
+    const kb = size / 1024;
+    if (kb < 1024) return `${kb.toFixed(1)} KB`;
+    const mb = kb / 1024;
+    return `${mb.toFixed(2)} MB`;
+}
+
+function isLikelyDocxFile(file) {
+    if (!file) return false;
+    const name = String(file.name || '');
+    const type = String(file.type || '').toLowerCase();
+    return /\.docx$/i.test(name) || type.includes('officedocument.wordprocessingml.document');
+}
+
+function truncatePlainText(text, maxChars) {
+    const content = String(text || '');
+    if (!Number.isInteger(maxChars) || maxChars <= 0 || content.length <= maxChars) {
+        return { text: content, truncated: false };
+    }
+    return {
+        text: `${content.slice(0, maxChars).trimEnd()}\n...[truncated]`,
+        truncated: true
+    };
 }
 
 // ── Utility ────────────────────────────────────────────
@@ -246,6 +289,18 @@ function setStoredEditMode(mode) {
     } catch { return false; }
 }
 
+function getStoredLibraryCollapsed() {
+    try { return localStorage.getItem(LIBRARY_COLLAPSED_STORAGE_KEY) === '1'; }
+    catch { return false; }
+}
+
+function setStoredLibraryCollapsed(collapsed) {
+    try {
+        localStorage.setItem(LIBRARY_COLLAPSED_STORAGE_KEY, collapsed ? '1' : '0');
+        return true;
+    } catch { return false; }
+}
+
 function syncEditModeInputs() {
     const normalized = normalizeEditMode(editMode);
     for (const input of editModeInputs) {
@@ -271,6 +326,143 @@ function setEditMode(nextMode, { announce = true, resetChatHistory = true } = {}
     if (announce) {
         const suffix = resetChatHistory ? ' Chat context reset.' : '';
         addMsg('system', `Edit mode switched to <strong>${modeLabel}</strong>.${suffix}`);
+    }
+}
+
+function setLibraryCollapsed(collapsed, { persist = true } = {}) {
+    isLibraryCollapsed = !!collapsed;
+    if (persist) setStoredLibraryCollapsed(isLibraryCollapsed);
+
+    if (libraryColumnEl) {
+        libraryColumnEl.classList.toggle('collapsed', isLibraryCollapsed);
+    }
+    if (libraryToggleBtn) {
+        libraryToggleBtn.textContent = isLibraryCollapsed ? '»' : '«';
+        const label = isLibraryCollapsed ? 'Expand library panel' : 'Collapse library panel';
+        libraryToggleBtn.title = label;
+        libraryToggleBtn.setAttribute('aria-label', label);
+        libraryToggleBtn.setAttribute('aria-expanded', String(!isLibraryCollapsed));
+    }
+}
+
+function renderLibraryList() {
+    if (!libraryItemsEl) return;
+    libraryItemsEl.replaceChildren();
+
+    if (!Array.isArray(libraryDocuments) || libraryDocuments.length === 0) {
+        const emptyEl = document.createElement('div');
+        emptyEl.className = 'library-empty';
+        emptyEl.textContent = 'Library documents will appear here.';
+        libraryItemsEl.appendChild(emptyEl);
+        return;
+    }
+
+    for (const doc of libraryDocuments) {
+        const item = document.createElement('div');
+        item.className = 'library-item';
+
+        const top = document.createElement('div');
+        top.className = 'library-item-top';
+
+        const head = document.createElement('div');
+        head.className = 'library-item-head';
+
+        const includeInput = document.createElement('input');
+        includeInput.type = 'checkbox';
+        includeInput.className = 'library-item-checkbox';
+        includeInput.checked = doc.selected !== false;
+        includeInput.dataset.libraryDocToggleId = String(doc.id);
+        includeInput.title = 'Include this source in chat prompts';
+
+        const name = document.createElement('div');
+        name.className = 'library-item-name';
+        name.textContent = doc.name;
+        name.title = doc.name;
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'library-remove-btn';
+        removeBtn.type = 'button';
+        removeBtn.textContent = 'Remove';
+        removeBtn.dataset.libraryDocId = String(doc.id);
+
+        head.appendChild(includeInput);
+        head.appendChild(name);
+        top.appendChild(head);
+        top.appendChild(removeBtn);
+
+        const meta = document.createElement('div');
+        meta.className = 'library-item-meta';
+        const truncationLabel = doc.truncated ? ' (truncated)' : '';
+        meta.textContent = `${doc.paragraphCount} paragraphs • ${formatByteSize(doc.size)} • ${doc.text.length} chars${truncationLabel}`;
+
+        item.appendChild(top);
+        item.appendChild(meta);
+        libraryItemsEl.appendChild(item);
+    }
+}
+
+function renderLibrarySummary() {
+    if (!librarySummaryEl) return;
+    if (!Array.isArray(libraryDocuments) || libraryDocuments.length === 0) {
+        librarySummaryEl.textContent = 'No library docs loaded.';
+        return;
+    }
+    const selectedDocs = getSelectedLibraryDocuments();
+    const selectedChars = selectedDocs.reduce((sum, doc) => sum + (doc.text?.length || 0), 0);
+    librarySummaryEl.textContent = `${selectedDocs.length}/${libraryDocuments.length} selected • ${selectedChars} context chars`;
+}
+
+function refreshLibraryPanel() {
+    renderLibrarySummary();
+    renderLibraryList();
+}
+
+function getSelectedLibraryDocuments() {
+    return libraryDocuments.filter(doc => doc.selected !== false);
+}
+
+function resetChatHistoryForLibraryChange(actionLabel) {
+    chatHistory = [];
+    log(`[Library] ${actionLabel}. Chat context reset.`);
+}
+
+function setLibraryDocumentSelected(docId, selected, { announce = false } = {}) {
+    const targetId = Number(docId);
+    const doc = libraryDocuments.find(entry => entry.id === targetId);
+    if (!doc) return false;
+    const normalized = !!selected;
+    if ((doc.selected !== false) === normalized) return false;
+
+    doc.selected = normalized;
+    refreshLibraryPanel();
+    resetChatHistoryForLibraryChange('Library source selection changed');
+    if (announce) {
+        const label = normalized ? 'included' : 'excluded';
+        addMsg('system', `Reference source <strong>${escapeHtml(doc.name)}</strong> ${label}. Chat context reset.`);
+    }
+    return true;
+}
+
+function removeLibraryDocument(docId, { announce = true } = {}) {
+    const targetId = Number(docId);
+    const before = libraryDocuments.length;
+    libraryDocuments = libraryDocuments.filter(doc => doc.id !== targetId);
+    if (libraryDocuments.length === before) return false;
+    refreshLibraryPanel();
+    resetChatHistoryForLibraryChange('Library updated');
+    if (announce) {
+        addMsg('system', 'Reference library updated. Chat context reset.');
+    }
+    return true;
+}
+
+function clearLibraryDocuments({ announce = true } = {}) {
+    if (libraryDocuments.length === 0) return;
+    libraryDocuments = [];
+    refreshLibraryPanel();
+    resetChatHistoryForLibraryChange('Library cleared');
+    if (announce) {
+        addMsg('system', 'Reference library cleared. Chat context reset.');
     }
 }
 
@@ -1180,10 +1372,10 @@ configureLogger({
 // ── NEW: Document Ingestion ──────────────────────────
 // ══════════════════════════════════════════════════════
 
-async function extractDocumentParagraphs(zip) {
+async function extractParagraphsFromZip(zip, sourceLabel = 'word/document.xml') {
     const documentXml = await zip.file('word/document.xml')?.async('string');
     if (!documentXml) throw new Error('word/document.xml not found');
-    const xmlDoc = parseXmlStrict(documentXml, 'word/document.xml');
+    const xmlDoc = parseXmlStrict(documentXml, sourceLabel);
     const body = getBodyElement(xmlDoc);
     if (!body) throw new Error('No w:body in document');
 
@@ -1196,20 +1388,82 @@ async function extractDocumentParagraphs(zip) {
     return paragraphs;
 }
 
+async function extractDocumentParagraphs(zip) {
+    return extractParagraphsFromZip(zip, 'word/document.xml');
+}
+
+async function extractLibraryDocumentFromFile(file) {
+    if (!isLikelyDocxFile(file)) {
+        throw new Error(`Unsupported file type for "${file?.name || 'file'}"`);
+    }
+
+    const zip = await JSZip.loadAsync(await file.arrayBuffer());
+    const paragraphs = await extractParagraphsFromZip(zip, `${file.name}:word/document.xml`);
+    const fullText = paragraphs.map(p => p.text).join('\n');
+    const truncated = truncatePlainText(fullText, LIBRARY_MAX_DOC_CHARS);
+    return {
+        id: nextLibraryDocId++,
+        name: String(file.name || `library-${Date.now()}.docx`),
+        size: Number(file.size) || 0,
+        paragraphCount: paragraphs.length,
+        text: truncated.text,
+        originalTextLength: fullText.length,
+        truncated: truncated.truncated,
+        selected: true
+    };
+}
+
+function buildLibraryContextLines(libraryDocs) {
+    const docs = Array.isArray(libraryDocs) ? libraryDocs : [];
+    if (docs.length === 0) return [];
+
+    const lines = [
+        'REFERENCE LIBRARY (supplemental context from user-provided documents):'
+    ];
+
+    let usedChars = 0;
+    let includedDocs = 0;
+    for (const doc of docs) {
+        const remaining = LIBRARY_MAX_PROMPT_CHARS - usedChars;
+        if (remaining <= 0) break;
+
+        const baseText = String(doc.text || '');
+        if (!baseText.trim()) continue;
+        const take = baseText.length > remaining ? baseText.slice(0, remaining) : baseText;
+        const fullyIncluded = take.length === baseText.length;
+        includedDocs += 1;
+        usedChars += take.length;
+
+        lines.push('');
+        lines.push(`[LIB${includedDocs}] ${doc.name} (${doc.paragraphCount} paragraphs, ${doc.originalTextLength} chars source)`);
+        lines.push(take);
+        if (!fullyIncluded) {
+            lines.push('[This library document was truncated to fit prompt limits.]');
+            break;
+        }
+    }
+
+    lines.push('');
+    lines.push('Use these library docs as additional background context. Prioritize the uploaded working document when conflicts exist.');
+    return lines;
+}
+
 // ══════════════════════════════════════════════════════
 // ── NEW: Gemini Chat Engine ──────────────────────────
 // ══════════════════════════════════════════════════════
 
-function buildSystemInstruction(paragraphs, editModeValue = EDIT_MODE.REDLINE) {
+function buildSystemInstruction(paragraphs, editModeValue = EDIT_MODE.REDLINE, libraryDocs = []) {
     const normalizedEditMode = normalizeEditMode(editModeValue);
     const directEditsMode = normalizedEditMode === EDIT_MODE.DIRECT;
     const listing = paragraphs.map(p => `[P${p.index}] ${p.text}`).join('\n');
+    const libraryContextLines = buildLibraryContextLines(libraryDocs);
     return [
         'You are a contract review AI assistant. The user has uploaded a document.',
         `EDIT MODE: ${directEditsMode ? 'direct edits (apply changes directly, no tracked insert/delete markup)' : 'redlines (tracked changes)'}.`,
         'Below is the document content. Each line is ONE SEPARATE PARAGRAPH, prefixed with [P#]:',
         '',
         listing,
+        ...(libraryContextLines.length > 0 ? ['', ...libraryContextLines] : []),
         '',
         'Your job is to analyze the document and perform the operations the user asks for.',
         'For each issue you find, produce an operation. Respond in TWO parts separated by a line that says exactly "---OPERATIONS---":',
@@ -1343,29 +1597,61 @@ function parseGeminiChatResponse(rawText) {
     return { explanation: explanationText || '(No explanation provided)', operations };
 }
 
-async function sendGeminiChat(userMessage, paragraphs, apiKey, editModeValue = EDIT_MODE.REDLINE) {
+function maskGeminiEndpoint(endpoint) {
+    return String(endpoint || '').replace(/([?&]key=)[^&]+/i, '$1***');
+}
+
+function buildGeminiRequestPayload(userMessage, paragraphs, editModeValue, libraryDocs, apiKey) {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-    // Build the request with system instruction and multi-turn history
-    const systemInstruction = buildSystemInstruction(paragraphs, editModeValue);
-
-    // Build contents array: history + new user message
+    const systemInstruction = buildSystemInstruction(paragraphs, editModeValue, libraryDocs);
     const contents = [
         ...chatHistory,
         { role: 'user', parts: [{ text: userMessage }] }
     ];
+    const requestBody = {
+        systemInstruction: { parts: [{ text: systemInstruction }] },
+        contents,
+        generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 8000
+        }
+    };
+    return { endpoint, requestBody };
+}
+
+function captureGeminiRequestDebug(endpoint, requestBody, selectedLibraryDocsCount, totalLibraryDocCount) {
+    const systemText = String(requestBody?.systemInstruction?.parts?.[0]?.text || '');
+    const systemInstructionPreview = systemText.length > GEMINI_REQUEST_PREVIEW_CHARS
+        ? `${systemText.slice(0, GEMINI_REQUEST_PREVIEW_CHARS)}\n...[truncated in preview]`
+        : systemText;
+    const debugPayload = {
+        method: 'POST',
+        endpoint: maskGeminiEndpoint(endpoint),
+        headers: { 'Content-Type': 'application/json' },
+        body: requestBody,
+        meta: {
+            selectedLibraryDocsCount,
+            totalLibraryDocCount
+        },
+        systemInstructionPreview
+    };
+    lastGeminiRequestDebug = debugPayload;
+    if (typeof window !== 'undefined') {
+        window.__BROWSER_DEMO_LAST_GEMINI_REQUEST__ = debugPayload;
+    }
+    log(`[Gemini] Request built (${selectedLibraryDocsCount}/${totalLibraryDocCount} library docs selected). Inspect window.__BROWSER_DEMO_LAST_GEMINI_REQUEST__ in devtools.`);
+}
+
+async function sendGeminiChat(userMessage, paragraphs, apiKey, editModeValue = EDIT_MODE.REDLINE, libraryDocs = [], options = {}) {
+    const selectedLibraryDocsCount = Array.isArray(libraryDocs) ? libraryDocs.length : 0;
+    const totalLibraryDocCount = Number.isInteger(options?.totalLibraryDocCount) ? options.totalLibraryDocCount : selectedLibraryDocsCount;
+    const { endpoint, requestBody } = buildGeminiRequestPayload(userMessage, paragraphs, editModeValue, libraryDocs, apiKey);
+    captureGeminiRequestDebug(endpoint, requestBody, selectedLibraryDocsCount, totalLibraryDocCount);
 
     const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            systemInstruction: { parts: [{ text: systemInstruction }] },
-            contents,
-            generationConfig: {
-                temperature: 0.3,
-                maxOutputTokens: 8000
-            }
-        })
+        body: JSON.stringify(requestBody)
     });
 
     if (!response.ok) {
@@ -1484,6 +1770,81 @@ function downloadBlob(blob, filename) {
 // ── EVENT WIRING ─────────────────────────────────────
 // ══════════════════════════════════════════════════════
 
+function setLibraryControlsDisabled(disabled) {
+    if (libraryAddBtn) libraryAddBtn.disabled = disabled;
+    if (libraryClearBtn) libraryClearBtn.disabled = disabled;
+    if (libraryDocxFilesInput) libraryDocxFilesInput.disabled = disabled;
+}
+
+async function ingestLibraryFiles(fileList, sourceLabel = 'library') {
+    const candidates = Array.from(fileList || []).filter(Boolean);
+    if (candidates.length === 0) return;
+
+    const docxFiles = candidates.filter(isLikelyDocxFile);
+    if (docxFiles.length === 0) {
+        addMsg('system warn', 'No valid .docx files found for the reference library.');
+        return;
+    }
+
+    setLibraryControlsDisabled(true);
+    addMsg('system', `Loading ${docxFiles.length} library document(s) from ${escapeHtml(sourceLabel)}…`);
+
+    let added = 0;
+    let replaced = 0;
+    let failed = 0;
+    const failures = [];
+
+    try {
+        for (const file of docxFiles) {
+            try {
+                const parsed = await extractLibraryDocumentFromFile(file);
+                const existingIdx = libraryDocuments.findIndex(
+                    doc => String(doc.name || '').toLowerCase() === parsed.name.toLowerCase()
+                );
+                if (existingIdx >= 0) {
+                    parsed.selected = libraryDocuments[existingIdx].selected !== false;
+                    parsed.id = libraryDocuments[existingIdx].id;
+                    libraryDocuments.splice(existingIdx, 1, parsed);
+                    replaced += 1;
+                } else {
+                    libraryDocuments.push(parsed);
+                    added += 1;
+                }
+                log(`[Library] Loaded ${parsed.name} (${parsed.paragraphCount} paragraphs, ${parsed.text.length} chars${parsed.truncated ? ', truncated' : ''})`);
+            } catch (error) {
+                failed += 1;
+                const msg = error?.message || String(error);
+                failures.push(`${file.name}: ${msg}`);
+                log(`[WARN] [Library] Failed to load ${file.name}: ${msg}`);
+            }
+        }
+    } finally {
+        setLibraryControlsDisabled(false);
+    }
+
+    libraryDocuments.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
+    refreshLibraryPanel();
+
+    const hasChanges = added > 0 || replaced > 0;
+    if (hasChanges) {
+        resetChatHistoryForLibraryChange('Reference library updated');
+    }
+
+    if (hasChanges) {
+        const parts = [];
+        if (added > 0) parts.push(`${added} added`);
+        if (replaced > 0) parts.push(`${replaced} replaced`);
+        if (failed > 0) parts.push(`${failed} failed`);
+        addMsg('system success', `Reference library updated: ${parts.join(', ')}.${hasChanges ? ' Chat context reset.' : ''}`);
+    } else if (failed > 0) {
+        addMsg('system error', 'Failed to add library documents. Check engine log for details.');
+    }
+
+    if (failures.length > 0) {
+        log(`[Library] Failures:\n- ${failures.join('\n- ')}`);
+    }
+}
+
 // File upload → load document, extract paragraphs
 fileInput.addEventListener('change', async () => {
     const file = fileInput.files?.[0];
@@ -1533,9 +1894,12 @@ async function handleSend() {
     chatInput.disabled = true;
 
     const thinkingEl = addMsg('system', '⏳ Analyzing document…');
+    const selectedLibraryDocs = getSelectedLibraryDocuments();
 
     try {
-        const result = await sendGeminiChat(userText, documentParagraphs, apiKey, editMode);
+        const result = await sendGeminiChat(userText, documentParagraphs, apiKey, editMode, selectedLibraryDocs, {
+            totalLibraryDocCount: libraryDocuments.length
+        });
 
         // Remove thinking indicator
         thinkingEl.remove();
@@ -1591,6 +1955,72 @@ chatInput.addEventListener('input', () => {
     chatInput.style.height = 'auto';
     chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
 });
+
+if (libraryAddBtn && libraryDocxFilesInput) {
+    libraryAddBtn.addEventListener('click', () => libraryDocxFilesInput.click());
+    libraryDocxFilesInput.addEventListener('change', async () => {
+        try {
+            await ingestLibraryFiles(libraryDocxFilesInput.files, 'file picker');
+        } finally {
+            libraryDocxFilesInput.value = '';
+        }
+    });
+}
+
+if (libraryToggleBtn) {
+    libraryToggleBtn.addEventListener('click', () => {
+        setLibraryCollapsed(!isLibraryCollapsed, { persist: true });
+    });
+}
+
+if (libraryClearBtn) {
+    libraryClearBtn.addEventListener('click', () => {
+        clearLibraryDocuments({ announce: true });
+    });
+}
+
+if (libraryItemsEl) {
+    libraryItemsEl.addEventListener('change', (event) => {
+        const toggle = event.target?.closest?.('input[data-library-doc-toggle-id]');
+        if (!toggle) return;
+        setLibraryDocumentSelected(toggle.dataset.libraryDocToggleId, toggle.checked, { announce: false });
+    });
+
+    libraryItemsEl.addEventListener('click', (event) => {
+        const button = event.target?.closest?.('button[data-library-doc-id]');
+        if (!button) return;
+        removeLibraryDocument(button.dataset.libraryDocId, { announce: true });
+    });
+}
+
+if (libraryDropZone) {
+    const preventDefault = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+    };
+    const setDragState = (active) => {
+        libraryDropZone.classList.toggle('drag-over', !!active);
+    };
+
+    ['dragenter', 'dragover'].forEach(type => {
+        libraryDropZone.addEventListener(type, (event) => {
+            preventDefault(event);
+            setDragState(true);
+        });
+    });
+    ['dragleave', 'dragend'].forEach(type => {
+        libraryDropZone.addEventListener(type, (event) => {
+            preventDefault(event);
+            setDragState(false);
+        });
+    });
+    libraryDropZone.addEventListener('drop', async (event) => {
+        preventDefault(event);
+        setDragState(false);
+        const droppedFiles = event.dataTransfer?.files;
+        await ingestLibraryFiles(droppedFiles, 'drag and drop');
+    });
+}
 
 // Download button
 downloadBtn.addEventListener('click', async () => {
@@ -1654,6 +2084,9 @@ if (geminiApiKeyInput) {
     const storedKey = getStoredGeminiApiKey();
     if (storedKey) geminiApiKeyInput.value = storedKey;
 }
+
+refreshLibraryPanel();
+setLibraryCollapsed(isLibraryCollapsed, { persist: false });
 
 // Restore + wire edit mode toggle
 setEditMode(editMode, { announce: false, resetChatHistory: false });
