@@ -770,6 +770,18 @@ export {
 // Table/list tools
 export { generateTableOoxml } from './services/table-reconciliation.js';
 export { NumberingService } from './services/numbering-service.js';
+export {
+    parseXmlStrictStandalone,
+    getBodyElementFromDocument,
+    insertBodyElementBeforeSectPr,
+    normalizeBodySectionOrderStandalone,
+    sanitizeNestedParagraphsInTables,
+    getPackagePartName,
+    extractReplacementNodesFromOoxml,
+    ensureNumberingArtifactsInZip,
+    ensureCommentsArtifactsInZip,
+    validateDocxPackage
+} from './services/standalone-docx-plumbing.js';
 export { buildReconciliationPlan, RoutePlanKind, normalizeContentEscapesForRouting } from './orchestration/route-plan.js';
 export { parseMarkdownListContent, hasListItems } from './orchestration/list-parsing.js';
 export { buildListMarkdown, inferNumberingStyleFromMarker, normalizeListItemsWithLevels } from './orchestration/list-markdown.js';

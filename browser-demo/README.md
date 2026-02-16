@@ -71,6 +71,10 @@ One-click demo that applies a fixed set of operations to marker paragraphs:
   - includes right-side `docxjs` (`docx-preview`) live preview pane
 - `browser-demo/demo.js`: browser module pipeline (chat engine + OOXML operations)
   - renders preview with `renderChanges` enabled so insertions/deletions are visible
+- `src/taskpane/modules/reconciliation/services/standalone-docx-plumbing.js`: shared standalone OOXML/docx package plumbing
+  - output extraction (`pkg:package`/`w:document`/fragment)
+  - body/section normalization + nested table paragraph sanitization
+  - numbering/comments artifact wiring + package validation
 
 - `http://localhost:8000/browser-demo/demo.html`
 
@@ -100,8 +104,8 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 4. User types review instruction → sent as multi-turn chat
 5. Gemini responds with explanation + JSON array of operations (`redline`/`comment`/`highlight`)
 6. Operations applied paragraph-by-paragraph using reconciliation engine
-7. Numbering/comments package artifacts merged if emitted
-8. Output validated; download button enabled
+7. Numbering/comments package artifacts merged if emitted (shared standalone plumbing helper path)
+8. Output validated via shared standalone package validation; download button enabled
 9. Paragraph listing refreshed for next turn
 
 ### Chat Targeting
@@ -150,9 +154,9 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 1. Read uploaded `.docx` using JSZip
 2. Parse `word/document.xml`
 3. Apply operations by exact target marker paragraph
-4. Extract replacement nodes from reconciliation output (`package`, `document`, or fragment)
-5. Merge numbering/comments package artifacts if emitted
-6. Validate resulting package
+4. Extract replacement nodes from reconciliation output (`package`, `document`, or fragment) via shared standalone helper
+5. Merge numbering/comments package artifacts if emitted (shared standalone helper path)
+6. Validate resulting package via shared standalone helper
 7. Download mutated `.docx`
 
 ## Important Behavior Notes
@@ -163,6 +167,7 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 - List/table operations can emit package output and extra parts.
 - Numbering merge is additive when missing; existing numbering part is preserved.
 - Comments merge into `word/comments.xml` and related package metadata.
+- Browser demo docx plumbing is now delegated to standalone reconciliation exports, keeping behavior the same while avoiding demo-local duplication.
 
 ## Known Limits
 

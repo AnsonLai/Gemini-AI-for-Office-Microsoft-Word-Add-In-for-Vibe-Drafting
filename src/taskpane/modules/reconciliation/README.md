@@ -15,7 +15,8 @@ Core code is organized by concern:
   - includes focused formatting helpers (`format-paragraph-targeting`, `format-span-application`)
 - `pipeline/` run-model reconciliation pipeline stages + shared list marker parser
   - includes hot-path indexed patch lookups for diff application
-- `services/` table/comment/numbering services + shared package builder
+- `services/` table/comment/numbering services + shared package/plumbing helpers
+  - includes `standalone-docx-plumbing.js` for OOXML output extraction, package artifact wiring, and package-level validation used by standalone/browser hosts
 - `orchestration/` Word-agnostic planning helpers for command adapters
   - includes shared markdown list parsing, list markdown builders, list-item normalization helpers, and single-line structural list fallback helpers
 - `integration/` Word API bridge + shared Word-only OOXML interop helpers

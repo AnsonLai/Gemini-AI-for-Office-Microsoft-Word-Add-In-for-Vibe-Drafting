@@ -58,6 +58,18 @@ export { applyRedlineToOxml, sanitizeAiResponse, parseOoxml, serializeOoxml } fr
 
 // Table Reconciliation
 export { generateTableOoxml, diffTablesWithVirtualGrid, serializeVirtualGridToOoxml } from './services/table-reconciliation.js';
+export {
+    parseXmlStrictStandalone,
+    getBodyElementFromDocument,
+    insertBodyElementBeforeSectPr,
+    normalizeBodySectionOrderStandalone,
+    sanitizeNestedParagraphsInTables,
+    getPackagePartName,
+    extractReplacementNodesFromOoxml,
+    ensureNumberingArtifactsInZip,
+    ensureCommentsArtifactsInZip,
+    validateDocxPackage
+} from './services/standalone-docx-plumbing.js';
 
 // Comment Engine
 export { injectCommentsIntoOoxml, injectCommentsIntoPackage, buildCommentElement, buildCommentsPartXml } from './services/comment-engine.js';

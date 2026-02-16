@@ -9,7 +9,6 @@ import {
     buildTargetReferenceSnapshot,
     isMarkdownTableText,
     findContainingWordElement,
-    findParagraphByStrictText as findParagraphByStrictTextShared,
     findParagraphByBestTextMatch,
     parseParagraphReference as parseParagraphReferenceShared,
     stripLeadingParagraphMarker as stripLeadingParagraphMarkerShared,
@@ -35,7 +34,16 @@ import {
     extractFirstParagraphNumId,
     buildExplicitDecimalMultilevelNumberingXml,
     inferTableReplacementParagraphBlock,
-    resolveParagraphRangeByRefs
+    resolveParagraphRangeByRefs,
+    parseXmlStrictStandalone,
+    getBodyElementFromDocument,
+    insertBodyElementBeforeSectPr,
+    normalizeBodySectionOrderStandalone,
+    sanitizeNestedParagraphsInTables,
+    extractReplacementNodesFromOoxml,
+    ensureNumberingArtifactsInZip,
+    ensureCommentsArtifactsInZip,
+    validateDocxPackage
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 
 const DEMO_VERSION = '2026-02-15-chat-docx-preview-23';
@@ -57,12 +65,6 @@ const EDIT_MODE = {
 };
 const ALLOWED_HIGHLIGHT_COLORS = ['yellow', 'green', 'cyan', 'magenta', 'blue', 'red'];
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
-const NS_CT = 'http://schemas.openxmlformats.org/package/2006/content-types';
-const NS_RELS = 'http://schemas.openxmlformats.org/package/2006/relationships';
-const NUMBERING_REL_TYPE = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering';
-const NUMBERING_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml';
-const COMMENTS_REL_TYPE = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments';
-const COMMENTS_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml';
 
 // docx-preview browser build expects a global JSZip symbol.
 if (typeof window !== 'undefined' && !window.JSZip) {
@@ -468,79 +470,26 @@ function clearLibraryDocuments({ announce = true } = {}) {
 
 // ── XML Helpers (unchanged from original demo) ─────────
 function parseXmlStrict(xmlText, label) {
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(xmlText, 'application/xml');
-    const parseError = xmlDoc.getElementsByTagName('parsererror')[0];
-    if (parseError) throw new Error(`[XML parse error] ${label}: ${parseError.textContent || 'Unknown'}`);
-    return xmlDoc;
+    return parseXmlStrictStandalone(xmlText, label);
 }
 
-function isSectionPropertiesElement(node) {
-    return !!node && node.nodeType === 1 && node.namespaceURI === NS_W && node.localName === 'sectPr';
-}
 function getBodyElement(xmlDoc) {
-    return xmlDoc.getElementsByTagNameNS('*', 'body')[0] || null;
-}
-function getDirectSectionProperties(body) {
-    for (const child of Array.from(body.childNodes)) {
-        if (isSectionPropertiesElement(child)) return child;
-    }
-    return null;
-}
-function insertBodyElementBeforeSectPr(body, element) {
-    const sectPr = getDirectSectionProperties(body);
-    if (sectPr) body.insertBefore(element, sectPr);
-    else body.appendChild(element);
-}
-function normalizeBodySectionOrder(xmlDoc) {
-    const body = getBodyElement(xmlDoc);
-    if (!body) return;
-    const sectPr = getDirectSectionProperties(body);
-    if (!sectPr) return;
-    let cursor = sectPr.nextSibling;
-    while (cursor) {
-        const next = cursor.nextSibling;
-        if (cursor.nodeType === 1) body.insertBefore(cursor, sectPr);
-        cursor = next;
-    }
+    return getBodyElementFromDocument(xmlDoc);
 }
 
-// ── Sanitize nested paragraphs ─────────────────────────
-/**
- * After redlining table content, the engine can produce nested w:p elements
- * inside table cells (w:tc > w:p > w:p). This flattens them by promoting
- * the inner w:p's children into the outer w:p, then removing the inner w:p.
- */
+function normalizeBodySectionOrder(xmlDoc) {
+    normalizeBodySectionOrderStandalone(xmlDoc);
+}
+
 function sanitizeNestedParagraphs(xmlDoc) {
-    const tcs = xmlDoc.getElementsByTagNameNS(NS_W, 'tc');
-    let fixed = 0;
-    for (const tc of Array.from(tcs)) {
-        const outerParagraphs = Array.from(tc.childNodes).filter(
-            n => n.nodeType === 1 && n.namespaceURI === NS_W && n.localName === 'p'
-        );
-        for (const outerP of outerParagraphs) {
-            const innerParagraphs = Array.from(outerP.childNodes).filter(
-                n => n.nodeType === 1 && n.namespaceURI === NS_W && n.localName === 'p'
-            );
-            for (const innerP of innerParagraphs) {
-                // Move all children of the inner <w:p> into the parent <w:tc>, before the outer <w:p>
-                // Then remove the inner <w:p> from the outer <w:p>
-                // Strategy: promote innerP to be a sibling of outerP in the tc
-                tc.insertBefore(innerP, outerP);
-                fixed++;
-            }
-        }
-    }
-    if (fixed > 0) log(`[Sanitize] Fixed ${fixed} nested w:p element(s) in table cells`);
+    sanitizeNestedParagraphsInTables(xmlDoc, {
+        onInfo: message => log(message)
+    });
 }
 
 // ── Paragraph helpers ──────────────────────────────────
 function getParagraphText(paragraph) {
     return getParagraphTextFromOxml(paragraph);
-}
-
-function findParagraphByStrictText(xmlDoc, targetText) {
-    return findParagraphByStrictTextShared(xmlDoc, targetText);
 }
 
 function findParagraphByExactText(xmlDoc, targetText) {
@@ -583,53 +532,8 @@ function createSimpleParagraph(xmlDoc, text) {
 }
 
 // ── Package extraction helpers ─────────────────────────
-function getPartName(partElement) {
-    return partElement.getAttribute('pkg:name') || partElement.getAttribute('name') || '';
-}
-
-function extractFromPackage(packageXml) {
-    const parser = new DOMParser();
-    const serializer = new XMLSerializer();
-    const pkgDoc = parser.parseFromString(packageXml, 'application/xml');
-    const parts = Array.from(pkgDoc.getElementsByTagNameNS('*', 'part'));
-    const documentPart = parts.find(p => getPartName(p) === '/word/document.xml');
-    if (!documentPart) throw new Error('Package output missing /word/document.xml part');
-    const xmlData = documentPart.getElementsByTagNameNS('*', 'xmlData')[0];
-    if (!xmlData) throw new Error('Package document part missing pkg:xmlData');
-    const documentNode = Array.from(xmlData.childNodes).find(n => n.nodeType === 1);
-    if (!documentNode) throw new Error('Package document part missing XML payload');
-    const body = documentNode.getElementsByTagNameNS('*', 'body')[0];
-    const replacementNodes = body
-        ? Array.from(body.childNodes).filter(n => n.nodeType === 1 && !isSectionPropertiesElement(n))
-        : [documentNode];
-    const numberingPart = parts.find(p => getPartName(p) === '/word/numbering.xml');
-    let numberingXml = null;
-    if (numberingPart) {
-        const nd = numberingPart.getElementsByTagNameNS('*', 'xmlData')[0];
-        const nn = nd ? Array.from(nd.childNodes).find(n => n.nodeType === 1) : null;
-        if (nn) numberingXml = serializer.serializeToString(nn);
-    }
-    return { replacementNodes, numberingXml };
-}
-
 function extractReplacementNodes(outputOxml) {
-    if (typeof outputOxml !== 'string' || !outputOxml.trim()) {
-        throw new Error('Reconciliation engine returned no OOXML payload for this operation');
-    }
-    const parser = new DOMParser();
-    if (outputOxml.includes('<pkg:package')) return extractFromPackage(outputOxml);
-    if (outputOxml.includes('<w:document')) {
-        const doc = parser.parseFromString(outputOxml, 'application/xml');
-        const body = doc.getElementsByTagNameNS('*', 'body')[0];
-        const nodes = body
-            ? Array.from(body.childNodes).filter(n => n.nodeType === 1 && !isSectionPropertiesElement(n))
-            : Array.from(doc.childNodes).filter(n => n.nodeType === 1);
-        return { replacementNodes: nodes, numberingXml: null };
-    }
-    const wrapped = `<root xmlns:w="${NS_W}">${outputOxml}</root>`;
-    const fragmentDoc = parser.parseFromString(wrapped, 'application/xml');
-    const nodes = Array.from(fragmentDoc.documentElement.childNodes).filter(n => n.nodeType === 1);
-    return { replacementNodes: nodes, numberingXml: null };
+    return extractReplacementNodesFromOoxml(outputOxml);
 }
 
 function getDirectWordChild(element, localName) {
@@ -1215,150 +1119,21 @@ function mergeNumberingXml(existingNumberingXml, incomingNumberingXml) {
 }
 
 async function ensureNumberingArtifacts(zip, numberingXmlList) {
-    const incomingPayloads = (Array.isArray(numberingXmlList) ? numberingXmlList : [numberingXmlList]).filter(Boolean);
-    if (incomingPayloads.length === 0) return;
-
-    const existing = await zip.file('word/numbering.xml')?.async('string');
-    let mergedNumberingXml = existing || null;
-    for (const incomingNumbering of incomingPayloads) {
-        mergedNumberingXml = mergedNumberingXml
-            ? mergeNumberingXml(mergedNumberingXml, incomingNumbering)
-            : incomingNumbering;
-    }
-
-    if (!existing) log('[Demo] Adding numbering.xml');
-    else log('[Demo] Merging numbering.xml payload(s) into existing numbering definitions');
-    zip.file('word/numbering.xml', mergedNumberingXml);
-
-    const parser = new DOMParser();
-    const serializer = new XMLSerializer();
-    const ctText = await zip.file('[Content_Types].xml')?.async('string');
-    if (ctText) {
-        const ctDoc = parser.parseFromString(ctText, 'application/xml');
-        const overrides = Array.from(ctDoc.getElementsByTagNameNS('*', 'Override'));
-        if (!overrides.some(o => (o.getAttribute('PartName') || '').toLowerCase() === '/word/numbering.xml')) {
-            const ov = ctDoc.createElementNS(NS_CT, 'Override');
-            ov.setAttribute('PartName', '/word/numbering.xml');
-            ov.setAttribute('ContentType', NUMBERING_CONTENT_TYPE);
-            ctDoc.documentElement.appendChild(ov);
-            zip.file('[Content_Types].xml', serializer.serializeToString(ctDoc));
-        }
-    }
-    const relsPath = 'word/_rels/document.xml.rels';
-    const relsText = await zip.file(relsPath)?.async('string');
-    if (relsText) {
-        const relsDoc = parser.parseFromString(relsText, 'application/xml');
-        const relsRoot = relsDoc.getElementsByTagNameNS('*', 'Relationships')[0] || relsDoc.documentElement;
-        const rels = Array.from(relsRoot.getElementsByTagNameNS('*', 'Relationship'));
-        if (!rels.some(r => (r.getAttribute('Type') || '') === NUMBERING_REL_TYPE)) {
-            let max = 0;
-            for (const rel of rels) { const n = parseInt((rel.getAttribute('Id') || '').replace(/^rId/i, ''), 10); if (!Number.isNaN(n)) max = Math.max(max, n); }
-            const rel = relsDoc.createElementNS(NS_RELS, 'Relationship');
-            rel.setAttribute('Id', `rId${max + 1}`);
-            rel.setAttribute('Type', NUMBERING_REL_TYPE);
-            rel.setAttribute('Target', 'numbering.xml');
-            relsRoot.appendChild(rel);
-            zip.file(relsPath, serializer.serializeToString(relsDoc));
-        }
-    }
+    await ensureNumberingArtifactsInZip(zip, numberingXmlList, {
+        mergeNumberingXml: (existingXml, incomingXml) => mergeNumberingXml(existingXml, incomingXml),
+        onInfo: message => log(message)
+    });
 }
 
 async function ensureCommentsArtifacts(zip, commentsXml) {
-    if (!commentsXml) return;
-    const parser = new DOMParser();
-    const serializer = new XMLSerializer();
-    const commentsPath = 'word/comments.xml';
-    const existingText = await zip.file(commentsPath)?.async('string');
-    if (!existingText) { log('[Demo] Adding comments.xml'); zip.file(commentsPath, commentsXml); }
-    else {
-        const existingDoc = parseXmlStrict(existingText, 'word/comments.xml (existing)');
-        const incomingDoc = parseXmlStrict(commentsXml, 'word/comments.xml (incoming)');
-        const existingRoot = existingDoc.documentElement;
-        const existingIds = new Set(Array.from(existingRoot.getElementsByTagNameNS(NS_W, 'comment')).map(c => c.getAttribute('w:id') || c.getAttribute('id')).filter(Boolean));
-        for (const ic of Array.from(incomingDoc.documentElement.getElementsByTagNameNS(NS_W, 'comment'))) {
-            const id = ic.getAttribute('w:id') || ic.getAttribute('id');
-            if (id && existingIds.has(id)) throw new Error(`Duplicate comment id: ${id}`);
-            existingRoot.appendChild(existingDoc.importNode(ic, true));
-        }
-        zip.file(commentsPath, serializer.serializeToString(existingDoc));
-    }
-    const ctText = await zip.file('[Content_Types].xml')?.async('string');
-    if (ctText) {
-        const ctDoc = parser.parseFromString(ctText, 'application/xml');
-        if (!Array.from(ctDoc.getElementsByTagNameNS('*', 'Override')).some(o => (o.getAttribute('PartName') || '').toLowerCase() === '/word/comments.xml')) {
-            const ov = ctDoc.createElementNS(NS_CT, 'Override');
-            ov.setAttribute('PartName', '/word/comments.xml');
-            ov.setAttribute('ContentType', COMMENTS_CONTENT_TYPE);
-            ctDoc.documentElement.appendChild(ov);
-            zip.file('[Content_Types].xml', serializer.serializeToString(ctDoc));
-        }
-    }
-    const relsPath = 'word/_rels/document.xml.rels';
-    const relsText = await zip.file(relsPath)?.async('string');
-    if (relsText) {
-        const relsDoc = parser.parseFromString(relsText, 'application/xml');
-        const relsRoot = relsDoc.getElementsByTagNameNS('*', 'Relationships')[0] || relsDoc.documentElement;
-        const rels = Array.from(relsRoot.getElementsByTagNameNS('*', 'Relationship'));
-        if (!rels.some(r => (r.getAttribute('Type') || '') === COMMENTS_REL_TYPE)) {
-            let max = 0;
-            for (const rel of rels) { const n = parseInt((rel.getAttribute('Id') || '').replace(/^rId/i, ''), 10); if (!Number.isNaN(n)) max = Math.max(max, n); }
-            const rel = relsDoc.createElementNS(NS_RELS, 'Relationship');
-            rel.setAttribute('Id', `rId${max + 1}`);
-            rel.setAttribute('Type', COMMENTS_REL_TYPE);
-            rel.setAttribute('Target', 'comments.xml');
-            relsRoot.appendChild(rel);
-            zip.file(relsPath, serializer.serializeToString(relsDoc));
-        }
-    }
+    await ensureCommentsArtifactsInZip(zip, commentsXml, {
+        onInfo: message => log(message)
+    });
 }
 
 // ── Validation ─────────────────────────────────────────
 async function validateOutputDocx(zip) {
-    const documentXml = await zip.file('word/document.xml')?.async('string');
-    if (!documentXml) throw new Error('Validation failed: missing word/document.xml');
-    const documentDoc = parseXmlStrict(documentXml, 'word/document.xml');
-    normalizeBodySectionOrder(documentDoc);
-    const body = getBodyElement(documentDoc);
-    if (!body) throw new Error('Validation failed: word/document.xml has no w:body');
-
-    const directBodyElements = Array.from(body.childNodes).filter(n => n.nodeType === 1);
-    const sectPrIndexes = directBodyElements.map((node, idx) => ({ node, idx })).filter(({ node }) => isSectionPropertiesElement(node)).map(({ idx }) => idx);
-    if (sectPrIndexes.length > 1) throw new Error('Validation failed: multiple body-level w:sectPr');
-    if (sectPrIndexes.length === 1 && sectPrIndexes[0] !== directBodyElements.length - 1) throw new Error('Validation failed: w:sectPr not last');
-
-    const tcs = documentDoc.getElementsByTagNameNS(NS_W, 'tc');
-    for (const tc of Array.from(tcs)) {
-        for (const child of Array.from(tc.childNodes).filter(n => n.nodeType === 1)) {
-            if (child.namespaceURI === NS_W && child.localName === 'p') {
-                if (Array.from(child.childNodes).find(n => n.nodeType === 1 && n.namespaceURI === NS_W && n.localName === 'p')) throw new Error('Validation failed: nested w:p');
-            }
-        }
-    }
-
-    const hasNumberingUsage = documentDoc.getElementsByTagNameNS(NS_W, 'numPr').length > 0;
-    const hasCommentUsage = documentDoc.getElementsByTagNameNS(NS_W, 'commentRangeStart').length > 0 || documentDoc.getElementsByTagNameNS(NS_W, 'commentRangeEnd').length > 0 || documentDoc.getElementsByTagNameNS(NS_W, 'commentReference').length > 0;
-    const numberingXml = await zip.file('word/numbering.xml')?.async('string');
-    const commentsXml = await zip.file('word/comments.xml')?.async('string');
-    if (numberingXml) parseXmlStrict(numberingXml, 'word/numbering.xml');
-    else if (hasNumberingUsage) throw new Error('Validation failed: numbering used but part missing');
-    if (commentsXml) parseXmlStrict(commentsXml, 'word/comments.xml');
-    else if (hasCommentUsage) throw new Error('Validation failed: comments used but part missing');
-
-    const ctXml = await zip.file('[Content_Types].xml')?.async('string');
-    if (!ctXml) throw new Error('Validation failed: missing [Content_Types].xml');
-    const ctDoc = parseXmlStrict(ctXml, '[Content_Types].xml');
-    const relsXml = await zip.file('word/_rels/document.xml.rels')?.async('string');
-    if (!relsXml) throw new Error('Validation failed: missing document.xml.rels');
-    const relsDoc = parseXmlStrict(relsXml, 'document.xml.rels');
-
-    if (numberingXml) {
-        if (!Array.from(ctDoc.getElementsByTagNameNS('*', 'Override')).some(o => (o.getAttribute('PartName') || '').toLowerCase() === '/word/numbering.xml' && (o.getAttribute('ContentType') || '') === NUMBERING_CONTENT_TYPE)) throw new Error('Validation failed: numbering CT override missing');
-        if (!Array.from(relsDoc.getElementsByTagNameNS('*', 'Relationship')).some(r => (r.getAttribute('Type') || '') === NUMBERING_REL_TYPE)) throw new Error('Validation failed: numbering rel missing');
-    }
-    if (commentsXml) {
-        if (!Array.from(ctDoc.getElementsByTagNameNS('*', 'Override')).some(o => (o.getAttribute('PartName') || '').toLowerCase() === '/word/comments.xml' && (o.getAttribute('ContentType') || '') === COMMENTS_CONTENT_TYPE)) throw new Error('Validation failed: comments CT override missing');
-        if (!Array.from(relsDoc.getElementsByTagNameNS('*', 'Relationship')).some(r => (r.getAttribute('Type') || '') === COMMENTS_REL_TYPE)) throw new Error('Validation failed: comments rel missing');
-    }
+    await validateDocxPackage(zip);
 }
 
 // ── Logger wiring ──────────────────────────────────────

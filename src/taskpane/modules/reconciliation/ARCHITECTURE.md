@@ -57,6 +57,7 @@ reconciliation/
 │   ├── comment-package.js
 │   ├── numbering-service.js
 │   ├── package-builder.js
+│   ├── standalone-docx-plumbing.js
 │   └── table-reconciliation.js
 ├── orchestration/
 │   ├── route-plan.js
@@ -134,6 +135,11 @@ reconciliation/
   - Handles comments-part wiring and relationship/content-type updates.
 - `services/package-builder.js`
   - Shared `pkg:package` builders for document fragments, paragraph-only packages, and comments package variants.
+- `services/standalone-docx-plumbing.js`
+  - Shared standalone/browser package plumbing utilities.
+  - Centralizes OOXML output extraction (`pkg:package`, `w:document`, or fragment payloads) into replacement nodes.
+  - Centralizes package artifact wiring for `word/numbering.xml` and `word/comments.xml` plus relationships/content-types updates.
+  - Centralizes package-level validation checks used by non-Word hosts (body/`w:sectPr` order, nested table paragraphs, numbering/comment part consistency).
 - `orchestration/route-plan.js`
   - Word-agnostic route planner for command adapters (`buildReconciliationPlan`).
   - Classifies content into deterministic apply kinds (`structured_list_direct`, `empty_formatted_text`, `empty_html`, `block_html`, `ooxml_engine`).
@@ -204,6 +210,7 @@ reconciliation/
   - Re-exports standalone list-fallback planning/execution/sequence helpers (`buildSingleLineListStructuralFallbackPlan`, `executeSingleLineListStructuralFallback`, `resolveSingleLineListFallbackNumberingAction`, `recordSingleLineListFallbackExplicitSequence`, `clearSingleLineListFallbackExplicitSequence`, `enforceListBindingOnParagraphNodes`, `stripSingleLineListMarkerPrefix`).
   - Re-exports dynamic numbering allocation helpers (`createDynamicNumberingIdState`, `reserveNextNumberingId`, `reserveNextNumberingIdPair`) so host adapters can share collision-safe numbering ID assignment logic.
   - Re-exports numbering payload helpers (`remapNumberingPayloadForDocument`, `overwriteParagraphNumIds`, `extractFirstParagraphNumId`, `buildExplicitDecimalMultilevelNumberingXml`, `mergeNumberingXmlBySchemaOrder`) so browser/demo/test hosts can avoid duplicating Word-sensitive numbering transforms.
+  - Re-exports standalone docx-plumbing helpers (`parseXmlStrictStandalone`, `getBodyElementFromDocument`, `insertBodyElementBeforeSectPr`, `normalizeBodySectionOrderStandalone`, `sanitizeNestedParagraphsInTables`, `getPackagePartName`, `extractReplacementNodesFromOoxml`, `ensureNumberingArtifactsInZip`, `ensureCommentsArtifactsInZip`, `validateDocxPackage`) so browser and Node hosts can share package-level logic.
   - Re-exports shared table-targeting heuristics for browser/Node integrations.
   - Re-exports shared list-targeting heuristics for browser/Node integrations.
 

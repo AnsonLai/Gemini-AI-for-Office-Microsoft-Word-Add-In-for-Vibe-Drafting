@@ -242,6 +242,14 @@ npm run docx:harness -- -Action query -InputPath "tests/Sample NDA.docx" -Part "
 
 See `tests/docx-harness/README.md` for full usage.
 
+### Standalone Docx Plumbing Regression
+
+To verify shared standalone package plumbing behavior (OOXML output extraction, numbering/comments artifact wiring, and package validation):
+
+```bash
+node tests/standalone_docx_plumbing_tests.mjs
+```
+
 The add-in uses Google Gemini models (e.g., `gemini-1.5-flash`, `gemini-1.5-pro`). You can modify the default models in [`taskpane.js`](src/taskpane/taskpane.js).
 
 ```javascript
