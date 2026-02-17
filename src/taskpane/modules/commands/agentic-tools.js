@@ -15,7 +15,7 @@ import {
   insertOoxmlWithRangeFallback,
   withNativeTrackingDisabled
 } from '../reconciliation/index.js';
-import { applyHighlightToOoxml } from '../../ooxml-formatting-removal.js';
+import { applySharedOperationToParagraphOoxml } from './shared-operation-bridge.js';
 import {
   detectDocumentFont,
   markdownToWordHtml,
@@ -36,7 +36,6 @@ let loadRedlineSetting;
 let loadRedlineAuthor;
 let setChangeTrackingForAi;
 let restoreChangeTracking;
-let SEARCH_LIMITS;
 let SAFETY_SETTINGS_BLOCK_NONE;
 let API_LIMITS;
 
@@ -49,7 +48,6 @@ function initAgenticTools(deps) {
     loadRedlineAuthor,
     setChangeTrackingForAi,
     restoreChangeTracking,
-    SEARCH_LIMITS,
     SAFETY_SETTINGS_BLOCK_NONE,
     API_LIMITS
   } = deps);
@@ -1209,7 +1207,8 @@ JSON ARRAY OF COMMENTS:`;
 
     await Word.run(async (context) => {
       const redlineEnabled = loadRedlineSetting();
-      const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeComment");
+      const redlineAuthor = loadRedlineAuthor();
+      const trackingState = await setChangeTrackingForAi(context, false, "executeComment");
 
       try {
         const paragraphs = context.document.body.paragraphs;
@@ -1221,10 +1220,38 @@ JSON ARRAY OF COMMENTS:`;
           if (pIndex < 0 || pIndex >= paragraphs.items.length) continue;
 
           const targetParagraph = paragraphs.items[pIndex];
-          const count = await searchWithFallback(targetParagraph, item.textToFind, context, async (match) => {
-            match.insertComment(item.commentContent);
-          });
-          commentsApplied += count;
+          try {
+            const paragraphOoxmlResult = targetParagraph.getOoxml();
+            await context.sync();
+
+            const bridgeResult = await applySharedOperationToParagraphOoxml(
+              paragraphOoxmlResult?.value || "",
+              {
+                type: "comment",
+                targetRef: "P1",
+                target: targetParagraph.text || item.textToFind || "",
+                textToComment: item.textToFind,
+                commentContent: item.commentContent
+              },
+              {
+                author: redlineAuthor,
+                generateRedlines: redlineEnabled,
+                onInfo: message => console.log(`[Comment/Shared] ${message}`),
+                onWarn: message => console.warn(`[Comment/Shared] ${message}`)
+              }
+            );
+
+            if (bridgeResult.hasChanges && bridgeResult.packageOoxml) {
+              targetParagraph.insertOoxml(bridgeResult.packageOoxml, Word.InsertLocation.replace);
+              await context.sync();
+              commentsApplied += 1;
+              console.log(`[Comment/Shared] Applied comment via shared engine in P${item.paragraphIndex}`);
+            } else {
+              console.warn(`[Comment/Shared] No changes produced for P${item.paragraphIndex}`);
+            }
+          } catch (sharedError) {
+            console.warn(`[Comment/Shared] Failed in P${item.paragraphIndex} (no fallback):`, sharedError?.message || sharedError);
+          }
         }
       } finally {
         await restoreChangeTracking(context, trackingState, "executeComment");
@@ -1314,35 +1341,37 @@ JSON ARRAY OF HIGHLIGHTS:`;
           if (pIndex < 0 || pIndex >= paragraphs.items.length) continue;
 
           const targetParagraph = paragraphs.items[pIndex];
-
           try {
-            // Get the paragraph's OOXML
             const paragraphOoxml = targetParagraph.getOoxml();
             await context.sync();
 
-            const originalOoxml = paragraphOoxml.value;
-            if (!originalOoxml) {
-              console.warn(`Could not get OOXML for paragraph ${item.paragraphIndex}`);
-              continue;
-            }
+            const bridgeResult = await applySharedOperationToParagraphOoxml(
+              paragraphOoxml?.value || "",
+              {
+                type: "highlight",
+                targetRef: "P1",
+                target: targetParagraph.text || item.textToFind || "",
+                textToHighlight: item.textToFind,
+                color: normalizedColor.toLowerCase()
+              },
+              {
+                author: authorName,
+                generateRedlines: redlineEnabled,
+                onInfo: message => console.log(`[Highlight/Shared] ${message}`),
+                onWarn: message => console.warn(`[Highlight/Shared] ${message}`)
+              }
+            );
 
-            // Apply highlight via pure OOXML manipulation with Redline Support
-            const modifiedOoxml = applyHighlightToOoxml(originalOoxml, item.textToFind, normalizedColor, {
-              generateRedlines: redlineEnabled,
-              author: authorName
-            });
-
-            // Only insert if something changed
-            if (modifiedOoxml && modifiedOoxml !== originalOoxml) {
-              targetParagraph.insertOoxml(modifiedOoxml, Word.InsertLocation.replace);
+            if (bridgeResult.hasChanges && bridgeResult.packageOoxml) {
+              targetParagraph.insertOoxml(bridgeResult.packageOoxml, Word.InsertLocation.replace);
               await context.sync();
               highlightsApplied++;
-              console.log(`[OOXML Highlight] Applied ${normalizedColor} highlight to "${item.textToFind}" in P${item.paragraphIndex}`);
+              console.log(`[Highlight/Shared] Applied ${normalizedColor} highlight to "${item.textToFind}" in P${item.paragraphIndex}`);
             } else {
-              console.warn(`[OOXML Highlight] No matching text found for "${item.textToFind}" in P${item.paragraphIndex}`);
+              console.warn(`[Highlight/Shared] No changes produced for P${item.paragraphIndex}`);
             }
-          } catch (highlightError) {
-            console.warn(`Failed to highlight "${item.textToFind}":`, highlightError.message);
+          } catch (sharedError) {
+            console.warn(`[Highlight/Shared] Failed in P${item.paragraphIndex} (no fallback):`, sharedError?.message || sharedError);
           }
         }
       } finally {
@@ -1468,64 +1497,6 @@ function createToolResult(count, itemType, zeroMessage) {
     message: `Successfully ${actionVerb} ${count} ${itemType}.`,
     showToUser: true
   };
-}
-
-/**
- * Searches for text within a paragraph with automatic fallback to shorter text on failure.
- * @param {Word.Paragraph} targetParagraph - The paragraph to search within
- * @param {string} searchText - The text to search for
- * @param {Word.RequestContext} context - Word context for sync operations
- * @param {Function} onSuccess - Callback function to execute on each match (receives match object)
- * @returns {Promise<number>} Number of successful operations
- */
-async function searchWithFallback(targetParagraph, searchText, context, onSuccess) {
-  let operationsCount = 0;
-
-  // Validate and truncate search text
-  if (!searchText || searchText.trim().length === 0) {
-    return 0;
-  }
-
-  if (searchText.length > SEARCH_LIMITS.MAX_LENGTH) {
-    searchText = searchText.substring(0, SEARCH_LIMITS.MAX_LENGTH);
-  }
-
-  try {
-    const searchResults = targetParagraph.search(searchText, { matchCase: false });
-    searchResults.load("items/text");
-    await context.sync();
-
-    if (searchResults.items.length > 0) {
-      for (const match of searchResults.items) {
-        await onSuccess(match);
-        operationsCount++;
-      }
-      return operationsCount;
-    }
-  } catch (searchError) {
-    console.warn(`Search failed for "${searchText}":`, searchError.message);
-
-    // Fallback: Try with shorter text
-    if (searchText.length > SEARCH_LIMITS.RETRY_LENGTH) {
-      const shorterText = searchText.substring(0, SEARCH_LIMITS.RETRY_LENGTH);
-      console.log(`Retrying with shorter search: "${shorterText}"`);
-
-      try {
-        const retryResults = targetParagraph.search(shorterText, { matchCase: true });
-        retryResults.load("items/text");
-        await context.sync();
-
-        if (retryResults.items.length > 0) {
-          await onSuccess(retryResults.items[0]);  // Only use first match for fallback
-          return 1;
-        }
-      } catch (retryError) {
-        console.warn(`Retry search also failed:`, retryError.message);
-      }
-    }
-  }
-
-  return 0;
 }
 
 // Generic helper for JSON responses
