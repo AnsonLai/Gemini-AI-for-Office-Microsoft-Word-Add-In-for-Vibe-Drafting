@@ -42,6 +42,7 @@ export {
 
 // Individual stage functions (for advanced usage)
 export { ingestOoxml, ingestTableToVirtualGrid } from './pipeline/ingestion.js';
+export { ingestWordOoxmlToPlainText, ingestWordOoxmlToMarkdown } from './pipeline/ingestion-export.js';
 export { preprocessMarkdown, getApplicableFormatHints, mergeFormats } from './pipeline/markdown-processor.js';
 export { computeWordLevelDiffOps, computeWordDiffs, wordsToChars, charsToWords, collectDiffBoundaries } from './pipeline/diff-engine.js';
 export { splitRunsAtDiffBoundaries, applyPatches } from './pipeline/patching.js';

@@ -15,6 +15,7 @@ Core code is organized by concern:
   - includes focused formatting helpers (`format-paragraph-targeting`, `format-span-application`)
 - `pipeline/` run-model reconciliation pipeline stages + shared list marker parser
   - includes hot-path indexed patch lookups for diff application
+  - includes `ingestion-export.js` for Word OOXML -> readable plain text and basic markdown (`ingestWordOoxmlToPlainText`, `ingestWordOoxmlToMarkdown`)
 - `services/` table/comment/numbering services + shared package/plumbing helpers
   - includes `standalone-docx-plumbing.js` for OOXML output extraction, package artifact wiring, and package-level validation used by standalone/browser hosts
   - includes `standalone-operation-runner.js` for applying `redline`/`highlight`/`comment` operations to full `word/document.xml` payloads with shared targeting heuristics (explicit range and single-paragraph concatenation list cases use surgical insertion-only handling to preserve list binding/numbering style)
@@ -23,3 +24,8 @@ Core code is organized by concern:
 - `integration/` Word API bridge + shared Word-only OOXML interop helpers
   - includes legacy structured-list insertion fallback helpers extracted from command layer
   - includes shared paragraph route/apply helper (`word-route-change.js`) used by command adapters
+
+Useful standalone/add-in ingestion exports:
+
+- `ingestWordOoxmlToPlainText(ooxml)` strips OOXML tags and returns readable paragraph-structured text
+- `ingestWordOoxmlToMarkdown(ooxml)` returns a basic markdown projection (headings, bold/italic runs, obvious bullets/numbering)

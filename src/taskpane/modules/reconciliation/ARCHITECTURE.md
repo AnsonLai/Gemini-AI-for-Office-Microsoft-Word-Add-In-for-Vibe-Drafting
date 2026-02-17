@@ -43,6 +43,7 @@ reconciliation/
 │   ├── ingestion-paragraph.js
 │   ├── ingestion-table.js
 │   ├── ingestion-xml.js
+│   ├── ingestion-export.js
 │   ├── content-analysis.js
 │   ├── diff-engine.js
 │   ├── list-generation.js
@@ -114,6 +115,10 @@ reconciliation/
   - Virtual-grid table ingestion and merged-cell parsing.
 - `pipeline/ingestion-xml.js`
   - Shared ingestion helpers for child-node traversal and attribute serialization.
+- `pipeline/ingestion-export.js`
+  - Standalone-friendly Word OOXML export helpers.
+  - Provides `ingestWordOoxmlToPlainText(...)` for readable text extraction (tags stripped, paragraph structure preserved).
+  - Provides `ingestWordOoxmlToMarkdown(...)` for basic markdown projection (headings, bold/italic runs, obvious list markers).
 - `pipeline/content-analysis.js`
   - Shared text classification/parsing helpers for list/table/paragraph detection.
 - `pipeline/list-markers.js`
@@ -206,6 +211,7 @@ reconciliation/
   - Owns reconciliation route execution and fallback sequencing for single-paragraph edits.
 - `index.js`
   - Main public API surface.
+  - Re-exports Word OOXML ingestion-export helpers for add-in/internal callers.
 - `standalone.js`
   - Public API surface with no Word API exports.
   - Normalizes native-API fallback responses for standalone consumers (returns unchanged OOXML + warning when Word-native apply is required).
@@ -217,6 +223,7 @@ reconciliation/
   - Re-exports dynamic numbering allocation helpers (`createDynamicNumberingIdState`, `reserveNextNumberingId`, `reserveNextNumberingIdPair`) so host adapters can share collision-safe numbering ID assignment logic.
   - Re-exports numbering payload helpers (`remapNumberingPayloadForDocument`, `overwriteParagraphNumIds`, `extractFirstParagraphNumId`, `buildExplicitDecimalMultilevelNumberingXml`, `mergeNumberingXmlBySchemaOrder`) so browser/demo/test hosts can avoid duplicating Word-sensitive numbering transforms.
   - Re-exports standalone docx-plumbing helpers (`parseXmlStrictStandalone`, `getBodyElementFromDocument`, `insertBodyElementBeforeSectPr`, `normalizeBodySectionOrderStandalone`, `sanitizeNestedParagraphsInTables`, `getPackagePartName`, `extractReplacementNodesFromOoxml`, `ensureNumberingArtifactsInZip`, `ensureCommentsArtifactsInZip`, `validateDocxPackage`) so browser and Node hosts can share package-level logic.
+  - Re-exports Word OOXML ingestion-export helpers (`ingestWordOoxmlToPlainText`, `ingestWordOoxmlToMarkdown`) for text-only and markdown projection flows outside Word API.
   - Re-exports shared table-targeting heuristics for browser/Node integrations.
   - Re-exports shared list-targeting heuristics for browser/Node integrations.
 

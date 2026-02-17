@@ -749,6 +749,7 @@ export function mergeNumberingXmlBySchemaOrder(existingNumberingXml, incomingNum
 // Pipeline components
 export { ReconciliationPipeline } from './pipeline/pipeline.js';
 export { ingestOoxml } from './pipeline/ingestion.js';
+export { ingestWordOoxmlToPlainText, ingestWordOoxmlToMarkdown } from './pipeline/ingestion-export.js';
 export { preprocessMarkdown } from './pipeline/markdown-processor.js';
 export { serializeToOoxml, wrapInDocumentFragment } from './pipeline/serialization.js';
 
