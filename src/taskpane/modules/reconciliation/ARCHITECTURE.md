@@ -58,6 +58,7 @@ reconciliation/
 │   ├── numbering-service.js
 │   ├── package-builder.js
 │   ├── standalone-docx-plumbing.js
+│   ├── standalone-operation-runner.js
 │   └── table-reconciliation.js
 ├── orchestration/
 │   ├── route-plan.js
@@ -140,6 +141,11 @@ reconciliation/
   - Centralizes OOXML output extraction (`pkg:package`, `w:document`, or fragment payloads) into replacement nodes.
   - Centralizes package artifact wiring for `word/numbering.xml` and `word/comments.xml` plus relationships/content-types updates.
   - Centralizes package-level validation checks used by non-Word hosts (body/`w:sectPr` order, nested table paragraphs, numbering/comment part consistency).
+- `services/standalone-operation-runner.js`
+  - Shared standalone/browser operation bridge for applying `redline`, `highlight`, and `comment` operations against full `word/document.xml`.
+  - Centralizes per-operation targeting/routing heuristics (single paragraph vs list scope vs table scope) and replacement-node application.
+  - Applies explicit-range and single-paragraph-concatenation list insertion-only edits surgically (insert-only) when model output is a pure insertion shape, preserving existing list binding/style.
+  - Keeps host modules thin by moving OOXML orchestration out of UI layers.
 - `orchestration/route-plan.js`
   - Word-agnostic route planner for command adapters (`buildReconciliationPlan`).
   - Classifies content into deterministic apply kinds (`structured_list_direct`, `empty_formatted_text`, `empty_html`, `block_html`, `ooxml_engine`).
@@ -310,3 +316,17 @@ contains explicit redline markup (`w:ins`/`w:del`) when redlines are enabled.
 - Standalone usage: `reconciliation/standalone.js`
 
 Keep new exports centralized through one of these entrypoints.
+
+## Hosting & Bootstrapping Guidance
+
+The standalone engine (`standalone.js`) is designed to be environment-agnostic and does not bundle heavy file-handling libraries like `JSZip`.
+
+### Bootstrapping a New Project
+
+For projects that need to create or manipulate `.docx` files from scratch in a standalone environment:
+
+1.  **File Orchestration**: Use a library like `JSZip` in your application layer (the host) to handle the binary `.docx` structure.
+2.  **Template Document**: Instead of building a `.docx` XML tree from nothing, start with a minimal `blank.docx` (containing a valid `word/document.xml`, `[Content_Types].xml`, and `_rels/`) and load it via `JSZip`.
+3.  **Document Ingestion**: Extract the `word/document.xml` string from the zip and pass it to the engine's plumbing services (`standalone-docx-plumbing.js`) for manipulation.
+4.  **Package Wrapping**: When producing output for Word's `insertOoxml` API, use the `package-builder.js` service to wrap paragraphs into a `pkg:package` structure.
+5.  **Artifact Merging**: Use `ensureNumberingArtifactsInZip` and `ensureCommentsArtifactsInZip` to safely merge generated metadata back into your `JSZip` instance before saving the final file.

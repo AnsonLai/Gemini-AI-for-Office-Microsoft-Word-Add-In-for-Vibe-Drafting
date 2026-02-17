@@ -75,6 +75,9 @@ One-click demo that applies a fixed set of operations to marker paragraphs:
   - output extraction (`pkg:package`/`w:document`/fragment)
   - body/section normalization + nested table paragraph sanitization
   - numbering/comments artifact wiring + package validation
+- `src/taskpane/modules/reconciliation/services/standalone-operation-runner.js`: shared operation bridge for full-document OOXML mutation
+  - routes `redline` / `highlight` / `comment` operations
+  - owns table/list/single-paragraph targeting heuristics used by chat and kitchen-sink flows
 
 - `http://localhost:8000/browser-demo/demo.html`
 
@@ -103,7 +106,7 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 3. Build Gemini system instruction with full document listing
 4. User types review instruction → sent as multi-turn chat
 5. Gemini responds with explanation + JSON array of operations (`redline`/`comment`/`highlight`)
-6. Operations applied paragraph-by-paragraph using reconciliation engine
+6. Operations applied paragraph-by-paragraph using shared standalone operation runner + reconciliation engine
 7. Numbering/comments package artifacts merged if emitted (shared standalone plumbing helper path)
 8. Output validated via shared standalone package validation; download button enabled
 9. Paragraph listing refreshed for next turn
@@ -118,6 +121,7 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
   4. fuzzy text match fallback
 - Redline diffing uses the resolved paragraph's current text, which reduces failures when model-provided `target` text drifts slightly.
 - Target resolution is delegated to shared reconciliation core helpers (exported via `standalone.js`), including turn-snapshot drift correction (`buildTargetReferenceSnapshot`, `resolveTargetParagraphWithSnapshot`), so non-demo consumers can reuse the same behavior.
+- The operation bridge (`applyToParagraphByExactText`/`runOperation`) now lives in shared standalone support (`services/standalone-operation-runner.js`) and is called from `demo.js` as a thin host wrapper.
 
 ### Table Structure Edits (Chat)
 
@@ -133,6 +137,9 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 - When a target paragraph is part of an OOXML numbered/bulleted list and a redline contains multiline list content, the demo can promote the edit to **contiguous list-block scope**.
 - This helps "insert item between N and N+1" requests by preserving surrounding list items in the same list block, instead of rewriting only one paragraph.
 - For supported middle-insert patterns, the demo now uses an **insertion-only** heuristic first, adding only new list paragraph(s) as redlines and leaving existing items untouched.
+- When a chat op provides an explicit paragraph range (`targetRef` + `targetEndRef`) and the `modified` list is an insertion-only superset of the existing range, the runner applies a surgical explicit-range insertion path (insert-only, no delete/rewrite of existing items) so list numbering/style stays bound to the original `numId`.
+- If explicit-range content is not insertion-only, reconciliation still falls back to range-scope rewrite behavior.
+- When a single-paragraph list redline returns concatenated text (`<new item><existing item>` with no newline), the runner applies a surgical adjacency insertion heuristic and inserts only the new list item before/after the targeted item instead of rewriting the target paragraph.
 - List heuristics use shared reconciliation core helpers exported via `standalone.js` (`planListInsertionOnlyEdit`, `synthesizeExpandedListScopeEdit`).
 - List numbering payloads are remapped to fresh `numId`/`abstractNumId` values and merged into existing `word/numbering.xml`, preventing accidental continuation or style collision with distant lists.
 - Composite list markers are normalized in list generation (for example `- A. Item` becomes `A. Item`) so ordered list style can be inferred correctly and marker text is not duplicated in content.
@@ -168,6 +175,7 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 - Numbering merge is additive when missing; existing numbering part is preserved.
 - Comments merge into `word/comments.xml` and related package metadata.
 - Browser demo docx plumbing is now delegated to standalone reconciliation exports, keeping behavior the same while avoiding demo-local duplication.
+- Browser demo operation routing heuristics are now delegated to standalone reconciliation service code, keeping behavior the same while reducing demo-local orchestration logic.
 
 ## Known Limits
 
