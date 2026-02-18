@@ -1221,29 +1221,22 @@ JSON ARRAY OF COMMENTS:`;
 
           const targetParagraph = paragraphs.items[pIndex];
           try {
-            const paragraphOoxmlResult = targetParagraph.getOoxml();
-            await context.sync();
-
-            const bridgeResult = await applySharedOperationToParagraphOoxml(
-              paragraphOoxmlResult?.value || "",
-              {
+            const applied = await applySharedOperationToWordParagraph({
+              context,
+              targetParagraph,
+              operation: {
                 type: "comment",
                 targetRef: "P1",
                 target: targetParagraph.text || item.textToFind || "",
                 textToComment: item.textToFind,
                 commentContent: item.commentContent
               },
-              {
-                author: redlineAuthor,
-                generateRedlines: redlineEnabled,
-                onInfo: message => console.log(`[Comment/Shared] ${message}`),
-                onWarn: message => console.warn(`[Comment/Shared] ${message}`)
-              }
-            );
+              author: redlineAuthor,
+              generateRedlines: redlineEnabled,
+              logPrefix: "Comment/Shared"
+            });
 
-            if (bridgeResult.hasChanges && bridgeResult.packageOoxml) {
-              targetParagraph.insertOoxml(bridgeResult.packageOoxml, Word.InsertLocation.replace);
-              await context.sync();
+            if (applied) {
               commentsApplied += 1;
               console.log(`[Comment/Shared] Applied comment via shared engine in P${item.paragraphIndex}`);
             } else {
@@ -1342,29 +1335,22 @@ JSON ARRAY OF HIGHLIGHTS:`;
 
           const targetParagraph = paragraphs.items[pIndex];
           try {
-            const paragraphOoxml = targetParagraph.getOoxml();
-            await context.sync();
-
-            const bridgeResult = await applySharedOperationToParagraphOoxml(
-              paragraphOoxml?.value || "",
-              {
+            const applied = await applySharedOperationToWordParagraph({
+              context,
+              targetParagraph,
+              operation: {
                 type: "highlight",
                 targetRef: "P1",
                 target: targetParagraph.text || item.textToFind || "",
                 textToHighlight: item.textToFind,
                 color: normalizedColor.toLowerCase()
               },
-              {
-                author: authorName,
-                generateRedlines: redlineEnabled,
-                onInfo: message => console.log(`[Highlight/Shared] ${message}`),
-                onWarn: message => console.warn(`[Highlight/Shared] ${message}`)
-              }
-            );
+              author: authorName,
+              generateRedlines: redlineEnabled,
+              logPrefix: "Highlight/Shared"
+            });
 
-            if (bridgeResult.hasChanges && bridgeResult.packageOoxml) {
-              targetParagraph.insertOoxml(bridgeResult.packageOoxml, Word.InsertLocation.replace);
-              await context.sync();
+            if (applied) {
               highlightsApplied++;
               console.log(`[Highlight/Shared] Applied ${normalizedColor} highlight to "${item.textToFind}" in P${item.paragraphIndex}`);
             } else {
@@ -1497,6 +1483,49 @@ function createToolResult(count, itemType, zeroMessage) {
     message: `Successfully ${actionVerb} ${count} ${itemType}.`,
     showToUser: true
   };
+}
+
+/**
+ * Applies a shared standalone operation to a single Word paragraph.
+ *
+ * @param {Object} params
+ * @param {Word.RequestContext} params.context
+ * @param {Word.Paragraph} params.targetParagraph
+ * @param {Object} params.operation
+ * @param {string} params.author
+ * @param {boolean} params.generateRedlines
+ * @param {string} params.logPrefix
+ * @returns {Promise<boolean>} True when a change is applied
+ */
+async function applySharedOperationToWordParagraph({
+  context,
+  targetParagraph,
+  operation,
+  author,
+  generateRedlines,
+  logPrefix
+}) {
+  const paragraphOoxmlResult = targetParagraph.getOoxml();
+  await context.sync();
+
+  const bridgeResult = await applySharedOperationToParagraphOoxml(
+    paragraphOoxmlResult?.value || "",
+    operation,
+    {
+      author,
+      generateRedlines,
+      onInfo: message => console.log(`[${logPrefix}] ${message}`),
+      onWarn: message => console.warn(`[${logPrefix}] ${message}`)
+    }
+  );
+
+  if (!bridgeResult.hasChanges || !bridgeResult.packageOoxml) {
+    return false;
+  }
+
+  targetParagraph.insertOoxml(bridgeResult.packageOoxml, Word.InsertLocation.replace);
+  await context.sync();
+  return true;
 }
 
 // Generic helper for JSON responses

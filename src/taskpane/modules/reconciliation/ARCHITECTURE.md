@@ -151,6 +151,7 @@ reconciliation/
   - Centralizes per-operation targeting/routing heuristics (single paragraph vs list scope vs table scope) and replacement-node application.
   - Applies explicit-range and single-paragraph-concatenation list insertion-only edits surgically (insert-only) when model output is a pure insertion shape, preserving existing list binding/style.
   - Keeps host modules thin by moving OOXML orchestration out of UI layers.
+  - Add-in nomenclature alignment note: command-layer operation names (`edit_paragraph`, `replace_paragraph`, `replace_range`, `modify_text`) are being converged toward the shared redline operation contract (`type: 'redline'` with `modified`) after routing stabilization.
 - `orchestration/route-plan.js`
   - Word-agnostic route planner for command adapters (`buildReconciliationPlan`).
   - Classifies content into deterministic apply kinds (`structured_list_direct`, `empty_formatted_text`, `empty_html`, `block_html`, `ooxml_engine`).
