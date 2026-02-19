@@ -12,23 +12,40 @@ import { matchListMarker, stripListMarker } from './list-markers.js';
  * @returns {{ headers: string[], rows: string[][], hasHeader: boolean }}
  */
 export function parseTable(text) {
-    const lines = text.split('\n').filter(line => line.trim().startsWith('|'));
+    const lines = text
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.startsWith('|'));
     if (lines.length === 0) {
         return { headers: [], rows: [], hasHeader: false };
     }
 
-    const dataLines = lines.filter(line => !line.includes('---'));
-    const rows = dataLines.map(line =>
+    const isSeparatorLine = line => {
+        const normalized = line.replace(/\s+/g, '');
+        return /^\|:?-{3,}:?(\|:?-{3,}:?)+\|?$/.test(normalized);
+    };
+
+    const hasHeader = lines.some(isSeparatorLine);
+    const dataLines = lines.filter(line => !isSeparatorLine(line));
+    const parsedRows = dataLines.map(line =>
         line
             .split('|')
             .slice(1, -1)
             .map(cell => cell.trim())
     );
 
+    if (!hasHeader) {
+        return {
+            headers: [],
+            rows: parsedRows,
+            hasHeader: false
+        };
+    }
+
     return {
-        headers: rows[0] || [],
-        rows: rows.slice(1),
-        hasHeader: lines.some(line => line.includes('---'))
+        headers: parsedRows[0] || [],
+        rows: parsedRows.slice(1),
+        hasHeader: true
     };
 }
 

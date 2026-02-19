@@ -2,31 +2,21 @@
 
 import {
   applyRedlineToOxml,
-  reconcileMarkdownTableOoxml,
-  applyReconciliationToParagraphBatch,
+  preprocessMarkdown,
   ReconciliationPipeline,
   wrapInDocumentFragment,
-  parseTable,
-  extractParagraphIdFromOoxml,
   getAuthorForTracking,
   buildListMarkdown,
   normalizeListItemsWithLevels,
-  routeWordParagraphChange,
-  insertOoxmlWithRangeFallback,
   withNativeTrackingDisabled
 } from '../reconciliation/index.js';
-import { applySharedOperationToParagraphOoxml } from './shared-operation-bridge.js';
 import {
-  detectDocumentFont,
-  markdownToWordHtml,
-  markdownToWordHtmlInline,
-  hasBlockElements,
-  hasInlineMarkdownFormatting,
-  preprocessMarkdownForParagraph,
-  applyFormatHintsToRanges,
-  applyFormatRemovalToRanges,
-  parseMarkdownList,
-  normalizeContentEscapes
+  applySharedOperationToParagraphOoxml,
+  applySharedOperationToScopeOoxml
+} from './shared-operation-bridge.js';
+import { toScopedSharedRedlineOperation } from './redline-operation-converter.js';
+import {
+  detectDocumentFont
 } from '../utils/markdown-utils.js';
 
 let loadApiKey;
@@ -51,6 +41,66 @@ function initAgenticTools(deps) {
     SAFETY_SETTINGS_BLOCK_NONE,
     API_LIMITS
   } = deps);
+}
+
+function normalizeNeedleText(value) {
+  if (value == null) return "";
+  return String(value)
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\r/g, "\r")
+    .trim();
+}
+
+function findNearbyParagraphIndexForModifyText(paragraphItems, startIndex, change) {
+  const items = Array.isArray(paragraphItems) ? paragraphItems : [];
+  if (!Number.isInteger(startIndex) || startIndex < 0 || startIndex >= items.length) {
+    return startIndex;
+  }
+
+  const originalText = normalizeNeedleText(change?.originalText);
+  if (!originalText) {
+    return startIndex;
+  }
+
+  const textAt = (index) => String(items[index]?.text ?? "");
+  const startText = textAt(startIndex);
+  if (startText.trim().length > 0) {
+    return startIndex;
+  }
+
+  const originalLower = originalText.toLowerCase();
+  const maxDistance = 12;
+  let bestExact = null;
+  let bestInsensitive = null;
+
+  for (let distance = 1; distance <= maxDistance; distance += 1) {
+    const candidates = [startIndex - distance, startIndex + distance];
+    for (const candidateIndex of candidates) {
+      if (candidateIndex < 0 || candidateIndex >= items.length) continue;
+
+      const candidateText = textAt(candidateIndex);
+      if (!candidateText.trim()) continue;
+
+      if (candidateText.includes(originalText)) {
+        if (bestExact == null) {
+          bestExact = candidateIndex;
+        }
+        continue;
+      }
+
+      if (candidateText.toLowerCase().includes(originalLower)) {
+        if (bestInsensitive == null) {
+          bestInsensitive = candidateIndex;
+        }
+      }
+    }
+
+    if (bestExact != null) return bestExact;
+  }
+
+  if (bestInsensitive != null) return bestInsensitive;
+  return startIndex;
 }
 
 /**
@@ -157,915 +207,121 @@ Return ONLY the JSON array, nothing else:`;
       };
     }
 
-    let changesApplied = 0;
-    const redlineEnabled = loadRedlineSetting();
+    {
+      const redlineEnabled = loadRedlineSetting();
+      const redlineAuthor = loadRedlineAuthor();
+      let changesApplied = 0;
 
-    // 3. Apply changes in Word
-    await Word.run(async (context) => {
-      const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeRedline");
-      try {
+      await Word.run(async (context) => {
+        const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeRedline");
+        try {
+          context.document.load("changeTrackingMode");
+          await context.sync();
+          const baseTrackingMode = context.document.changeTrackingMode;
 
-        // Load paragraphs with all properties needed by routeChangeOperation to avoid syncs in the loop
-        const paragraphs = context.document.body.paragraphs;
-        paragraphs.load("items/text, items/style, items/parentTableCellOrNullObject, items/parentTableOrNullObject, items/font/name, items/font/size, items/parentTableOrNullObject/id");
-        paragraphs.load("items/text, items/style, items/parentTableCellOrNullObject, items/parentTableOrNullObject, items/font/name, items/font/size, items/parentTableOrNullObject/id");
-        context.document.load("changeTrackingMode");
-        await context.sync();
-
-        const baseTrackingMode = context.document.changeTrackingMode;
-
-        // Track the current paragraph count (may change as we add/remove paragraphs)
-        let currentParagraphCount = paragraphs.items.length;
-        const batchedEditResultsByChangeIndex = new Map();
-
-        // Batch simple edit_paragraph operations to reduce context.sync round-trips.
-        // Keep complex/table/empty-paragraph edits on the existing per-change path.
-        const batchCandidates = [];
-        const seenBatchParagraphs = new Set();
-        for (let changeIndex = 0; changeIndex < aiChanges.length; changeIndex++) {
-          const change = aiChanges[changeIndex];
-          if (!change || change.operation !== "edit_paragraph" || !change.newContent) {
-            continue;
-          }
-
-          const pIndex = change.paragraphIndex - 1;
-          if (pIndex < 0 || pIndex >= currentParagraphCount) {
-            continue;
-          }
-
-          if (seenBatchParagraphs.has(pIndex)) {
-            continue;
-          }
-
-          const targetParagraph = paragraphs.items[pIndex];
-          if (!targetParagraph) {
-            continue;
-          }
-
-          if (!targetParagraph.text || targetParagraph.text.trim().length === 0) {
-            continue;
-          }
-
-          const inTableCell = targetParagraph.parentTableCellOrNullObject && !targetParagraph.parentTableCellOrNullObject.isNullObject;
-          const inTable = targetParagraph.parentTableOrNullObject && !targetParagraph.parentTableOrNullObject.isNullObject;
-          if (inTableCell || inTable) {
-            continue;
-          }
-
-          const normalizedNewContent = normalizeContentEscapes(change.newContent || "");
-          const parsedBatchListData = parseMarkdownList(normalizedNewContent);
-          const hasStructuredList = normalizedNewContent.includes('\n') && parsedBatchListData && parsedBatchListData.type !== 'text';
-          if (hasBlockElements(normalizedNewContent) || hasStructuredList) {
-            continue;
-          }
-
-          batchCandidates.push({
-            changeIndex,
-            paragraph: targetParagraph,
-            newText: normalizedNewContent
-          });
-          seenBatchParagraphs.add(pIndex);
-        }
-
-        if (batchCandidates.length > 1) {
-          try {
-            const redlineAuthor = loadRedlineAuthor();
-            const batchResult = await applyReconciliationToParagraphBatch(
-              batchCandidates.map(candidate => ({
-                paragraph: candidate.paragraph,
-                newText: candidate.newText
-              })),
-              context,
-              {
-                generateRedlines: redlineEnabled,
-                author: redlineAuthor,
-                disableNativeTracking: redlineEnabled,
-                nativeTrackingMode: baseTrackingMode
-              }
-            );
-
-            batchResult.results.forEach((result, resultIndex) => {
-              const candidate = batchCandidates[resultIndex];
-              if (!candidate || !result || !result.success) {
-                if (candidate) {
-                  console.warn(`[executeRedline] Batched edit failed for change ${candidate.changeIndex}: ${result?.message || 'unknown error'}`);
-                }
-                return;
+          for (const change of aiChanges) {
+            try {
+              const operationName = String(change?.operation || "").trim().toLowerCase();
+              const startIndex = Number.parseInt(String(change?.paragraphIndex ?? ""), 10) - 1;
+              if (!Number.isInteger(startIndex) || startIndex < 0) {
+                console.warn(`[Redline/Shared] Invalid start paragraph index: ${change?.paragraphIndex}`);
+                continue;
               }
 
-              batchedEditResultsByChangeIndex.set(candidate.changeIndex, result);
-              if (result.changed) {
-                changesApplied++;
-              }
-            });
-
-            console.log(`[executeRedline] Batched edit_paragraph processed: ${batchResult.message}`);
-          } catch (batchError) {
-            console.warn("[executeRedline] Batched edit_paragraph path failed, falling back to per-change path:", batchError);
-          }
-        }
-
-        let aiChangeIndex = -1;
-        for (const change of aiChanges) {
-          aiChangeIndex++;
-          try {
-            console.log("Processing change:", JSON.stringify(change));
-
-            const batchedResult = batchedEditResultsByChangeIndex.get(aiChangeIndex);
-            if (batchedResult) {
-              console.log(`[executeRedline] Applied batched edit for change ${aiChangeIndex}: ${batchedResult.message}`);
-              continue;
-            }
-
-            const pIndex = change.paragraphIndex - 1; // 0-based index
-
-            // Check if this is an insertion at the end (index equals or exceeds paragraph count)
-            // We're lenient here - any index beyond current count is treated as an append
-            const isInsertAtEnd = pIndex >= currentParagraphCount;
-
-            // Only reject negative indices - positive ones that exceed count are handled as appends
-            if (pIndex < 0) {
-              console.warn(`Invalid paragraph index (negative): ${change.paragraphIndex}`);
-              continue;
-            }
-
-            // For out-of-bounds indices, reload paragraphs and check again
-            if (pIndex >= paragraphs.items.length) {
-              // Reload paragraphs collection to get any newly added ones
-              // Reload paragraphs collection with all properties to maintain performance
-              paragraphs.load("items/text, items/style, items/parentTableCellOrNullObject, items/parentTableOrNullObject, items/font/name, items/font/size, items/parentTableOrNullObject/id");
+              const paragraphs = context.document.body.paragraphs;
+              paragraphs.load("items/text");
               await context.sync();
-              currentParagraphCount = paragraphs.items.length;
 
-              // If still out of bounds after reload, treat as append to last paragraph
-              if (pIndex >= paragraphs.items.length) {
-                console.log(`Paragraph index ${change.paragraphIndex} exceeds count (${paragraphs.items.length}), treating as append`);
-              }
-            }
-
-            // For insertions at the end, use the last paragraph as reference
-            const targetParagraph = (pIndex >= paragraphs.items.length)
-              ? paragraphs.items[paragraphs.items.length - 1]
-              : paragraphs.items[pIndex];
-
-            if (change.operation === "edit_paragraph") {
-              console.log(`Editing Paragraph ${change.paragraphIndex} with DMP`);
-
-              if (!change.newContent) {
-                console.warn("No newContent provided for edit_paragraph. Skipping.");
+              const paragraphCount = paragraphs.items.length;
+              if (startIndex >= paragraphCount) {
+                console.warn(`[Redline/Shared] Out-of-range target P${change?.paragraphIndex} (count=${paragraphCount}); no-op.`);
                 continue;
               }
 
-              try {
-                // If inserting at end, insert new paragraph instead of editing
-                if (isInsertAtEnd) {
-                  console.log(`Inserting new paragraph after paragraph ${paragraphs.items.length}`);
-                  targetParagraph.insertParagraph(change.newContent, "After");
-                  await context.sync(); // Sync immediately to ensure tracked changes captures the insertion
-                  changesApplied++;
-                } else {
-                  // Route through our smart operation router with preloaded properties
-                  await routeChangeOperation(change, targetParagraph, context, true);
-                  changesApplied++;
-                }
-              } catch (error) {
-                console.error(`Error editing paragraph ${change.paragraphIndex}:`, error);
-                // Fallback to old modify_text approach if DMP fails
-              }
-
-            } else if (change.operation === "replace_paragraph") {
-              console.log(`Replacing Paragraph ${change.paragraphIndex}`);
-
-              const replacementContent = (change.content ?? change.newContent);
-              if (replacementContent === null || replacementContent === undefined) {
-                console.warn("Content is null/undefined for replace_paragraph. Skipping.");
-                continue;
-              }
-
-              // Normalize content: Convert literal escape sequences to actual characters
-              // This handles cases where the AI returns "\\n" as a two-character string instead of actual newlines
-              let normalizedContent = normalizeContentEscapes(replacementContent || "");
-
-              // --- NEW: Detect if target paragraph is already a list item ---
-              // If so, we need to preserve its numId/ilvl when replacing content
-              let targetIsListItem = false;
-              let targetListContext = null;
-
-              if (!isInsertAtEnd) {
-                try {
-                  const targetOoxmlResult = targetParagraph.getOoxml();
-                  await context.sync();
-
-                  // Check for w:numPr in the paragraph's OOXML
-                  // Check for w:numPr in the paragraph's OOXML - use robust regex for different XML serializations
-                  const numPrMatch = targetOoxmlResult.value.match(/<(?:w:)?numPr>[\s\S]*?<(?:w:)?ilvl\s+(?:w:)?val="(\d+)"[\s\S]*?<(?:w:)?numId\s+(?:w:)?val="(\d+)"[\s\S]*?<\/(?:w:)?numPr>/i);
-                  if (numPrMatch) {
-                    targetIsListItem = true;
-                    targetListContext = {
-                      ooxml: targetOoxmlResult.value,
-                      ilvl: numPrMatch[1],
-                      numId: numPrMatch[2]
-                    };
-                    console.log(`[replace_paragraph] Target P${change.paragraphIndex} is list item: numId=${targetListContext.numId}, ilvl=${targetListContext.ilvl}`);
-                  }
-                } catch (ooxmlError) {
-                  console.warn("[replace_paragraph] Could not check list context:", ooxmlError);
-                }
-              }
-
-              const hasHeadingMarkdown = /^\s*#{1,9}\s+/m.test(normalizedContent);
-              const hasMarkdownTable = /^\s*\|.*\|/m.test(normalizedContent) && normalizedContent.includes('\n');
-              const hasMixedTable = hasMarkdownTable && normalizedContent.replace(/^\s*\|.*$/gm, '').trim().length > 0;
-
-              // If target is a list item and content is plain text (no list markers),
-              // use OOXML reconciliation to preserve list formatting
-              const parsedReplacementListData = parseMarkdownList(normalizedContent);
-              const contentHasListMarkers = !!(parsedReplacementListData && parsedReplacementListData.items && parsedReplacementListData.items.some(item => item.type === "numbered" || item.type === "bullet"));
-              const contentHasStructuralMarkers = contentHasListMarkers || hasHeadingMarkdown || hasMarkdownTable;
-              console.log(`[replace_paragraph] contentHasListMarkers: ${contentHasListMarkers}`);
-
-              if (targetIsListItem && !contentHasStructuralMarkers) {
-                console.log(`[replace_paragraph] Preserving list context for plain text edit`);
-
-                try {
-                  const redlineEnabled = loadRedlineSetting();
-                  const redlineAuthor = loadRedlineAuthor();
-
-                  // Get original text for diffing
-                  const originalText = targetParagraph.text;
-                  await context.sync();
-
-                  // Use OOXML reconciliation to preserve numPr
-                  const result = await applyRedlineToOxml(
-                    targetListContext.ooxml,
-                    originalText,
-                    normalizedContent,
-                    {
-                      author: redlineEnabled ? redlineAuthor : undefined,
-                      generateRedlines: redlineEnabled
-                    }
+              let effectiveStartIndex = startIndex;
+              if (operationName === "modify_text") {
+                effectiveStartIndex = findNearbyParagraphIndexForModifyText(paragraphs.items, startIndex, change);
+                if (effectiveStartIndex !== startIndex) {
+                  console.warn(
+                    `[Redline/Shared] Rebased modify_text from P${startIndex + 1} to P${effectiveStartIndex + 1} based on originalText match.`
                   );
-
-                  if (result.oxml && result.hasChanges) {
-                    await withNativeTrackingDisabled(context, async () => {
-                      targetParagraph.insertOoxml(result.oxml, "Replace");
-                      await context.sync();
-                      console.log("✅ OOXML list-preserving edit successful");
-                      changesApplied++;
-                    }, {
-                      enabled: redlineEnabled,
-                      baseTrackingMode,
-                      logPrefix: "replace_paragraph/ListPreserve"
-                    });
-                    continue; // Skip other handlers
-                  }
-                } catch (listPreserveError) {
-                  console.warn("[replace_paragraph] List preservation failed, falling back:", listPreserveError);
-                  // Fall through to standard handlers
                 }
               }
-              // --- END NEW ---
 
-              // Check if this is a list or block content with headings/tables - use OOXML pipeline for proper redlines
-              const listData = parsedReplacementListData;
-              console.log(`[replace_paragraph] listData result: type=${listData?.type}, items=${listData?.items?.length}`);
-              const shouldUseBlockPipeline = (listData && listData.type !== 'text') || hasMixedTable;
-              if (shouldUseBlockPipeline) {
-                const listLabel = listData && listData.type !== 'text' ? listData.type : 'block';
-                console.log(`Detected ${listLabel} content in replace_paragraph, using OOXML pipeline`);
-                try {
-                  // Get original paragraph info for proper diff/redlines and font inheritance
-                  // Only get original text if we're REPLACING (not appending)
-                  let originalTextForDeletion = '';
-                  let paragraphFont = null;
-                  if (!isInsertAtEnd) {
-                    // pre-loaded in initial batch
-                    originalTextForDeletion = targetParagraph.text;
-
-                    // Get font info for inheritance
-                    if (targetParagraph.font) {
-                      // pre-loaded in initial batch
-                      paragraphFont = targetParagraph.font.name;
-                      console.log(`[ListGen] Inheriting font from original paragraph: ${paragraphFont} ${targetParagraph.font.size}pt`);
-                    }
-                  }
-
-                  // Create reconciliation pipeline with redline settings
-                  const redlineEnabled = loadRedlineSetting();
-                  const redlineAuthor = loadRedlineAuthor();
-                  const pipeline = new ReconciliationPipeline({
-                    generateRedlines: redlineEnabled,
-                    author: redlineAuthor,
-                    font: paragraphFont || 'Calibri' // Inherit font from original paragraph
-                  });
-
-                  // Execute block generation (list/table/headings) - this creates OOXML with w:ins/w:del track changes
-                  const result = await pipeline.executeListGeneration(
-                    normalizedContent,
-                    null, // numberingContext - let pipeline determine
-                    null, // originalRunModel - not available here
-                    originalTextForDeletion // Only pass original text if replacing, not appending
-                  );
-
-                  const listOoxml = result?.ooxml || result?.oxml || "";
-                  const listIsValid = result?.isValid !== false;
-                  console.log(`[ListGen] Generated ${listOoxml.length} bytes of OOXML, isInsertAtEnd=${isInsertAtEnd}`);
-
-                  if (listOoxml && listIsValid) {
-                    // Wrap in document fragment for insertOoxml
-                    const wrappedOoxml = wrapInDocumentFragment(listOoxml, {
-                      includeNumbering: true,
-                      numberingXml: result.numberingXml // Crucial for A, B, C styles
-                    });
-
-                    // Temporarily disable Word's track changes to avoid double-tracking.
-                    // Our w:ins/w:del markers are authoritative in this insertion path.
-                    await withNativeTrackingDisabled(context, async () => {
-                      // Use 'After' if appending at end, 'Replace' if replacing existing paragraph
-                      const insertMode = isInsertAtEnd ? 'After' : 'Replace';
-                      console.log(`[ListGen] Using insert mode: ${insertMode}`);
-                      await insertOoxmlWithRangeFallback(targetParagraph, wrappedOoxml, insertMode, context, "replace_paragraph/ListGen");
-                      console.log(`✅ OOXML list generation successful`);
-
-                      // TEMP: Spacing workaround disabled - causes GeneralException
-                      // Will investigate OOXML structure instead
-                      /*
-                      // WORKAROUND: Insert a dummy spacing paragraph after the list, then remove it
-                      // This forces Word to properly re-evaluate and link the list structure
-                      try {
-                        // Get all paragraphs to find the newly inserted list items
-                        const paragraphs = context.document.body.paragraphs;
-                        paragraphs.load("items/text");
-                        targetParagraph.load("index");
-                        await context.sync();
-                        
-                        // Find the paragraph at the target index (after replacement/insertion)
-                        const targetIdx = targetParagraph.index;
-                        
-                        // Calculate how many list items were inserted
-                        const listItemCount = listData.items.length;
-                        
-                        // Insert dummy paragraph after the last list item
-                        if (targetIdx + listItemCount - 1 < paragraphs.items.length) {
-                          const lastListItem = paragraphs.items[targetIdx + listItemCount - 1];
-                          const dummyPara = lastListItem.insertParagraph("", "After");
-                          await context.sync();
-                          
-                          console.log(`[ListGen] Inserted dummy spacing paragraph after ${listItemCount} list items`);
-                          
-                          // Force Word to re-evaluate
-                          await context.sync();
-                          
-                          // TEMP: Leave dummy paragraph to test if it fixes formatting
-                          // dummyPara.delete();
-                          // await context.sync();
-                          
-                          console.log(`[ListGen] Left dummy spacing paragraph for testing`);
-                        }
-                      } catch (spacingError) {
-                        console.warn(`[ListGen] Spacing workaround failed (non-critical):`, spacingError.message);
-                      }
-                      */
-
-                      changesApplied++;
-                    }, {
-                      enabled: redlineEnabled,
-                      baseTrackingMode,
-                      logPrefix: "replace_paragraph/ListGen"
-                    });
-                  } else {
-                    const warnings = Array.isArray(result?.warnings) ? result.warnings.join("; ") : "none";
-                    throw new Error(`[ListGen] OOXML pipeline returned invalid list result (isValid=${result?.isValid}, hasOoxml=${!!listOoxml}, warnings=${warnings})`);
-                  }
-                } catch (listError) {
-                  console.error(`Error in OOXML list generation:`, listError);
-                  throw listError;
-                }
-                // Skip the rest of replace_paragraph handling
-                continue;
-              }
-
-              // Check if this is a table - use OOXML pipeline
-              const matchedTable = normalizedContent.includes('|');
-              if (matchedTable) {
-                const tableData = parseTable(normalizedContent);
-                if (tableData.rows.length > 0 || tableData.headers.length > 0) {
-                  console.log(`Detected table in replace_paragraph, using OOXML pipeline`);
-                  try {
-                    const redlineEnabled = loadRedlineSetting();
-                    const redlineAuthor = loadRedlineAuthor();
-                    const insertMode = isInsertAtEnd ? "After" : "Replace";
-
-                    const paragraphOoxmlResult = targetParagraph.getOoxml();
-                    await context.sync();
-
-                    const paragraphOoxml = paragraphOoxmlResult?.value || "";
-                    const paragraphId = paragraphOoxml ? extractParagraphIdFromOoxml(paragraphOoxml) : null;
-                    const paragraphText = targetParagraph.text || "";
-
-                    const engineApplied = await tryApplyMarkdownTableWithOxmlEngine({
-                      context,
-                      scope: targetParagraph,
-                      scopeOoxml: paragraphOoxml,
-                      originalText: paragraphText,
-                      modifiedTableMarkdown: normalizedContent,
-                      redlineEnabled,
-                      redlineAuthor,
-                      targetParagraphId: paragraphId,
-                      insertMode,
-                      baseTrackingMode,
-                      logPrefix: "replace_paragraph/TableEngine"
-                    });
-
-                    if (engineApplied) {
-                      console.log(`✅ OOXML table reconciliation successful`);
-                      changesApplied++;
-                    } else {
-                      console.warn("[TableEngine] No changes from OOXML engine, falling back to pipeline generation");
-                      const pipeline = new ReconciliationPipeline({
-                        generateRedlines: redlineEnabled,
-                        author: redlineAuthor
-                      });
-                      const result = pipeline.executeTableGeneration(normalizedContent);
-
-                      if (result.ooxml && result.isValid) {
-                        const wrappedOoxml = wrapInDocumentFragment(result.ooxml, {
-                          includeNumbering: false
-                        });
-
-                        await withNativeTrackingDisabled(context, async () => {
-                          console.log(`[TableGen] Using insert mode: ${insertMode}`);
-                          targetParagraph.insertOoxml(wrappedOoxml, insertMode);
-                          await context.sync();
-                          console.log(`✅ OOXML table generation successful`);
-                          changesApplied++;
-                        }, {
-                          enabled: redlineEnabled,
-                          baseTrackingMode,
-                          logPrefix: "replace_paragraph/TableGen"
-                        });
-                      } else {
-                        console.warn("[TableGen] Pipeline failed, falling back to HTML");
-                        const htmlContent = markdownToWordHtml(normalizedContent);
-                        targetParagraph.insertHtml(htmlContent, insertMode);
-                        changesApplied++;
-                      }
-                    }
-                  } catch (tableError) {
-                    console.error(`Error in OOXML table generation:`, tableError);
-                    const htmlContent = markdownToWordHtml(normalizedContent);
-                    targetParagraph.insertHtml(htmlContent, isInsertAtEnd ? "After" : "Replace");
-                    changesApplied++;
-                  }
-                  // Skip the rest of replace_paragraph handling
+              let endIndex = effectiveStartIndex;
+              if (operationName === "replace_range") {
+                endIndex = Number.parseInt(String(change?.endParagraphIndex ?? ""), 10) - 1;
+                if (!Number.isInteger(endIndex) || endIndex < effectiveStartIndex || endIndex >= paragraphCount) {
+                  console.warn(`[Redline/Shared] Invalid replace_range endParagraphIndex: ${change?.endParagraphIndex}; no-op.`);
                   continue;
                 }
               }
 
-              // Convert Markdown to Word-compatible HTML for regular content
-              let htmlContent = "";
-              try {
-                htmlContent = markdownToWordHtml(normalizedContent);
-              } catch (markedError) {
-                console.error("Error parsing markdown:", markedError);
-                htmlContent = normalizedContent; // Fallback to raw text
-              }
+              const startParagraph = paragraphs.items[effectiveStartIndex];
+              const scopeParagraphCount = (endIndex - effectiveStartIndex) + 1;
+              const scope = scopeParagraphCount === 1
+                ? startParagraph
+                : startParagraph.getRange().expandTo(paragraphs.items[endIndex].getRange());
 
-              // Strip wrapping <p> if present to avoid double paragraphs if Word handles it
-              // But only if it's a single simple paragraph (no block elements inside)
-              const trimmed = htmlContent.trim();
-              const hasSingleParagraph = trimmed.startsWith('<p>') && trimmed.endsWith('</p>') &&
-                trimmed.indexOf('</p>', 3) === trimmed.length - 4 &&
-                !trimmed.includes('<ul>') && !trimmed.includes('<ol>') &&
-                !trimmed.includes('<table') && !trimmed.includes('<h');
-
-              if (hasSingleParagraph) {
-                htmlContent = trimmed.substring(3, trimmed.length - 4);
-              }
-
-              try {
-                // If inserting at end, use insertParagraph to add new content after
-                if (isInsertAtEnd) {
-                  console.log(`Inserting new paragraph after paragraph ${paragraphs.items.length}`);
-                  // Use insertParagraph to add new paragraph after the last one
-                  const newPara = targetParagraph.insertParagraph(normalizedContent, "After");
-                  await context.sync(); // Sync immediately to ensure tracked changes captures the insertion
-                  changesApplied++;
-                } else {
-                  targetParagraph.insertHtml(htmlContent, "Replace");
-                  changesApplied++;
-                }
-              } catch (wordError) {
-                console.error(`Error replacing paragraph ${change.paragraphIndex}:`, wordError);
-              }
-
-            } else if (change.operation === "replace_range") {
-              const endIndex = change.endParagraphIndex - 1;
-              if (endIndex < 0 || endIndex >= paragraphs.items.length || endIndex < pIndex) {
-                console.warn(`Invalid end paragraph index: ${change.endParagraphIndex}`);
+              const converted = toScopedSharedRedlineOperation(change, {
+                scopeStartText: startParagraph.text || "",
+                scopeParagraphCount
+              });
+              if (!converted.ok) {
+                console.warn(`[Redline/Shared] Skipping change: ${converted.reason}`);
                 continue;
               }
 
-              console.log(`Replacing Range from P${change.paragraphIndex} to P${change.endParagraphIndex}`);
+              const applied = scopeParagraphCount === 1
+                ? await applySharedOperationToWordParagraph({
+                  context,
+                  targetParagraph: startParagraph,
+                  operation: converted.operation,
+                  author: redlineAuthor,
+                  generateRedlines: redlineEnabled,
+                  disableNativeTracking: redlineEnabled,
+                  baseTrackingMode,
+                  logPrefix: "Redline/Shared"
+                })
+                : await applySharedOperationToWordScope({
+                  context,
+                  scope,
+                  operation: converted.operation,
+                  author: redlineAuthor,
+                  generateRedlines: redlineEnabled,
+                  disableNativeTracking: redlineEnabled,
+                  baseTrackingMode,
+                  logPrefix: "Redline/Shared"
+                });
 
-              try {
-                const startPara = paragraphs.items[pIndex];
-                const endPara = paragraphs.items[endIndex];
-
-                // Check if we are inside a table - wrap in try/catch for safety
-                let startHasTable = false;
-                let endHasTable = false;
-                try {
-                  // Properties pre-loaded: items/parentTableOrNullObject/id
-                  startHasTable = !startPara.parentTableOrNullObject.isNullObject;
-                  endHasTable = !endPara.parentTableOrNullObject.isNullObject;
-                } catch (tableCheckError) {
-                  console.warn("Could not check for table context:", tableCheckError);
-                  // Continue without table detection
-                }
-
-                let targetRange = null;
-                let isTableReplacement = false;
-                let tableToDelete = null;
-
-                // If both start and end are in the same table
-                if (startHasTable && endHasTable) {
-                  try {
-                    const startTable = startPara.parentTableOrNullObject;
-                    const endTable = endPara.parentTableOrNullObject;
-
-                    if (startTable.id === endTable.id) {
-                      console.log("Detected same table context. Will replace entire table.");
-                      // Strategy: Insert AFTER the table, then delete the table.
-                      // This avoids GeneralException when replacing complex structures directly.
-                      targetRange = startTable.getRange();
-                      isTableReplacement = true;
-                      tableToDelete = startTable;
-                    } else {
-                      console.warn("Start and End paragraphs are in DIFFERENT tables. Falling back to standard range expansion.");
-                      targetRange = startPara.getRange().expandTo(endPara.getRange());
-                    }
-                  } catch (tableError) {
-                    console.warn("Error handling table replacement, falling back to range:", tableError);
-                    targetRange = startPara.getRange().expandTo(endPara.getRange());
-                  }
-                } else {
-                  // Create a range covering both
-                  targetRange = startPara.getRange().expandTo(endPara.getRange());
-                }
-
-                // Primary payload is "content", but tolerate "newContent" for model drift.
-                const contentToParse = change.content || change.newContent || change.replacementText || "";
-
-                if (!contentToParse || contentToParse.trim().length === 0) {
-                  console.warn("Empty content for replace_range. Skipping.");
-                  continue;
-                }
-
-                // Detect markdown table and reconcile with OOXML engine first.
-                const parsedRangeTable = parseTable(contentToParse);
-                const hasMarkdownTable = parsedRangeTable.rows.length > 0 || parsedRangeTable.headers.length > 0;
-                if (hasMarkdownTable && targetRange) {
-                  console.log("[replace_range] Detected markdown table, using OOXML reconciliation");
-                  try {
-                    targetRange.load("text");
-                    const rangeOoxmlResult = targetRange.getOoxml();
-                    await context.sync();
-
-                    const rangeOriginalText = targetRange.text || "";
-                    const redlineEnabled = loadRedlineSetting();
-                    const redlineAuthor = loadRedlineAuthor();
-
-                    const engineApplied = await tryApplyMarkdownTableWithOxmlEngine({
-                      context,
-                      scope: targetRange,
-                      scopeOoxml: rangeOoxmlResult?.value || "",
-                      originalText: rangeOriginalText,
-                      modifiedTableMarkdown: contentToParse,
-                      redlineEnabled,
-                      redlineAuthor,
-                      insertMode: "Replace",
-                      baseTrackingMode,
-                      logPrefix: "replace_range/TableEngine"
-                    });
-
-                    if (engineApplied) {
-                      changesApplied++;
-                      console.log("✅ OOXML table reconciliation successful for replace_range");
-                      continue; // Skip HTML fallback
-                    }
-                  } catch (tableEngineError) {
-                    console.warn("[replace_range] OOXML table reconciliation failed, falling back to HTML:", tableEngineError);
-                    // Fall through to existing fallback path.
-                  }
-                }
-
-                // --- NEW: Detect list structures and use OOXML engine for proper numPr ---
-                const parsedRangeListData = parseMarkdownList(contentToParse);
-                const hasListMarkers = !!(parsedRangeListData && parsedRangeListData.items && parsedRangeListData.items.some(item => item.type === "numbered" || item.type === "bullet"));
-
-                if (hasListMarkers && !isTableReplacement) {
-                  console.log("[replace_range] Detected list markers, using OOXML reconciliation");
-
-                  try {
-                    // Get the original text from the range for diffing
-                    targetRange.load("text");
-                    const originalOoxmlResult = startPara.getOoxml(); // Get OOXML from first paragraph
-                    await context.sync();
-
-                    const originalText = targetRange.text || "";
-                    const redlineEnabled = loadRedlineSetting();
-                    const redlineAuthor = loadRedlineAuthor();
-
-                    // Use the OOXML engine for proper list generation
-                    const result = await applyRedlineToOxml(
-                      originalOoxmlResult.value,
-                      originalText,
-                      contentToParse,
-                      {
-                        author: redlineEnabled ? redlineAuthor : undefined,
-                        generateRedlines: redlineEnabled
-                      }
-                    );
-
-                    if (result.oxml && result.hasChanges) {
-                      // Temporarily disable track changes to avoid double-tracking.
-                      await withNativeTrackingDisabled(context, async () => {
-                        targetRange.insertOoxml(result.oxml, "Replace");
-                        await context.sync();
-                        changesApplied++;
-                        console.log("✅ OOXML list reconciliation successful for replace_range");
-                      }, {
-                        enabled: redlineEnabled,
-                        baseTrackingMode,
-                        logPrefix: "replace_range/ListReconcile"
-                      });
-                      continue; // Skip HTML fallback
-                    }
-                  } catch (ooxmlError) {
-                    console.warn("[replace_range] OOXML reconciliation failed, falling back to HTML:", ooxmlError);
-                    // Fall through to HTML path
-                  }
-                }
-                // --- END NEW ---
-
-                // Convert Markdown to Word-compatible HTML (fallback for non-list or table content)
-                let htmlContent = "";
-                try {
-                  htmlContent = markdownToWordHtml(contentToParse);
-                } catch (markedError) {
-                  console.error("Error parsing markdown for range:", markedError);
-                  htmlContent = contentToParse;
-                }
-
-                if (isTableReplacement && tableToDelete) {
-                  // Insert AFTER the table
-                  if (htmlContent && htmlContent.trim().length > 0) {
-                    targetRange.insertHtml(htmlContent, "After");
-                  }
-                  // Delete the old table
-                  tableToDelete.delete();
-                  changesApplied++;
-                } else if (targetRange) {
-                  // Standard replacement
-                  try {
-                    targetRange.insertHtml(htmlContent, "Replace");
-                    changesApplied++;
-                  } catch (replaceError) {
-                    console.warn("Standard insertHtml failed. Trying fallback (Clear + InsertStart).", replaceError);
-                    // Fallback: Clear and insert at start
-                    try {
-                      targetRange.clear(); // Clears content but keeps range
-                      targetRange.insertHtml(htmlContent, "Start");
-                      changesApplied++;
-                    } catch (fallbackError) {
-                      console.warn("Fallback (Clear+InsertStart) failed. Trying Nuclear Option (InsertText+InsertHtml).", fallbackError);
-                      // Fallback 2: Nuke with text first to reset formatting
-                      try {
-                        // Replace with a placeholder to reset structure
-                        const tempRange = targetRange.insertText(" ", "Replace");
-                        tempRange.insertHtml(htmlContent, "Replace");
-                        changesApplied++;
-                      } catch (nuclearError) {
-                        console.error("Replacement failed:", nuclearError);
-                      }
-                    }
-                  }
-                }
-              } catch (rangeError) {
-                console.error(`Error replacing range P${change.paragraphIndex}-P${change.endParagraphIndex}:`, rangeError);
+              if (applied) {
+                changesApplied += 1;
+              } else {
+                console.warn(`[Redline/Shared] No changes produced for change: ${JSON.stringify(change)}`);
               }
-            } else if (change.operation === "modify_text") {
-              console.log(`Modifying text in Paragraph ${change.paragraphIndex}: "${change.originalText}" -> "${change.replacementText}"`);
-
-              // Safety check for search string length - Word API has strict limits
-              const fullOriginalText = change.originalText;
-              if (!fullOriginalText || fullOriginalText.length === 0) {
-                console.warn(`Empty search text for modify_text in Paragraph ${change.paragraphIndex}. Skipping.`);
-                continue;
-              }
-
-              // Word's search API has a practical limit of around 80 characters
-              const MAX_SEARCH_LENGTH = 80;
-              const needsRangeExpansion = fullOriginalText.length > MAX_SEARCH_LENGTH;
-              const searchText = needsRangeExpansion
-                ? fullOriginalText.substring(0, MAX_SEARCH_LENGTH)
-                : fullOriginalText;
-
-              if (needsRangeExpansion) {
-                console.warn(`Search text too long (${fullOriginalText.length} chars), using range expansion strategy.`);
-              }
-
-              try {
-                // Search ONLY within this paragraph
-                const searchResults = targetParagraph.search(searchText, { matchCase: true });
-                searchResults.load("items/text");
-                await context.sync();
-
-                if (searchResults.items.length > 0) {
-                  // Apply to first match only when using range expansion (to avoid ambiguity)
-                  const matchesToProcess = needsRangeExpansion ? [searchResults.items[0]] : searchResults.items;
-
-                  for (const item of matchesToProcess) {
-                    const replacementText = change.replacementText || "";
-                    let htmlReplacement = "";
-                    try {
-                      // Use inline parsing for modify_text to avoid wrapping in <p> tags
-                      // unless the content has block elements
-                      htmlReplacement = markdownToWordHtmlInline(replacementText);
-                    } catch (markedError) {
-                      console.error("Error parsing markdown for modify_text:", markedError);
-                      htmlReplacement = replacementText;
-                    }
-
-                    // Strip wrapping <p> for simple inline content
-                    const trimmed = htmlReplacement.trim();
-                    const hasSingleParagraph = trimmed.startsWith('<p>') && trimmed.endsWith('</p>') &&
-                      trimmed.indexOf('</p>', 3) === trimmed.length - 4 &&
-                      !trimmed.includes('<ul>') && !trimmed.includes('<ol>') &&
-                      !trimmed.includes('<table') && !trimmed.includes('<h');
-
-                    if (hasSingleParagraph) {
-                      htmlReplacement = trimmed.substring(3, trimmed.length - 4);
-                    }
-
-                    try {
-                      if (needsRangeExpansion) {
-                        // Expand the range to cover the full original text length
-                        // Strategy: Find a short suffix from the END of the original text,
-                        // then expand the range from prefix start to suffix end
-                        const foundRange = item.getRange();
-
-                        try {
-                          // Take the LAST 60 chars of the original text as our suffix search
-                          // This must be short enough for Word's search API
-                          const SUFFIX_LENGTH = 60;
-                          const suffixStart = Math.max(0, fullOriginalText.length - SUFFIX_LENGTH);
-                          const suffixText = fullOriginalText.substring(suffixStart);
-
-                          console.log(`Range expansion: searching for suffix "${suffixText.substring(0, 30)}..." (${suffixText.length} chars)`);
-
-                          if (suffixText.length >= 5 && suffixText.length <= 80) {
-                            const suffixResults = targetParagraph.search(suffixText, { matchCase: true });
-                            suffixResults.load("items/text");
-                            await context.sync();
-
-                            if (suffixResults.items.length > 0) {
-                              // Find the suffix match that comes after our prefix match
-                              // by expanding from the found prefix to each suffix candidate
-                              let expandedSuccessfully = false;
-
-                              for (const suffixMatch of suffixResults.items) {
-                                try {
-                                  // Expand from found prefix start to suffix end
-                                  const expandedRange = foundRange.expandTo(suffixMatch.getRange("End"));
-                                  expandedRange.load("text");
-                                  await context.sync();
-
-                                  // Verify the expanded range roughly matches the original length
-                                  // Allow some tolerance for whitespace differences
-                                  const expandedLength = expandedRange.text.length;
-                                  const originalLength = fullOriginalText.length;
-                                  const tolerance = Math.max(10, originalLength * 0.1);
-
-                                  if (Math.abs(expandedLength - originalLength) <= tolerance) {
-                                    console.log(`Expanded range matches: ${expandedLength} chars (original: ${originalLength})`);
-                                    // Use insertHtml with "Replace" for atomic replacement (avoids stale range bug)
-                                    expandedRange.insertHtml(htmlReplacement || "", "Replace");
-                                    changesApplied++;
-                                    expandedSuccessfully = true;
-                                    break;
-                                  } else {
-                                    console.log(`Expanded range length mismatch: ${expandedLength} vs ${originalLength}, trying next suffix match`);
-                                  }
-                                } catch (expandError) {
-                                  console.warn("Could not expand to this suffix match:", expandError.message);
-                                }
-                              }
-
-                              if (!expandedSuccessfully) {
-                                // None of the suffix matches worked, fall back to prefix only
-                                console.warn("No valid suffix match found, falling back to prefix-only replacement");
-                                // Use insertHtml with "Replace" for atomic replacement
-                                item.insertHtml(htmlReplacement || "", "Replace");
-                                changesApplied++;
-                              }
-                            } else {
-                              // Suffix not found, fall back to just the found range
-                              console.warn("Could not find suffix for range expansion, applying to found range only");
-                              // Use insertHtml with "Replace" for atomic replacement
-                              item.insertHtml(htmlReplacement || "", "Replace");
-                              changesApplied++;
-                            }
-                          } else {
-                            // Suffix invalid length, fall back to just the found range
-                            console.warn(`Suffix length invalid (${suffixText.length}), applying to found range only`);
-                            // Use insertHtml with "Replace" for atomic replacement
-                            item.insertHtml(htmlReplacement || "", "Replace");
-                            changesApplied++;
-                          }
-                        } catch (expandError) {
-                          console.warn("Range expansion failed, applying to found range only:", expandError.message);
-                          // Use insertHtml with "Replace" for atomic replacement
-                          item.insertHtml(htmlReplacement || "", "Replace");
-                          changesApplied++;
-                        }
-                      } else {
-                        // Standard case: exact match, delete then insert for clean redline
-                        // Use insertHtml with "Replace" for atomic replacement
-                        item.insertHtml(htmlReplacement || "", "Replace");
-                        changesApplied++;
-                      }
-                    } catch (modifyError) {
-                      console.error("Error applying modify_text:", modifyError);
-                    }
-                  }
-                } else {
-                  console.warn(`Could not find text "${searchText}" in Paragraph ${change.paragraphIndex}`);
-                }
-              } catch (searchError) {
-                console.warn(`Search failed for modify_text "${searchText}" in Paragraph ${change.paragraphIndex}:`, searchError.message);
-
-                // Fallback: Try with a shorter search string
-                if (searchText.length > 30) {
-                  const shorterText = searchText.substring(0, 30);
-                  console.log(`Retrying modify_text with shorter search: "${shorterText}"`);
-                  try {
-                    const retryResults = targetParagraph.search(shorterText, { matchCase: true });
-                    retryResults.load("items/text");
-                    await context.sync();
-
-                    if (retryResults.items.length > 0) {
-                      const replacementText = change.replacementText || "";
-                      let htmlReplacement = markdownToWordHtmlInline(replacementText);
-                      const trimmed = htmlReplacement.trim();
-                      const hasSingleParagraph = trimmed.startsWith('<p>') && trimmed.endsWith('</p>') &&
-                        trimmed.indexOf('</p>', 3) === trimmed.length - 4 &&
-                        !trimmed.includes('<ul>') && !trimmed.includes('<ol>') &&
-                        !trimmed.includes('<table') && !trimmed.includes('<h');
-
-                      if (hasSingleParagraph) {
-                        htmlReplacement = trimmed.substring(3, trimmed.length - 4);
-                      }
-                      // Use insertHtml with "Replace" for atomic replacement
-                      retryResults.items[0].insertHtml(htmlReplacement || "", "Replace");
-                      changesApplied++;
-                    }
-                  } catch (retryError) {
-                    console.warn(`Retry search also failed for modify_text:`, retryError.message);
-                  }
-                }
-              }
+            } catch (changeError) {
+              console.warn(`[Redline/Shared] Failed to apply change ${JSON.stringify(change)}: ${changeError?.message || changeError}`);
             }
-
-            // Ensure any queued operations for this change are executed here,
-            // so errors are caught per-change instead of bubbling as one big GeneralException.
-            await context.sync();
-          } catch (changeError) {
-            console.error("Error applying change:", changeError);
           }
+        } finally {
+          await restoreChangeTracking(context, trackingState, "executeRedline");
         }
+      });
 
-        // Final sync (should usually be a no-op now, but kept for safety)
-        await context.sync();
-      } finally {
-        await restoreChangeTracking(context, trackingState, "executeRedline");
+      console.log(`[Redline/Shared] Total changes applied: ${changesApplied}`);
+
+      if (changesApplied === 0) {
+        return {
+          message: "Applied 0 edits. The AI's suggestions could not be mapped to the document content.",
+          showToUser: false
+        };
       }
-    });
 
-    console.log(`Total changes applied: ${changesApplied} `);
-
-    if (changesApplied === 0) {
       return {
-        message: "Applied 0 edits. The AI's suggestions could not be mapped to the document content.",
-        showToUser: false  // Silent fallback - don't clutter the log
+        message: `Successfully applied ${changesApplied} edits${redlineEnabled ? ' with redlines' : ' without redlines'}.`,
+        showToUser: true
       };
     }
-
-    return {
-      message: `Successfully applied ${changesApplied} edits${redlineEnabled ? ' with redlines' : ' without redlines'}.`,
-      showToUser: true
-    };
 
   } catch (error) {
     console.error("Error in executeRedline:", error);
@@ -1494,6 +750,8 @@ function createToolResult(count, itemType, zeroMessage) {
  * @param {Object} params.operation
  * @param {string} params.author
  * @param {boolean} params.generateRedlines
+ * @param {boolean} [params.disableNativeTracking=false]
+ * @param {Word.ChangeTrackingMode|null} [params.baseTrackingMode=null]
  * @param {string} params.logPrefix
  * @returns {Promise<boolean>} True when a change is applied
  */
@@ -1503,6 +761,8 @@ async function applySharedOperationToWordParagraph({
   operation,
   author,
   generateRedlines,
+  disableNativeTracking = false,
+  baseTrackingMode = null,
   logPrefix
 }) {
   const paragraphOoxmlResult = targetParagraph.getOoxml();
@@ -1523,8 +783,68 @@ async function applySharedOperationToWordParagraph({
     return false;
   }
 
-  targetParagraph.insertOoxml(bridgeResult.packageOoxml, Word.InsertLocation.replace);
+  await withNativeTrackingDisabled(context, async () => {
+    targetParagraph.insertOoxml(bridgeResult.packageOoxml, Word.InsertLocation.replace);
+    await context.sync();
+  }, {
+    enabled: !!disableNativeTracking,
+    baseTrackingMode,
+    logPrefix
+  });
+  return true;
+}
+
+/**
+ * Applies a shared standalone operation to a Word paragraph/range scope.
+ *
+ * @param {Object} params
+ * @param {Word.RequestContext} params.context
+ * @param {Word.Range|Word.Paragraph} params.scope
+ * @param {Object} params.operation
+ * @param {string} params.author
+ * @param {boolean} params.generateRedlines
+ * @param {boolean} [params.disableNativeTracking=false]
+ * @param {Word.ChangeTrackingMode|null} [params.baseTrackingMode=null]
+ * @param {string} params.logPrefix
+ * @returns {Promise<boolean>} True when a change is applied
+ */
+async function applySharedOperationToWordScope({
+  context,
+  scope,
+  operation,
+  author,
+  generateRedlines,
+  disableNativeTracking = false,
+  baseTrackingMode = null,
+  logPrefix
+}) {
+  const scopeOoxmlResult = scope.getOoxml();
   await context.sync();
+
+  const bridgeResult = await applySharedOperationToScopeOoxml(
+    scopeOoxmlResult?.value || "",
+    operation,
+    {
+      author,
+      generateRedlines,
+      onInfo: message => console.log(`[${logPrefix}] ${message}`),
+      onWarn: message => console.warn(`[${logPrefix}] ${message}`)
+    }
+  );
+
+  if (!bridgeResult.hasChanges || !bridgeResult.packageOoxml) {
+    return false;
+  }
+
+  await withNativeTrackingDisabled(context, async () => {
+    scope.insertOoxml(bridgeResult.packageOoxml, Word.InsertLocation.replace);
+    await context.sync();
+  }, {
+    enabled: !!disableNativeTracking,
+    baseTrackingMode,
+    logPrefix
+  });
+
   return true;
 }
 
@@ -1621,89 +941,6 @@ async function executeResearch(query) {
 
 /**
  * Maintains a rolling window of chat history while preserving function call/response pairs
- */
-/**
- * Routes a change operation to the appropriate method
- * Uses OOXML-first routing for structured content and DMP for plain text edits
- */
-async function routeChangeOperation(change, targetParagraph, context, propertiesPreloaded = false) {
-  return routeWordParagraphChange(change, targetParagraph, context, {
-    propertiesPreloaded,
-    services: {
-      loadRedlineSetting,
-      loadRedlineAuthor,
-      markdownToWordHtml,
-      preprocessMarkdownForParagraph,
-      applyFormatHintsToRanges,
-      applyFormatRemovalToRanges
-    }
-  });
-}
-
-/**
- * Applies markdown-table reconciliation using the same OOXML engine path used by standalone/browser demo.
- *
- * @param {Object} params - Reconciliation params
- * @param {Word.RequestContext} params.context - Word request context
- * @param {Word.Paragraph|Word.Range} params.scope - Paragraph or range to replace
- * @param {string} params.scopeOoxml - OOXML for the scope
- * @param {string} params.originalText - Original visible text for diffing
- * @param {string} params.modifiedTableMarkdown - Markdown table text
- * @param {boolean} params.redlineEnabled - Whether to generate track changes
- * @param {string} params.redlineAuthor - Redline author
- * @param {string|null} [params.targetParagraphId] - Optional paragraph id hint
- * @param {"Replace"|"After"} [params.insertMode="Replace"] - Word insertion mode
- * @param {Word.ChangeTrackingMode | null} [params.baseTrackingMode] - Base tracking mode for restoration
- * @param {string} [params.logPrefix="TableEngine"] - Log prefix
- * @returns {Promise<boolean>} True when reconciliation produced and applied changes
- */
-async function tryApplyMarkdownTableWithOxmlEngine({
-  context,
-  scope,
-  scopeOoxml,
-  originalText,
-  modifiedTableMarkdown,
-  redlineEnabled,
-  redlineAuthor,
-  targetParagraphId = null,
-  insertMode = "Replace",
-  baseTrackingMode = null,
-  logPrefix = "TableEngine"
-}) {
-  if (!scope || !scopeOoxml || !modifiedTableMarkdown) {
-    return false;
-  }
-
-  const result = await reconcileMarkdownTableOoxml(
-    scopeOoxml,
-    originalText || "",
-    modifiedTableMarkdown,
-    {
-      author: redlineEnabled ? redlineAuthor : undefined,
-      generateRedlines: redlineEnabled,
-      ...(targetParagraphId ? { targetParagraphId } : {})
-    }
-  );
-
-  if (!result?.hasChanges || typeof result?.oxml !== "string") {
-    return false;
-  }
-
-  await withNativeTrackingDisabled(context, async () => {
-    scope.insertOoxml(result.oxml, insertMode);
-    await context.sync();
-  }, {
-    enabled: redlineEnabled,
-    baseTrackingMode,
-    logPrefix
-  });
-
-  return true;
-}
-
-/**
- * Fallback function for modify_text operations
- * Used when DMP approach fails
  */
 
 /**
@@ -2259,7 +1496,9 @@ async function executeEditTable(paragraphIndex, action, content, targetRow, targ
     await Word.run(async (context) => {
       const redlineEnabled = loadRedlineSetting();
       const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeEditTable");
+      let stage = "init";
       try {
+        stage = "load_paragraphs";
         const paragraphs = context.document.body.paragraphs;
         // Pre-load text and table relationship
         paragraphs.load("items/text, items/parentTableOrNullObject");
@@ -2276,77 +1515,169 @@ async function executeEditTable(paragraphIndex, action, content, targetRow, targ
         }
 
         const table = targetPara.parentTableOrNullObject;
-        // Word Online requires items/ for rows
-        table.load("rowCount, rows/items");
+        // Load primary table dimensions first. Rows collection is loaded lazily only when needed.
+        stage = "load_table_dimensions";
+        table.load("rowCount, columnCount");
         await context.sync();
 
-        if (action === "replace_content") {
+        const normalizedAction = String(action || "").trim().toLowerCase();
+
+        if (normalizedAction === "replace_content") {
           if (!content || !Array.isArray(content)) {
             throw new Error("replace_content requires a 2D array of content");
           }
 
-          for (let r = 0; r < content.length && r < table.rows.items.length; r++) {
-            table.rows.items[r].cells.load("items/body");
+          stage = "replace_content_cells";
+          let maxRows = Math.min(content.length, table.rowCount || 0);
+          if (!(maxRows > 0) && content.length > 0) {
+            stage = "load_rows_for_replace_content_fallback";
+            table.rows.load("items");
+            await context.sync();
+            maxRows = Math.min(content.length, table.rows.items.length);
           }
-          await context.sync();
-
-          for (let r = 0; r < content.length && r < table.rows.items.length; r++) {
-            const row = table.rows.items[r];
-            for (let c = 0; c < content[r].length && c < row.cells.items.length; c++) {
-              row.cells.items[c].load("body");
+          for (let r = 0; r < maxRows; r++) {
+            const rowValues = Array.isArray(content[r]) ? content[r] : [];
+            const colsToWrite = rowValues.length;
+            for (let c = 0; c < colsToWrite; c++) {
+              const value = rowValues[c] == null ? "" : String(rowValues[c]);
+              try {
+                const cell = table.getCell(r, c);
+                // Use replace directly to avoid clear()+start edge cases that can throw ItemNotFound.
+                cell.body.insertText(value, Word.InsertLocation.replace);
+              } catch (cellError) {
+                if (cellError?.code === "ItemNotFound") {
+                  console.warn(`[executeEditTable] Skipping missing cell r${r} c${c} during replace_content`);
+                  continue;
+                }
+                throw cellError;
+              }
             }
           }
           await context.sync();
 
-          for (let r = 0; r < content.length && r < table.rows.items.length; r++) {
-            const row = table.rows.items[r];
-            for (let c = 0; c < content[r].length && c < row.cells.items.length; c++) {
-              const cell = row.cells.items[c];
-              cell.body.clear();
-              cell.body.insertText(content[r][c], Word.InsertLocation.start);
-            }
-          }
-          await context.sync();
-
-        } else if (action === "add_row") {
-          if (!content || !Array.isArray(content)) {
+        } else if (normalizedAction === "add_row") {
+          const rowValues = Array.isArray(content)
+            ? (Array.isArray(content[0]) ? content[0] : content)
+            : [];
+          if (rowValues.length === 0) {
             throw new Error("add_row requires an array of cell values");
           }
-          const insertAt = targetRow !== undefined ? targetRow : table.rowCount;
-          table.addRows(Word.InsertLocation.end, 1, [content]);
+
+          stage = "add_row";
+          table.addRows(
+            Word.InsertLocation.end,
+            1,
+            [rowValues.map(value => value == null ? "" : String(value))]
+          );
           await context.sync();
 
-        } else if (action === "delete_row") {
+        } else if (normalizedAction === "delete_row") {
+          stage = "load_rows_for_delete";
+          table.rows.load("items");
+          await context.sync();
+
           if (targetRow === undefined || targetRow < 0 || targetRow >= table.rows.items.length) {
             throw new Error(`Invalid or missing row index: ${targetRow}`);
           }
+
+          stage = "delete_row";
           table.rows.items[targetRow].delete();
           await context.sync();
 
-        } else if (action === "update_cell") {
-          if (targetRow === undefined || targetColumn === undefined) {
+        } else if (normalizedAction === "update_cell") {
+          if (targetRow === undefined || targetColumn === undefined || targetRow === null || targetColumn === null) {
             throw new Error("update_cell requires targetRow and targetColumn");
           }
-          if (targetRow < 0 || targetRow >= table.rows.items.length) {
+          const parsedTargetRow = Number.parseInt(String(targetRow), 10);
+          const parsedTargetColumn = Number.parseInt(String(targetColumn), 10);
+          if (!Number.isInteger(parsedTargetRow) || parsedTargetRow < 0) {
             throw new Error(`Invalid row index: ${targetRow}`);
           }
-
-          const row = table.rows.items[targetRow];
-          row.cells.load("items/body");
-          await context.sync();
-
-          if (targetColumn < 0 || targetColumn >= row.cells.items.length) {
+          if (!Number.isInteger(parsedTargetColumn) || parsedTargetColumn < 0) {
             throw new Error(`Invalid column index: ${targetColumn}`);
           }
 
-          const cell = row.cells.items[targetColumn];
-          cell.body.clear();
-          cell.body.insertText(content[0], Word.InsertLocation.start);
+          let effectiveRowCount = Number.isInteger(table.rowCount) ? table.rowCount : 0;
+          let effectiveColumnCount = Number.isInteger(table.columnCount) ? table.columnCount : 0;
+
+          if (!(effectiveRowCount > 0) || !(effectiveColumnCount > 0)) {
+            stage = "load_rows_for_update_cell_fallback";
+            table.rows.load("items/cellCount");
+            await context.sync();
+
+            if (!(effectiveRowCount > 0)) {
+              effectiveRowCount = table.rows.items.length;
+            }
+            if (!(effectiveColumnCount > 0) && parsedTargetRow < table.rows.items.length) {
+              const row = table.rows.items[parsedTargetRow];
+              effectiveColumnCount = Number.isInteger(row?.cellCount) ? row.cellCount : 0;
+            }
+          }
+
+          if (effectiveRowCount > 0 && parsedTargetRow >= effectiveRowCount) {
+            throw new Error(`Invalid row index: ${parsedTargetRow}`);
+          }
+          if (effectiveColumnCount > 0 && parsedTargetColumn >= effectiveColumnCount) {
+            throw new Error(`Invalid column index: ${parsedTargetColumn}`);
+          }
+
+          const cellValue = Array.isArray(content)
+            ? (Array.isArray(content[0]) ? content[0][0] : content[0])
+            : content;
+          const normalizedValue = cellValue == null ? "" : String(cellValue);
+          const markdownPreview = preprocessMarkdown(normalizedValue);
+          const hasMarkdownFormatting = Array.isArray(markdownPreview?.formatHints) && markdownPreview.formatHints.length > 0;
+
+          stage = "update_cell";
+          try {
+            const cell = table.getCell(parsedTargetRow, parsedTargetColumn);
+            if (hasMarkdownFormatting) {
+              stage = "update_cell_shared_markdown_prepare";
+              const cellParagraphs = cell.body.paragraphs;
+              cellParagraphs.load("items/text");
+              await context.sync();
+
+              const currentCellText = cellParagraphs.items
+                .map(p => (p.text == null ? "" : String(p.text)))
+                .join("\n")
+                .trim();
+
+              stage = "update_cell_shared_markdown_apply";
+              const applied = await applySharedOperationToWordScope({
+                context,
+                scope: cell.body.getRange(),
+                operation: {
+                  type: "redline",
+                  targetRef: "P1",
+                  target: currentCellText || (markdownPreview.cleanText || normalizedValue),
+                  modified: normalizedValue
+                },
+                author: loadRedlineAuthor(),
+                generateRedlines: redlineEnabled,
+                logPrefix: "EditTable/Shared"
+              });
+
+              if (!applied) {
+                throw new Error("Shared markdown cell update produced no changes");
+              }
+            } else {
+              // Use replace directly to avoid clear()+start edge cases.
+              cell.body.insertText(normalizedValue, Word.InsertLocation.replace);
+            }
+          } catch (cellError) {
+            if (cellError?.code === "ItemNotFound") {
+              throw new Error(`Target cell not found at row ${parsedTargetRow}, column ${parsedTargetColumn}`);
+            }
+            throw cellError;
+          }
           await context.sync();
 
         } else {
           throw new Error(`Unknown table action: ${action}`);
         }
+      } catch (innerError) {
+        const codeSuffix = innerError?.code ? ` (${innerError.code})` : "";
+        throw new Error(`[executeEditTable/${stage}] ${innerError?.message || innerError}${codeSuffix}`);
       } finally {
         await restoreChangeTracking(context, trackingState, "executeEditTable");
       }

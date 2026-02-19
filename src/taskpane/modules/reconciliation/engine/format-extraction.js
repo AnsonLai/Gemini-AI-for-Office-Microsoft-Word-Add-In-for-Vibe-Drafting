@@ -8,7 +8,44 @@
 import { extractFormatFromRPr } from './rpr-helpers.js';
 import { advanceOffsetForParagraphBoundary } from '../core/paragraph-offset-policy.js';
 import { log } from '../adapters/logger.js';
-import { getElementsByTag, getFirstElementByTag } from '../core/xml-query.js';
+import { getElementsByTag, getElementsByTagNS, getFirstElementByTag } from '../core/xml-query.js';
+
+const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+
+function isWordElement(node, localName) {
+    if (!node || node.nodeType !== 1) return false;
+    if (node.namespaceURI === NS_W && node.localName === localName) return true;
+    const nodeName = String(node.nodeName || '');
+    return nodeName === `w:${localName}` || nodeName === localName;
+}
+
+function isExcludedRevisionContainer(node) {
+    if (!node || node.nodeType !== 1 || node.namespaceURI !== NS_W) return false;
+    return node.localName === 'del' || node.localName === 'moveFrom';
+}
+
+function collectParagraphRuns(paragraph) {
+    const runs = [];
+    const stack = Array.from(paragraph?.childNodes || []).reverse();
+
+    while (stack.length > 0) {
+        const node = stack.pop();
+        if (!node || node.nodeType !== 1) continue;
+        if (isExcludedRevisionContainer(node)) continue;
+
+        if (isWordElement(node, 'r')) {
+            runs.push(node);
+            continue;
+        }
+
+        const children = Array.from(node.childNodes || []);
+        for (let i = children.length - 1; i >= 0; i -= 1) {
+            stack.push(children[i]);
+        }
+    }
+
+    return runs;
+}
 
 /**
  * Returns only document body paragraphs, excluding comments/footnotes/endnotes.
@@ -17,13 +54,14 @@ import { getElementsByTag, getFirstElementByTag } from '../core/xml-query.js';
  * @returns {Element[]}
  */
 export function getDocumentParagraphs(xmlDoc) {
-    const excludedContainers = ['w:comment', 'w:footnote', 'w:endnote'];
-    const allParagraphs = getElementsByTag(xmlDoc, 'w:p');
+    const excludedContainers = new Set(['comment', 'footnote', 'endnote']);
+    const allParagraphs = getElementsByTagNS(xmlDoc, '*', 'p');
 
     return allParagraphs.filter(p => {
         let node = p.parentNode;
         while (node && node.nodeName) {
-            if (excludedContainers.includes(node.nodeName)) {
+            const localName = String(node.localName || '').toLowerCase();
+            if (excludedContainers.has(localName)) {
                 return false;
             }
             node = node.parentNode;
@@ -44,73 +82,38 @@ export function buildTextSpansFromParagraphs(paragraphs) {
 
     for (let pIndex = 0; pIndex < paragraphs.length; pIndex++) {
         const p = paragraphs[pIndex];
-        Array.from(p.childNodes).forEach(child => {
-            if (child.nodeName === 'w:r') {
-                const rPr = getFirstElementByTag(child, 'w:rPr');
-                Array.from(child.childNodes).forEach(rc => {
-                    if (rc.nodeName === 'w:t') {
-                        const text = rc.textContent || '';
-                        if (text.length > 0) {
-                            textSpans.push({
-                                charStart: charOffset,
-                                charEnd: charOffset + text.length,
-                                textElement: rc,
-                                runElement: child,
-                                paragraph: p,
-                                container: p.parentNode,
-                                rPr
-                            });
-                            charOffset += text.length;
-                        }
-                    } else if (rc.nodeName === 'w:br' || rc.nodeName === 'w:cr' || rc.nodeName === 'w:tab' || rc.nodeName === 'w:noBreakHyphen') {
+        const runs = collectParagraphRuns(p);
+        for (const run of runs) {
+            const rPr = getFirstElementByTag(run, 'w:rPr');
+            Array.from(run.childNodes || []).forEach(rc => {
+                if (isWordElement(rc, 't')) {
+                    const text = rc.textContent || '';
+                    if (text.length > 0) {
                         textSpans.push({
                             charStart: charOffset,
-                            charEnd: charOffset + 1,
+                            charEnd: charOffset + text.length,
                             textElement: rc,
-                            runElement: child,
+                            runElement: run,
                             paragraph: p,
-                            container: p.parentNode,
+                            container: run.parentNode,
                             rPr
                         });
-                        charOffset += 1;
+                        charOffset += text.length;
                     }
-                });
-            } else if (child.nodeName === 'w:hyperlink') {
-                Array.from(child.childNodes).forEach(hc => {
-                    if (hc.nodeName === 'w:r') {
-                        const rPr = getFirstElementByTag(hc, 'w:rPr');
-                        Array.from(hc.childNodes).forEach(rc => {
-                            if (rc.nodeName === 'w:t') {
-                                const text = rc.textContent || '';
-                                if (text.length > 0) {
-                                    textSpans.push({
-                                        charStart: charOffset,
-                                        charEnd: charOffset + text.length,
-                                        textElement: rc,
-                                        runElement: hc,
-                                        paragraph: p,
-                                        container: child,
-                                        rPr
-                                    });
-                                    charOffset += text.length;
-                                }
-                            } else if (rc.nodeName === 'w:br' || rc.nodeName === 'w:cr' || rc.nodeName === 'w:tab' || rc.nodeName === 'w:noBreakHyphen') {
-                                textSpans.push({
-                                    charStart: charOffset,
-                                    charEnd: charOffset + 1,
-                                    textElement: rc,
-                                    runElement: hc,
-                                    paragraph: p,
-                                    container: child,
-                                    rPr
-                                });
-                                charOffset += 1;
-                            }
-                        });
-                    }
-                });
-            }
-        });
+                } else if (isWordElement(rc, 'br') || isWordElement(rc, 'cr') || isWordElement(rc, 'tab') || isWordElement(rc, 'noBreakHyphen')) {
+                    textSpans.push({
+                        charStart: charOffset,
+                        charEnd: charOffset + 1,
+                        textElement: rc,
+                        runElement: run,
+                        paragraph: p,
+                        container: run.parentNode,
+                        rPr
+                    });
+                    charOffset += 1;
+                }
+            });
+        }
         charOffset = advanceOffsetForParagraphBoundary(charOffset, pIndex, paragraphs.length);
     }
 
@@ -131,7 +134,7 @@ export function buildTextSpansFromParagraphs(paragraphs) {
 export function processRunForFormatting(run, paragraph, charOffset, textSpans, formatHints, pFormat = null) {
     let rPr = null;
     for (const child of Array.from(run.childNodes)) {
-        if (child.nodeName === 'w:rPr') {
+        if (isWordElement(child, 'rPr')) {
             rPr = child;
             break;
         }
@@ -150,7 +153,7 @@ export function processRunForFormatting(run, paragraph, charOffset, textSpans, f
 
     let currentOffset = charOffset;
     for (const child of Array.from(run.childNodes)) {
-        if (child.nodeName === 'w:t') {
+        if (isWordElement(child, 't')) {
             const text = child.textContent || '';
             if (text.length > 0) {
                 const start = currentOffset;
@@ -201,9 +204,9 @@ export function extractFormattingFromOoxml(xmlDoc) {
         const p = paragraphs[pIndex];
         let pRPr = null;
         for (const child of Array.from(p.childNodes)) {
-            if (child.nodeName === 'w:pPr') {
+            if (isWordElement(child, 'pPr')) {
                 for (const pChild of Array.from(child.childNodes)) {
-                    if (pChild.nodeName === 'w:rPr') {
+                    if (isWordElement(pChild, 'rPr')) {
                         pRPr = pChild;
                         break;
                     }
@@ -217,16 +220,9 @@ export function extractFormattingFromOoxml(xmlDoc) {
             log(`[OxmlEngine] Found paragraph-level formatting: ${JSON.stringify(pFormat)}`);
         }
 
-        for (const child of Array.from(p.childNodes)) {
-            if (child.nodeName === 'w:r') {
-                charOffset = processRunForFormatting(child, p, charOffset, textSpans, existingFormatHints, pFormat);
-            } else if (child.nodeName === 'w:hyperlink') {
-                for (const hc of Array.from(child.childNodes)) {
-                    if (hc.nodeName === 'w:r') {
-                        charOffset = processRunForFormatting(hc, p, charOffset, textSpans, existingFormatHints, pFormat);
-                    }
-                }
-            }
+        const runs = collectParagraphRuns(p);
+        for (const run of runs) {
+            charOffset = processRunForFormatting(run, p, charOffset, textSpans, existingFormatHints, pFormat);
         }
         charOffset = advanceOffsetForParagraphBoundary(charOffset, pIndex, paragraphs.length);
     }

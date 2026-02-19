@@ -82,6 +82,31 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
         }
         return paragraphInfos;
     };
+    const applyFormatOnlyWithOoxmlFallback = (precomputedContext = null) => {
+        const formatResult = applyFormatOnlyChangesSurgical(
+            xmlDoc,
+            originalText,
+            formatHints,
+            serializer,
+            author,
+            generateRedlines,
+            precomputedContext
+        );
+        if (!formatResult.useNativeApi) {
+            return formatResult;
+        }
+
+        log('[OxmlEngine] Format-only surgical fallback signal encountered; retrying with OOXML reconstruction fallback');
+        return applyReconstructionMode(
+            xmlDoc,
+            originalText,
+            cleanModifiedText,
+            serializer,
+            author,
+            formatHints,
+            generateRedlines
+        );
+    };
 
     log(`[OxmlEngine] Text changes: ${hasTextChanges}, New format hints: ${formatHints.length}, Existing format hints: ${existingFormatHints.length}`);
 
@@ -144,19 +169,7 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
         if (tableCellCtx.hasTableWrapper && tableCellCtx.targetParagraph) {
             log('[OxmlEngine] Table cell context: applying formatting to target paragraph only');
 
-            const formatResult = applyFormatOnlyChangesSurgical(
-                xmlDoc,
-                originalText,
-                formatHints,
-                serializer,
-                author,
-                generateRedlines,
-                precomputedFormatContext
-            );
-
-            if (formatResult.useNativeApi) {
-                return formatResult;
-            }
+            const formatResult = applyFormatOnlyWithOoxmlFallback(precomputedFormatContext);
 
             log('[OxmlEngine] Stripping table wrapper for table cell paragraph (format-only)');
             return {
@@ -165,7 +178,7 @@ export async function applyRedlineToOxml(oxml, originalText, modifiedText, optio
             };
         }
 
-        return applyFormatOnlyChangesSurgical(xmlDoc, originalText, formatHints, serializer, author, generateRedlines, precomputedFormatContext);
+        return applyFormatOnlyWithOoxmlFallback(precomputedFormatContext);
     }
 
     const tables = getElementsByTag(xmlDoc, 'w:tbl');

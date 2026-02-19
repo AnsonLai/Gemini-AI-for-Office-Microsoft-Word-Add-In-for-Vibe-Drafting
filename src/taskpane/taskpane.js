@@ -2313,14 +2313,14 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
 
         if (attemptedMutatingToolsThisLoop > 0 && successfulMutatingToolsThisLoop === 0) {
           const noProgressSignature = failedMutationSignatures.join("||").slice(0, 2000);
-          if (noProgressSignature && noProgressSignature === lastNoProgressSignature) {
-            consecutiveNoProgressToolLoops++;
-          } else {
-            consecutiveNoProgressToolLoops = 1;
-            lastNoProgressSignature = noProgressSignature;
-          }
+          const signatureChanged = !!(lastNoProgressSignature && noProgressSignature && noProgressSignature !== lastNoProgressSignature);
+          consecutiveNoProgressToolLoops++;
+          lastNoProgressSignature = noProgressSignature;
 
-          console.warn(`[LoopGuard] No-progress mutation loop ${consecutiveNoProgressToolLoops}/${DOCUMENT_LIMITS.MAX_NO_PROGRESS_TOOL_LOOPS}`);
+          console.warn(
+            `[LoopGuard] No-progress mutation loop ${consecutiveNoProgressToolLoops}/${DOCUMENT_LIMITS.MAX_NO_PROGRESS_TOOL_LOOPS}`
+              + (signatureChanged ? " (signature changed)" : "")
+          );
 
           if (consecutiveNoProgressToolLoops >= DOCUMENT_LIMITS.MAX_NO_PROGRESS_TOOL_LOOPS) {
             const loopGuardMessage = "Stopped to prevent a retry loop: repeated document edit attempts are failing with no applied changes.";

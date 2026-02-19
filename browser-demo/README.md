@@ -179,7 +179,7 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 
 ## Known Limits
 
-- Chat mode may still skip some format-only operations when the reconciliation engine requests native Word API fallback (`useNativeApi`) and no OOXML payload is returned.
+- Chat mode now handles common format-only no-span cases via shared OOXML reconstruction fallback, but some operations can still no-op if the engine emits a native-only fallback signal without OOXML payload (most commonly format-removal edge cases).
 - Kitchen-sink mode targeting uses exact marker paragraph text, not semantic search.
 - Browser runtime constraints apply (memory/file size/network for Gemini).
 - Document text extraction is plain-text only (no formatting or style metadata sent to Gemini).
@@ -188,7 +188,7 @@ If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior
 ## Troubleshooting
 
 - "Target paragraph not found": Gemini may have slightly modified the paragraph text when referencing it. Check the engine log for details.
-- "Format-only fallback requires native Word API": this operation was a pure formatting change where the engine could not safely localize spans in OOXML. The browser demo skips it; use a more specific target (`targetRef` + exact paragraph text) or run through the add-in Word path.
+- "Format-only fallback requires native Word API": this operation required native fallback and did not produce OOXML output. Common no-span format-only additions are now retried through reconstruction, so this message usually indicates a narrower formatting-removal/scope-localization edge case.
 - Demo version in log does not match expected (`v2026-02-15-chat-docx-preview-23`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
 - Need Word-grounded list diagnostics: run `tests/word-desktop/list-inspector.ps1` against the generated `.docx` and compare `listId`/`listLevel`/`listValue` for the affected paragraphs.
 - Validation error about numbering/comments: check whether package relationships or content types were removed by prior tooling.

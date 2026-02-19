@@ -262,7 +262,7 @@ export function findParagraphByBestTextMatch(xmlDoc, targetText, options = {}) {
  *   onInfo?: (msg:string)=>void,
  *   onWarn?: (msg:string)=>void
  * }} options - Resolution options
- * @returns {{ paragraph: Element, resolvedBy: 'ref'|'strict_text'|'fuzzy_text' }}
+ * @returns {{ paragraph: Element, resolvedBy: 'ref'|'strict_text'|'fuzzy_text'|'strict_text_after_ref_drift'|'fuzzy_text_after_ref_drift' }}
  */
 export function resolveTargetParagraph(xmlDoc, options = {}) {
     const onInfo = typeof options.onInfo === 'function' ? options.onInfo : () => {};
@@ -276,13 +276,25 @@ export function resolveTargetParagraph(xmlDoc, options = {}) {
         if (byRef) {
             if (cleanTargetText) {
                 const strictMatch = findParagraphByStrictText(xmlDoc, cleanTargetText);
-                if (strictMatch && strictMatch !== byRef) {
-                    onInfo(`[Target] [P${parsedRef}] disambiguated duplicate target text for ${opType}.`);
+                const byRefText = getParagraphText(byRef).trim();
+                const byRefNorm = normalizeWhitespaceForTargeting(byRefText);
+                const targetNorm = normalizeWhitespaceForTargeting(cleanTargetText);
+                const hasDrift = byRefNorm !== targetNorm;
+
+                if (hasDrift && strictMatch && strictMatch !== byRef) {
+                    onInfo(`[Target] [P${parsedRef}] drifted for ${opType}; using strict text rematch.`);
+                    return { paragraph: strictMatch, resolvedBy: 'strict_text_after_ref_drift' };
                 }
 
-                const byRefText = getParagraphText(byRef).trim();
-                if (normalizeWhitespaceForTargeting(byRefText) !== normalizeWhitespaceForTargeting(cleanTargetText)) {
+                if (hasDrift) {
+                    const fuzzyMatch = findParagraphByBestTextMatch(xmlDoc, cleanTargetText, { onInfo });
+                    if (fuzzyMatch && fuzzyMatch !== byRef) {
+                        onInfo(`[Target] [P${parsedRef}] drifted for ${opType}; using fuzzy text rematch.`);
+                        return { paragraph: fuzzyMatch, resolvedBy: 'fuzzy_text_after_ref_drift' };
+                    }
                     onInfo(`[Target] Using [P${parsedRef}] fallback for ${opType}; target text drifted.`);
+                } else if (strictMatch && strictMatch !== byRef) {
+                    onInfo(`[Target] [P${parsedRef}] disambiguated duplicate target text for ${opType}.`);
                 }
             } else {
                 onInfo(`[Target] Using [P${parsedRef}] fallback for ${opType}.`);

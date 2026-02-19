@@ -150,6 +150,7 @@ reconciliation/
   - Shared standalone/browser operation bridge for applying `redline`, `highlight`, and `comment` operations against full `word/document.xml`.
   - Centralizes per-operation targeting/routing heuristics (single paragraph vs list scope vs table scope) and replacement-node application.
   - Applies explicit-range and single-paragraph-concatenation list insertion-only edits surgically (insert-only) when model output is a pure insertion shape, preserving existing list binding/style.
+  - Uses shared `targetRef` + text resolution (including snapshot-assisted rematch) so standalone/browser hosts share deterministic targeting across sequential operations.
   - Keeps host modules thin by moving OOXML orchestration out of UI layers.
   - Add-in nomenclature alignment note: command-layer operation names (`edit_paragraph`, `replace_paragraph`, `replace_range`, `modify_text`) are being converged toward the shared redline operation contract (`type: 'redline'` with `modified`) after routing stabilization.
 - `orchestration/route-plan.js`
@@ -186,6 +187,7 @@ reconciliation/
   - Extracts spans and existing formatting from paragraphs/runs.
 - `engine/format-application.js`
   - Orchestrates format-only and surgical format-application flows.
+  - When format-only surgical targeting cannot extract spans, shared routing now uses OOXML reconstruction fallback (no native API dependency for that branch).
 - `engine/format-paragraph-targeting.js`
   - Paragraph text reconstruction/matching helpers used by format-only targeting.
 - `engine/format-span-application.js`
@@ -216,6 +218,7 @@ reconciliation/
 - `standalone.js`
   - Public API surface with no Word API exports.
   - Normalizes native-API fallback responses for standalone consumers (returns unchanged OOXML + warning when Word-native apply is required).
+  - Format-only no-span redline cases are handled in-engine via OOXML reconstruction fallback before standalone fallback normalization is considered.
   - Provides `applyRedlineToOxmlWithListFallback(...)` for consumers that want automatic single-line structural list fallback; by default this fallback is preferred before regular redline apply for matching no-text-diff marker cases.
   - `applyRedlineToOxmlWithListFallback(...)` supports `listFallbackAllowExistingList` (default `true`) to allow re-listing paragraphs that are already in another list chain.
   - Re-exports shared paragraph-targeting helpers for browser/Node integrations.

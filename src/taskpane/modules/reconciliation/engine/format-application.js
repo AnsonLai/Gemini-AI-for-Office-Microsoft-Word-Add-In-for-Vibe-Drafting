@@ -15,6 +15,15 @@ import { getRevisionTimestamp } from '../core/types.js';
 import { warn, log } from '../adapters/logger.js';
 import { getFirstElementByTag } from '../core/xml-query.js';
 
+const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+
+function isWordElement(node, localName) {
+    if (!node || node.nodeType !== 1) return false;
+    if (node.namespaceURI === NS_W && node.localName === localName) return true;
+    const nodeName = String(node.nodeName || '');
+    return nodeName === `w:${localName}` || nodeName === localName;
+}
+
 function normalizePrecomputedFormatContext(precomputedContext) {
     if (Array.isArray(precomputedContext)) {
         return {
@@ -119,7 +128,7 @@ export function applyFormatAdditionsAsSurgicalReplacement(xmlDoc, textSpans, for
     const getOverlappingHints = createFormatHintOverlapLookup(formatHints);
 
     for (const span of orderedSpans) {
-        if (!span || !span.textElement || span.textElement.nodeName !== 'w:t') continue;
+        if (!span || !span.textElement || !isWordElement(span.textElement, 't')) continue;
 
         const applicableHints = getOverlappingHints(span.charStart, span.charEnd);
         if (applicableHints.length === 0) continue;
@@ -202,7 +211,7 @@ export function applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serial
     }
 
     if (!textSpans || textSpans.length === 0) {
-        warn('[OxmlEngine] No spans available for format-only change; deferring to native API');
+        warn('[OxmlEngine] No spans available for format-only change; requesting caller fallback strategy');
         return {
             hasChanges: true,
             useNativeApi: true,
@@ -219,7 +228,7 @@ export function applyFormatOnlyChanges(xmlDoc, originalText, formatHints, serial
     const { targetInfo, matchOffset } = findTargetParagraphInfo(paragraphInfos, originalText);
 
     if (!targetInfo || !targetInfo.spans || targetInfo.spans.length === 0) {
-        warn('[OxmlEngine] Unable to pinpoint target paragraph for format-only change; deferring to native API');
+        warn('[OxmlEngine] Unable to pinpoint target paragraph for format-only change; requesting caller fallback strategy');
         return {
             hasChanges: true,
             useNativeApi: true,
@@ -268,7 +277,7 @@ export function applyFormatOnlyChangesSurgical(xmlDoc, originalText, formatHints
     }
 
     if (!textSpans || textSpans.length === 0) {
-        warn('[OxmlEngine] No spans available for surgical format-only change; deferring to native API');
+        warn('[OxmlEngine] No spans available for surgical format-only change; requesting caller fallback strategy');
         return {
             hasChanges: true,
             useNativeApi: true,
@@ -285,7 +294,7 @@ export function applyFormatOnlyChangesSurgical(xmlDoc, originalText, formatHints
     const { targetInfo, matchOffset } = findTargetParagraphInfo(paragraphInfos, originalText);
 
     if (!targetInfo || !targetInfo.spans || targetInfo.spans.length === 0) {
-        warn('[OxmlEngine] Unable to pinpoint target paragraph for surgical format-only change; deferring to native API');
+        warn('[OxmlEngine] Unable to pinpoint target paragraph for surgical format-only change; requesting caller fallback strategy');
         return {
             hasChanges: true,
             useNativeApi: true,

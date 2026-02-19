@@ -1,5 +1,14 @@
 import { advanceOffsetForParagraphBoundary } from '../core/paragraph-offset-policy.js';
 
+const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+
+function isWordElement(node, localName) {
+    if (!node || node.nodeType !== 1) return false;
+    if (node.namespaceURI === NS_W && node.localName === localName) return true;
+    const nodeName = String(node.nodeName || '');
+    return nodeName === `w:${localName}` || nodeName === localName;
+}
+
 /**
  * Paragraph targeting helpers for format-only operations.
  *
@@ -126,6 +135,21 @@ export function findTargetParagraphInfo(paragraphInfos, originalText) {
         }
     }
 
+    // Fallback: single-paragraph scope where extracted span text is only a subset
+    // of original paragraph text (common when prior tracked wrappers contain text
+    // that is not represented in direct run-span extraction).
+    if (!targetInfo && paragraphInfos.length === 1 && normalizedOriginalFull.length > 0) {
+        const onlyInfo = paragraphInfos[0];
+        const paragraphTrim = onlyInfo.normalizedTrim || '';
+        if (paragraphTrim.length > 0) {
+            const subsetIndex = normalizedOriginalFull.indexOf(paragraphTrim);
+            if (subsetIndex >= 0) {
+                targetInfo = onlyInfo;
+                matchOffset = -subsetIndex;
+            }
+        }
+    }
+
     return { targetInfo, matchOffset };
 }
 
@@ -138,7 +162,7 @@ export function findTargetParagraphInfo(paragraphInfos, originalText) {
 export function getContainingParagraph(node) {
     let current = node;
     while (current) {
-        if (current.nodeName === 'w:p') return current;
+        if (isWordElement(current, 'p')) return current;
         current = current.parentNode;
     }
     return null;
@@ -156,14 +180,14 @@ function buildParagraphTextFromSpans(spans) {
     let text = '';
     for (const span of spans) {
         if (!span || !span.textElement) continue;
-        const nodeName = span.textElement.nodeName;
-        if (nodeName === 'w:t') {
+        const textElement = span.textElement;
+        if (isWordElement(textElement, 't')) {
             text += span.textElement.textContent || '';
-        } else if (nodeName === 'w:tab') {
+        } else if (isWordElement(textElement, 'tab')) {
             text += '\t';
-        } else if (nodeName === 'w:br' || nodeName === 'w:cr') {
+        } else if (isWordElement(textElement, 'br') || isWordElement(textElement, 'cr')) {
             text += '\n';
-        } else if (nodeName === 'w:noBreakHyphen') {
+        } else if (isWordElement(textElement, 'noBreakHyphen')) {
             text += '\u2011';
         }
     }

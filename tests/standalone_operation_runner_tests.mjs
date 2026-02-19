@@ -218,11 +218,267 @@ async function testSingleParagraphListConcatenationUsesSurgicalInsertion() {
     assert.strictEqual(revisionInserts, 1, 'adjacency insertion should emit exactly one inserted revision');
 }
 
+async function testFormatOnlyRedlineWithTrackedWrapperStillApplies() {
+    const originalText = 'These instructions are for the user to fill out the document. Please replace all bracketed information (e.g., "[Name of Disclosing Party]") with the appropriate details. Ensure all necessary signatures are obtained. NON-DISCLOSURE AGREEMENT';
+    const modifiedText = 'These instructions are for the user to fill out the document. Please replace all bracketed information (e.g., "[Name of Disclosing Party]") with the appropriate details. Ensure all necessary signatures are obtained. ++NON-DISCLOSURE AGREEMENT++';
+    const inputXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="${NS_W}">
+  <w:body>
+    <w:p>
+      <w:ins w:id="1" w:author="Prior" w:date="2026-01-01T00:00:00Z">
+        <w:r><w:t>These instructions are for the user to fill out the document. Please replace all bracketed information (e.g., "[Name of Disclosing Party]") with the appropriate details. Ensure all necessary signatures are obtained. </w:t></w:r>
+      </w:ins>
+      <w:r><w:t>NON-DISCLOSURE AGREEMENT</w:t></w:r>
+    </w:p>
+    <w:sectPr/>
+  </w:body>
+</w:document>`;
+
+    const result = await applyOperationToDocumentXml(
+        inputXml,
+        {
+            type: 'redline',
+            target: originalText,
+            targetRef: 'P1',
+            modified: modifiedText
+        },
+        'StandaloneRunnerTest',
+        null,
+        {
+            generateRedlines: true
+        }
+    );
+
+    assert.strictEqual(
+        result.hasChanges,
+        true,
+        'format-only redline should still apply when paragraph contains tracked-change wrappers'
+    );
+    assert.ok(
+        result.documentXml.includes('<w:u'),
+        'format-only redline should apply underline markup to the target run'
+    );
+}
+
+async function testTextToTableWithoutHeaderSeparatorPreservesAllRows() {
+    const inputXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="${NS_W}">
+  <w:body>
+    <w:p><w:r><w:t>Disclosing Party: [Name of Disclosing Party]</w:t></w:r></w:p>
+    <w:p><w:r><w:t>And</w:t></w:r></w:p>
+    <w:p><w:r><w:t>Receiving Party: [Name of Receiving Party]</w:t></w:r></w:p>
+    <w:sectPr/>
+  </w:body>
+</w:document>`;
+
+    const modifiedText = [
+        '| Disclosing Party: | [Name of Disclosing Party] [Address of Disclosing Party] (the "Disclosing Party") |',
+        '| Receiving Party: | [Name of Receiving Party] [Address of Receiving Party] (the "Receiving Party") |'
+    ].join('\n');
+
+    const result = await applyOperationToDocumentXml(
+        inputXml,
+        {
+            type: 'redline',
+            targetRef: 'P1',
+            targetEndRef: 'P3',
+            target: 'Disclosing Party: [Name of Disclosing Party]',
+            modified: modifiedText
+        },
+        'StandaloneRunnerTest',
+        null,
+        {
+            generateRedlines: true
+        }
+    );
+
+    assert.strictEqual(result.hasChanges, true, 'text-to-table redline should report changes');
+    const resultDoc = parseXmlStrict(result.documentXml, 'text-to-table no-header output');
+    const tables = Array.from(resultDoc.getElementsByTagNameNS(NS_W, 'tbl'));
+    assert.strictEqual(tables.length, 1, 'text-to-table redline should produce one table');
+    const tableText = Array.from(tables[0].getElementsByTagNameNS(NS_W, 't'))
+        .map(node => String(node.textContent || ''))
+        .join(' ');
+    assert.ok(
+        tableText.includes('Disclosing Party:'),
+        'table should include first markdown row text when no header separator is provided'
+    );
+    assert.ok(
+        tableText.includes('Receiving Party:'),
+        'table should include second markdown row text'
+    );
+}
+
+async function testFormatOnlyRedlineSupportsNonWPrefixOoxml() {
+    const inputXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<x:document xmlns:x="${NS_W}">
+  <x:body>
+    <x:p><x:r><x:t>By</x:t></x:r></x:p>
+    <x:sectPr/>
+  </x:body>
+</x:document>`;
+
+    const result = await applyOperationToDocumentXml(
+        inputXml,
+        {
+            type: 'redline',
+            targetRef: 'P1',
+            target: 'By',
+            modified: '**By**'
+        },
+        'StandaloneRunnerTest',
+        null,
+        {
+            generateRedlines: true
+        }
+    );
+
+    assert.strictEqual(
+        result.hasChanges,
+        true,
+        'format-only redline should apply even when OOXML uses a non-w namespace prefix'
+    );
+    const resultDoc = parseXmlStrict(result.documentXml, 'non-w-prefix format-only output');
+    assert.ok(
+        resultDoc.getElementsByTagNameNS(NS_W, 'b').length > 0,
+        'format-only redline should emit bold run properties on non-w-prefix OOXML'
+    );
+}
+
+async function testFormatOnlyRedlineWithAllTextInsideInsertionWrapper() {
+    const inputXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="${NS_W}">
+  <w:body>
+    <w:p>
+      <w:ins w:id="9" w:author="Prior" w:date="2026-01-01T00:00:00Z">
+        <w:r><w:t>By: [Name]</w:t></w:r>
+      </w:ins>
+    </w:p>
+    <w:sectPr/>
+  </w:body>
+</w:document>`;
+
+    const result = await applyOperationToDocumentXml(
+        inputXml,
+        {
+            type: 'redline',
+            targetRef: 'P1',
+            target: 'By: [Name]',
+            modified: '**By**: [Name]'
+        },
+        'StandaloneRunnerTest',
+        null,
+        {
+            generateRedlines: true
+        }
+    );
+
+    assert.strictEqual(
+        result.hasChanges,
+        true,
+        'format-only redline should apply when all text is nested inside insertion wrapper'
+    );
+    const resultDoc = parseXmlStrict(result.documentXml, 'format-only insertion wrapper output');
+    assert.ok(
+        resultDoc.getElementsByTagNameNS(NS_W, 'b').length > 0,
+        'format-only redline should emit bold formatting even when text is wrapped in w:ins'
+    );
+}
+
+async function testFormatOnlyRedlineRematchesWhenRefParagraphDrifts() {
+    const inputXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="${NS_W}">
+  <w:body>
+    <w:p><w:r><w:t></w:t></w:r></w:p>
+    <w:p><w:r><w:t>By: [Name]</w:t></w:r></w:p>
+    <w:sectPr/>
+  </w:body>
+</w:document>`;
+
+    const result = await applyOperationToDocumentXml(
+        inputXml,
+        {
+            type: 'redline',
+            targetRef: 'P1',
+            target: 'By: [Name]',
+            modified: '**By**: [Name]'
+        },
+        'StandaloneRunnerTest',
+        null,
+        {
+            generateRedlines: true
+        }
+    );
+
+    assert.strictEqual(
+        result.hasChanges,
+        true,
+        'format-only redline should rematch by text when targetRef paragraph has drifted'
+    );
+    const resultDoc = parseXmlStrict(result.documentXml, 'ref drift rematch output');
+    assert.ok(
+        resultDoc.getElementsByTagNameNS(NS_W, 'b').length > 0,
+        'format-only redline should apply bold formatting after ref-drift rematch'
+    );
+}
+
+async function testFormatOnlyRedlineFallsBackToOoxmlWhenNoSpansAreExtractable() {
+    const inputXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="${NS_W}">
+  <w:body>
+    <w:p>
+      <w:r><w:fldChar w:fldCharType="begin"/></w:r>
+      <w:r><w:instrText xml:space="preserve"> MERGEFIELD  SignatureLine </w:instrText></w:r>
+      <w:r><w:fldChar w:fldCharType="end"/></w:r>
+    </w:p>
+    <w:sectPr/>
+  </w:body>
+</w:document>`;
+
+    const result = await applyOperationToDocumentXml(
+        inputXml,
+        {
+            type: 'redline',
+            targetRef: 'P1',
+            target: 'By: [Name]',
+            modified: '**By:** [Name]'
+        },
+        'StandaloneRunnerTest',
+        null,
+        {
+            generateRedlines: true
+        }
+    );
+
+    assert.strictEqual(
+        result.hasChanges,
+        true,
+        'format-only redline should not no-op when no text spans are extractable from OOXML'
+    );
+    const resultDoc = parseXmlStrict(result.documentXml, 'no-span format-only output');
+    assert.ok(
+        resultDoc.getElementsByTagNameNS(NS_W, 'b').length > 0,
+        'format-only redline should still emit bold formatting via OOXML fallback'
+    );
+    const paragraphs = Array.from(resultDoc.getElementsByTagNameNS(NS_W, 'p'));
+    const outputText = paragraphs.map(paragraph => getParagraphText(paragraph)).join('\n');
+    assert.ok(
+        outputText.includes('By: [Name]'),
+        'format-only OOXML fallback should preserve rendered target text'
+    );
+}
+
 async function run() {
     await testRedlineOperation();
     await testCommentOperation();
     await testRangeListRedlineDoesNotDuplicateExistingItems();
     await testSingleParagraphListConcatenationUsesSurgicalInsertion();
+    await testFormatOnlyRedlineWithTrackedWrapperStillApplies();
+    await testTextToTableWithoutHeaderSeparatorPreservesAllRows();
+    await testFormatOnlyRedlineSupportsNonWPrefixOoxml();
+    await testFormatOnlyRedlineWithAllTextInsideInsertionWrapper();
+    await testFormatOnlyRedlineRematchesWhenRefParagraphDrifts();
+    await testFormatOnlyRedlineFallsBackToOoxmlWhenNoSpansAreExtractable();
     console.log('PASS: standalone operation runner tests');
 }
 
