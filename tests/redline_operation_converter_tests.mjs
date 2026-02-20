@@ -68,6 +68,34 @@ function testReplaceRangeConversion() {
     assert.strictEqual(converted.operation.targetEndRef, 'P3', 'replace_range conversion should set scoped targetEndRef');
 }
 
+function testReplaceRangeInsertionBeforeStartNormalization() {
+    const converted = toScopedSharedRedlineOperation(
+        {
+            paragraphIndex: 1,
+            endParagraphIndex: 0,
+            operation: 'replace_range',
+            content: 'Please fill in the bracketed information throughout this document.'
+        },
+        {
+            scopeStartText: 'NON-DISCLOSURE AGREEMENT',
+            scopeParagraphCount: 1,
+            insertionBeforeStart: true
+        }
+    );
+
+    assert.strictEqual(converted.ok, true, 'replace_range insertion-before-start conversion should succeed');
+    assert.deepStrictEqual(
+        converted.operation,
+        {
+            type: 'redline',
+            targetRef: 'P1',
+            target: 'NON-DISCLOSURE AGREEMENT',
+            modified: 'Please fill in the bracketed information throughout this document.\nNON-DISCLOSURE AGREEMENT'
+        },
+        'replace_range insertion-before-start should normalize into prefixed scoped redline text'
+    );
+}
+
 function testModifyTextConversionNotFound() {
     const converted = toScopedSharedRedlineOperation(
         {
@@ -88,6 +116,7 @@ function run() {
     testSubstringReplacementCaseInsensitive();
     testEditParagraphConversion();
     testReplaceRangeConversion();
+    testReplaceRangeInsertionBeforeStartNormalization();
     testModifyTextConversionNotFound();
     console.log('PASS: redline operation converter tests');
 }

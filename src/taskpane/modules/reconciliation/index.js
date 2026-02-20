@@ -53,6 +53,17 @@ export { applyReconciliationToParagraph, applyReconciliationToParagraphBatch, sh
 export { getParagraphOoxmlWithFallback, insertOoxmlWithRangeFallback, withNativeTrackingDisabled } from './integration/word-ooxml.js';
 export { applyStructuredListDirectOoxml } from './integration/word-structured-list.js';
 export { routeWordParagraphChange } from './integration/word-route-change.js';
+export {
+    applyWordOperation,
+    applySharedOperationToWordParagraph,
+    applySharedOperationToWordScope,
+    applySharedOperationToParagraphOoxml,
+    applySharedOperationToScopeOoxml
+} from './integration/word-operation-runner.js';
+export {
+    applyRedlineChangesToWordContext,
+    findNearbyParagraphIndexForModifyText
+} from './integration/word-redline-runner.js';
 
 // OOXML Engine V5.1 - Hybrid Mode (DOM-based manipulation)
 export { applyRedlineToOxml, sanitizeAiResponse, parseOoxml, serializeOoxml } from './engine/oxml-engine.js';
@@ -83,6 +94,10 @@ export {
     buildSingleLineListStructuralFallbackPlan,
     executeSingleLineListStructuralFallback
 } from './orchestration/list-structural-fallback.js';
+export {
+    applySubstringSearchReplace,
+    toScopedSharedRedlineOperation
+} from './orchestration/redline-operation-converter.js';
 
 // Shared standalone helpers (Word-agnostic)
 export {

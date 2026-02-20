@@ -124,6 +124,10 @@ async function testParagraphRedlineBridgePreservesDirectListBinding() {
 <w:p xmlns:w="${NS_W}">
   <w:pPr>
     <w:pStyle w:val="ListParagraph"/>
+    <w:numPr>
+      <w:ilvl w:val="1"/>
+      <w:numId w:val="99"/>
+    </w:numPr>
     <w:pPrChange w:id="10" w:author="Prior" w:date="2026-01-01T00:00:00Z">
       <w:pPr>
         <w:numPr>

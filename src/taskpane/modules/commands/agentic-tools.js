@@ -8,13 +8,11 @@ import {
   getAuthorForTracking,
   buildListMarkdown,
   normalizeListItemsWithLevels,
-  withNativeTrackingDisabled
+  withNativeTrackingDisabled,
+  applySharedOperationToWordParagraph,
+  applySharedOperationToWordScope,
+  applyRedlineChangesToWordContext
 } from '../reconciliation/index.js';
-import {
-  applySharedOperationToParagraphOoxml,
-  applySharedOperationToScopeOoxml
-} from './shared-operation-bridge.js';
-import { toScopedSharedRedlineOperation } from './redline-operation-converter.js';
 import {
   detectDocumentFont
 } from '../utils/markdown-utils.js';
@@ -41,66 +39,6 @@ function initAgenticTools(deps) {
     SAFETY_SETTINGS_BLOCK_NONE,
     API_LIMITS
   } = deps);
-}
-
-function normalizeNeedleText(value) {
-  if (value == null) return "";
-  return String(value)
-    .replace(/\\n/g, "\n")
-    .replace(/\\t/g, "\t")
-    .replace(/\\r/g, "\r")
-    .trim();
-}
-
-function findNearbyParagraphIndexForModifyText(paragraphItems, startIndex, change) {
-  const items = Array.isArray(paragraphItems) ? paragraphItems : [];
-  if (!Number.isInteger(startIndex) || startIndex < 0 || startIndex >= items.length) {
-    return startIndex;
-  }
-
-  const originalText = normalizeNeedleText(change?.originalText);
-  if (!originalText) {
-    return startIndex;
-  }
-
-  const textAt = (index) => String(items[index]?.text ?? "");
-  const startText = textAt(startIndex);
-  if (startText.trim().length > 0) {
-    return startIndex;
-  }
-
-  const originalLower = originalText.toLowerCase();
-  const maxDistance = 12;
-  let bestExact = null;
-  let bestInsensitive = null;
-
-  for (let distance = 1; distance <= maxDistance; distance += 1) {
-    const candidates = [startIndex - distance, startIndex + distance];
-    for (const candidateIndex of candidates) {
-      if (candidateIndex < 0 || candidateIndex >= items.length) continue;
-
-      const candidateText = textAt(candidateIndex);
-      if (!candidateText.trim()) continue;
-
-      if (candidateText.includes(originalText)) {
-        if (bestExact == null) {
-          bestExact = candidateIndex;
-        }
-        continue;
-      }
-
-      if (candidateText.toLowerCase().includes(originalLower)) {
-        if (bestInsensitive == null) {
-          bestInsensitive = candidateIndex;
-        }
-      }
-    }
-
-    if (bestExact != null) return bestExact;
-  }
-
-  if (bestInsensitive != null) return bestInsensitive;
-  return startIndex;
 }
 
 /**
@@ -218,97 +156,18 @@ Return ONLY the JSON array, nothing else:`;
           context.document.load("changeTrackingMode");
           await context.sync();
           const baseTrackingMode = context.document.changeTrackingMode;
-
-          for (const change of aiChanges) {
-            try {
-              const operationName = String(change?.operation || "").trim().toLowerCase();
-              const startIndex = Number.parseInt(String(change?.paragraphIndex ?? ""), 10) - 1;
-              if (!Number.isInteger(startIndex) || startIndex < 0) {
-                console.warn(`[Redline/Shared] Invalid start paragraph index: ${change?.paragraphIndex}`);
-                continue;
-              }
-
-              const paragraphs = context.document.body.paragraphs;
-              paragraphs.load("items/text");
-              await context.sync();
-
-              const paragraphCount = paragraphs.items.length;
-              if (startIndex >= paragraphCount) {
-                console.warn(`[Redline/Shared] Out-of-range target P${change?.paragraphIndex} (count=${paragraphCount}); no-op.`);
-                continue;
-              }
-
-              let effectiveStartIndex = startIndex;
-              if (operationName === "modify_text") {
-                effectiveStartIndex = findNearbyParagraphIndexForModifyText(paragraphs.items, startIndex, change);
-                if (effectiveStartIndex !== startIndex) {
-                  console.warn(
-                    `[Redline/Shared] Rebased modify_text from P${startIndex + 1} to P${effectiveStartIndex + 1} based on originalText match.`
-                  );
-                }
-              }
-
-              let endIndex = effectiveStartIndex;
-              if (operationName === "replace_range") {
-                endIndex = Number.parseInt(String(change?.endParagraphIndex ?? ""), 10) - 1;
-                if (!Number.isInteger(endIndex) || endIndex < effectiveStartIndex || endIndex >= paragraphCount) {
-                  console.warn(`[Redline/Shared] Invalid replace_range endParagraphIndex: ${change?.endParagraphIndex}; no-op.`);
-                  continue;
-                }
-              }
-
-              const startParagraph = paragraphs.items[effectiveStartIndex];
-              const scopeParagraphCount = (endIndex - effectiveStartIndex) + 1;
-              const scope = scopeParagraphCount === 1
-                ? startParagraph
-                : startParagraph.getRange().expandTo(paragraphs.items[endIndex].getRange());
-
-              const converted = toScopedSharedRedlineOperation(change, {
-                scopeStartText: startParagraph.text || "",
-                scopeParagraphCount
-              });
-              if (!converted.ok) {
-                console.warn(`[Redline/Shared] Skipping change: ${converted.reason}`);
-                continue;
-              }
-
-              const applied = scopeParagraphCount === 1
-                ? await applySharedOperationToWordParagraph({
-                  context,
-                  targetParagraph: startParagraph,
-                  operation: converted.operation,
-                  author: redlineAuthor,
-                  generateRedlines: redlineEnabled,
-                  disableNativeTracking: redlineEnabled,
-                  baseTrackingMode,
-                  logPrefix: "Redline/Shared"
-                })
-                : await applySharedOperationToWordScope({
-                  context,
-                  scope,
-                  operation: converted.operation,
-                  author: redlineAuthor,
-                  generateRedlines: redlineEnabled,
-                  disableNativeTracking: redlineEnabled,
-                  baseTrackingMode,
-                  logPrefix: "Redline/Shared"
-                });
-
-              if (applied) {
-                changesApplied += 1;
-              } else {
-                console.warn(`[Redline/Shared] No changes produced for change: ${JSON.stringify(change)}`);
-              }
-            } catch (changeError) {
-              console.warn(`[Redline/Shared] Failed to apply change ${JSON.stringify(change)}: ${changeError?.message || changeError}`);
-            }
-          }
+          const result = await applyRedlineChangesToWordContext(context, aiChanges, {
+            author: redlineAuthor,
+            generateRedlines: redlineEnabled,
+            disableNativeTracking: redlineEnabled,
+            baseTrackingMode,
+            logPrefix: "Redline/Shared"
+          });
+          changesApplied = result.changesApplied;
         } finally {
           await restoreChangeTracking(context, trackingState, "executeRedline");
         }
       });
-
-      console.log(`[Redline/Shared] Total changes applied: ${changesApplied}`);
 
       if (changesApplied === 0) {
         return {
@@ -739,113 +598,6 @@ function createToolResult(count, itemType, zeroMessage) {
     message: `Successfully ${actionVerb} ${count} ${itemType}.`,
     showToUser: true
   };
-}
-
-/**
- * Applies a shared standalone operation to a single Word paragraph.
- *
- * @param {Object} params
- * @param {Word.RequestContext} params.context
- * @param {Word.Paragraph} params.targetParagraph
- * @param {Object} params.operation
- * @param {string} params.author
- * @param {boolean} params.generateRedlines
- * @param {boolean} [params.disableNativeTracking=false]
- * @param {Word.ChangeTrackingMode|null} [params.baseTrackingMode=null]
- * @param {string} params.logPrefix
- * @returns {Promise<boolean>} True when a change is applied
- */
-async function applySharedOperationToWordParagraph({
-  context,
-  targetParagraph,
-  operation,
-  author,
-  generateRedlines,
-  disableNativeTracking = false,
-  baseTrackingMode = null,
-  logPrefix
-}) {
-  const paragraphOoxmlResult = targetParagraph.getOoxml();
-  await context.sync();
-
-  const bridgeResult = await applySharedOperationToParagraphOoxml(
-    paragraphOoxmlResult?.value || "",
-    operation,
-    {
-      author,
-      generateRedlines,
-      onInfo: message => console.log(`[${logPrefix}] ${message}`),
-      onWarn: message => console.warn(`[${logPrefix}] ${message}`)
-    }
-  );
-
-  if (!bridgeResult.hasChanges || !bridgeResult.packageOoxml) {
-    return false;
-  }
-
-  await withNativeTrackingDisabled(context, async () => {
-    targetParagraph.insertOoxml(bridgeResult.packageOoxml, Word.InsertLocation.replace);
-    await context.sync();
-  }, {
-    enabled: !!disableNativeTracking,
-    baseTrackingMode,
-    logPrefix
-  });
-  return true;
-}
-
-/**
- * Applies a shared standalone operation to a Word paragraph/range scope.
- *
- * @param {Object} params
- * @param {Word.RequestContext} params.context
- * @param {Word.Range|Word.Paragraph} params.scope
- * @param {Object} params.operation
- * @param {string} params.author
- * @param {boolean} params.generateRedlines
- * @param {boolean} [params.disableNativeTracking=false]
- * @param {Word.ChangeTrackingMode|null} [params.baseTrackingMode=null]
- * @param {string} params.logPrefix
- * @returns {Promise<boolean>} True when a change is applied
- */
-async function applySharedOperationToWordScope({
-  context,
-  scope,
-  operation,
-  author,
-  generateRedlines,
-  disableNativeTracking = false,
-  baseTrackingMode = null,
-  logPrefix
-}) {
-  const scopeOoxmlResult = scope.getOoxml();
-  await context.sync();
-
-  const bridgeResult = await applySharedOperationToScopeOoxml(
-    scopeOoxmlResult?.value || "",
-    operation,
-    {
-      author,
-      generateRedlines,
-      onInfo: message => console.log(`[${logPrefix}] ${message}`),
-      onWarn: message => console.warn(`[${logPrefix}] ${message}`)
-    }
-  );
-
-  if (!bridgeResult.hasChanges || !bridgeResult.packageOoxml) {
-    return false;
-  }
-
-  await withNativeTrackingDisabled(context, async () => {
-    scope.insertOoxml(bridgeResult.packageOoxml, Word.InsertLocation.replace);
-    await context.sync();
-  }, {
-    enabled: !!disableNativeTracking,
-    baseTrackingMode,
-    logPrefix
-  });
-
-  return true;
 }
 
 // Generic helper for JSON responses
