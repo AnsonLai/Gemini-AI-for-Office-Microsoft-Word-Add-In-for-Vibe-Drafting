@@ -117,6 +117,7 @@ export async function insertOoxmlWithRangeFallback(paragraph, wrappedOoxml, inse
         }
 
         console.warn(`[${logPrefix}] Paragraph.insertOoxml failed with GeneralException. Retrying via range (${insertMode}).`);
+        console.warn(`[${logPrefix}] Failing OOXML payload:`, wrappedOoxml);
 
         const fallbackRange = insertMode === 'After'
             ? paragraph.getRange('End')

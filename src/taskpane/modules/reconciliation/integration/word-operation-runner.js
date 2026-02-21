@@ -335,15 +335,7 @@ export async function applyWordOperation(context, operation, scope, options = {}
         return false;
     }
 
-    const canUseDirectParagraphPayload = (
-        resolved.kind === 'paragraph'
-        && bridgeResult.singleParagraphOutput === true
-        && operation?.type === 'redline'
-        && !bridgeResult.commentsXml
-        && (!bridgeResult.numberingXml || isSimplePlainTextRedline(operation))
-        && typeof bridgeResult.paragraphOoxml === 'string'
-        && bridgeResult.paragraphOoxml.trim().startsWith('<w:p')
-    );
+    const canUseDirectParagraphPayload = false; // direct_paragraph snippet injection crashes Word parser with w:ins elements
     const insertionPayload = canUseDirectParagraphPayload
         ? bridgeResult.paragraphOoxml
         : bridgeResult.packageOoxml;
