@@ -4,7 +4,7 @@ import assert from 'assert';
 import {
     ingestWordOoxmlToPlainText,
     ingestWordOoxmlToMarkdown
-} from '../src/taskpane/modules/reconciliation/standalone.js';
+} from '../src/taskpane/modules/reconciliation/index.js';
 
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
@@ -98,3 +98,4 @@ try {
     console.error('FAIL:', error?.message || error);
     process.exit(1);
 }
+

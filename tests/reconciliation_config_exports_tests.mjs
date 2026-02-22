@@ -1,35 +1,35 @@
 import assert from 'assert';
 
 import {
-    setDefaultAuthor as setDefaultAuthorStandalone,
-    getDefaultAuthor as getDefaultAuthorStandalone,
-    setPlatform as setPlatformStandalone,
-    getPlatform as getPlatformStandalone
-} from '../src/taskpane/modules/reconciliation/standalone.js';
-
-import {
-    setDefaultAuthor as setDefaultAuthorIndex,
-    getDefaultAuthor as getDefaultAuthorIndex,
-    setPlatform as setPlatformIndex,
-    getPlatform as getPlatformIndex
+    setDefaultAuthor as setDefaultAuthorCore,
+    getDefaultAuthor as getDefaultAuthorCore,
+    setPlatform as setPlatformCore,
+    getPlatform as getPlatformCore
 } from '../src/taskpane/modules/reconciliation/index.js';
 
+import {
+    setDefaultAuthor as setDefaultAuthorWordEntry,
+    getDefaultAuthor as getDefaultAuthorWordEntry,
+    setPlatform as setPlatformWordEntry,
+    getPlatform as getPlatformWordEntry
+} from '../src/taskpane/modules/reconciliation/word-addin-entry.js';
+
 function run() {
-    setDefaultAuthorStandalone('ConfigTestAuthor');
-    assert.strictEqual(getDefaultAuthorStandalone(), 'ConfigTestAuthor');
-    assert.strictEqual(getDefaultAuthorIndex(), 'ConfigTestAuthor');
+    setDefaultAuthorCore('ConfigTestAuthor');
+    assert.strictEqual(getDefaultAuthorCore(), 'ConfigTestAuthor');
+    assert.strictEqual(getDefaultAuthorWordEntry(), 'ConfigTestAuthor');
 
-    setDefaultAuthorIndex('IndexAuthor');
-    assert.strictEqual(getDefaultAuthorStandalone(), 'IndexAuthor');
-    assert.strictEqual(getDefaultAuthorIndex(), 'IndexAuthor');
+    setDefaultAuthorWordEntry('WordEntryAuthor');
+    assert.strictEqual(getDefaultAuthorCore(), 'WordEntryAuthor');
+    assert.strictEqual(getDefaultAuthorWordEntry(), 'WordEntryAuthor');
 
-    setPlatformStandalone('OfficeOnline');
-    assert.strictEqual(getPlatformStandalone(), 'OfficeOnline');
-    assert.strictEqual(getPlatformIndex(), 'OfficeOnline');
+    setPlatformCore('OfficeOnline');
+    assert.strictEqual(getPlatformCore(), 'OfficeOnline');
+    assert.strictEqual(getPlatformWordEntry(), 'OfficeOnline');
 
-    setPlatformIndex('Win32');
-    assert.strictEqual(getPlatformStandalone(), 'Win32');
-    assert.strictEqual(getPlatformIndex(), 'Win32');
+    setPlatformWordEntry('Win32');
+    assert.strictEqual(getPlatformCore(), 'Win32');
+    assert.strictEqual(getPlatformWordEntry(), 'Win32');
 
     console.log('PASS: reconciliation config exports');
 }
@@ -40,3 +40,4 @@ try {
     console.error('FAIL:', err.message);
     process.exit(1);
 }
+

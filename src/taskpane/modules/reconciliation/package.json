@@ -1,0 +1,42 @@
+{
+  "name": "@gsd/docx-reconciliation",
+  "version": "0.1.0",
+  "description": "Host-independent OOXML reconciliation engine for .docx manipulation with track changes",
+  "type": "module",
+  "private": true,
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./standalone": "./standalone.js",
+    "./core/*": "./core/*",
+    "./engine/*": "./engine/*",
+    "./pipeline/*": "./pipeline/*",
+    "./services/*": "./services/*",
+    "./orchestration/*": "./orchestration/*",
+    "./adapters/*": "./adapters/*"
+  },
+  "dependencies": {
+    "diff-match-patch": "^1.0.5"
+  },
+  "peerDependencies": {
+    "@xmldom/xmldom": ">=0.8.0"
+  },
+  "peerDependenciesMeta": {
+    "@xmldom/xmldom": {
+      "optional": true
+    }
+  },
+  "files": [
+    "adapters/",
+    "core/",
+    "engine/",
+    "pipeline/",
+    "services/",
+    "orchestration/",
+    "index.js",
+    "standalone.js",
+    "README.md"
+  ],
+  "keywords": ["docx", "ooxml", "reconciliation", "track-changes", "redlines", "word"],
+  "license": "MIT"
+}

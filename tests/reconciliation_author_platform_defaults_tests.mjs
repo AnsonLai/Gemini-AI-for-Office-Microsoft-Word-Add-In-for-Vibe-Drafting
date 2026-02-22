@@ -8,7 +8,7 @@ import {
     setPlatform,
     getPlatform,
     applyRedlineToOxml
-} from '../src/taskpane/modules/reconciliation/standalone.js';
+} from '../src/taskpane/modules/reconciliation/index.js';
 import { createRevisionMetadata, resetRevisionIdCounter } from '../src/taskpane/modules/reconciliation/core/types.js';
 import { injectCommentsIntoOoxml, resetRevisionIdCounter as resetCommentRevisionIdCounter } from '../src/taskpane/modules/reconciliation/services/comment-engine.js';
 import { ReconciliationPipeline } from '../src/taskpane/modules/reconciliation/pipeline/pipeline.js';
@@ -80,3 +80,4 @@ run().catch(err => {
     console.error('FAIL:', err.message);
     process.exit(1);
 });
+

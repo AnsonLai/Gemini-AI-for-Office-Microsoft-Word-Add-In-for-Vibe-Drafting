@@ -8,7 +8,7 @@ import {
     ensureNumberingArtifactsInZip,
     ensureCommentsArtifactsInZip,
     validateDocxPackage
-} from '../src/taskpane/modules/reconciliation/standalone.js';
+} from '../src/taskpane/modules/reconciliation/index.js';
 
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const NS_CT = 'http://schemas.openxmlformats.org/package/2006/content-types';
@@ -155,3 +155,4 @@ run().catch(err => {
     console.error('FAIL:', err.message);
     process.exit(1);
 });
+

@@ -13,7 +13,7 @@ import {
     recordSingleLineListFallbackExplicitSequence,
     clearSingleLineListFallbackExplicitSequence,
     enforceListBindingOnParagraphNodes
-} from '../src/taskpane/modules/reconciliation/standalone.js';
+} from '../src/taskpane/modules/reconciliation/index.js';
 import {
     planListInsertionOnlyEdit,
     stripRedundantLeadingListMarkers
@@ -839,4 +839,5 @@ More text.`;
         console.log('❌ FAIL: Bullet List parsing failed');
     }
 }
+
 

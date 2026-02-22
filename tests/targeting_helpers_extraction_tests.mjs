@@ -7,7 +7,7 @@ import {
     inferTableReplacementParagraphBlock as inferTableReplacementParagraphBlockStandalone,
     isLikelyStructuredTableSourceParagraph as isLikelyStructuredTableSourceParagraphStandalone,
     parseOoxml
-} from '../src/taskpane/modules/reconciliation/standalone.js';
+} from '../src/taskpane/modules/reconciliation/index.js';
 
 import {
     resolveParagraphRangeByRefs
@@ -71,3 +71,4 @@ try {
     console.error('FAIL:', err.message);
     process.exit(1);
 }
+

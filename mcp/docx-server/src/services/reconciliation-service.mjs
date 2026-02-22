@@ -5,7 +5,7 @@ import {
     configureXmlProvider,
     ingestOoxml,
     injectCommentsIntoOoxml
-} from '../../../../src/taskpane/modules/reconciliation/standalone.js';
+} from '../../../../src/taskpane/modules/reconciliation/index.js';
 import { getLocalName, isElement, parseXmlStrict, toArray, allByTag } from './xml-utils.mjs';
 
 configureXmlProvider({
@@ -212,4 +212,5 @@ function serializeFirstElementChild(part) {
     if (!payload) return null;
     return new XMLSerializer().serializeToString(payload);
 }
+
 

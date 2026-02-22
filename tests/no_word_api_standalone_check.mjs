@@ -7,6 +7,7 @@ const reconciliationDir = path.join(__dirname, '../src/taskpane/modules/reconcil
 const integrationDir = path.join(reconciliationDir, 'integration');
 const standalonePath = path.join(reconciliationDir, 'standalone.js');
 const indexPath = path.join(reconciliationDir, 'index.js');
+const wordAddinEntryPath = path.join(reconciliationDir, 'word-addin-entry.js');
 const allowedExternalImports = new Set(['diff-match-patch']);
 
 const forbiddenPatterns = [
@@ -95,7 +96,11 @@ async function run() {
     }
 
     const files = await collectJsFilesRecursively(reconciliationDir);
-    const filesToCheck = files.filter(filePath => filePath !== indexPath && !isPathWithin(integrationDir, filePath));
+    const filesToCheck = files.filter(filePath =>
+        filePath !== indexPath &&
+        filePath !== wordAddinEntryPath &&
+        !isPathWithin(integrationDir, filePath)
+    );
 
     for (const fullPath of filesToCheck) {
         const sourceNoComments = stripComments(await fs.readFile(fullPath, 'utf8'));

@@ -8,7 +8,7 @@ import {
     applyRedlineToOxml,
     parseOoxml,
     ingestOoxml
-} from '../src/taskpane/modules/reconciliation/standalone.js';
+} from '../src/taskpane/modules/reconciliation/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DOC_PATH = path.join(__dirname, 'sample_doc/word/document.xml');
@@ -39,3 +39,4 @@ run().catch(err => {
     console.error('FAIL:', err.message);
     process.exit(1);
 });
+

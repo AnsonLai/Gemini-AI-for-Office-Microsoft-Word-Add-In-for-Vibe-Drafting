@@ -18,7 +18,7 @@ import {
     ensureNumberingArtifactsInZip,
     ensureCommentsArtifactsInZip,
     validateDocxPackage
-} from '../src/taskpane/modules/reconciliation/standalone.js';
+} from '../src/taskpane/modules/reconciliation/index.js';
 import { applyOperationToDocumentXml } from '../src/taskpane/modules/reconciliation/services/standalone-operation-runner.js';
 import {
     buildPromptParagraphSections,
@@ -1525,3 +1525,4 @@ runBtn.addEventListener('click', async () => {
         console.error(err);
     } finally { runBtn.disabled = false; }
 });
+

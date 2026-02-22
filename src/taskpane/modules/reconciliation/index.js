@@ -1,17 +1,220 @@
 /**
- * OOXML Reconciliation Pipeline - Module Entry Point
- * 
- * Exports the public API for the reconciliation system.
+ * Standalone reconciliation entrypoint (no Word JS API dependencies).
  */
 
 // Adapters
-export { configureXmlProvider, createParser, createSerializer, parseXml, serializeXml } from './adapters/xml-adapter.js';
-export { configureLogger, setLogLevel, getLogLevel, log, warn, error } from './adapters/logger.js';
+export { configureXmlProvider } from './adapters/xml-adapter.js';
+export { configureLogger } from './adapters/logger.js';
 export { setDefaultAuthor, getDefaultAuthor, setPlatform, getPlatform } from './adapters/config.js';
 
-// Main pipeline
-export { ReconciliationPipeline, detectContentType, parseListItems, parseTable } from './pipeline/pipeline.js';
-export { NumberingService } from './services/numbering-service.js';
+// Engine
+import {
+    applyRedlineToOxml as applyRedlineToOxmlEngine,
+    sanitizeAiResponse,
+    parseOoxml,
+    serializeOoxml
+} from './engine/oxml-engine.js';
+import { parseTable as parseMarkdownTable } from './pipeline/pipeline.js';
+import { wrapInDocumentFragment as wrapInDocumentFragmentShared } from './pipeline/serialization.js';
+import {
+    buildSingleLineListStructuralFallbackPlan,
+    executeSingleLineListStructuralFallback,
+    resolveSingleLineListFallbackNumberingAction,
+    recordSingleLineListFallbackExplicitSequence,
+    clearSingleLineListFallbackExplicitSequence,
+    enforceListBindingOnParagraphNodes,
+    stripSingleLineListMarkerPrefix
+} from './orchestration/list-structural-fallback.js';
+
+/**
+ * Standalone-safe redline wrapper.
+ *
+ * In non-Word runtimes, the engine can return `{ useNativeApi: true, hasChanges: true }`
+ * without an OOXML payload for some format-only operations. Standalone callers cannot
+ * complete that native fallback path, so normalize to a no-op with warnings.
+ */
+export async function applyRedlineToOxml(oxml, originalText, modifiedText, options = {}) {
+    const result = await applyRedlineToOxmlEngine(oxml, originalText, modifiedText, options);
+    if (result?.useNativeApi && typeof result?.oxml !== 'string') {
+        const existingWarnings = Array.isArray(result?.warnings) ? result.warnings : [];
+        return {
+            ...result,
+            oxml,
+            hasChanges: false,
+            warnings: [
+                ...existingWarnings,
+                'Standalone mode cannot execute native Word API fallback for this operation.'
+            ]
+        };
+    }
+    return result;
+}
+
+/**
+ * Reconciles a Markdown table against an OOXML scope.
+ *
+ * This centralizes table-specific validation + reconciliation so Word add-in
+ * and browser modules can share the same entrypoint.
+ *
+ * @param {string} oxml - OOXML scope to reconcile (paragraph/range/table package)
+ * @param {string} originalText - Original visible text in that scope
+ * @param {string} markdownTable - Markdown table text
+ * @param {Object} [options={}] - Reconciliation options forwarded to applyRedlineToOxml
+ * @returns {Promise<{ oxml: string, hasChanges: boolean, warnings?: string[], isMarkdownTable: boolean, tableData?: Object }>}
+ */
+export async function reconcileMarkdownTableOoxml(oxml, originalText, markdownTable, options = {}) {
+    const sourceOoxml = typeof oxml === 'string' ? oxml : '';
+    const tableText = typeof markdownTable === 'string' ? markdownTable : String(markdownTable || '');
+    let tableData;
+
+    try {
+        tableData = parseMarkdownTable(tableText);
+    } catch {
+        tableData = { headers: [], rows: [] };
+    }
+
+    const hasTableData = (tableData?.headers?.length || 0) > 0 || (tableData?.rows?.length || 0) > 0;
+    if (!hasTableData) {
+        return {
+            oxml: sourceOoxml,
+            hasChanges: false,
+            isMarkdownTable: false,
+            warnings: ['Could not parse Markdown table from input.']
+        };
+    }
+
+    const result = await applyRedlineToOxml(
+        sourceOoxml,
+        originalText || '',
+        tableText,
+        options
+    );
+
+    return {
+        ...result,
+        isMarkdownTable: true,
+        tableData
+    };
+}
+
+export { resolveParagraphRangeByRefs } from './core/paragraph-targeting.js';
+export { inferTableReplacementParagraphBlock, isLikelyStructuredTableSourceParagraph } from './core/table-targeting.js';
+
+/**
+ * Applies redline reconciliation, then forces single-line structural list
+ * conversion when the redline is a no-op on marker-prefixed list text.
+ *
+ * This is useful for inputs like `1. HEADER` where text diff is unchanged but
+ * OOXML should convert plain text markers into real Word list structure.
+ *
+ * @param {string} oxml - Original OOXML
+ * @param {string} originalText - Original visible text
+ * @param {string} modifiedText - Proposed modified text
+ * @param {Object} [options={}] - Reconciliation options
+ * @param {boolean} [options.listFallbackAllowExistingList=true] - Allow fallback even when paragraph is already list-bound
+ * @returns {Promise<{ oxml: string, hasChanges: boolean } & Record<string, any>>}
+ */
+export async function applyRedlineToOxmlWithListFallback(oxml, originalText, modifiedText, options = {}) {
+    const allowExistingListForFallback = options.listFallbackAllowExistingList !== false;
+    const plan = buildSingleLineListStructuralFallbackPlan({
+        oxml,
+        originalText,
+        modifiedText,
+        allowExistingList: allowExistingListForFallback
+    });
+    const preferListFallback = options.preferListStructuralFallback !== false;
+    let preflightFallbackWarnings = [];
+
+    if (plan && preferListFallback) {
+        const fallbackResult = await executeSingleLineListStructuralFallback(plan, {
+            author: options.author,
+            generateRedlines: options.generateRedlines,
+            pipeline: options.listFallbackPipeline
+        });
+        if (fallbackResult?.hasChanges && fallbackResult?.oxml) {
+            const wrappedOxml = wrapInDocumentFragmentShared(fallbackResult.oxml, {
+                includeNumbering: fallbackResult.includeNumbering ?? true,
+                numberingXml: fallbackResult.numberingXml
+            });
+            const fallbackWarnings = Array.isArray(fallbackResult?.warnings) ? fallbackResult.warnings : [];
+            return {
+                oxml: wrappedOxml,
+                hasChanges: true,
+                warnings: fallbackWarnings,
+                listStructuralFallbackApplied: true,
+                listStructuralFallbackKey: fallbackResult.listStructuralFallbackKey || null,
+                listStructuralFallbackNumberingXml: fallbackResult.numberingXml || null
+            };
+        }
+        preflightFallbackWarnings = Array.isArray(fallbackResult?.warnings) ? fallbackResult.warnings : [];
+    }
+
+    const baseResult = await applyRedlineToOxml(oxml, originalText, modifiedText, options);
+
+    if (!plan) {
+        return {
+            ...baseResult,
+            warnings: [
+                ...(Array.isArray(baseResult?.warnings) ? baseResult.warnings : []),
+                ...preflightFallbackWarnings
+            ],
+            listStructuralFallbackApplied: false
+        };
+    }
+
+    if (preferListFallback) {
+        return {
+            ...baseResult,
+            warnings: [
+                ...(Array.isArray(baseResult?.warnings) ? baseResult.warnings : []),
+                ...preflightFallbackWarnings
+            ],
+            listStructuralFallbackApplied: false
+        };
+    }
+
+    if (baseResult?.hasChanges) {
+        return {
+            ...baseResult,
+            listStructuralFallbackApplied: false
+        };
+    }
+
+    const fallbackResult = await executeSingleLineListStructuralFallback(plan, {
+        author: options.author,
+        generateRedlines: options.generateRedlines,
+        pipeline: options.listFallbackPipeline
+    });
+    if (!fallbackResult?.hasChanges || !fallbackResult?.oxml) {
+        const existingWarnings = Array.isArray(baseResult?.warnings) ? baseResult.warnings : [];
+        const fallbackWarnings = Array.isArray(fallbackResult?.warnings) ? fallbackResult.warnings : [];
+        return {
+            ...baseResult,
+            warnings: [...existingWarnings, ...fallbackWarnings],
+            listStructuralFallbackApplied: false
+        };
+    }
+
+    const wrappedOxml = wrapInDocumentFragmentShared(fallbackResult.oxml, {
+        includeNumbering: fallbackResult.includeNumbering ?? true,
+        numberingXml: fallbackResult.numberingXml
+    });
+    const existingWarnings = Array.isArray(baseResult?.warnings) ? baseResult.warnings : [];
+    const fallbackWarnings = Array.isArray(fallbackResult?.warnings) ? fallbackResult.warnings : [];
+
+    return {
+        ...baseResult,
+        oxml: wrappedOxml,
+        hasChanges: true,
+        warnings: [...existingWarnings, ...preflightFallbackWarnings, ...fallbackWarnings],
+        listStructuralFallbackApplied: true,
+        listStructuralFallbackKey: fallbackResult.listStructuralFallbackKey || null,
+        listStructuralFallbackNumberingXml: fallbackResult.numberingXml || null
+    };
+}
+
+export { sanitizeAiResponse, parseOoxml, serializeOoxml };
+
 export {
     createDynamicNumberingIdState,
     reserveNextNumberingId,
@@ -23,8 +226,58 @@ export {
     mergeNumberingXmlBySchemaOrder
 } from './services/numbering-helpers.js';
 
-// Core types
-export { DiffOp, RunKind, ContainerKind, ContentType, NS_W, NS_R, escapeXml, getNextRevisionId, resetRevisionIdCounter } from './core/types.js';
+// Pipeline components
+export { ReconciliationPipeline } from './pipeline/pipeline.js';
+export { ingestOoxml } from './pipeline/ingestion.js';
+export { ingestWordOoxmlToPlainText, ingestWordOoxmlToMarkdown } from './pipeline/ingestion-export.js';
+export { preprocessMarkdown } from './pipeline/markdown-processor.js';
+export { serializeToOoxml, wrapInDocumentFragment } from './pipeline/serialization.js';
+
+// Comment engine
+export {
+    injectCommentsIntoOoxml,
+    injectCommentsIntoPackage,
+    buildCommentElement,
+    buildCommentsPartXml
+} from './services/comment-engine.js';
+
+// Formatting removal utilities
+export {
+    removeFormattingFromRPr,
+    applyFormattingRemovalToOoxml,
+    applyHighlightToOoxml
+} from './engine/formatting-removal.js';
+
+// Table/list tools
+export { generateTableOoxml } from './services/table-reconciliation.js';
+export { NumberingService } from './services/numbering-service.js';
+export {
+    parseXmlStrictStandalone,
+    getBodyElementFromDocument,
+    insertBodyElementBeforeSectPr,
+    normalizeBodySectionOrderStandalone,
+    sanitizeNestedParagraphsInTables,
+    getPackagePartName,
+    extractReplacementNodesFromOoxml,
+    ensureNumberingArtifactsInZip,
+    ensureCommentsArtifactsInZip,
+    validateDocxPackage
+} from './services/standalone-docx-plumbing.js';
+export { buildReconciliationPlan, RoutePlanKind, normalizeContentEscapesForRouting } from './orchestration/route-plan.js';
+export { parseMarkdownListContent, hasListItems } from './orchestration/list-parsing.js';
+export { buildListMarkdown, inferNumberingStyleFromMarker, normalizeListItemsWithLevels } from './orchestration/list-markdown.js';
+export {
+    buildSingleLineListStructuralFallbackPlan,
+    executeSingleLineListStructuralFallback,
+    resolveSingleLineListFallbackNumberingAction,
+    recordSingleLineListFallbackExplicitSequence,
+    clearSingleLineListFallbackExplicitSequence,
+    enforceListBindingOnParagraphNodes,
+    stripSingleLineListMarkerPrefix
+} from './orchestration/list-structural-fallback.js';
+
+// Core types/constants
+export { DiffOp, RunKind, ContainerKind, ContentType, NS_W, escapeXml } from './core/types.js';
 export { extractParagraphIdFromOoxml } from './core/ooxml-identifiers.js';
 export {
     WORD_MAIN_NS,
@@ -41,81 +294,15 @@ export {
     findParagraphByBestTextMatch,
     resolveTargetParagraph,
     buildTargetReferenceSnapshot,
-    resolveTargetParagraphWithSnapshot,
-    resolveParagraphRangeByRefs
+    resolveTargetParagraphWithSnapshot
 } from './core/paragraph-targeting.js';
-export {
-    synthesizeTableMarkdownFromMultilineCellEdit,
-    inferTableReplacementParagraphBlock,
-    isLikelyStructuredTableSourceParagraph
-} from './core/table-targeting.js';
+export { synthesizeTableMarkdownFromMultilineCellEdit } from './core/table-targeting.js';
 export {
     getParagraphListInfo,
     collectContiguousListParagraphBlock,
     synthesizeExpandedListScopeEdit,
-    planListInsertionOnlyEdit
+    planListInsertionOnlyEdit,
+    stripRedundantLeadingListMarkers
 } from './core/list-targeting.js';
 
-// Individual stage functions (for advanced usage)
-export { ingestOoxml, ingestTableToVirtualGrid } from './pipeline/ingestion.js';
-export { ingestWordOoxmlToPlainText, ingestWordOoxmlToMarkdown } from './pipeline/ingestion-export.js';
-export { preprocessMarkdown, getApplicableFormatHints, mergeFormats } from './pipeline/markdown-processor.js';
-export { computeWordLevelDiffOps, computeWordDiffs, wordsToChars, charsToWords, collectDiffBoundaries } from './pipeline/diff-engine.js';
-export { splitRunsAtDiffBoundaries, applyPatches } from './pipeline/patching.js';
-export { serializeToOoxml, wrapInDocumentFragment } from './pipeline/serialization.js';
-
-// Integration helpers (for Word Add-in)
-export { applyReconciliationToParagraph, applyReconciliationToParagraphBatch, shouldUseOoxmlReconciliation, getAuthorForTracking } from './integration/integration.js';
-export { getParagraphOoxmlWithFallback, insertOoxmlWithRangeFallback, withNativeTrackingDisabled } from './integration/word-ooxml.js';
-export { applyStructuredListDirectOoxml } from './integration/word-structured-list.js';
-export { routeWordParagraphChange } from './integration/word-route-change.js';
-export {
-    applyWordOperation,
-    applySharedOperationToWordParagraph,
-    applySharedOperationToWordScope,
-    applySharedOperationToParagraphOoxml,
-    applySharedOperationToScopeOoxml
-} from './integration/word-operation-runner.js';
-export {
-    applyRedlineChangesToWordContext,
-    findNearbyParagraphIndexForModifyText
-} from './integration/word-redline-runner.js';
-
-// OOXML Engine V5.1 - Hybrid Mode (DOM-based manipulation)
-export { applyRedlineToOxml, sanitizeAiResponse, parseOoxml, serializeOoxml } from './engine/oxml-engine.js';
-
-// Table Reconciliation
-export { generateTableOoxml, diffTablesWithVirtualGrid, serializeVirtualGridToOoxml } from './services/table-reconciliation.js';
-export {
-    parseXmlStrictStandalone,
-    getBodyElementFromDocument,
-    insertBodyElementBeforeSectPr,
-    normalizeBodySectionOrderStandalone,
-    sanitizeNestedParagraphsInTables,
-    getPackagePartName,
-    extractReplacementNodesFromOoxml,
-    ensureNumberingArtifactsInZip,
-    ensureCommentsArtifactsInZip,
-    validateDocxPackage
-} from './services/standalone-docx-plumbing.js';
-
-// Comment Engine
-export { injectCommentsIntoOoxml, injectCommentsIntoPackage, buildCommentElement, buildCommentsPartXml } from './services/comment-engine.js';
-export { removeFormattingFromRPr, applyFormattingRemovalToOoxml, applyHighlightToOoxml } from './engine/formatting-removal.js';
-
-// Command-layer orchestration helpers (Word-agnostic planners)
-export { buildReconciliationPlan, RoutePlanKind, normalizeContentEscapesForRouting } from './orchestration/route-plan.js';
-export { parseMarkdownListContent, hasListItems } from './orchestration/list-parsing.js';
-export { buildListMarkdown, inferNumberingStyleFromMarker, normalizeListItemsWithLevels } from './orchestration/list-markdown.js';
-export {
-    buildSingleLineListStructuralFallbackPlan,
-    executeSingleLineListStructuralFallback
-} from './orchestration/list-structural-fallback.js';
-export {
-    applySubstringSearchReplace,
-    toScopedSharedRedlineOperation
-} from './orchestration/redline-operation-converter.js';
-
-// Shared standalone helpers (Word-agnostic)
-export { reconcileMarkdownTableOoxml } from './standalone.js';
 

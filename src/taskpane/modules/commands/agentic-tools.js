@@ -12,7 +12,7 @@ import {
   applySharedOperationToWordParagraph,
   applySharedOperationToWordScope,
   applyRedlineChangesToWordContext
-} from '../reconciliation/index.js';
+} from '../reconciliation/word-addin-entry.js';
 import {
   detectDocumentFont
 } from '../utils/markdown-utils.js';

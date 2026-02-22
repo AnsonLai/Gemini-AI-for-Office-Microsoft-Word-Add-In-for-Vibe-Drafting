@@ -6,7 +6,7 @@ import {
     createDynamicNumberingIdState as createDynamicNumberingIdStateStandalone,
     reserveNextNumberingIdPair as reserveNextNumberingIdPairStandalone,
     mergeNumberingXmlBySchemaOrder as mergeNumberingXmlBySchemaOrderStandalone
-} from '../src/taskpane/modules/reconciliation/standalone.js';
+} from '../src/taskpane/modules/reconciliation/index.js';
 
 import {
     createDynamicNumberingIdState,
@@ -60,3 +60,4 @@ try {
     console.error('FAIL:', err.message);
     process.exit(1);
 }
+

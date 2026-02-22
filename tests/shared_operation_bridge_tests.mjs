@@ -8,7 +8,7 @@ import {
 import {
     extractReplacementNodesFromOoxml,
     getParagraphText
-} from '../src/taskpane/modules/reconciliation/standalone.js';
+} from '../src/taskpane/modules/reconciliation/index.js';
 import { buildDocumentFragmentPackage } from '../src/taskpane/modules/reconciliation/services/package-builder.js';
 
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
@@ -232,3 +232,4 @@ run().catch(err => {
     console.error('FAIL:', err.message);
     process.exit(1);
 });
+

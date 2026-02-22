@@ -6,6 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const reconciliationDir = path.join(__dirname, '../src/taskpane/modules/reconciliation');
 const integrationDir = path.join(reconciliationDir, 'integration');
 const indexPath = path.join(reconciliationDir, 'index.js');
+const wordAddinEntryPath = path.join(reconciliationDir, 'word-addin-entry.js');
 
 function stripComments(source) {
     return source
@@ -81,7 +82,11 @@ function resolveImportPath(importerPath, specifier) {
 
 async function run() {
     const files = await collectJsFilesRecursively(reconciliationDir);
-    const filesToCheck = files.filter(filePath => filePath !== indexPath && !isPathWithin(integrationDir, filePath));
+    const filesToCheck = files.filter(filePath =>
+        filePath !== indexPath &&
+        filePath !== wordAddinEntryPath &&
+        !isPathWithin(integrationDir, filePath)
+    );
     const violations = [];
 
     for (const filePath of filesToCheck) {
