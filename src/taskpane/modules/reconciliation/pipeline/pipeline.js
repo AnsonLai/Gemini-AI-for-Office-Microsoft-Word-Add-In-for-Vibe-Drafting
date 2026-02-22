@@ -19,15 +19,9 @@ import { detectContentType, parseListItems, parseTable } from './content-analysi
 import { createParser } from '../adapters/xml-adapter.js';
 import { log, error as logError } from '../adapters/logger.js';
 import { getFirstElementByTagNS, getXmlParseError } from '../core/xml-query.js';
+import { getPlatform } from '../adapters/config.js';
 
 const WEB_PLATFORM_NAMES = new Set(['officeonline', 'officeweb', 'web']);
-
-function detectOfficePlatform() {
-    if (typeof Office === 'undefined' || !Office?.context?.platform) {
-        return null;
-    }
-    return String(Office.context.platform);
-}
 
 function isWebPlatform(platform) {
     if (!platform) return false;
@@ -60,7 +54,7 @@ export class ReconciliationPipeline {
         this.validationMode = options.validationMode ?? 'auto';
         this.numberingService = options.numberingService || new NumberingService();
         this.font = options.font || null;
-        this.platform = options.platform ?? detectOfficePlatform();
+        this.platform = options.platform ?? getPlatform();
         this.isWebPlatform = options.isWebPlatform ?? isWebPlatform(this.platform);
         this.enableEventLoopYielding = options.enableEventLoopYielding ?? this.isWebPlatform;
         this.yieldRunThreshold = options.yieldRunThreshold ?? 50;

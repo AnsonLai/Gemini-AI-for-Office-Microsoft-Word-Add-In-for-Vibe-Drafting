@@ -24,6 +24,7 @@ import { detectTableCellContext, serializeParagraphOnly } from './table-cell-con
 import { applySurgicalMode } from './surgical-mode.js';
 import { applyReconstructionMode } from './reconstruction-mode.js';
 import { applyTableReconciliation, applyTextToTableTransformation } from './table-mode.js';
+import { getDefaultAuthor } from '../adapters/config.js';
 
 /**
  * Applies redline track changes to OOXML by modifying the DOM in-place.
@@ -38,7 +39,7 @@ import { applyTableReconciliation, applyTextToTableTransformation } from './tabl
  */
 export async function applyRedlineToOxml(oxml, originalText, modifiedText, options = {}) {
     const generateRedlines = options.generateRedlines ?? true;
-    const author = options.author || 'Gemini AI';
+    const author = options.author || getDefaultAuthor();
     const parser = createParser();
     const serializer = createSerializer();
     const noChanges = () => ({ oxml, hasChanges: false });

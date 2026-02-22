@@ -42,6 +42,7 @@ import {
   executeEditTable,
   executeEditSection
 } from './modules/commands/agentic-tools.js';
+import { setPlatform } from './modules/reconciliation/index.js';
 
 // Configure marked for GFM (GitHub Flavored Markdown) with tables, breaks, etc.
 marked.setOptions({
@@ -257,6 +258,7 @@ let toolsExecutedInCurrentRequest = [];  // Track successful tool executions for
 
 Office.onReady((info) => {
   if (info.host === Office.HostType.Word) {
+    setPlatform(Office?.context?.platform);
     document.getElementById("sideload-msg").style.display = "none";
     // Show main view by default
     showMainView();

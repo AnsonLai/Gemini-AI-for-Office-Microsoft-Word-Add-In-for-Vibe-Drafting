@@ -4,6 +4,8 @@
  * Data types and enums for the reconciliation system.
  */
 
+import { getDefaultAuthor } from '../adapters/config.js';
+
 // WordprocessingML namespace
 export const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 export const NS_R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -127,7 +129,7 @@ export const NumberSuffix = Object.freeze({
 
 /**
  * @typedef {Object} SerializationOptions
- * @property {string} [author='Gemini AI'] - Author for generated track changes
+ * @property {string} [author] - Author for generated track changes (defaults to configured default author)
  * @property {boolean} [generateRedlines=true] - Toggle track-change wrappers
  * @property {string|null} [font=null] - Optional font override for generated runs
  */
@@ -178,13 +180,17 @@ export function getRevisionTimestamp(date = new Date()) {
 /**
  * Creates shared revision metadata for OOXML track-change tags.
  *
- * @param {string} [author='Gemini AI'] - Track-change author
+ * @param {string} [author] - Track-change author (defaults to configured default author)
  * @returns {{ id: number, author: string, date: string }}
  */
-export function createRevisionMetadata(author = 'Gemini AI') {
+export function createRevisionMetadata(author) {
+    const resolvedAuthor = typeof author === 'string' && author.trim()
+        ? author.trim()
+        : getDefaultAuthor();
+
     return {
         id: getNextRevisionId(),
-        author,
+        author: resolvedAuthor,
         date: getRevisionTimestamp()
     };
 }

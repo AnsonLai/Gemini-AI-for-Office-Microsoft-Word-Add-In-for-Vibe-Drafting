@@ -9,6 +9,7 @@ import { createParser, createSerializer } from '../adapters/xml-adapter.js';
 import { log, error as logError } from '../adapters/logger.js';
 import { getElementsByTag, getFirstElementByTag, getXmlParseError } from '../core/xml-query.js';
 import { buildCommentElement, buildCommentsPartXml, buildCommentMarkers } from './comment-builders.js';
+import { getDefaultAuthor } from '../adapters/config.js';
 import { createParagraphTextIndex, injectMarkersIntoParagraph } from './comment-locator.js';
 import {
     injectCommentsIntoPackage as injectCommentsIntoExistingPackage,
@@ -53,11 +54,11 @@ function parseDocumentOxml(oxml, parser, parseFailureWarning) {
  * @param {string} oxml - Original document OOXML
  * @param {CommentRequest[]} comments - Comment requests
  * @param {Object} [options={}] - Options
- * @param {string} [options.author='Gemini AI'] - Author for comments
+ * @param {string} [options.author] - Author for comments (defaults to configured default author)
  * @returns {CommentInjectionResult}
  */
 export function injectCommentsIntoOoxml(oxml, comments, options = {}) {
-    const { author = 'Gemini AI' } = options;
+    const author = options?.author || getDefaultAuthor();
     const date = getRevisionTimestamp();
     const warnings = [];
     const placedComments = [];

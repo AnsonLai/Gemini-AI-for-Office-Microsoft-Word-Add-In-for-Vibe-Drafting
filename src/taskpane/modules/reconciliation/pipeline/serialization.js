@@ -9,6 +9,7 @@ import { getApplicableFormatHints } from './markdown-processor.js';
 import { serializeXml } from '../adapters/xml-adapter.js';
 import { warn } from '../adapters/logger.js';
 import { buildDocumentFragmentPackage } from '../services/package-builder.js';
+import { getDefaultAuthor } from '../adapters/config.js';
 
 const XMLNS_ATTR_REGEX = /\s+xmlns:[^=]+="[^"]*"/g;
 
@@ -137,15 +138,19 @@ function normalizeSerializationOptions(options) {
     // Backward compatibility: accept legacy `font` string signature.
     if (typeof options === 'string') {
         return {
-            author: 'Gemini AI',
+            author: getDefaultAuthor(),
             generateRedlines: true,
             font: options
         };
     }
 
     const normalized = options && typeof options === 'object' ? options : {};
+    const resolvedAuthor = typeof normalized.author === 'string' && normalized.author.trim()
+        ? normalized.author.trim()
+        : getDefaultAuthor();
+
     return {
-        author: normalized.author ?? 'Gemini AI',
+        author: resolvedAuthor,
         generateRedlines: normalized.generateRedlines ?? true,
         font: normalized.font ?? null
     };
@@ -223,7 +228,7 @@ function buildSimpleRun(text, rPrXml) {
  * @returns {string}
  */
 function buildDeletionXml(item, options = {}) {
-    const metadata = createRevisionMetadata(options.author ?? 'Gemini AI');
+    const metadata = createRevisionMetadata(options.author ?? getDefaultAuthor());
     const font = options.font ?? null;
     let rPr = item.rPrXml ? stripNamespaceDeclarations(item.rPrXml) : '';
 
@@ -245,7 +250,7 @@ function buildDeletionXml(item, options = {}) {
  * @returns {string}
  */
 function buildInsertionXml(item, formatHints, options = {}) {
-    const metadata = createRevisionMetadata(options.author ?? 'Gemini AI');
+    const metadata = createRevisionMetadata(options.author ?? getDefaultAuthor());
     const font = options.font ?? null;
 
     // Build the inner run content with format hints

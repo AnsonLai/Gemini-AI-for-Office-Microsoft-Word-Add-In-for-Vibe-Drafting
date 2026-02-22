@@ -13,6 +13,7 @@ import { createSerializer } from '../adapters/xml-adapter.js';
 import { getDocumentParagraphs } from './format-extraction.js';
 import { buildOverrideRPrXml } from './rpr-helpers.js';
 import { getFirstElementByTag } from '../core/xml-query.js';
+import { getDefaultAuthor } from '../adapters/config.js';
 import {
     createTrackChange,
     createTextRun,
@@ -33,7 +34,7 @@ import {
  * @returns {string}
  */
 function buildSurgicalReplacementOoxml(xmlDoc, originalRun, textContent, author, dateStr, formatToRemove) {
-    const authorName = author || 'Gemini AI';
+    const authorName = author || getDefaultAuthor();
     const delId = getNextRevisionId();
     const insId = getNextRevisionId();
 

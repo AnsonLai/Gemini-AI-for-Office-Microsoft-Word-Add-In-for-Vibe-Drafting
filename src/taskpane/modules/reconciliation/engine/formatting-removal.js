@@ -6,6 +6,7 @@
  */
 
 import { parseOoxml, serializeOoxml } from './oxml-engine.js';
+import { getDefaultAuthor } from '../adapters/config.js';
 
 /**
  * Removes specific formatting properties from a run properties (w:rPr) element.
@@ -147,7 +148,8 @@ const HIGHLIGHT_COLOR_MAP = {
 export function injectHighlightIntoRPr(doc, rPr, color = 'yellow', options = {}) {
     const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
     const ooxmlColor = HIGHLIGHT_COLOR_MAP[color.toLowerCase()] || 'yellow';
-    const { generateRedlines = false, author = 'Gemini AI' } = options;
+    const generateRedlines = options?.generateRedlines ?? false;
+    const author = options?.author || getDefaultAuthor();
 
     let rPrElement = rPr;
     if (!rPrElement) {

@@ -7,6 +7,7 @@
 
 import { ReconciliationPipeline } from '../pipeline/pipeline.js';
 import { log, warn, error } from '../adapters/logger.js';
+import { getDefaultAuthor } from '../adapters/config.js';
 
 /**
  * Applies OOXML-level reconciliation to a paragraph.
@@ -42,7 +43,7 @@ export async function applyReconciliationToParagraph(paragraph, newText, context
  * @param {Word.RequestContext} context - Word API context
  * @param {Object} options - Options
  * @param {boolean} [options.generateRedlines=true] - Whether to generate track changes
- * @param {string} [options.author='Gemini AI'] - Author for track changes
+ * @param {string} [options.author] - Author for track changes (defaults to configured default author)
  * @param {boolean} [options.disableNativeTracking=false] - Temporarily disable native Word tracking while inserting OOXML
  * @param {Word.ChangeTrackingMode|null} [options.nativeTrackingMode=null] - Preloaded native tracking mode (avoids extra load/sync)
  * @returns {Promise<{ success: boolean, message: string, results: Array<{ index: number, success: boolean, changed?: boolean, message: string }> }>}
@@ -50,7 +51,7 @@ export async function applyReconciliationToParagraph(paragraph, newText, context
 export async function applyReconciliationToParagraphBatch(edits, context, options = {}) {
     const {
         generateRedlines = true,
-        author = 'Gemini AI',
+        author = getDefaultAuthor(),
         disableNativeTracking = false,
         nativeTrackingMode = null
     } = options;
@@ -212,11 +213,11 @@ export function shouldUseOoxmlReconciliation(change) {
  * @returns {string}
  */
 export function getAuthorForTracking() {
-    // Try to get from settings, fallback to 'Gemini AI'
+    // Try to get from settings, fallback to configured default author.
     try {
         const stored = localStorage.getItem('redlineAuthor');
-        return stored || 'Gemini AI';
+        return stored || getDefaultAuthor();
     } catch {
-        return 'Gemini AI';
+        return getDefaultAuthor();
     }
 }

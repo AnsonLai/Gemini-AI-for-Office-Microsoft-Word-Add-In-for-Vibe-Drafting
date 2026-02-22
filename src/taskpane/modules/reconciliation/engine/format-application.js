@@ -14,6 +14,7 @@ import { splitSpansAtBoundaries, applyFormatHintsToSpansRobust } from './format-
 import { getRevisionTimestamp } from '../core/types.js';
 import { warn, log } from '../adapters/logger.js';
 import { getFirstElementByTag } from '../core/xml-query.js';
+import { getDefaultAuthor } from '../adapters/config.js';
 
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
@@ -82,7 +83,7 @@ export function applyFormatRemovalAsSurgicalReplacement(xmlDoc, textSpans, exist
         }
 
         if (generateRedlines) {
-            snapshotAndAttachRPrChange(xmlDoc, rPr, author || 'Gemini AI', dateStr);
+            snapshotAndAttachRPrChange(xmlDoc, rPr, author || getDefaultAuthor(), dateStr);
         }
 
         applyFormatOverridesToRPr(xmlDoc, rPr, hint.format);
@@ -168,7 +169,7 @@ export function applyFormatAdditionsAsSurgicalReplacement(xmlDoc, textSpans, for
             xmlDoc,
             baseRPr,
             desiredFormat,
-            author || 'Gemini AI',
+            author || getDefaultAuthor(),
             generateRedlines
         );
 

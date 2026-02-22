@@ -23,6 +23,7 @@ import {
     insertOoxmlWithRangeFallback,
     withNativeTrackingDisabled
 } from './word-ooxml.js';
+import { getDefaultAuthor } from '../adapters/config.js';
 
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const SIMPLE_LIST_MARKER_RE = /^\s*(?:[-*+]\s+|\d+(?:\.\d+)*[.)]\s+|[A-Za-z][.)]\s+)/;
@@ -161,7 +162,7 @@ export async function applySharedOperationToParagraphOoxml(paragraphOoxml, opera
     const result = await runner(
         inputDocumentXml,
         operation,
-        options.author || 'Gemini AI',
+        options.author || getDefaultAuthor(),
         null,
         {
             generateRedlines: options.generateRedlines !== false,
@@ -267,7 +268,7 @@ export async function applySharedOperationToScopeOoxml(scopeOoxml, operation, op
     const result = await runner(
         inputDocumentXml,
         operation,
-        options.author || 'Gemini AI',
+        options.author || getDefaultAuthor(),
         null,
         {
             generateRedlines: options.generateRedlines !== false,
