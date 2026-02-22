@@ -12,6 +12,16 @@ export { setDefaultAuthor, getDefaultAuthor, setPlatform, getPlatform } from './
 // Main pipeline
 export { ReconciliationPipeline, detectContentType, parseListItems, parseTable } from './pipeline/pipeline.js';
 export { NumberingService } from './services/numbering-service.js';
+export {
+    createDynamicNumberingIdState,
+    reserveNextNumberingId,
+    reserveNextNumberingIdPair,
+    overwriteParagraphNumIds,
+    extractFirstParagraphNumId,
+    buildExplicitDecimalMultilevelNumberingXml,
+    remapNumberingPayloadForDocument,
+    mergeNumberingXmlBySchemaOrder
+} from './services/numbering-helpers.js';
 
 // Core types
 export { DiffOp, RunKind, ContainerKind, ContentType, NS_W, NS_R, escapeXml, getNextRevisionId, resetRevisionIdCounter } from './core/types.js';
