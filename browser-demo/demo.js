@@ -683,6 +683,7 @@ function buildSystemInstruction(paragraphs, editModeValue = EDIT_MODE.REDLINE, l
         '- When converting multiple paragraphs into a table, you MUST set "targetEndRef" to include the full source block.',
         '- For EXISTING TABLE STRUCTURE changes (add/remove/reorder rows/columns), the "modified" value MUST be the FULL markdown table for that target table, not a single cell value.',
         '- For table structure changes, target any paragraph within that table and include the correct "targetRef".',
+        '- For one table structure request, return ONE operation for that table. Do not emit parallel per-cell/per-column duplicates for the same row insertion.',
         '- If you can only express it as multiline cell text (example: "Title:\\nDate:"), the client may convert it to full table markdown automatically, but returning full markdown table is preferred.',
         '- For list insertion in the middle of an existing list, return list markdown that includes the existing target item followed by inserted item(s), each on its own list line.',
         '- If the target paragraph is in an ordered list, preserve ordered markers for inserted lines (for example use "2.2.1."), not bullet markers.',
@@ -860,6 +861,7 @@ async function applyChatOperations(zip, operations, author, editModeValue = EDIT
     const runtimeContext = {
         numberingIdState: await createNumberingIdState(zip),
         targetRefSnapshot: buildTargetReferenceSnapshot(snapshotDoc),
+        tableStructuralRedlineKeys: new Set(),
         listFallbackSharedNumIdByKey: new Map(),
         listFallbackSequenceState: {
             explicitByNumberingKey: new Map()

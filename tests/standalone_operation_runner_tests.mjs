@@ -1,7 +1,7 @@
 import './setup-xml-provider.mjs';
 
 import assert from 'assert';
-import { getParagraphText } from '../src/taskpane/modules/reconciliation/standalone.js';
+import { buildTargetReferenceSnapshot, getParagraphText } from '../src/taskpane/modules/reconciliation/standalone.js';
 import { applyOperationToDocumentXml } from '../src/taskpane/modules/reconciliation/services/standalone-operation-runner.js';
 
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
@@ -34,6 +34,21 @@ function buildNumberedListDocumentXml(items, numId = '77') {
 <w:document xmlns:w="${NS_W}">
   <w:body>
     ${paragraphs}
+    <w:sectPr/>
+  </w:body>
+</w:document>`;
+}
+
+function buildTwoColumnTitleTableDocumentXml() {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="${NS_W}">
+  <w:body>
+    <w:tbl>
+      <w:tr>
+        <w:tc><w:p><w:r><w:t>Title:</w:t></w:r></w:p></w:tc>
+        <w:tc><w:p><w:r><w:t>Title:</w:t></w:r></w:p></w:tc>
+      </w:tr>
+    </w:tbl>
     <w:sectPr/>
   </w:body>
 </w:document>`;
@@ -527,6 +542,59 @@ async function testFormatOnlyRedlineFallsBackToOoxmlWhenNoSpansAreExtractable() 
     );
 }
 
+async function testDuplicateTableStructuralOpsAreDedupedPerTurn() {
+    const inputXml = buildTwoColumnTitleTableDocumentXml();
+    const snapshotDoc = parseXmlStrict(inputXml, 'table dedupe snapshot');
+    const runtimeContext = {
+        targetRefSnapshot: buildTargetReferenceSnapshot(snapshotDoc),
+        tableStructuralRedlineKeys: new Set()
+    };
+
+    const opA = {
+        type: 'redline',
+        targetRef: 'P1',
+        target: 'Title:',
+        modified: 'Title:\nDate:'
+    };
+    const opB = {
+        type: 'redline',
+        targetRef: 'P2',
+        target: 'Title:',
+        modified: 'Title:\nDate:'
+    };
+
+    const stepA = await applyOperationToDocumentXml(
+        inputXml,
+        opA,
+        'StandaloneRunnerTest',
+        runtimeContext,
+        {
+            generateRedlines: true
+        }
+    );
+    assert.strictEqual(stepA.hasChanges, true, 'first table-structural op should apply');
+
+    const stepB = await applyOperationToDocumentXml(
+        stepA.documentXml,
+        opB,
+        'StandaloneRunnerTest',
+        runtimeContext,
+        {
+            generateRedlines: true
+        }
+    );
+    assert.strictEqual(
+        stepB.hasChanges,
+        false,
+        'duplicate table-structural op in the same turn should be skipped'
+    );
+    assert.strictEqual(
+        (stepB.warnings || []).some(w => String(w).includes('duplicate table-structural redline')),
+        true,
+        'dedupe skip should emit a warning'
+    );
+}
+
 async function run() {
     await testRedlineOperation();
     await testCommentOperation();
@@ -539,6 +607,7 @@ async function run() {
     await testFormatOnlyRedlineWithAllTextInsideInsertionWrapper();
     await testFormatOnlyRedlineRematchesWhenRefParagraphDrifts();
     await testFormatOnlyRedlineFallsBackToOoxmlWhenNoSpansAreExtractable();
+    await testDuplicateTableStructuralOpsAreDedupedPerTurn();
     console.log('PASS: standalone operation runner tests');
 }
 

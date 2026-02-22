@@ -73,6 +73,30 @@ function getDirectWordChild(element, localName) {
     ) || null;
 }
 
+function computeTableIndexInDocument(xmlDoc, tableElement) {
+    if (!xmlDoc || !tableElement) return null;
+    const tables = Array.from(xmlDoc.getElementsByTagNameNS(NS_W, 'tbl'));
+    const idx = tables.indexOf(tableElement);
+    return idx >= 0 ? idx + 1 : null;
+}
+
+function normalizeMultilineTableStructuralPayload(text) {
+    return String(text || '')
+        .replace(/\r\n/g, '\n')
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean)
+        .join('\n');
+}
+
+function computeTableStructuralDedupeKey(xmlDoc, containingTable, modifiedText) {
+    const tableIndex = computeTableIndexInDocument(xmlDoc, containingTable);
+    if (!Number.isInteger(tableIndex) || tableIndex < 1) return null;
+    const normalizedPayload = normalizeMultilineTableStructuralPayload(modifiedText);
+    if (!normalizedPayload) return null;
+    return `table:${tableIndex}|payload:${normalizedPayload}`;
+}
+
 function getNextTrackedChangeId(xmlDoc) {
     let maxId = 999;
     const revisionNodes = [
@@ -735,6 +759,26 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
     const targetParagraph = resolved.paragraph;
     const currentParagraphText = getParagraphText(targetParagraph).trim();
     const containingTable = findContainingWordElement(targetParagraph, 'tbl');
+    const rawTableStructuralCandidate = !!containingTable
+        && !targetEndRef
+        && typeof modifiedText === 'string'
+        && modifiedText.includes('\n')
+        && !isMarkdownTableText(modifiedText);
+    const rawTableStructuralDedupeKey = rawTableStructuralCandidate
+        ? computeTableStructuralDedupeKey(xmlDoc, containingTable, modifiedText)
+        : null;
+    const tableStructuralDedupes = runtimeContext?.tableStructuralRedlineKeys instanceof Set
+        ? runtimeContext.tableStructuralRedlineKeys
+        : null;
+    if (rawTableStructuralDedupeKey && tableStructuralDedupes?.has(rawTableStructuralDedupeKey)) {
+        onInfo('[Table] Skipping duplicate table-structural redline for the same table/payload in this turn.');
+        return {
+            documentXml,
+            hasChanges: false,
+            numberingXml: null,
+            warnings: ['Skipped duplicate table-structural redline in the same turn.']
+        };
+    }
     const synthesizedTableMarkdown = containingTable
         ? synthesizeTableMarkdownFromMultilineCellEdit(targetParagraph, modifiedText, {
             tableElement: containingTable,
@@ -1010,6 +1054,9 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
         if (scopeNode && scopeNode.parentNode === parent) parent.removeChild(scopeNode);
     }
     normalizeBodySectionOrder(xmlDoc);
+    if (rawTableStructuralDedupeKey && tableStructuralDedupes && (useTableScope || containingTable)) {
+        tableStructuralDedupes.add(rawTableStructuralDedupeKey);
+    }
     return { documentXml: serializer.serializeToString(xmlDoc), hasChanges: true, numberingXml };
 }
 
