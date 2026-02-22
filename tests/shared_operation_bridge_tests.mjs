@@ -9,6 +9,7 @@ import {
     extractReplacementNodesFromOoxml,
     getParagraphText
 } from '../src/taskpane/modules/reconciliation/standalone.js';
+import { buildDocumentFragmentPackage } from '../src/taskpane/modules/reconciliation/services/package-builder.js';
 
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
@@ -170,12 +171,60 @@ async function testParagraphRedlineBridgePreservesDirectListBinding() {
     assert.strictEqual(pPrChange, null, 'output paragraph should remove stale pPrChange list metadata');
 }
 
+async function testParagraphRedlineBridgeFromPackageInputStaysSingleParagraph() {
+    const paragraphXml = `
+<w:p xmlns:w="${NS_W}">
+  <w:pPr>
+    <w:pStyle w:val="ListParagraph"/>
+    <w:numPr>
+      <w:ilvl w:val="1"/>
+      <w:numId w:val="99"/>
+    </w:numPr>
+  </w:pPr>
+  <w:r><w:t>The Receiving Party's legal counsel may retain one (1) copy.</w:t></w:r>
+</w:p>`.trim();
+    const packageInput = buildDocumentFragmentPackage(paragraphXml, { appendTrailingParagraph: true });
+
+    const result = await applySharedOperationToParagraphOoxml(
+        packageInput,
+        {
+            type: 'redline',
+            targetRef: 'P1',
+            target: "The Receiving Party's legal counsel may retain one (1) copy.",
+            modified: "The Receiving Party's legal counsel may retain two (2) copies."
+        },
+        {
+            author: 'BridgeTest',
+            generateRedlines: true
+        }
+    );
+
+    assert.strictEqual(result.hasChanges, true, 'paragraph redline bridge (package input) should report changes');
+    assert.strictEqual(
+        result.singleParagraphOutput,
+        true,
+        'paragraph redline bridge (package input) should stay single-paragraph for simple list-item edits'
+    );
+
+    const extracted = extractReplacementNodesFromOoxml(result.packageOoxml || '');
+    const outputParagraphs = (extracted.replacementNodes || []).filter(
+        node => node && node.namespaceURI === NS_W && node.localName === 'p'
+    );
+    assert.strictEqual(outputParagraphs.length, 1, 'package output should contain only one paragraph for simple list-item edits');
+    assert.strictEqual(
+        getParagraphText(outputParagraphs[0]).trim(),
+        "The Receiving Party's legal counsel may retain two (2) copies.",
+        'package output should contain the edited list-item text'
+    );
+}
+
 async function run() {
     await testHighlightBridge();
     await testCommentBridge();
     await testRedlineScopeBridge();
     await testRedlineScopeBridgePreservesTableNodes();
     await testParagraphRedlineBridgePreservesDirectListBinding();
+    await testParagraphRedlineBridgeFromPackageInputStaysSingleParagraph();
     console.log('PASS: shared operation bridge tests');
 }
 

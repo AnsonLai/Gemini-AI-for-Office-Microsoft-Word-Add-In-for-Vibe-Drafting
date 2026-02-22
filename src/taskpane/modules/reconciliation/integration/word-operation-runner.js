@@ -8,6 +8,7 @@
 import { createParser, createSerializer } from '../adapters/xml-adapter.js';
 import {
     enforceListBindingOnParagraphNodes,
+    getParagraphText,
     extractReplacementNodesFromOoxml,
     normalizeBodySectionOrderStandalone
 } from '../standalone.js';
@@ -107,6 +108,28 @@ function extractBodyChildElements(xmlDoc) {
     );
 }
 
+function normalizeTextForParagraphSelection(text) {
+    return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+function selectParagraphNodesForParagraphScope(paragraphNodes, operation) {
+    if (!Array.isArray(paragraphNodes) || paragraphNodes.length === 0) return [];
+    if (paragraphNodes.length === 1) return [paragraphNodes[0]];
+
+    const normalizedTarget = normalizeTextForParagraphSelection(operation?.target);
+    if (normalizedTarget) {
+        const exactMatch = paragraphNodes.find(node =>
+            normalizeTextForParagraphSelection(getParagraphText(node)) === normalizedTarget
+        );
+        if (exactMatch) return [exactMatch];
+    }
+
+    const firstNonEmpty = paragraphNodes.find(node =>
+        normalizeTextForParagraphSelection(getParagraphText(node)).length > 0
+    );
+    return [firstNonEmpty || paragraphNodes[0]];
+}
+
 /**
  * Applies a shared standalone operation against paragraph OOXML.
  *
@@ -127,9 +150,13 @@ export async function applySharedOperationToParagraphOoxml(paragraphOoxml, opera
     if (!paragraphNodes || paragraphNodes.length === 0) {
         throw new Error('No paragraph nodes found in paragraph OOXML');
     }
-    const sourceDirectListInfo = getDirectParagraphListInfo(paragraphNodes[0]);
+    const scopedParagraphNodes = selectParagraphNodesForParagraphScope(paragraphNodes, operation);
+    if (!scopedParagraphNodes || scopedParagraphNodes.length === 0) {
+        throw new Error('Unable to isolate target paragraph node for shared operation');
+    }
+    const sourceDirectListInfo = getDirectParagraphListInfo(scopedParagraphNodes[0]);
 
-    const inputDocumentXml = wrapParagraphNodesAsDocument(paragraphNodes);
+    const inputDocumentXml = wrapParagraphNodesAsDocument(scopedParagraphNodes);
     const runner = typeof options.runner === 'function' ? options.runner : applyOperationToDocumentXml;
     const result = await runner(
         inputDocumentXml,
