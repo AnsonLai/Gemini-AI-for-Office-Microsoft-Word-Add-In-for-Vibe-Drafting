@@ -183,6 +183,7 @@ function serializeParagraphRangeAsDocument(paragraphs, serializer) {
 }
 
 const LIST_LINE_REGEX = /^(\s*)((?:\d+(?:\.\d+)*\.?|\((?:\d+|[a-zA-Z]|[ivxlcIVXLC]+)\)|[a-zA-Z]\.|[ivxlcIVXLC]+\.|[-*+\u2022]))\s+(.*)$/;
+const INLINE_LIST_MARKER_REGEX = /(?:^|\s)(?:\d+(?:\.\d+)*\.?|[A-Za-z]\.|[ivxlcIVXLC]+\.)\s+/g;
 
 function parseOutlineLevelFromMarker(marker) {
     const normalized = String(marker || '').trim();
@@ -330,18 +331,35 @@ function countWords(text) {
         .length;
 }
 
+function hasMultipleInlineListMarkers(text) {
+    const source = String(text || '');
+    if (!source) return false;
+
+    let count = 0;
+    const regex = new RegExp(INLINE_LIST_MARKER_REGEX.source, INLINE_LIST_MARKER_REGEX.flags);
+    while (regex.exec(source)) {
+        count += 1;
+        if (count >= 2) return true;
+    }
+    return false;
+}
+
 function deriveSingleParagraphListAdjacencyInsertion(currentParagraphText, modifiedText) {
     const rawCurrent = String(currentParagraphText || '').trim();
     const rawModified = String(modifiedText || '').trim();
     if (!rawCurrent || !rawModified || rawModified === rawCurrent) return null;
     if (rawModified.includes('\n')) return null;
+    const normalizedCurrent = normalizeWhitespaceForTargeting(rawCurrent);
 
     const minWords = 6;
     const sanitizeCandidate = text => stripRedundantLeadingListMarkers(String(text || '').trim()).trim();
     const buildCandidate = (position, text) => {
         const cleanedText = sanitizeCandidate(text);
+        const cleanedNormalized = normalizeWhitespaceForTargeting(cleanedText);
         if (!cleanedText || cleanedText === rawCurrent) return null;
         if (countWords(cleanedText) < minWords) return null;
+        if (hasMultipleInlineListMarkers(cleanedText)) return null;
+        if (normalizedCurrent && cleanedNormalized.includes(normalizedCurrent)) return null;
         return { position, text: cleanedText };
     };
 
@@ -357,7 +375,6 @@ function deriveSingleParagraphListAdjacencyInsertion(currentParagraphText, modif
         if (candidate) return candidate;
     }
 
-    const normalizedCurrent = normalizeWhitespaceForTargeting(rawCurrent);
     const normalizedModified = normalizeWhitespaceForTargeting(rawModified);
     if (!normalizedCurrent || normalizedCurrent === normalizedModified) return null;
 

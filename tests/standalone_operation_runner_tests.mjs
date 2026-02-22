@@ -233,6 +233,55 @@ async function testSingleParagraphListConcatenationUsesSurgicalInsertion() {
     assert.strictEqual(revisionInserts, 1, 'adjacency insertion should emit exactly one inserted revision');
 }
 
+async function testSingleParagraphListConcatenationWithInlineMarkersDoesNotInsertExtraItem() {
+    const existingItems = [
+        'The Disclosing Party possesses certain confidential, proprietary, and trade secret information.',
+        'The Parties desire to enter into a potential business relationship or transaction (the “Purpose”), which requires the Disclosing Party to disclose certain Confidential Information (as defined below) to the Receiving Party.',
+        'The Receiving Party agrees to receive and treat such Confidential Information in confidence, subject to the terms and conditions of this Agreement.'
+    ];
+    const inputXml = buildNumberedListDocumentXml(existingItems);
+    const malformedMergedEdit = [
+        'A. The Disclosing Party possesses certain confidential, proprietary, and trade secret information.',
+        'B. The Parties desire to enter into a potential business relationship or transaction (the “Purpose”), which requires the Disclosing Party to disclose certain Confidential Information (as defined below) to the Receiving Party.',
+        'C. The Receiving Party agrees to receive and treat such Confidential Information in confidence, subject to the terms and conditions of this Agreement.',
+        existingItems[0]
+    ].join(' ');
+
+    const logs = [];
+    const result = await applyOperationToDocumentXml(
+        inputXml,
+        {
+            type: 'redline',
+            target: existingItems[0],
+            targetRef: 'P1',
+            modified: malformedMergedEdit
+        },
+        'StandaloneRunnerTest',
+        null,
+        {
+            generateRedlines: true,
+            onInfo: message => logs.push(String(message)),
+            onWarn: message => logs.push(String(message))
+        }
+    );
+
+    assert.strictEqual(result.hasChanges, true, 'malformed single-paragraph list edit should still report changes');
+    assert.strictEqual(
+        logs.some(message => message.includes('single-paragraph list adjacency insertion heuristic')),
+        false,
+        'malformed inline list markers should not trigger adjacency insertion heuristic'
+    );
+
+    const resultDoc = parseXmlStrict(result.documentXml, 'single paragraph malformed list edit output');
+    const paragraphs = Array.from(resultDoc.getElementsByTagNameNS(NS_W, 'p'));
+    const paragraphTexts = paragraphs.map(paragraph => getParagraphText(paragraph)).filter(Boolean);
+    assert.strictEqual(
+        paragraphTexts.length,
+        3,
+        'malformed single-paragraph list edit should not insert an extra list paragraph'
+    );
+}
+
 async function testPlainParagraphInsertionBeforeTargetCreatesSeparateParagraph() {
     const original = 'NON-DISCLOSURE AGREEMENT';
     const insertedMarkdown = '**INSTRUCTIONS:** Please review this Non-Disclosure Agreement carefully.';
@@ -600,6 +649,7 @@ async function run() {
     await testCommentOperation();
     await testRangeListRedlineDoesNotDuplicateExistingItems();
     await testSingleParagraphListConcatenationUsesSurgicalInsertion();
+    await testSingleParagraphListConcatenationWithInlineMarkersDoesNotInsertExtraItem();
     await testPlainParagraphInsertionBeforeTargetCreatesSeparateParagraph();
     await testFormatOnlyRedlineWithTrackedWrapperStillApplies();
     await testTextToTableWithoutHeaderSeparatorPreservesAllRows();

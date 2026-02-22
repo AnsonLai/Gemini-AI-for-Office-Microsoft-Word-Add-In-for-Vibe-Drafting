@@ -73,6 +73,68 @@ function isSymmetricLabelRow(rowValues) {
 }
 
 /**
+ * Heuristic detector for paragraphs likely belonging to a table-source block.
+ *
+ * @param {string} text - Paragraph text
+ * @returns {boolean}
+ */
+export function isLikelyStructuredTableSourceParagraph(text) {
+    const normalized = String(text || '').trim();
+    if (!normalized) return false;
+    if (/^and$/i.test(normalized)) return true;
+    if (/^\[.*\]$/.test(normalized)) return true;
+    if (/^\(.*\)$/.test(normalized)) return true;
+    if (/:\s*$/.test(normalized)) return true;
+    if (normalized.length <= 90 && !/[.!?]$/.test(normalized) && /[:\[\]()]/.test(normalized)) return true;
+    if (/^[\[(]/.test(normalized)) return true;
+    return false;
+}
+
+/**
+ * Infers a contiguous paragraph block for table conversion starting from a paragraph.
+ *
+ * @param {Element|null} startParagraph - Starting w:p node
+ * @param {Object} [options={}] - Inference options
+ * @param {number} [options.maxScan=10] - Max sibling paragraphs to inspect
+ * @param {(paragraph: Element) => string} [options.getParagraphText] - Optional text getter
+ * @returns {Element[]|null}
+ */
+export function inferTableReplacementParagraphBlock(startParagraph, options = {}) {
+    const maxScan = Number.isInteger(options?.maxScan) && options.maxScan > 0 ? options.maxScan : 10;
+    const paragraphTextGetter = typeof options?.getParagraphText === 'function'
+        ? options.getParagraphText
+        : getParagraphText;
+
+    if (!startParagraph || !startParagraph.parentNode) return null;
+
+    const block = [startParagraph];
+    let cursor = startParagraph.nextSibling;
+    let scanned = 0;
+
+    while (cursor && scanned < maxScan) {
+        scanned += 1;
+        const nextCursor = cursor.nextSibling;
+        if (cursor.nodeType !== 1 || cursor.namespaceURI !== WORD_MAIN_NS || cursor.localName !== 'p') {
+            cursor = nextCursor;
+            continue;
+        }
+
+        const text = String(paragraphTextGetter(cursor) || '').trim();
+        if (!text) {
+            if (block.length > 1) break;
+            cursor = nextCursor;
+            continue;
+        }
+
+        if (!isLikelyStructuredTableSourceParagraph(text)) break;
+        block.push(cursor);
+        cursor = nextCursor;
+    }
+
+    return block.length > 1 ? block : null;
+}
+
+/**
  * Builds full-table markdown when a table-cell redline uses multiline text.
  *
  * Heuristic:

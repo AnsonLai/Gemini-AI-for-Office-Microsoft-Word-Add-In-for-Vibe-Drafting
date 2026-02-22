@@ -446,3 +446,56 @@ export function resolveTargetParagraphWithSnapshot(xmlDoc, options = {}) {
 
     return resolved;
 }
+
+/**
+ * Resolves a contiguous paragraph range using paragraph references.
+ *
+ * @param {Document} xmlDoc - XML document
+ * @param {string|number|null} startRef - Start paragraph reference (e.g. P12)
+ * @param {string|number|null} endRef - End paragraph reference (e.g. P15)
+ * @param {Object} [options={}] - Resolution options
+ * @param {string} [options.opType='redline'] - Operation type hint
+ * @param {Array|null} [options.targetRefSnapshot=null] - Optional target snapshot
+ * @param {(message: string) => void} [options.onInfo] - Optional info logger
+ * @param {(message: string) => void} [options.onWarn] - Optional warn logger
+ * @returns {Element[]|null}
+ */
+export function resolveParagraphRangeByRefs(xmlDoc, startRef, endRef, options = {}) {
+    if (!xmlDoc || !startRef || !endRef) return null;
+
+    const opType = options?.opType || 'redline';
+    const targetRefSnapshot = options?.targetRefSnapshot || null;
+    const onInfo = typeof options?.onInfo === 'function' ? options.onInfo : () => { };
+    const onWarn = typeof options?.onWarn === 'function' ? options.onWarn : () => { };
+
+    const start = resolveTargetParagraphWithSnapshot(xmlDoc, {
+        targetRef: startRef,
+        opType,
+        targetRefSnapshot,
+        onInfo,
+        onWarn
+    })?.paragraph;
+    if (!start) return null;
+
+    const end = resolveTargetParagraphWithSnapshot(xmlDoc, {
+        targetRef: endRef,
+        opType,
+        targetRefSnapshot,
+        onInfo,
+        onWarn
+    })?.paragraph;
+    if (!end) return null;
+
+    const allParagraphs = Array.from(xmlDoc.getElementsByTagNameNS('*', 'p'));
+    const startIdx = allParagraphs.indexOf(start);
+    const endIdx = allParagraphs.indexOf(end);
+    if (startIdx < 0 || endIdx < startIdx) return null;
+
+    const range = allParagraphs.slice(startIdx, endIdx + 1);
+    if (range.length === 0) return null;
+
+    const parent = range[0]?.parentNode || null;
+    if (!parent) return null;
+    if (!range.every(node => node && node.parentNode === parent)) return null;
+    return range;
+}

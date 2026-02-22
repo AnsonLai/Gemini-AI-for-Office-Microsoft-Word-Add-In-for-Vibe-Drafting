@@ -41,9 +41,14 @@ export {
     findParagraphByBestTextMatch,
     resolveTargetParagraph,
     buildTargetReferenceSnapshot,
-    resolveTargetParagraphWithSnapshot
+    resolveTargetParagraphWithSnapshot,
+    resolveParagraphRangeByRefs
 } from './core/paragraph-targeting.js';
-export { synthesizeTableMarkdownFromMultilineCellEdit } from './core/table-targeting.js';
+export {
+    synthesizeTableMarkdownFromMultilineCellEdit,
+    inferTableReplacementParagraphBlock,
+    isLikelyStructuredTableSourceParagraph
+} from './core/table-targeting.js';
 export {
     getParagraphListInfo,
     collectContiguousListParagraphBlock,
@@ -112,10 +117,5 @@ export {
 } from './orchestration/redline-operation-converter.js';
 
 // Shared standalone helpers (Word-agnostic)
-export {
-    reconcileMarkdownTableOoxml,
-    isLikelyStructuredTableSourceParagraph,
-    inferTableReplacementParagraphBlock,
-    resolveParagraphRangeByRefs
-} from './standalone.js';
+export { reconcileMarkdownTableOoxml } from './standalone.js';
 
