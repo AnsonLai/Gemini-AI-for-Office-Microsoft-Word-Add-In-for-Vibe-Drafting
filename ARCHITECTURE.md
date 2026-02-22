@@ -1,131 +1,67 @@
-# System Architecture & Project Map
+# System Architecture and Project Map
 
-> Role: **System understanding** and technical design map for the host-agnostic OOXML engine and its runtimes.
+Role: System map for the host-agnostic OOXML reconciliation core and its runtime consumers.
 
-## Project Map (The GSD Multi-Project Vision)
+## Project Map
 
-This repository serves as a mono-repo for a suite of tools built around a common **OOXML Reconciliation Core**.
-
-```mermaid
-graph TD
-    Core[Reconciliation Core\n/src/taskpane/modules/reconciliation] --> Word[Word Add-in\n/src/taskpane]
-    Core --> Demo[Browser Demo\n/browser-demo]
-    Core --> MCP[MCP Server\n/mcp/docx-server]
-    
-    style Core fill:#f9f,stroke:#333,stroke-width:4px
-```
-
-### Sub-Projects
-1. **[Reconciliation Core](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/src/taskpane/modules/reconciliation)**: The host-independent engine for `.docx` manipulation. No Office.js dependencies.
-2. **[Word Add-in](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/src/taskpane)**: The Microsoft Word implementation. Acts as the primary host.
-3. **[Browser Demo](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/browser-demo)**: Client-side demonstration. Reuses `standalone.js`, handles package-level artifacts (numbering, comments), and validates output package consistency via JSZip.
-4. **[MCP Server](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/mcp/docx-server)**: Node.js automation tool. Uses the same standalone entrypoint to edit paragraphs and annotate documents without a Word host.
-
-> [!TIP]
-> **Cross-Environment Validation**: Demo environments are critical for validating reconciliation changes independently of Word's runtime constraints.
-
----
-
-# Detailed Architecture: OOXML Reconciliation
-
-This document outlines the architectural logic of the **Gemini AI for Office Word Add-in**, with a deep dive into the **OOXML Reconciliation Engine**.
-
-## High-Level Architecture
-
-The system follows a **Chat-Centric** architecture where the Taskpane acts as the orchestrator between the User, the Word Document (via Office.js), and the Gemini API.
+This repository hosts multiple projects around one reusable core package.
 
 ```mermaid
 graph TD
-    User[User Input] --> Taskpane[Taskpane.js]
-    Taskpane --> Context[Context Extraction]
-    Context --> Word[Word Document]
-    Taskpane --> Gemini[Gemini API]
-    Gemini --> Tools[Tool Definitions (JSON)]
-    Gemini --Function Call--> Taskpane
-    Taskpane --> Agentic[Agentic Tools]
-    Agentic --> Logic[Decision Logic]
-    Logic --Text/List/Table--> OOXML[OOXML Engine]
-    Logic --Surgical Format--> rPrChange[w:rPrChange Engine]
-    OOXML --> Word
-    rPrChange --> Word
+    Core[@gsd/docx-reconciliation\nsrc/taskpane/modules/reconciliation] --> Word[Word Add-in\nsrc/taskpane]
+    Core --> Demo[Browser Demo\nbrowser-demo]
+    Core --> MCP[MCP docx server\nmcp/docx-server]
 ```
 
----
+## Subprojects
 
-## 1. The OOXML Reconciliation Engine (`src/taskpane/modules/reconciliation/`)
+1. `src/taskpane/modules/reconciliation`: package-ready host-agnostic OOXML core.
+2. `src/taskpane`: Word add-in host and add-in-only integration surface.
+3. `browser-demo`: browser runtime for manual validation and demo workflows.
+4. `mcp/docx-server`: Node runtime exposing reconciliation as MCP tools.
 
-The core of the project is a portable engine that converts AI-generated Markdown into valid Office Open XML (Word) structures while preserving formatting and generating precise "Track Changes" (Redlines).
+## Core Boundary and Entrypoints
 
-### Hybrid Operating Modes
+The core package entrypoint layout is now:
 
-The engine (`oxml-engine.js`) automatically selects the best strategy based on the operation:
+- Primary host-agnostic entrypoint: `src/taskpane/modules/reconciliation/index.js`
+- Compatibility alias (deprecated): `src/taskpane/modules/reconciliation/standalone.js`
+- Add-in-local entrypoint: `src/taskpane/modules/reconciliation/word-addin-entry.js`
 
-| Mode | Trigger | Focus |
-|------|---------|-------|
-| **FORMAT-ONLY** | Text unchanged, has formatting | Surgical Bold, Italic, etc. via `w:rPrChange`. |
-| **FORMAT-REMOVAL** | Clear formatting requested | Explicitly emits "OFF" attributes (e.g., `w:b w:val="0"`). |
-| **SURGICAL** | Existing tables/structure detected | In-place edits that preserve node integrity. |
-| **RECONSTRUCTION** | Standard text edits | Rebuilds paragraph via RunModel pipeline. |
-| **LIST EXPANSION** | Paragraph -> Markdown List | Generates `w:numPr` and list structure. |
-| **TABLE RECON** | Markdown Table input | Virtual Grid diffing for merged cell safety. |
-| **TEXT-TO-TABLE** | Markdown Table -> No Table | Generates a new `w:tbl` from markdown text. |
+`integration/` remains local to the add-in side and is intentionally excluded from the future published package.
 
-### The Reconciliation Pipeline (`pipeline.js`)
+## Import Path Conventions
 
-Used for text and list operations through a 5-stage process:
-1. **Ingestion**: Flattening OOXML into a linear `RunModel` with offset mapping.
-2. **Markdown Pre-processing**: Stripping markers and capturing `FormatHints`.
-3. **Word-Level Diffing**: Hashing words to unique characters for "native-looking" redlines.
-4. **Patching**: Splitting runs at boundaries and applying `keep`/`insert`/`delete` operations.
-5. **Serialization**: Reconstructing the XML from the patched `RunModel`.
+- Word add-in integration consumers import add-in entrypoint:
+  - `src/taskpane/modules/commands/agentic-tools.js` -> `../reconciliation/word-addin-entry.js`
+- Browser and Node host-agnostic consumers import primary core entrypoint:
+  - `browser-demo/demo.js` -> `../src/taskpane/modules/reconciliation/index.js`
+  - `mcp/docx-server/src/services/reconciliation-service.mjs` -> `../../../../src/taskpane/modules/reconciliation/index.js`
 
-### Key Architectural Concepts
+## Reconciliation Engine Overview
 
-#### Virtual Grid for Tables
-OOXML tables use sparse, row-based structures with complex merges (`vMerge`, `gridSpan`). We convert these into a flat **Virtual Grid** (2D array) for spatial reasoning before diffing, then re-calculate merges during serialization.
+The engine reconciles text/markdown edits into Word-compatible OOXML with track changes.
+Major paths include format-only, formatting removal, surgical edits, reconstruction, list generation, and table reconciliation.
 
-#### Surgical Property Modification (`w:rPrChange`)
-To ensure formatting changes appear as native Word formatting comments in the margin (e.g., "Formatted: Bold"), we inject delta snapshots into the `<w:rPr>` element instead of performing full text replacements.
+Pipeline stages:
 
-#### Table Cell Paragraph Handling (Unwrap/Rewrap)
-Word's API often returns the entire table when asking for a paragraph inside a cell. We surgically extract the target `w:p`, perform the edit, and wrap it back into a minimal package to avoid nesting tables unexpectedly.
+1. Ingestion
+2. Markdown preprocessing
+3. Word-level diffing
+4. Patching
+5. Serialization
 
----
+## Portability Status
 
-## 2. Portability Layer
+Core reconciliation code is now fully host-agnostic:
 
-The engine is designed to be **Host-Independent**:
-- **XML Utility**: Uses `DOMParser` in browsers and `@xmldom/xmldom` in Node.js.
-- **No Global Dependencies**: Core logic is isolated from `Office.js` globals.
-- **Standalone Entrypoint**: `standalone.js` provides the API for external consumers.
+- No required Office.js or Word API references in core package files.
+- Runtime defaults (author/platform) are caller-configurable via `adapters/config.js`.
+- Node hosts use `@xmldom/xmldom`; browser hosts use native DOM APIs.
 
-## 3. Implementation Workflow
+## Operational Guidance
 
-### For New Features
-1. **Prefer OOXML**: Always attempt OOXML-based manipulation first.
-2. **Consult [ROADMAP.md](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/ROADMAP.md)**: Check if a similar pattern is already implemented or planned.
-3. **Update Documentation**: Log architectural decisions in [STATE.md](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/STATE.md).
-
----
-
-## 4. Standalone Integration (`standalone.js`)
-
-The `standalone.js` entry point provides a host-agnostic API for non-Word environments (Browser Demo, MCP Server).
-
-### Key Features
-- **Normalization**: Automatically handles `useNativeApi` fallbacks. If the engine requests a Word-native operation, `standalone.js` intercepts it and returns the original OOXML with a warning, preventing runtime errors in non-Word hosts.
-- **Structural List Fallback**: Provides `applyRedlineToOxmlWithListFallback`. This detects if a redline is a no-op but contains list markers (e.g., "1. "), then forces a structural conversion to a real Word list.
-- **Utility Re-exports**: Centralizes access to:
-    - `configureXmlProvider`: For injecting `xmldom` or `jsdom`.
-    - `paragraph-targeting`: For resolving `[P#]` indices in arbitrary XML documents.
-    - `table-targeting`: For spatial reasoning about tables in flat text.
-
----
-
-## 5. Deep Dive Documentation
-
-For low-level implementation details of the reconciliation components, refer to the internal module documentation:
-
-- [Reconciliation Core Architecture](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/src/taskpane/modules/reconciliation/ARCHITECTURE.md): Detailed breakdown of `core`, `engine`, `pipeline`, and `services`.
-- [Pipeline Flow](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/src/taskpane/modules/reconciliation/ARCHITECTURE.md#pipeline-flow): 5-stage ingestion and patching lifecycle.
-- [List Integration](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/src/taskpane/modules/reconciliation/ARCHITECTURE.md#list-edit-integration-command-layer): How structural list conversion is handled in the command layer.
+1. Prefer OOXML-first implementations for document manipulation.
+2. Keep Word API usage in add-in integration modules only.
+3. Route new reusable logic into core package modules rather than command-layer duplication.
+4. Update `STATE.md`, `ROADMAP.md`, and `src/taskpane/modules/reconciliation/ARCHITECTURE.md` whenever boundaries or entrypoints change.

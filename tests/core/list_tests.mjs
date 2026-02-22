@@ -1,23 +1,23 @@
-import './setup-xml-provider.mjs';
+import '../setup-xml-provider.mjs';
 
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { ReconciliationPipeline } from '../src/taskpane/modules/reconciliation/pipeline/pipeline.js';
-import { NumberingService } from '../src/taskpane/modules/reconciliation/services/numbering-service.js';
-import { ingestOoxml } from '../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
-import { serializeToOoxml } from '../src/taskpane/modules/reconciliation/pipeline/serialization.js';
-import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
+import { ReconciliationPipeline } from '../../src/taskpane/modules/reconciliation/pipeline/pipeline.js';
+import { NumberingService } from '../../src/taskpane/modules/reconciliation/services/numbering-service.js';
+import { ingestOoxml } from '../../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
+import { serializeToOoxml } from '../../src/taskpane/modules/reconciliation/pipeline/serialization.js';
+import { applyRedlineToOxml } from '../../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
 import {
     resolveSingleLineListFallbackNumberingAction,
     recordSingleLineListFallbackExplicitSequence,
     clearSingleLineListFallbackExplicitSequence,
     enforceListBindingOnParagraphNodes
-} from '../src/taskpane/modules/reconciliation/index.js';
+} from '../../src/taskpane/modules/reconciliation/index.js';
 import {
     planListInsertionOnlyEdit,
     stripRedundantLeadingListMarkers
-} from '../src/taskpane/modules/reconciliation/core/list-targeting.js';
+} from '../../src/taskpane/modules/reconciliation/core/list-targeting.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -105,7 +105,7 @@ async function testSurgicalList() {
 // --- Test 3: Repro List Issue (from repro_list_issue.mjs) ---
 async function testReproListIssue() {
     console.log('\n=== Test: Repro List Issue (Numbering Reset) ===');
-    const DOC_PATH = path.join(__dirname, 'sample_doc/word/document.xml');
+    const DOC_PATH = path.join(__dirname, '../sample_doc/word/document.xml');
 
     try {
         let originalOoxml;
@@ -839,5 +839,6 @@ More text.`;
         console.log('❌ FAIL: Bullet List parsing failed');
     }
 }
+
 
 

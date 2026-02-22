@@ -1,4 +1,4 @@
-import './setup-xml-provider.mjs';
+import '../setup-xml-provider.mjs';
 
 /**
  * Integration Tests
@@ -10,12 +10,12 @@ import './setup-xml-provider.mjs';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
-import { ingestOoxml } from '../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
+import { applyRedlineToOxml } from '../../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
+import { ingestOoxml } from '../../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
 
 // --- Config ---
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DOC_PATH = path.join(__dirname, 'sample_doc/word/document.xml');
+const DOC_PATH = path.join(__dirname, '../sample_doc/word/document.xml');
 
 // --- Helper Functions ---
 async function readSampleDoc() {
@@ -276,4 +276,5 @@ async function runRedlineToggleTests() {
     await runRedlineToggleTests();
     console.log('\nALL INTEGRATION TESTS COMPLETE.');
 })();
+
 

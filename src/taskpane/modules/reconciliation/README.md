@@ -1,37 +1,89 @@
-# Reconciliation Module
+# @gsd/docx-reconciliation (in-repo prep package)
 
-Use this folder for all OOXML reconciliation logic.
+Host-agnostic OOXML reconciliation engine for `.docx` manipulation with track changes support.
 
-- Public API for add-in/internal: `index.js`
-- Public API for standalone environments: `standalone.js`
+- Primary entrypoint: `index.js`
+- Compatibility alias: `standalone.js` (deprecated for new imports)
+- Add-in-local entrypoint: `word-addin-entry.js` (not for package publish)
 - Architecture guide: `ARCHITECTURE.md`
 
-Core code is organized by concern:
+## Quick Start
 
-- `adapters/` runtime adapters (`xml-adapter`, `logger`)
-- `core/` shared types/constants + revision/offset/XML-query policy helpers
-  - includes OOXML identifier extraction utilities
-- `engine/` router + mode implementations
-  - includes focused formatting helpers (`format-paragraph-targeting`, `format-span-application`)
-- `pipeline/` run-model reconciliation pipeline stages + shared list marker parser
-  - includes hot-path indexed patch lookups for diff application
-  - includes `ingestion-export.js` for Word OOXML -> readable plain text and basic markdown (`ingestWordOoxmlToPlainText`, `ingestWordOoxmlToMarkdown`)
-- `services/` table/comment/numbering services + shared package/plumbing helpers
-  - includes `standalone-docx-plumbing.js` for OOXML output extraction, package artifact wiring, and package-level validation used by standalone/browser hosts
-  - includes `standalone-operation-runner.js` for applying `redline`/`highlight`/`comment` operations to full `word/document.xml` payloads with shared targeting heuristics (explicit range and single-paragraph concatenation list cases use surgical insertion-only handling to preserve list binding/numbering style)
-  - standalone runner target resolution supports `targetRef` + text fallback (strict/fuzzy), including turn-snapshot drift correction for multi-operation turns
-- `orchestration/` Word-agnostic planning helpers for command adapters
-  - includes shared markdown list parsing, list markdown builders, list-item normalization helpers, and single-line structural list fallback helpers
-- `integration/` Word API bridge + shared Word-only OOXML interop helpers
-  - includes legacy structured-list insertion fallback helpers extracted from command layer
-  - includes shared paragraph route/apply helper (`word-route-change.js`) used by command adapters
-  - includes canonical Word shared-operation adapter (`integration/word-operation-runner.js`) used directly by migrated command tools (no command-layer bridge shim)
+```js
+import { configureXmlProvider, setDefaultAuthor, setPlatform, applyRedlineToOxml } from './index.js';
+import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 
-Formatting behavior note:
+configureXmlProvider({ DOMParser, XMLSerializer });
+setDefaultAuthor('My Agent');
+setPlatform('Node');
 
-- Format-only redlines that cannot be localized surgically by span extraction now retry through OOXML reconstruction fallback in the shared engine before standalone native-fallback normalization is considered.
+const result = await applyRedlineToOxml(
+  paragraphOoxml,
+  'Original sentence.',
+  'Updated sentence.',
+  { generateRedlines: true }
+);
 
-Useful standalone/add-in ingestion exports:
+console.log(result.hasChanges, result.oxml);
+```
 
-- `ingestWordOoxmlToPlainText(ooxml)` strips OOXML tags and returns readable paragraph-structured text
-- `ingestWordOoxmlToMarkdown(ooxml)` returns a basic markdown projection (headings, bold/italic runs, obvious bullets/numbering)
+## API Overview
+
+- Engine APIs
+  - `applyRedlineToOxml`
+  - `applyRedlineToOxmlWithListFallback`
+  - `reconcileMarkdownTableOoxml`
+- Pipeline APIs
+  - `ReconciliationPipeline`
+  - `ingestWordOoxmlToPlainText`
+  - `ingestWordOoxmlToMarkdown`
+- Service APIs
+  - `generateTableOoxml`
+  - comment injection helpers
+  - numbering helpers in `services/numbering-helpers.js`
+  - package/plumbing helpers in `services/standalone-docx-plumbing.js`
+- Orchestration APIs
+  - `buildReconciliationPlan`
+  - list parsing/markdown/fallback helpers in `orchestration/*`
+
+## Configuration
+
+- `configureXmlProvider({ DOMParser, XMLSerializer })`
+  - Required in Node.js runtimes; optional in browsers that already provide DOM APIs.
+- `configureLogger({ log, warn, error })`
+  - Inject host logger for diagnostics.
+- `setDefaultAuthor(author)` and `getDefaultAuthor()`
+  - Controls fallback track-change author metadata.
+- `setPlatform(platform)` and `getPlatform()`
+  - Host-provided platform label used by metadata and diagnostics.
+
+## Hosting Guidance
+
+- Node.js
+  - Install and provide `@xmldom/xmldom` to `configureXmlProvider`.
+  - Use package/plumbing helpers when editing full `.docx` archives.
+- Browser
+  - Native `DOMParser` and `XMLSerializer` are usually enough.
+  - Use the same host-agnostic entrypoint (`index.js`).
+- Word add-in
+  - Import add-in integration APIs from `word-addin-entry.js`.
+  - Keep Office.js usage in add-in modules, not in core package modules.
+
+## Browser Demo Minimal Example
+
+The browser demo uses the core package plus a host orchestration layer:
+
+1. Read `word/document.xml` from a `.docx` zip (for example with JSZip).
+2. Run reconciliation APIs from `index.js`.
+3. Apply package helpers:
+   - `extractReplacementNodesFromOoxml`
+   - `ensureNumberingArtifactsInZip`
+   - `ensureCommentsArtifactsInZip`
+   - `validateDocxPackage`
+4. Write updated XML and package artifacts back to the zip.
+
+Reference implementation: `browser-demo/demo.js`.
+
+## Architecture
+
+See `src/taskpane/modules/reconciliation/ARCHITECTURE.md` for module boundaries, flow, and contributor orientation.

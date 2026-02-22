@@ -2,7 +2,7 @@ import assert from 'assert';
 import {
     applySubstringSearchReplace,
     toScopedSharedRedlineOperation
-} from '../src/taskpane/modules/commands/redline-operation-converter.js';
+} from '../../src/taskpane/modules/commands/redline-operation-converter.js';
 
 function testSubstringReplacementExact() {
     const result = applySubstringSearchReplace(
@@ -122,3 +122,4 @@ function run() {
 }
 
 run();
+

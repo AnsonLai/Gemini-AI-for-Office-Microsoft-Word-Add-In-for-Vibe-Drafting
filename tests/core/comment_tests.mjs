@@ -1,4 +1,4 @@
-import './setup-xml-provider.mjs';
+import '../setup-xml-provider.mjs';
 /**
  * Comment Engine Tests
  * 
@@ -14,7 +14,7 @@ import {
     wrapWithCommentsPart,
     injectCommentsIntoPackage,
     resetRevisionIdCounter
-} from '../src/taskpane/modules/reconciliation/services/comment-engine.js';
+} from '../../src/taskpane/modules/reconciliation/services/comment-engine.js';
 
 // --- Test Utilities ---
 let passCount = 0;
@@ -270,4 +270,5 @@ console.log('========================================\n');
 if (failCount > 0) {
     process.exit(1);
 }
+
 

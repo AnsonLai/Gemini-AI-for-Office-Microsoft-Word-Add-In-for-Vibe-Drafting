@@ -1,352 +1,95 @@
-# Reconciliation Architecture
+# Reconciliation Core Architecture
 
-This document explains how the OOXML reconciliation system is organized and how modules collaborate.
+This document describes the host-agnostic OOXML reconciliation core and how to work inside it safely.
+
+## Scope
+
+The package boundary is the host-independent code under this folder:
+
+- Included in core package: `adapters/`, `core/`, `engine/`, `pipeline/`, `services/`, `orchestration/`, `index.js`, `standalone.js`.
+- Add-in local only (not part of published core package): `word-addin-entry.js` and `integration/`.
 
 ## Goals
 
-- Preserve Word-compatible track changes by editing OOXML directly.
-- Support both Word Add-in integration and standalone usage.
-- Keep formatting-aware behavior predictable across surgical and reconstruction flows.
+- Preserve Word-compatible redlines by editing OOXML directly.
+- Keep core logic host-independent (no Office.js globals, no Word API calls).
+- Reuse the same engine in browser, Node, and Word-hosted environments.
 
-## Folder Layout
+## Folder Layout (Core Package)
 
 ```text
 reconciliation/
 ├── adapters/
+│   ├── config.js
 │   ├── logger.js
 │   └── xml-adapter.js
 ├── core/
-│   ├── paragraph-offset-policy.js
-│   ├── paragraph-targeting.js
-│   ├── list-targeting.js
-│   ├── table-targeting.js
-│   ├── ooxml-identifiers.js
-│   ├── xml-query.js
-│   └── types.js
 ├── engine/
-│   ├── oxml-engine.js
-│   ├── surgical-mode.js
-│   ├── reconstruction-mode.js
-│   ├── reconstruction-mapper.js
-│   ├── reconstruction-writer.js
-│   ├── format-extraction.js
-│   ├── format-application.js
-│   ├── format-paragraph-targeting.js
-│   ├── format-span-application.js
-│   ├── rpr-helpers.js
-│   ├── run-builders.js
-│   ├── table-mode.js
-│   └── table-cell-context.js
-├── pipeline/
-│   ├── pipeline.js
-│   ├── ingestion.js
-│   ├── ingestion-paragraph.js
-│   ├── ingestion-table.js
-│   ├── ingestion-xml.js
-│   ├── ingestion-export.js
-│   ├── content-analysis.js
-│   ├── diff-engine.js
-│   ├── list-generation.js
-│   ├── list-markers.js
-│   ├── patching.js
-│   ├── serialization.js
-│   └── markdown-processor.js
-├── services/
-│   ├── comment-builders.js
-│   ├── comment-engine.js
-│   ├── comment-locator.js
-│   ├── comment-package.js
-│   ├── numbering-service.js
-│   ├── package-builder.js
-│   ├── standalone-docx-plumbing.js
-│   ├── standalone-operation-runner.js
-│   └── table-reconciliation.js
+│   └── formatting-removal.js
 ├── orchestration/
-│   ├── route-plan.js
-│   ├── list-markdown.js
-│   ├── list-parsing.js
-│   └── list-structural-fallback.js
-├── integration/
-│   ├── integration.js
-│   ├── word-operation-runner.js
-│   ├── word-ooxml.js
-│   ├── word-redline-runner.js
-│   ├── word-route-change.js
-│   └── word-structured-list.js
+├── pipeline/
+├── services/
+│   ├── numbering-helpers.js
+│   ├── standalone-docx-plumbing.js
+│   └── standalone-operation-runner.js
 ├── index.js
 └── standalone.js
 ```
 
+## Entry Points
+
+- `index.js`: primary host-agnostic package entrypoint.
+- `standalone.js`: compatibility alias that re-exports from `index.js` (deprecated for new imports).
+- `word-addin-entry.js`: add-in-local entrypoint that re-exports integration helpers; excluded from future published package.
+
 ## Module Responsibilities
 
+- `adapters/config.js`
+  - Runtime configuration surface for defaults (`setDefaultAuthor`, `getDefaultAuthor`, `setPlatform`, `getPlatform`).
+  - Removes hardcoded author/platform values from core modules.
 - `adapters/xml-adapter.js`
-  - Abstracts `DOMParser`/`XMLSerializer`.
-  - Allows runtime injection for browser or Node.
+  - XML parser/serializer injection for browser or Node runtimes.
 - `adapters/logger.js`
-  - Central logging surface (`log`, `warn`, `error`) and logger injection.
-- `core/types.js`
-  - Shared enums/constants (`RunKind`, `DiffOp`, `NS_W`) and revision metadata utilities.
-- `core/paragraph-offset-policy.js`
-  - Canonical paragraph-boundary separator policy used across extraction/ingestion/reconstruction.
-- `core/paragraph-targeting.js`
-  - Shared paragraph target resolution for per-paragraph operations.
-  - Provides `targetRef` parsing (`P#`), strict/fuzzy text matching, and marker stripping helpers used by standalone consumers.
-  - Provides table-targeting helpers (`isMarkdownTableText`, containing-word-element lookup) for table-scope operation routing in browser/Node integrations.
-  - Provides turn-snapshot helpers (`buildTargetReferenceSnapshot`, `resolveTargetParagraphWithSnapshot`) for multi-operation standalone/chat callers to detect and correct `targetRef` drift after sequential structural edits.
-- `core/table-targeting.js`
-  - Shared heuristics for table-structure intent from per-cell edits.
-  - Provides markdown table synthesis from multiline table-cell edits so standalone callers can promote ambiguous cell redlines into full table-scope reconciliation.
-  - Supports symmetric signature-row mirroring (for example `Title:` -> inserted `Date:` across peer columns).
-- `core/list-targeting.js`
-  - Shared heuristics for list-structure intent from per-item edits.
-  - Provides insertion-only list planning for multiline middle-insert patterns so callers can add only new list items as redlines.
-  - Strips redundant manual marker prefixes from list item text (for example `2.1. - Item`) so existing list items do not receive literal marker text.
-  - Supports composite ordered markers (for example `2.2.1`) when deriving insertion levels, so insertion-only plans can create deeper nested levels instead of flattening to same-level siblings.
-  - Promotes ambiguous bullet insertions under nested numbered anchors to child depth so natural-language "add sub-item" requests do not flatten to sibling numbering.
-  - Provides contiguous list-block synthesis fallback for ambiguous/more complex multiline list edits.
-- `core/ooxml-identifiers.js`
-  - Shared OOXML identity extractors (`w14:paraId` and related paragraph tokens).
-- `core/xml-query.js`
-  - Shared namespace-safe XML query helpers for first/all lookups and parser-error detection.
-- `pipeline/*`
-  - General reconciliation pipeline for run-model diffing/patching/serialization.
-  - Used for list generation and compatibility flows.
-- `pipeline/ingestion-paragraph.js`
-  - Paragraph/run ingestion with node-handler dispatch and numbering context detection.
-- `pipeline/ingestion-table.js`
-  - Virtual-grid table ingestion and merged-cell parsing.
-- `pipeline/ingestion-xml.js`
-  - Shared ingestion helpers for child-node traversal and attribute serialization.
-- `pipeline/ingestion-export.js`
-  - Standalone-friendly Word OOXML export helpers.
-  - Provides `ingestWordOoxmlToPlainText(...)` for readable text extraction (tags stripped, paragraph structure preserved).
-  - Provides `ingestWordOoxmlToMarkdown(...)` for basic markdown projection (headings, bold/italic runs, obvious list markers).
-- `pipeline/content-analysis.js`
-  - Shared text classification/parsing helpers for list/table/paragraph detection.
-- `pipeline/list-markers.js`
-  - Shared list marker regex/detection helpers used by router/pipeline/patching.
-  - Router and pipeline now share loose-marker list-target gating so structural list conversion is not skipped by text-only no-op checks.
-- `pipeline/list-generation.js`
-  - Generates list/table blocks from markdown lines.
-  - Normalizes composite list markers (for example `- A.`) to single-marker form before numbering-style detection.
-  - Emits list `w:pPr` using explicit `w:numPr` without forcing `ListParagraph` style to avoid Word style-level numbering chain bleed across unrelated content.
-  - Emits paragraph OOXML + optional `numberingXml` payload.
-- `services/table-reconciliation.js`
-  - Virtual-grid table diff and OOXML table serialization.
-- `services/comment-engine.js`
-  - OOXML-only comment insertion logic.
-- `services/comment-builders.js`
-  - Builds comment XML fragments and comment reference nodes.
-- `services/comment-locator.js`
-  - Locates target runs/ranges for comment anchoring in OOXML.
-- `services/comment-package.js`
-  - Handles comments-part wiring and relationship/content-type updates.
-- `services/package-builder.js`
-  - Shared `pkg:package` builders for document fragments, paragraph-only packages, and comments package variants.
-- `services/standalone-docx-plumbing.js`
-  - Shared standalone/browser package plumbing utilities.
-  - Centralizes OOXML output extraction (`pkg:package`, `w:document`, or fragment payloads) into replacement nodes.
-  - Centralizes package artifact wiring for `word/numbering.xml` and `word/comments.xml` plus relationships/content-types updates.
-  - Centralizes package-level validation checks used by non-Word hosts (body/`w:sectPr` order, nested table paragraphs, numbering/comment part consistency).
-- `services/standalone-operation-runner.js`
-  - Shared standalone/browser operation bridge for applying `redline`, `highlight`, and `comment` operations against full `word/document.xml`.
-  - Centralizes per-operation targeting/routing heuristics (single paragraph vs list scope vs table scope) and replacement-node application.
-  - Applies explicit-range and single-paragraph-concatenation list insertion-only edits surgically (insert-only) when model output is a pure insertion shape, preserving existing list binding/style.
-  - Uses shared `targetRef` + text resolution (including snapshot-assisted rematch) so standalone/browser hosts share deterministic targeting across sequential operations.
-  - Keeps host modules thin by moving OOXML orchestration out of UI layers.
-  - Add-in nomenclature alignment note: command-layer operation names (`edit_paragraph`, `replace_paragraph`, `replace_range`, `modify_text`) are being converged toward the shared redline operation contract (`type: 'redline'` with `modified`) after routing stabilization.
-- `orchestration/route-plan.js`
-  - Word-agnostic route planner for command adapters (`buildReconciliationPlan`).
-  - Classifies content into deterministic apply kinds (`structured_list_direct`, `empty_formatted_text`, `empty_html`, `block_html`, `ooxml_engine`).
-- `orchestration/list-markdown.js`
-  - Shared list markdown builders/marker-style helpers used by command adapters (`buildListMarkdown`, numbering style inference, list-item normalization).
-- `orchestration/list-parsing.js`
-  - Shared markdown list parsing for command adapters (`parseMarkdownListContent`).
-  - Removes duplicate list marker regex/parsing logic from command utility surfaces.
-- `orchestration/list-structural-fallback.js`
-  - Shared no-op fallback planning/execution for single-line marker text (`1.`, `A.`, etc.) so plain marker text can be promoted to true OOXML list structure.
-  - Exposes reusable helpers (`buildSingleLineListStructuralFallbackPlan`, `executeSingleLineListStructuralFallback`) for standalone/browser consumers.
-  - Exposes `stripSingleLineListMarkerPrefix(...)` so callers can reliably remove manual list markers before applying text redlines in header-conversion flows.
-  - Exposes reusable explicit-numbering sequence helpers (`resolveSingleLineListFallbackNumberingAction`, `recordSingleLineListFallbackExplicitSequence`, `clearSingleLineListFallbackExplicitSequence`) so callers can implement Word-like `startNewList` + `attachToList` behavior across multiple single-paragraph operations in a turn.
-  - Consumers may also choose isolated explicit-start numbering (dedicated `numId` per converted header) when Word rendering shows cross-list sequence bleed despite separate list contexts.
-  - Browser/standalone hosts should allocate numbering IDs dynamically from existing `numbering.xml` occupancy (prefer free IDs within `1..32767`) to avoid collisions and Word renderer inconsistencies from hardcoded high-ID ranges.
-  - When merging numbering payloads into an existing package, preserve schema child order (`w:abstractNum*` before `w:num*`); appending new abstract definitions after `w:num` can render inconsistently in Word desktop.
-  - Exposes `enforceListBindingOnParagraphNodes(...)` so callers can force deterministic paragraph `w:numPr` binding (and clear stale paragraph-property change list metadata) when implementing custom list conversion paths.
-  - Supports optional fallback on already list-bound paragraphs (`allowExistingList`) so callers can detach from an existing list chain and create an isolated list sequence.
-  - Applies numeric start overrides from explicit markers (`1.`, `2.`, etc.) at num-level (`w:lvlOverride/w:startOverride`) and optionally abstract-level (`w:lvl/w:start`) via `setAbstractStartOverride`.
+  - Runtime logger injection and shared log methods.
+- `core/*`
+  - Shared types, OOXML identity helpers, target resolution, list/table targeting heuristics, and XML query helpers.
 - `engine/oxml-engine.js`
-  - Main router/orchestrator for text + formatting reconciliation.
-  - Chooses modes and delegates work.
-- `engine/surgical-mode.js`
-  - In-place edits for table-heavy/structure-sensitive content.
-- `engine/reconstruction-mode.js`
-  - Thin orchestration for reconstruction mapping + writing.
-- `engine/reconstruction-mapper.js`
-  - Builds reconstruction maps (paragraph/property/sentinel/reference) and indexed lookups.
-- `engine/reconstruction-writer.js`
-  - Applies diffs against mapped context and writes updated content fragments.
-- `engine/format-extraction.js`
-  - Extracts spans and existing formatting from paragraphs/runs.
-- `engine/format-application.js`
-  - Orchestrates format-only and surgical format-application flows.
-  - When format-only surgical targeting cannot extract spans, shared routing now uses OOXML reconstruction fallback (no native API dependency for that branch).
-- `engine/format-paragraph-targeting.js`
-  - Paragraph text reconstruction/matching helpers used by format-only targeting.
-- `engine/format-span-application.js`
-  - Span boundary splitting and robust per-span format synchronization.
-- `engine/rpr-helpers.js`
-  - Canonical `w:rPr` order and format override/addition primitives.
-- `engine/run-builders.js`
-  - Shared constructors for runs and track-change nodes.
-- `engine/table-cell-context.js`
-  - Detects table-cell wrapper contexts and paragraph-only serialization.
-- `engine/table-mode.js`
-  - Table reconciliation/text-to-table transformation flows extracted from router.
-- `integration/integration.js`
-  - Word API bridge (`paragraph.getOoxml()/insertOoxml()`).
-- `integration/word-ooxml.js`
-  - Shared Word-only OOXML interop helpers:
-    - OOXML read fallback chain (paragraph/range/table-cell/table)
-    - OOXML insert fallback (`Paragraph.insertOoxml` -> range fallback on `GeneralException`)
-    - temporary native tracking toggles around OOXML apply operations
-- `integration/word-structured-list.js`
-  - Legacy direct structured-list OOXML insertion fallback extracted from command layer for reuse and isolation.
-- `integration/word-route-change.js`
-  - Shared Word paragraph route/apply helper used by command adapters to keep `agentic-tools` thin.
-  - Owns reconciliation route execution and fallback sequencing for single-paragraph edits.
-- `integration/word-operation-runner.js`
-  - Canonical Word adapter for shared standalone operation routing/application (`redline`, `highlight`, `comment`) on paragraph/range scopes.
-  - Handles scoped OOXML read/apply/write and package payload insertion for migrated command tools.
-- `integration/word-redline-runner.js`
-  - Command-layer redline orchestration helper that converts AI redline payloads to canonical operations and applies them sequentially through `applyWordOperation(...)`.
-  - Preserves strict out-of-range no-op semantics and targeted `modify_text` nearest-paragraph rebase handling for empty-target paragraphs.
-- `index.js`
-  - Main public API surface.
-  - Re-exports Word OOXML ingestion-export helpers for add-in/internal callers.
-- `standalone.js`
-  - Public API surface with no Word API exports.
-  - Normalizes native-API fallback responses for standalone consumers (returns unchanged OOXML + warning when Word-native apply is required).
-  - Format-only no-span redline cases are handled in-engine via OOXML reconstruction fallback before standalone fallback normalization is considered.
-  - Provides `applyRedlineToOxmlWithListFallback(...)` for consumers that want automatic single-line structural list fallback; by default this fallback is preferred before regular redline apply for matching no-text-diff marker cases.
-  - `applyRedlineToOxmlWithListFallback(...)` supports `listFallbackAllowExistingList` (default `true`) to allow re-listing paragraphs that are already in another list chain.
-  - Re-exports shared paragraph-targeting helpers for browser/Node integrations.
-  - Re-exports turn-snapshot drift-correction helpers (`buildTargetReferenceSnapshot`, `resolveTargetParagraphWithSnapshot`) for browser/Node integrations that apply multiple operations per turn.
-  - Re-exports standalone list-fallback planning/execution/sequence helpers (`buildSingleLineListStructuralFallbackPlan`, `executeSingleLineListStructuralFallback`, `resolveSingleLineListFallbackNumberingAction`, `recordSingleLineListFallbackExplicitSequence`, `clearSingleLineListFallbackExplicitSequence`, `enforceListBindingOnParagraphNodes`, `stripSingleLineListMarkerPrefix`).
-  - Re-exports dynamic numbering allocation helpers (`createDynamicNumberingIdState`, `reserveNextNumberingId`, `reserveNextNumberingIdPair`) so host adapters can share collision-safe numbering ID assignment logic.
-  - Re-exports numbering payload helpers (`remapNumberingPayloadForDocument`, `overwriteParagraphNumIds`, `extractFirstParagraphNumId`, `buildExplicitDecimalMultilevelNumberingXml`, `mergeNumberingXmlBySchemaOrder`) so browser/demo/test hosts can avoid duplicating Word-sensitive numbering transforms.
-  - Re-exports standalone docx-plumbing helpers (`parseXmlStrictStandalone`, `getBodyElementFromDocument`, `insertBodyElementBeforeSectPr`, `normalizeBodySectionOrderStandalone`, `sanitizeNestedParagraphsInTables`, `getPackagePartName`, `extractReplacementNodesFromOoxml`, `ensureNumberingArtifactsInZip`, `ensureCommentsArtifactsInZip`, `validateDocxPackage`) so browser and Node hosts can share package-level logic.
-  - Re-exports Word OOXML ingestion-export helpers (`ingestWordOoxmlToPlainText`, `ingestWordOoxmlToMarkdown`) for text-only and markdown projection flows outside Word API.
-  - Re-exports shared table-targeting heuristics for browser/Node integrations.
-  - Re-exports shared list-targeting heuristics for browser/Node integrations.
+  - Main reconciliation router and mode selection.
+- `engine/formatting-removal.js`
+  - Shared formatting removal/highlight helpers extracted into engine scope.
+- `pipeline/*`
+  - Ingestion, markdown preprocessing, diffing, patching, and serialization stages.
+- `services/numbering-helpers.js`
+  - Dynamic numbering ID allocation, numbering payload remapping, and schema-order-safe numbering merges.
+- `services/standalone-docx-plumbing.js`
+  - Package-level extraction/wiring/validation for `word/document.xml`, `word/numbering.xml`, and `word/comments.xml`.
+- `services/standalone-operation-runner.js`
+  - Shared host-agnostic operation bridge for `redline`, `highlight`, and `comment`.
+- `orchestration/*`
+  - Word-agnostic route planning and list fallback orchestration utilities.
 
 ## End-to-End Flow
 
-### 1) Entry
-
-- Word Add-in path: `integration/integration.js` -> `index.js` -> `engine/oxml-engine.js`
-- Standalone path: `standalone.js` -> `engine/oxml-engine.js`
-
-### 2) Router (`engine/oxml-engine.js`)
-
-The router:
-
-1. Parses OOXML via `adapters/xml-adapter.js`.
-2. Sanitizes AI text and extracts markdown format hints (`pipeline/markdown-processor.js`).
-3. Extracts existing formatting and spans (`engine/format-extraction.js`).
-4. Chooses a path:
-   - Format removal
-   - Format-only surgical application
-   - Table reconciliation
-   - Surgical mode
-   - Reconstruction mode
-   - List pipeline generation
-
-When list-target content is detected, the router delegates to `ReconciliationPipeline.executeListGeneration(...)`,
-which returns OOXML list paragraphs and numbering definitions suitable for `insertOoxml`.
-
-### 3) Mode Execution
-
-- Surgical mode:
-  - Maintains existing structure and patches runs in place.
-- Reconstruction mode:
-  - Rebuilds paragraph content from diff segments and wrappers.
-- Format-only path:
-  - Splits spans on format boundaries and synchronizes target rPr state.
-
-### 4) Output
-
-- Returns `{ oxml, hasChanges }` to caller.
-- Caller decides how/where OOXML is inserted or written back.
-- List-generation paths may also return `numberingXml` for package wrapping.
-
-## List Edit Integration (Command Layer)
-
-`executeEditList` in `modules/commands/agentic-tools.js` now uses a two-stage reconciliation strategy:
-
-1. Build normalized list markdown from tool args (`listType`, `numberingStyle`, indentation levels).
-2. Run `applyRedlineToOxml(...)` over the full selected range.
-3. If reconciliation reports no changes (`hasChanges === false`), force structural conversion via
-   `ReconciliationPipeline.executeListGeneration(...)` and replace with wrapped OOXML + numbering.
-
-This fallback is required for cases where source text is already similar (for example manual `A.`, `B.`, `C.` text)
-but paragraphs are not true Word list items. In those cases, textual diff can be a no-op while structural list
-conversion is still required.
-
-Native Word tracking is intentionally disabled during insertion for these list operations because the OOXML already
-contains explicit redline markup (`w:ins`/`w:del`) when redlines are enabled.
-
-## Current Migration Status (Command Layer -> Reconciliation)
-
-- Reconciliation now owns shared list marker parsing, content analysis, list generation, numbering service, and package builders.
-- `routeChangeOperation` command-layer decisioning now uses reconciliation `buildReconciliationPlan(...)`.
-- Word-specific OOXML fallback/toggle helpers are centralized in `integration/word-ooxml.js` and consumed by command-layer routes.
-- Command-layer markdown list parsing now delegates to reconciliation `orchestration/list-parsing.js`.
-- Structured list `edit_paragraph` application now prefers reconciliation list-generation output (with numbering package wiring) before legacy direct list insertion fallback.
-- Command-layer list markdown builders, paragraph-id extraction, and direct structured-list fallback are now extracted to reconciliation modules.
-- Command-layer `routeChangeOperation(...)` is now a thin wrapper over reconciliation `integration/word-route-change.js`.
-- Command-layer list item normalization in `executeEditList(...)` now delegates to reconciliation orchestration helpers.
-- Legacy command compatibility bridge `modules/commands/shared-operation-bridge.js` has been removed; tests/callers use reconciliation integration exports directly.
-- `modules/commands/agentic-tools.js` still contains migration debt:
-  - compatibility wrapper `parseMarkdownList(...)` remains in `markdown-utils` (delegating to reconciliation parser)
-- Intended direction:
-  - reconciliation modules produce deterministic operation plans/results
-  - integration modules own reusable Word-specific apply/read/toggle adapters
-  - command modules remain thin tool orchestration and error handling layers
-
-## Key Design Notes
-
-- `RPR_SCHEMA_ORDER` in `engine/rpr-helpers.js` is the single ordering source for run property insertion.
-- `snapshotAndAttachRPrChange(...)` in `engine/run-builders.js` is the shared track-change snapshot routine.
-- Format-only surgical flow now uses full target-state synchronization for core flags (bold/italic/underline/strikethrough), not additive-only behavior.
-- Hot-path lookup indexing is used in patching/format/table loops to reduce repeated O(n) scans.
-
-## Extension Points
-
-- Replace parser/serializer:
-  - `configureXmlProvider({ DOMParser, XMLSerializer })`
-- Replace logger:
-  - `configureLogger({ log, warn, error })`
-- Add new mode logic:
-  - Extend router decisions in `engine/oxml-engine.js`
-  - Keep mode-specific logic inside `engine/*` modules
+1. Caller imports from `index.js` (or legacy `standalone.js` alias).
+2. Caller optionally configures XML provider/logger/defaults via `adapters/*`.
+3. Caller invokes reconciliation APIs (`applyRedlineToOxml`, operation runner, ingestion/export helpers).
+4. `engine/oxml-engine.js` routes to format, table, list, surgical, or reconstruction flows.
+5. Pipeline/services return OOXML and optional package artifacts (`numberingXml`, comments payloads).
+6. Host layer is responsible for writing OOXML back to document/package boundaries.
 
 ## Public Surfaces
 
-- Add-in + internal usage: `reconciliation/index.js`
-- Standalone usage: `reconciliation/standalone.js`
+- Primary: `reconciliation/index.js`
+- Compatibility alias: `reconciliation/standalone.js` (deprecated)
 
-Keep new exports centralized through one of these entrypoints.
+Keep exports centralized through `index.js`; only maintain `standalone.js` for backward compatibility.
 
-## Hosting & Bootstrapping Guidance
+## Fast Orientation For Contributors
 
-The standalone engine (`standalone.js`) is designed to be environment-agnostic and does not bundle heavy file-handling libraries like `JSZip`.
+Use this sequence to understand or modify behavior without reading everything:
 
-### Bootstrapping a New Project
-
-For projects that need to create or manipulate `.docx` files from scratch in a standalone environment:
-
-1.  **File Orchestration**: Use a library like `JSZip` in your application layer (the host) to handle the binary `.docx` structure.
-2.  **Template Document**: Instead of building a `.docx` XML tree from nothing, start with a minimal `blank.docx` (containing a valid `word/document.xml`, `[Content_Types].xml`, and `_rels/`) and load it via `JSZip`.
-3.  **Document Ingestion**: Extract the `word/document.xml` string from the zip and pass it to the engine's plumbing services (`standalone-docx-plumbing.js`) for manipulation.
-4.  **Package Wrapping**: When producing output for Word's `insertOoxml` API, use the `package-builder.js` service to wrap paragraphs into a `pkg:package` structure.
-5.  **Artifact Merging**: Use `ensureNumberingArtifactsInZip` and `ensureCommentsArtifactsInZip` to safely merge generated metadata back into your `JSZip` instance before saving the final file.
+1. Start at `index.js` to locate the exported API.
+2. Follow the export to `engine/oxml-engine.js` or the relevant `services/*` module.
+3. For targeting bugs, inspect `core/paragraph-targeting.js`, `core/list-targeting.js`, and `core/table-targeting.js`.
+4. For package wiring issues, inspect `services/standalone-docx-plumbing.js`.
+5. For numbering issues, inspect `services/numbering-helpers.js` and list fallback orchestration.

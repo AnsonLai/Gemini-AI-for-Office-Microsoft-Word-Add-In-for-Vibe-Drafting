@@ -1,13 +1,13 @@
-import './setup-xml-provider.mjs';
+import '../setup-xml-provider.mjs';
 
 import assert from 'assert';
 import {
     applyWordOperation
-} from '../src/taskpane/modules/reconciliation/integration/word-operation-runner.js';
+} from '../../src/taskpane/modules/reconciliation/integration/word-operation-runner.js';
 import {
     extractReplacementNodesFromOoxml,
     getParagraphText
-} from '../src/taskpane/modules/reconciliation/index.js';
+} from '../../src/taskpane/modules/reconciliation/index.js';
 
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
@@ -438,4 +438,5 @@ run().catch(error => {
     console.error('FAIL:', error?.message || error);
     process.exit(1);
 });
+
 

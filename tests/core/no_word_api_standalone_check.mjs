@@ -3,10 +3,19 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const reconciliationDir = path.join(__dirname, '../src/taskpane/modules/reconciliation');
+const reconciliationDir = path.join(__dirname, '../../src/taskpane/modules/reconciliation');
 const integrationDir = path.join(reconciliationDir, 'integration');
+const standalonePath = path.join(reconciliationDir, 'standalone.js');
 const indexPath = path.join(reconciliationDir, 'index.js');
 const wordAddinEntryPath = path.join(reconciliationDir, 'word-addin-entry.js');
+const allowedExternalImports = new Set(['diff-match-patch']);
+
+const forbiddenPatterns = [
+    /Office\./,
+    /Word\./,
+    /context\.sync/,
+    /paragraph\.(getOoxml|insertOoxml)/
+];
 
 function stripComments(source) {
     return source
@@ -64,10 +73,6 @@ function extractImportSpecifiers(sourceNoComments) {
     return [...specifiers];
 }
 
-function isNpmPackageImport(specifier) {
-    return !specifier.startsWith('.') && !specifier.startsWith('/');
-}
-
 function resolveImportPath(importerPath, specifier) {
     if (specifier.startsWith('.')) {
         return path.resolve(path.dirname(importerPath), specifier);
@@ -81,41 +86,57 @@ function resolveImportPath(importerPath, specifier) {
 }
 
 async function run() {
+    const standaloneSource = stripComments(await fs.readFile(standalonePath, 'utf8'));
+    const standaloneImports = extractImportSpecifiers(standaloneSource);
+    for (const specifier of standaloneImports) {
+        const resolved = resolveImportPath(standalonePath, specifier);
+        if (resolved && isPathWithin(integrationDir, resolved)) {
+            throw new Error(`standalone.js must not import from integration/: ${specifier}`);
+        }
+    }
+
     const files = await collectJsFilesRecursively(reconciliationDir);
     const filesToCheck = files.filter(filePath =>
         filePath !== indexPath &&
         filePath !== wordAddinEntryPath &&
         !isPathWithin(integrationDir, filePath)
     );
-    const violations = [];
 
-    for (const filePath of filesToCheck) {
-        const relativePath = path.relative(reconciliationDir, filePath);
-        const sourceNoComments = stripComments(await fs.readFile(filePath, 'utf8'));
+    for (const fullPath of filesToCheck) {
+        const sourceNoComments = stripComments(await fs.readFile(fullPath, 'utf8'));
+        const relativePath = path.relative(reconciliationDir, fullPath);
+        for (const pattern of forbiddenPatterns) {
+            if (pattern.test(sourceNoComments)) {
+                throw new Error(`Forbidden Word API pattern ${pattern} found in ${relativePath}`);
+            }
+        }
+
         const imports = extractImportSpecifiers(sourceNoComments);
-
         for (const specifier of imports) {
-            if (isNpmPackageImport(specifier)) {
+            const resolved = resolveImportPath(fullPath, specifier);
+
+            if (resolved && isPathWithin(integrationDir, resolved)) {
+                throw new Error(`${relativePath} imports integration-only module: ${specifier}`);
+            }
+
+            if (resolved) {
+                if (!isPathWithin(reconciliationDir, resolved)) {
+                    throw new Error(`${relativePath} imports outside reconciliation/: ${specifier}`);
+                }
                 continue;
             }
 
-            const resolved = resolveImportPath(filePath, specifier);
-            if (!resolved || !isPathWithin(reconciliationDir, resolved)) {
-                violations.push(`${relativePath} -> ${specifier}`);
+            if (!allowedExternalImports.has(specifier)) {
+                throw new Error(`${relativePath} imports disallowed external package: ${specifier}`);
             }
         }
     }
 
-    if (violations.length > 0) {
-        throw new Error(
-            `Core dependency graph violations detected:\n${violations.map(line => ` - ${line}`).join('\n')}`
-        );
-    }
-
-    console.log('PASS: core dependency graph stays within reconciliation/ or npm package imports');
+    console.log('PASS: reconciliation core has no Word API markers and no invalid cross-boundary imports');
 }
 
 run().catch(err => {
     console.error('FAIL:', err.message);
     process.exit(1);
 });
+

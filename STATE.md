@@ -7,7 +7,7 @@ This document records the current technical posture and "sacred" decisions of th
 ## Current Posture
 - **Engine Version**: Hybrid Mode V5.1.
 - **Key Strategy**: Surgical DOM manipulation is prioritized over full string serialization to ensure Word detects pre-embedded redlines.
-- **Portability Status**: Core reconciliation logic is 80% independent of Word JS API.
+- **Portability Status**: Core reconciliation logic is 100% independent of Word JS API at the package boundary.
 
 ## Sacred Decisions
 1. **OOXML > Word JS**: Any document modification MUST be implemented in the OOXML engine if possible. Word JS is reserved for UI and host-specific discovery.
@@ -19,9 +19,15 @@ This document records the current technical posture and "sacred" decisions of th
 ## Active Blockers
 - **Word Online Redline Bug**: Word Online sometimes ignores `w:rPrChange` during insertion, necessitating the "Surgical Replacement" workaround (wrap original in `w:del`, new in `w:ins`).
 - **Mixed Content Controls**: Nested Content Controls (`w:sdt`) can sometimes cause offset drift during ingestion; requires careful sentinel tracking.
-- **Migration Debt**: Some logic remains in `agentic-tools.js` (e.g., custom markdown preprocessing) that should be migrated to the reconciliation engine.
+- **Add-in Migration Debt**: Some add-in command flows still rely on Word APIs for feature-specific operations (for example complex header-to-list conversion and table row/column edits).
 
 ## Recent Architectural Shifts
 - **Feb 2026**: Transitioned from fragmented docs to the **GSD Workflow** (`SPEC`, `ARCH`, `ROADMAP`, `STATE`).
 - **Feb 2026**: Unified router logic in `oxml-engine.js` with specific modes for format removal and text-to-table.
+- **Feb 22, 2026**: Completed reconciliation core extraction prep:
+  - Entry points normalized (`index.js` primary, `standalone.js` compatibility alias, `word-addin-entry.js` add-in local).
+  - Runtime defaults moved to `adapters/config.js` (no hardcoded author/platform and no core Office global reads).
+  - Core helpers extracted (`engine/formatting-removal.js`, `services/numbering-helpers.js`, core targeting helpers).
+  - Test ownership split into `tests/core/` and `tests/addin/`.
+  - Prep package metadata added as `@gsd/docx-reconciliation` (`src/taskpane/modules/reconciliation/package.json`).
 - **Jan 2026**: Migrated from HTML fallback to pure OOXML for list and table insertion.

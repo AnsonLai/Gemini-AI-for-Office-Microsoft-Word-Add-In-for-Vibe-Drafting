@@ -1,8 +1,8 @@
 import assert from 'assert';
-import './setup-xml-provider.mjs';
-import { createParser } from '../src/taskpane/modules/reconciliation/adapters/xml-adapter.js';
-import { detectTableCellContext } from '../src/taskpane/modules/reconciliation/engine/table-cell-context.js';
-import { extractFormatFromRPr } from '../src/taskpane/modules/reconciliation/engine/rpr-helpers.js';
+import '../setup-xml-provider.mjs';
+import { createParser } from '../../src/taskpane/modules/reconciliation/adapters/xml-adapter.js';
+import { detectTableCellContext } from '../../src/taskpane/modules/reconciliation/engine/table-cell-context.js';
+import { extractFormatFromRPr } from '../../src/taskpane/modules/reconciliation/engine/rpr-helpers.js';
 
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const NS_W14 = 'http://schemas.microsoft.com/office/word/2010/wordml';
@@ -56,3 +56,4 @@ function testFormatExtractionRespectsExplicitOffValues() {
 testTableDuplicateTextTargetsByParaId();
 testFormatExtractionRespectsExplicitOffValues();
 console.log('PASS: table targeting + format off-value handling');
+

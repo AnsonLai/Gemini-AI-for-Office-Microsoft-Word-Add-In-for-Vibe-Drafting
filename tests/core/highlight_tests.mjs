@@ -1,5 +1,5 @@
-import './setup-xml-provider.mjs';
-import { applyHighlightToOoxml } from '../src/taskpane/modules/reconciliation/engine/formatting-removal.js';
+import '../setup-xml-provider.mjs';
+import { applyHighlightToOoxml } from '../../src/taskpane/modules/reconciliation/engine/formatting-removal.js';
 import assert from 'assert';
 
 async function testHighlight() {
@@ -86,3 +86,4 @@ testHighlight().catch(err => {
     console.error("❌ TEST FAILED:", err);
     process.exit(1);
 });
+

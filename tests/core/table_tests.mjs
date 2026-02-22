@@ -1,20 +1,20 @@
-import './setup-xml-provider.mjs';
+import '../setup-xml-provider.mjs';
 
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
-import { ingestOoxml } from '../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
-import { parseTable } from '../src/taskpane/modules/reconciliation/pipeline/pipeline.js';
-import { ingestTableToVirtualGrid } from '../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
-import { diffTablesWithVirtualGrid, serializeVirtualGridToOoxml } from '../src/taskpane/modules/reconciliation/services/table-reconciliation.js';
+import { applyRedlineToOxml } from '../../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
+import { ingestOoxml } from '../../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
+import { parseTable } from '../../src/taskpane/modules/reconciliation/pipeline/pipeline.js';
+import { ingestTableToVirtualGrid } from '../../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
+import { diffTablesWithVirtualGrid, serializeVirtualGridToOoxml } from '../../src/taskpane/modules/reconciliation/services/table-reconciliation.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // --- Test 1: Repro Table Issue (from repro_table_issue.mjs) ---
 async function testReproTableIssue() {
     console.log('\n=== Test: Repro Table Issue (Parties to Table) ===');
-    const DOC_PATH = path.join(__dirname, 'sample_doc/word/document.xml');
+    const DOC_PATH = path.join(__dirname, '../sample_doc/word/document.xml');
 
     try {
         const originalOoxml = await fs.readFile(DOC_PATH, 'utf-8');
@@ -61,7 +61,7 @@ async function testReproTableIssue() {
 // --- Test 2: Table Diff Diagnostic (from debug_table_diff.mjs) ---
 async function testTableDiffDiagnostic() {
     console.log('\n=== Test: Table Diff Diagnostic ===');
-    const DOC_PATH = path.join(__dirname, 'sample_doc/word/document.xml');
+    const DOC_PATH = path.join(__dirname, '../sample_doc/word/document.xml');
 
     try {
         const originalOoxml = await fs.readFile(DOC_PATH, 'utf-8');
@@ -116,7 +116,7 @@ async function testTableDiffDiagnostic() {
 // --- Test 3: Table Reconciliation Flow (from debug_table_reconciliation.mjs) ---
 async function testTableReconciliationFlow() {
     console.log('\n=== Test: Table Reconciliation Flow ===');
-    const DOC_PATH = path.join(__dirname, 'sample_doc/word/document.xml');
+    const DOC_PATH = path.join(__dirname, '../sample_doc/word/document.xml');
 
     try {
         const originalOoxml = await fs.readFile(DOC_PATH, 'utf-8');
@@ -177,4 +177,5 @@ async function testTableReconciliationFlow() {
 
     console.log('\nALL TABLE TESTS COMPLETE.');
 })();
+
 

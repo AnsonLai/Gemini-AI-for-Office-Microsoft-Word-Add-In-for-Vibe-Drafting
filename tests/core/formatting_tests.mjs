@@ -1,11 +1,11 @@
-import './setup-xml-provider.mjs';
+import '../setup-xml-provider.mjs';
 
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
-import { wordsToChars, charsToWords } from '../src/taskpane/modules/reconciliation/pipeline/diff-engine.js';
-import { preprocessMarkdown } from '../src/taskpane/modules/reconciliation/pipeline/markdown-processor.js';
+import { applyRedlineToOxml } from '../../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
+import { wordsToChars, charsToWords } from '../../src/taskpane/modules/reconciliation/pipeline/diff-engine.js';
+import { preprocessMarkdown } from '../../src/taskpane/modules/reconciliation/pipeline/markdown-processor.js';
 import { diff_match_patch } from 'diff-match-patch';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -224,4 +224,5 @@ async function testMiddleFormat() {
         console.log("❌ FAIL: Formatting missing. Bold:", hasBold, "Italic:", hasItalic);
     }
 }
+
 

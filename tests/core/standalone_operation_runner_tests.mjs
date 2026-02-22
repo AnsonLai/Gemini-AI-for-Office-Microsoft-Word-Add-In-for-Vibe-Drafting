@@ -1,8 +1,8 @@
-import './setup-xml-provider.mjs';
+import '../setup-xml-provider.mjs';
 
 import assert from 'assert';
-import { buildTargetReferenceSnapshot, getParagraphText } from '../src/taskpane/modules/reconciliation/index.js';
-import { applyOperationToDocumentXml } from '../src/taskpane/modules/reconciliation/services/standalone-operation-runner.js';
+import { buildTargetReferenceSnapshot, getParagraphText } from '../../src/taskpane/modules/reconciliation/index.js';
+import { applyOperationToDocumentXml } from '../../src/taskpane/modules/reconciliation/services/standalone-operation-runner.js';
 
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
@@ -665,4 +665,5 @@ run().catch(err => {
     console.error('FAIL:', err.message);
     process.exit(1);
 });
+
 

@@ -1,4 +1,4 @@
-import './setup-xml-provider.mjs';
+import '../setup-xml-provider.mjs';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -8,10 +8,10 @@ import {
     applyRedlineToOxml,
     parseOoxml,
     ingestOoxml
-} from '../src/taskpane/modules/reconciliation/index.js';
+} from '../../src/taskpane/modules/reconciliation/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DOC_PATH = path.join(__dirname, 'sample_doc/word/document.xml');
+const DOC_PATH = path.join(__dirname, '../sample_doc/word/document.xml');
 
 async function run() {
     const originalXml = await fs.readFile(DOC_PATH, 'utf8');
@@ -39,4 +39,5 @@ run().catch(err => {
     console.error('FAIL:', err.message);
     process.exit(1);
 });
+
 
