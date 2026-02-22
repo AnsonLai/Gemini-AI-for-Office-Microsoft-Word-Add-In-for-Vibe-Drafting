@@ -5,6 +5,7 @@
 // Adapters
 export { configureXmlProvider } from './adapters/xml-adapter.js';
 export { configureLogger } from './adapters/logger.js';
+export { setDefaultAuthor, getDefaultAuthor, setPlatform, getPlatform } from './adapters/config.js';
 
 // Engine
 import {
@@ -761,12 +762,12 @@ export {
     buildCommentsPartXml
 } from './services/comment-engine.js';
 
-// Formatting removal utilities (outside reconciliation folder)
+// Formatting removal utilities
 export {
     removeFormattingFromRPr,
     applyFormattingRemovalToOoxml,
     applyHighlightToOoxml
-} from '../../ooxml-formatting-removal.js';
+} from './engine/formatting-removal.js';
 
 // Table/list tools
 export { generateTableOoxml } from './services/table-reconciliation.js';

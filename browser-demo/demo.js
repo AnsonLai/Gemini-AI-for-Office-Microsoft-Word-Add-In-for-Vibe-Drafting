@@ -2,6 +2,7 @@ import JSZip from 'https://esm.sh/jszip@3.10.1';
 import {
     configureLogger,
     getParagraphText as getParagraphTextFromOxml,
+    ingestWordOoxmlToMarkdown,
     buildTargetReferenceSnapshot,
     findParagraphByBestTextMatch,
     parseParagraphReference as parseParagraphReferenceShared,
@@ -19,8 +20,14 @@ import {
     validateDocxPackage
 } from '../src/taskpane/modules/reconciliation/standalone.js';
 import { applyOperationToDocumentXml } from '../src/taskpane/modules/reconciliation/services/standalone-operation-runner.js';
+import {
+    buildPromptParagraphSections,
+    buildFormattingDiagnostics,
+    isFormattingRemovalIntent,
+    buildFormattingRemovalFallbackCandidate
+} from '../src/taskpane/modules/reconciliation/services/browser-demo-prompt-context.js';
 
-const DEMO_VERSION = '2026-02-15-chat-docx-preview-23';
+const DEMO_VERSION = '2026-02-22-chat-docx-preview-26';
 const GEMINI_API_KEY_STORAGE_KEY = 'browserDemo.geminiApiKey';
 const EDIT_MODE_STORAGE_KEY = 'browserDemo.editMode';
 const LIBRARY_COLLAPSED_STORAGE_KEY = 'browserDemo.libraryCollapsed';
@@ -73,7 +80,7 @@ const libraryToggleBtn = document.getElementById('libraryToggleBtn');
 
 // ── State ──────────────────────────────────────────────
 let currentZip = null;           // JSZip instance of the working document
-let documentParagraphs = [];     // [{ index, text }] extracted from current docx
+let documentParagraphs = [];     // [{ index, text, formattedText? }] extracted from current docx
 let chatHistory = [];            // Gemini multi-turn history [{ role, parts }]
 let operationCount = 0;          // total operations applied across turns
 let previewRenderer = null;      // docxjs renderAsync function
@@ -466,6 +473,14 @@ function getParagraphText(paragraph) {
     return getParagraphTextFromOxml(paragraph);
 }
 
+function getParagraphMarkdownText(paragraph) {
+    if (!paragraph) return '';
+    const serializer = new XMLSerializer();
+    const paragraphXml = serializer.serializeToString(paragraph);
+    const wrappedDoc = `<w:document xmlns:w="${NS_W}"><w:body>${paragraphXml}<w:sectPr/></w:body></w:document>`;
+    return String(ingestWordOoxmlToMarkdown(wrappedDoc) || '').trim();
+}
+
 function findParagraphByExactText(xmlDoc, targetText) {
     return findParagraphByBestTextMatch(xmlDoc, targetText, {
         onInfo: message => log(message)
@@ -555,7 +570,9 @@ async function extractParagraphsFromZip(zip, sourceLabel = 'word/document.xml') 
     const allP = body.getElementsByTagNameNS(NS_W, 'p');
     for (let i = 0; i < allP.length; i++) {
         const text = getParagraphText(allP[i]).trim();
-        if (text) paragraphs.push({ index: i + 1, text });
+        if (!text) continue;
+        const formattedText = getParagraphMarkdownText(allP[i]) || text;
+        paragraphs.push({ index: i + 1, text, formattedText });
     }
     return paragraphs;
 }
@@ -627,14 +644,25 @@ function buildLibraryContextLines(libraryDocs) {
 function buildSystemInstruction(paragraphs, editModeValue = EDIT_MODE.REDLINE, libraryDocs = []) {
     const normalizedEditMode = normalizeEditMode(editModeValue);
     const directEditsMode = normalizedEditMode === EDIT_MODE.DIRECT;
-    const listing = paragraphs.map(p => `[P${p.index}] ${p.text}`).join('\n');
+    const { plainListing, formattingListing } = buildPromptParagraphSections(paragraphs);
     const libraryContextLines = buildLibraryContextLines(libraryDocs);
     return [
         'You are a contract review AI assistant. The user has uploaded a document.',
         `EDIT MODE: ${directEditsMode ? 'direct edits (apply changes directly, no tracked insert/delete markup)' : 'redlines (tracked changes)'}.`,
         'Below is the document content. Each line is ONE SEPARATE PARAGRAPH, prefixed with [P#]:',
         '',
-        listing,
+        plainListing,
+        ...(formattingListing
+            ? [
+                '',
+                'Formatting snapshot lines are provided where style metadata differs from plain text:',
+                '- [P#_FMT] lines encode markdown-style formatting projections from OOXML.',
+                '- Use [P#_FMT] lines to determine whether text is bold/italic for formatting-only requests.',
+                '- NEVER copy [P#_FMT] values into operation "target"; "target" must always come from [P#] plain text.',
+                '',
+                formattingListing
+            ]
+            : []),
         ...(libraryContextLines.length > 0 ? ['', ...libraryContextLines] : []),
         '',
         'Your job is to analyze the document and perform the operations the user asks for.',
@@ -690,6 +718,8 @@ function buildSystemInstruction(paragraphs, editModeValue = EDIT_MODE.REDLINE, l
         '- You CAN apply formatting like bold and underline using redline operations.',
         '- To underline a title, use: { "type": "redline", "target": "Title Text", "modified": "++Title Text++" }',
         '- To bold a word, use: { "type": "redline", "target": "Some text here", "modified": "Some **text** here" }',
+        '- For remove-format requests (for example unbold), determine current formatting state from [P#_FMT] lines when available.',
+        '- Do NOT claim text is "not bolded" based only on [P#] plain text lines.',
         '- To add NEW content before an existing paragraph, use a redline that prepends the new text before the original.',
         '- You may return an empty array [] if there are no issues.',
         '- Keep comments concise and actionable.',
@@ -792,7 +822,7 @@ function buildGeminiRequestPayload(userMessage, paragraphs, editModeValue, libra
     return { endpoint, requestBody };
 }
 
-function captureGeminiRequestDebug(endpoint, requestBody, selectedLibraryDocsCount, totalLibraryDocCount) {
+function captureGeminiRequestDebug(endpoint, requestBody, selectedLibraryDocsCount, totalLibraryDocCount, formattingDiagnostics = null) {
     const systemText = String(requestBody?.systemInstruction?.parts?.[0]?.text || '');
     const systemInstructionPreview = systemText.length > GEMINI_REQUEST_PREVIEW_CHARS
         ? `${systemText.slice(0, GEMINI_REQUEST_PREVIEW_CHARS)}\n...[truncated in preview]`
@@ -804,22 +834,32 @@ function captureGeminiRequestDebug(endpoint, requestBody, selectedLibraryDocsCou
         body: requestBody,
         meta: {
             selectedLibraryDocsCount,
-            totalLibraryDocCount
+            totalLibraryDocCount,
+            formattingQueryCount: Array.isArray(formattingDiagnostics?.queries) ? formattingDiagnostics.queries.length : 0,
+            formattingMatchCount: Array.isArray(formattingDiagnostics?.matches) ? formattingDiagnostics.matches.length : 0
         },
+        formattingDiagnostics,
         systemInstructionPreview
     };
     lastGeminiRequestDebug = debugPayload;
     if (typeof window !== 'undefined') {
         window.__BROWSER_DEMO_LAST_GEMINI_REQUEST__ = debugPayload;
     }
-    log(`[Gemini] Request built (${selectedLibraryDocsCount}/${totalLibraryDocCount} library docs selected). Inspect window.__BROWSER_DEMO_LAST_GEMINI_REQUEST__ in devtools.`);
+    log(
+        `[Gemini] Request built (${selectedLibraryDocsCount}/${totalLibraryDocCount} library docs selected, `
+        + `${debugPayload.meta.formattingQueryCount} format queries, ${debugPayload.meta.formattingMatchCount} format matches). `
+        + 'Inspect window.__BROWSER_DEMO_LAST_GEMINI_REQUEST__ in devtools.'
+    );
 }
 
 async function sendGeminiChat(userMessage, paragraphs, apiKey, editModeValue = EDIT_MODE.REDLINE, libraryDocs = [], options = {}) {
     const selectedLibraryDocsCount = Array.isArray(libraryDocs) ? libraryDocs.length : 0;
     const totalLibraryDocCount = Number.isInteger(options?.totalLibraryDocCount) ? options.totalLibraryDocCount : selectedLibraryDocsCount;
+    const formattingDiagnostics = options?.formattingDiagnostics && typeof options.formattingDiagnostics === 'object'
+        ? options.formattingDiagnostics
+        : null;
     const { endpoint, requestBody } = buildGeminiRequestPayload(userMessage, paragraphs, editModeValue, libraryDocs, apiKey);
-    captureGeminiRequestDebug(endpoint, requestBody, selectedLibraryDocsCount, totalLibraryDocCount);
+    captureGeminiRequestDebug(endpoint, requestBody, selectedLibraryDocsCount, totalLibraryDocCount, formattingDiagnostics);
 
     const response = await fetch(endpoint, {
         method: 'POST',
@@ -1069,21 +1109,42 @@ async function handleSend() {
 
     const thinkingEl = addMsg('system', '⏳ Analyzing document…');
     const selectedLibraryDocs = getSelectedLibraryDocuments();
+    const formattingDiagnostics = buildFormattingDiagnostics(documentParagraphs, userText);
+    if (typeof window !== 'undefined') {
+        window.__BROWSER_DEMO_LAST_FORMAT_DIAGNOSTICS__ = formattingDiagnostics;
+    }
+    for (const line of formattingDiagnostics.logLines || []) {
+        log(`[FormatDiag] ${line}`);
+    }
 
     try {
         const result = await sendGeminiChat(userText, documentParagraphs, apiKey, editMode, selectedLibraryDocs, {
-            totalLibraryDocCount: libraryDocuments.length
+            totalLibraryDocCount: libraryDocuments.length,
+            formattingDiagnostics
         });
 
         // Remove thinking indicator
         thinkingEl.remove();
 
         let assistantHtml = escapeHtml(result.explanation).replace(/\n/g, '<br>');
+        let operationsToApply = Array.isArray(result.operations) ? result.operations.slice() : [];
 
-        if (result.operations.length > 0) {
-            addMsg('system', `Applying ${result.operations.length} operation(s) in <strong>${getEditModeLabel()}</strong> mode…`);
+        if (operationsToApply.length === 0 && isFormattingRemovalIntent(userText)) {
+            const fallbackOp = buildFormattingRemovalFallbackCandidate(documentParagraphs, userText, result.explanation);
+            if (fallbackOp) {
+                operationsToApply = [fallbackOp];
+                const fallbackLabel = `[FormatFallback] Using deterministic formatting-removal fallback on P${fallbackOp.targetRef}.`;
+                log(fallbackLabel);
+                assistantHtml += '<div class="op-summary" style="color:var(--muted)">Applied formatting-removal fallback because the model returned no operations.</div>';
+            } else {
+                log('[FormatFallback] No eligible fallback paragraph with formatting differences was found.');
+            }
+        }
+
+        if (operationsToApply.length > 0) {
+            addMsg('system', `Applying ${operationsToApply.length} operation(s) in <strong>${getEditModeLabel()}</strong> mode…`);
             const author = authorInput.value.trim() || 'Browser Demo AI';
-            const opResults = await applyChatOperations(currentZip, result.operations, author, editMode);
+            const opResults = await applyChatOperations(currentZip, operationsToApply, author, editMode);
             operationCount += opResults.filter(r => r.success).length;
 
             // Re-extract paragraphs after modifications
@@ -1102,7 +1163,7 @@ async function handleSend() {
         }
 
         addMsg('assistant', assistantHtml);
-        log(`[Chat] Turn complete — ${result.operations.length} ops returned, ${operationCount} total applied`);
+        log(`[Chat] Turn complete — ${result.operations.length} ops returned, ${operationsToApply.length} applied attempt(s), ${operationCount} total applied`);
 
     } catch (err) {
         thinkingEl.remove();

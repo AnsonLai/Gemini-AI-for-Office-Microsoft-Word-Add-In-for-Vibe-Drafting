@@ -7,6 +7,7 @@
 // Adapters
 export { configureXmlProvider, createParser, createSerializer, parseXml, serializeXml } from './adapters/xml-adapter.js';
 export { configureLogger, setLogLevel, getLogLevel, log, warn, error } from './adapters/logger.js';
+export { setDefaultAuthor, getDefaultAuthor, setPlatform, getPlatform } from './adapters/config.js';
 
 // Main pipeline
 export { ReconciliationPipeline, detectContentType, parseListItems, parseTable } from './pipeline/pipeline.js';
@@ -85,6 +86,7 @@ export {
 
 // Comment Engine
 export { injectCommentsIntoOoxml, injectCommentsIntoPackage, buildCommentElement, buildCommentsPartXml } from './services/comment-engine.js';
+export { removeFormattingFromRPr, applyFormattingRemovalToOoxml, applyHighlightToOoxml } from './engine/formatting-removal.js';
 
 // Command-layer orchestration helpers (Word-agnostic planners)
 export { buildReconciliationPlan, RoutePlanKind, normalizeContentEscapesForRouting } from './orchestration/route-plan.js';

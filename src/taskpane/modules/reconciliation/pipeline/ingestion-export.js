@@ -97,9 +97,13 @@ function readRunText(run) {
 function getRunFormatting(run) {
     const rPr = getDirectWordChild(run, 'rPr');
     if (!rPr) return { bold: false, italic: false };
+    const rStyle = getWordDescendants(rPr, 'rStyle')[0] || null;
+    const rStyleValue = getWordAttribute(rStyle, ['w:val', 'val']).toLowerCase();
+    const styleImpliesBold = rStyleValue.includes('strong') || rStyleValue.includes('bold');
+    const styleImpliesItalic = rStyleValue.includes('italic') || rStyleValue.includes('emphasis');
     return {
-        bold: getWordDescendants(rPr, 'b').length > 0,
-        italic: getWordDescendants(rPr, 'i').length > 0
+        bold: getWordDescendants(rPr, 'b').length > 0 || styleImpliesBold,
+        italic: getWordDescendants(rPr, 'i').length > 0 || styleImpliesItalic
     };
 }
 

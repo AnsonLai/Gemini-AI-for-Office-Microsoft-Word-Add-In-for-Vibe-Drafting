@@ -60,6 +60,20 @@ function testMarkdownHeadingsListsAndRunFormatting() {
     assert.ok(result.includes('This is **bold** and *italic*'));
 }
 
+function testMarkdownDetectsStrongRunStyleAsBold() {
+    const xml = buildDocumentXml(`
+      <w:p>
+        <w:r>
+          <w:rPr><w:rStyle w:val="Strong"/></w:rPr>
+          <w:t>British Columbia</w:t>
+        </w:r>
+      </w:p>
+    `);
+
+    const result = ingestWordOoxmlToMarkdown(xml);
+    assert.strictEqual(result, '**British Columbia**');
+}
+
 function testInvalidInputIsNonThrowing() {
     const badXml = '';
 
@@ -73,6 +87,7 @@ function testInvalidInputIsNonThrowing() {
 function run() {
     testPlainTextReadableStructure();
     testMarkdownHeadingsListsAndRunFormatting();
+    testMarkdownDetectsStrongRunStyleAsBold();
     testInvalidInputIsNonThrowing();
     console.log('PASS: standalone ingestion export tests');
 }

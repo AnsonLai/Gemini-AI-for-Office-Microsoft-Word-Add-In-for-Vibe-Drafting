@@ -1,5 +1,5 @@
 import './setup-xml-provider.mjs';
-import { applyHighlightToOoxml } from '../src/taskpane/ooxml-formatting-removal.js';
+import { applyHighlightToOoxml } from '../src/taskpane/modules/reconciliation/engine/formatting-removal.js';
 import assert from 'assert';
 
 async function testHighlight() {
