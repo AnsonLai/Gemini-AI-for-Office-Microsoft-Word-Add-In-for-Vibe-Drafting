@@ -296,6 +296,61 @@ async function testRangeTableReplaceApply() {
     assert.strictEqual(nodeNames.includes('tbl'), true, 'range table replacement should output a table node');
 }
 
+async function testSingleParagraphHighlightApply() {
+    const original = 'Highlight target text.';
+    const { paragraph, insertCalls } = createMockParagraph(buildParagraphXml(original));
+    const { context } = createMockContext();
+
+    const applied = await applyWordOperation(
+        context,
+        {
+            type: 'highlight',
+            targetRef: 'P1',
+            target: original,
+            textToHighlight: 'target',
+            color: 'yellow'
+        },
+        { paragraph },
+        {
+            author: 'AdapterTest',
+            generateRedlines: false
+        }
+    );
+
+    assert.strictEqual(applied, true, 'single paragraph highlight should apply');
+    assert.strictEqual(insertCalls.length, 1, 'single paragraph highlight should perform one OOXML insertion');
+    const payload = String(insertCalls[0].payload || '');
+    assert.strictEqual(payload.includes('w:highlight'), true, 'highlight output should include w:highlight formatting');
+}
+
+async function testSingleParagraphCommentApply() {
+    const original = 'Comment target text.';
+    const { paragraph, insertCalls } = createMockParagraph(buildParagraphXml(original));
+    const { context } = createMockContext();
+
+    const applied = await applyWordOperation(
+        context,
+        {
+            type: 'comment',
+            targetRef: 'P1',
+            target: original,
+            textToComment: 'target',
+            commentContent: 'Review this phrasing.'
+        },
+        { paragraph },
+        {
+            author: 'AdapterTest',
+            generateRedlines: true
+        }
+    );
+
+    assert.strictEqual(applied, true, 'single paragraph comment should apply');
+    assert.strictEqual(insertCalls.length, 1, 'single paragraph comment should perform one OOXML insertion');
+    const payload = String(insertCalls[0].payload || '');
+    assert.strictEqual(payload.includes('/word/comments.xml'), true, 'comment output package should include comments part');
+    assert.strictEqual(payload.includes('Review this phrasing.'), true, 'comment output should include comment text');
+}
+
 async function testInsertionErrorsPropagateWithoutLegacyFallback() {
     const original = 'Alpha target text.';
     const modified = 'Alpha target text updated.';
@@ -333,6 +388,8 @@ async function run() {
     await testRangeListInsertionRedlineApply();
     await testSingleParagraphConcatenationInsertionShape();
     await testRangeTableReplaceApply();
+    await testSingleParagraphHighlightApply();
+    await testSingleParagraphCommentApply();
     await testInsertionErrorsPropagateWithoutLegacyFallback();
     console.log('PASS: word operation runner adapter tests');
 }

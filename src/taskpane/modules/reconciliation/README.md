@@ -25,6 +25,7 @@ Core code is organized by concern:
 - `integration/` Word API bridge + shared Word-only OOXML interop helpers
   - includes legacy structured-list insertion fallback helpers extracted from command layer
   - includes shared paragraph route/apply helper (`word-route-change.js`) used by command adapters
+  - includes canonical Word shared-operation adapter (`integration/word-operation-runner.js`) used directly by migrated command tools (no command-layer bridge shim)
 
 Formatting behavior note:
 

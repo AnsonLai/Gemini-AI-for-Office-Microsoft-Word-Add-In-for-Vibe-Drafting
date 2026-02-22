@@ -182,13 +182,14 @@ export async function applySharedOperationToParagraphOoxml(paragraphOoxml, opera
     // por lo que Word no puede resolver el numId original y vuelve al estilo de viñeta incorrecto.
     // El paquete de párrafo único se inserta en el contexto vivo del documento donde la numeración ya existe.
     const listItemRedlineEnforced = operation?.type === 'redline' && !!sourceDirectListInfo?.numId && !commentsXml;
+    const useParagraphOnlyListPackage = listItemRedlineEnforced && isSingleParagraphOutput;
     const packageOoxml = isSingleParagraphOutput
         ? (
             commentsXml
                 ? wrapParagraphWithComments(paragraphXml, commentsXml)
                 : buildParagraphOnlyPackage(paragraphXml)
         )
-        : listItemRedlineEnforced
+        : useParagraphOnlyListPackage
             ? buildParagraphOnlyPackage(paragraphXml)
             : (
                 commentsXml

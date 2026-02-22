@@ -16,6 +16,9 @@ import {
 import {
   detectDocumentFont
 } from '../utils/markdown-utils.js';
+import {
+  resolveInsertListItemLevel
+} from './list-level-utils.js';
 
 let loadApiKey;
 let loadModel;
@@ -567,18 +570,6 @@ JSON RESPONSE:`;
 // ==================== TOOL EXECUTION HELPERS ====================
 
 /**
- * Validates that prerequisites for tool execution are met (API key exists).
- * @returns {Object} Object with either { apiKey } or { error }
- */
-function validateToolPrerequisites() {
-  const apiKey = loadApiKey();
-  if (!apiKey) {
-    return { error: "Error: Please set your Gemini API key in the Settings." };
-  }
-  return { apiKey };
-}
-
-/**
  * Creates a standardized tool execution result object.
  * @param {number} count - Number of items successfully processed
  * @param {string} itemType - Type of item (e.g., "comments", "highlights")
@@ -732,8 +723,10 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
         await context.sync();
 
         const ooxmlValue = adjacentOoxml.value;
-        const numIdMatch = ooxmlValue.match(/<[\w:]*?numId\s+[\w:]*?val="(\d+)"/i);
-        const ilvlMatch = ooxmlValue.match(/<[\w:]*?ilvl\s+[\w:]*?val="(\d+)"/i);
+        const numPrSection = ooxmlValue.match(/<[\w:]*?numPr[\s\S]*?<\/[\w:]*?numPr>/i);
+        const numPrSource = numPrSection ? numPrSection[0] : ooxmlValue;
+        const numIdMatch = numPrSource.match(/<[\w:]*?numId\s+[\w:]*?val="(\d+)"/i);
+        const ilvlMatch = numPrSource.match(/<[\w:]*?ilvl\s+[\w:]*?val="(\d+)"/i);
 
         // Debug: Log the numbering definition info if available
         const lvlTextMatch = ooxmlValue.match(/<[\w:]*?lvlText\s+[\w:]*?val="([^"]*)"/i);
@@ -742,7 +735,6 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
         }
 
         // Log a snippet of the OOXML for debugging numbering structure
-        const numPrSection = ooxmlValue.match(/<[\w:]*?numPr[\s\S]*?<\/[\w:]*?numPr>/i);
         if (numPrSection) {
           console.log(`[executeInsertListItem] Adjacent numPr: ${numPrSection[0]}`);
         }
@@ -757,9 +749,18 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
 
         const numId = numIdMatch[1];
         const baseIlvl = ilvlMatch ? parseInt(ilvlMatch[1], 10) : 0;
-        const newIlvl = Math.max(0, Math.min(8, baseIlvl + indentLevel)); // Clamp to 0-8
+        const levelResolution = resolveInsertListItemLevel(baseIlvl, indentLevel);
+        const newIlvl = levelResolution.newIlvl;
 
-        console.log(`[executeInsertListItem] Adjacent numId=${numId}, ilvl=${baseIlvl}, newIlvl=${newIlvl}`);
+        if (levelResolution.appliedIndent !== levelResolution.normalizedIndent) {
+          console.warn(
+            `[executeInsertListItem] indentLevel=${levelResolution.normalizedIndent} is out of range; clamped to ${levelResolution.appliedIndent}`
+          );
+        }
+
+        console.log(
+          `[executeInsertListItem] Adjacent numId=${numId}, ilvl=${levelResolution.baseIlvl}, indent=${levelResolution.appliedIndent}, newIlvl=${newIlvl}`
+        );
 
         // Extract run properties (rPr) from adjacent paragraph to preserve font styling
         let rPrBlock = '';

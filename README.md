@@ -260,6 +260,14 @@ node tests/standalone_operation_runner_tests.mjs
 
 This suite includes coverage for explicit range list edits (`targetRef` + `targetEndRef`) to ensure insertion-only requests are applied surgically (single inserted revision, no delete rewrite of untouched list items) while preserving existing list `numId` binding.
 
+### Word Adapter Regression
+
+To verify the Word integration adapter that applies shared standalone operations to paragraph/range scopes:
+
+```bash
+node tests/word_operation_runner_adapter_tests.mjs
+```
+
 The add-in uses Google Gemini models (e.g., `gemini-1.5-flash`, `gemini-1.5-pro`). You can modify the default models in [`taskpane.js`](src/taskpane/taskpane.js).
 
 ```javascript

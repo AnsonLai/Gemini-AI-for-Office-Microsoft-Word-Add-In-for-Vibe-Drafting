@@ -4,7 +4,7 @@ import assert from 'assert';
 import {
     applySharedOperationToParagraphOoxml,
     applySharedOperationToScopeOoxml
-} from '../src/taskpane/modules/commands/shared-operation-bridge.js';
+} from '../src/taskpane/modules/reconciliation/integration/word-operation-runner.js';
 import {
     extractReplacementNodesFromOoxml,
     getParagraphText

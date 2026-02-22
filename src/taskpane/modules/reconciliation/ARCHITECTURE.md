@@ -68,7 +68,9 @@ reconciliation/
 │   └── list-structural-fallback.js
 ├── integration/
 │   ├── integration.js
+│   ├── word-operation-runner.js
 │   ├── word-ooxml.js
+│   ├── word-redline-runner.js
 │   ├── word-route-change.js
 │   └── word-structured-list.js
 ├── index.js
@@ -212,6 +214,12 @@ reconciliation/
 - `integration/word-route-change.js`
   - Shared Word paragraph route/apply helper used by command adapters to keep `agentic-tools` thin.
   - Owns reconciliation route execution and fallback sequencing for single-paragraph edits.
+- `integration/word-operation-runner.js`
+  - Canonical Word adapter for shared standalone operation routing/application (`redline`, `highlight`, `comment`) on paragraph/range scopes.
+  - Handles scoped OOXML read/apply/write and package payload insertion for migrated command tools.
+- `integration/word-redline-runner.js`
+  - Command-layer redline orchestration helper that converts AI redline payloads to canonical operations and applies them sequentially through `applyWordOperation(...)`.
+  - Preserves strict out-of-range no-op semantics and targeted `modify_text` nearest-paragraph rebase handling for empty-target paragraphs.
 - `index.js`
   - Main public API surface.
   - Re-exports Word OOXML ingestion-export helpers for add-in/internal callers.
@@ -297,6 +305,7 @@ contains explicit redline markup (`w:ins`/`w:del`) when redlines are enabled.
 - Command-layer list markdown builders, paragraph-id extraction, and direct structured-list fallback are now extracted to reconciliation modules.
 - Command-layer `routeChangeOperation(...)` is now a thin wrapper over reconciliation `integration/word-route-change.js`.
 - Command-layer list item normalization in `executeEditList(...)` now delegates to reconciliation orchestration helpers.
+- Legacy command compatibility bridge `modules/commands/shared-operation-bridge.js` has been removed; tests/callers use reconciliation integration exports directly.
 - `modules/commands/agentic-tools.js` still contains migration debt:
   - compatibility wrapper `parseMarkdownList(...)` remains in `markdown-utils` (delegating to reconciliation parser)
 - Intended direction:

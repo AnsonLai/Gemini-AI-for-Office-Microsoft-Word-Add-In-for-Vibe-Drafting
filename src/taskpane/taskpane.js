@@ -1452,7 +1452,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
                 },
                 indentLevel: {
                   type: "INTEGER",
-                  description: "Optional: The indentation level relative to the paragraph you're inserting after. 0 = same level (default), 1 = one level deeper (sub-item), -1 = one level shallower",
+                  description: "Optional: Relative indentation from the paragraph you're inserting after. Allowed values: -1 (one level shallower), 0 (same level, default), 1 (one level deeper). Values outside -1..1 are treated as invalid and clamped.",
                 },
               },
               required: ["afterParagraphIndex", "text"],
