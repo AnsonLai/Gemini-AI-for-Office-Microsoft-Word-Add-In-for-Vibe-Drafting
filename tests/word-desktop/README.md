@@ -99,3 +99,50 @@ Artifacts are written under `tests/word-desktop/.tmp/`:
 
 - `list-regression-output.docx`
 - `list-regression-inspector.json`
+
+## Shared-Engine Manual Matrix (Desktop + Web)
+
+Use this checklist to complete Task 7 manual verification for migrated tools (`apply_redlines`, `insert_comment`, `highlight_text`).
+
+Preconditions:
+
+- Latest local add-in build is loaded.
+- A known test document is open (recommended: `tests/Sample NDA.docx`).
+- You can toggle redlines on/off from add-in settings.
+
+Run each scenario in both Word Desktop and Word Web:
+
+1. Redline single paragraph rewrite
+2. Redline explicit range list insertion
+3. Redline table conversion
+4. Highlight operation
+5. Comment operation
+6. Track changes permutation:
+   - redlines enabled
+   - redlines disabled
+
+Record results in this template:
+
+```text
+Date:
+Build/branch:
+Document:
+
+Desktop:
+- Redline single paragraph: PASS/FAIL
+- Redline explicit range list insertion: PASS/FAIL
+- Redline table conversion: PASS/FAIL
+- Highlight operation: PASS/FAIL
+- Comment operation: PASS/FAIL
+- Track changes ON/OFF permutation: PASS/FAIL
+
+Web:
+- Redline single paragraph: PASS/FAIL
+- Redline explicit range list insertion: PASS/FAIL
+- Redline table conversion: PASS/FAIL
+- Highlight operation: PASS/FAIL
+- Comment operation: PASS/FAIL
+- Track changes ON/OFF permutation: PASS/FAIL
+
+Notes:
+```

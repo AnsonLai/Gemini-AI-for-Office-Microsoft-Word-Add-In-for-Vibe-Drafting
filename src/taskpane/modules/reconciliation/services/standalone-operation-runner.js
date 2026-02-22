@@ -352,6 +352,140 @@ function deriveSingleParagraphListAdjacencyInsertion(currentParagraphText, modif
     return null;
 }
 
+function deriveSingleParagraphPlainAdjacencyInsertion(currentParagraphText, modifiedText) {
+    const rawCurrent = String(currentParagraphText || '').trim();
+    const rawModified = String(modifiedText || '');
+    if (!rawCurrent || !rawModified || !rawModified.includes('\n')) return null;
+
+    const lines = rawModified
+        .split(/\r?\n/g)
+        .map(line => String(line || '').trim())
+        .filter(Boolean);
+    if (lines.length < 2) return null;
+
+    const normalize = value => normalizeWhitespaceForTargeting(String(value || ''));
+    const normalizedCurrent = normalize(rawCurrent);
+    const normalizedFirst = normalize(lines[0]);
+    const normalizedLast = normalize(lines[lines.length - 1]);
+
+    if (normalizedLast === normalizedCurrent) {
+        const paragraphs = lines.slice(0, -1).map(line => String(line || '').trim()).filter(Boolean);
+        if (paragraphs.length > 0) {
+            return { position: 'before', paragraphs };
+        }
+    }
+
+    if (normalizedFirst === normalizedCurrent) {
+        const paragraphs = lines.slice(1).map(line => String(line || '').trim()).filter(Boolean);
+        if (paragraphs.length > 0) {
+            return { position: 'after', paragraphs };
+        }
+    }
+
+    return null;
+}
+
+function buildFallbackInsertedPlainParagraph(xmlDoc, text, revisionId, author, dateIso, options = {}) {
+    const generateRedlines = options.generateRedlines !== false;
+    const paragraph = xmlDoc.createElementNS(NS_W, 'w:p');
+    const run = xmlDoc.createElementNS(NS_W, 'w:r');
+    const textNode = xmlDoc.createElementNS(NS_W, 'w:t');
+    const safeText = String(text || '');
+    if (/^\s|\s$/.test(safeText)) textNode.setAttribute('xml:space', 'preserve');
+    textNode.textContent = safeText;
+    run.appendChild(textNode);
+
+    if (generateRedlines) {
+        const ins = xmlDoc.createElementNS(NS_W, 'w:ins');
+        ins.setAttribute('w:id', String(revisionId));
+        ins.setAttribute('w:author', author || 'Browser Demo AI');
+        ins.setAttribute('w:date', dateIso);
+        ins.appendChild(run);
+        paragraph.appendChild(ins);
+    } else {
+        paragraph.appendChild(run);
+    }
+
+    return paragraph;
+}
+
+function buildEmptyParagraphTemplateFromAnchor(xmlDoc, anchorParagraph) {
+    const paragraph = xmlDoc.createElementNS(NS_W, 'w:p');
+    const anchorPPr = getDirectWordChild(anchorParagraph, 'pPr');
+    if (anchorPPr) paragraph.appendChild(anchorPPr.cloneNode(true));
+
+    const run = xmlDoc.createElementNS(NS_W, 'w:r');
+    const anchorFirstRun = Array.from(anchorParagraph.getElementsByTagNameNS(NS_W, 'r'))[0] || null;
+    const anchorRunPr = anchorFirstRun ? getDirectWordChild(anchorFirstRun, 'rPr') : null;
+    if (anchorRunPr) run.appendChild(anchorRunPr.cloneNode(true));
+
+    const textNode = xmlDoc.createElementNS(NS_W, 'w:t');
+    textNode.textContent = '';
+    run.appendChild(textNode);
+    paragraph.appendChild(run);
+    return paragraph;
+}
+
+function wrapParagraphContentInInsertion(xmlDoc, paragraph, revisionId, author, dateIso) {
+    const wrappedParagraph = xmlDoc.createElementNS(NS_W, 'w:p');
+    const pPr = getDirectWordChild(paragraph, 'pPr');
+    if (pPr) wrappedParagraph.appendChild(pPr.cloneNode(true));
+
+    const ins = xmlDoc.createElementNS(NS_W, 'w:ins');
+    ins.setAttribute('w:id', String(revisionId));
+    ins.setAttribute('w:author', author || 'Browser Demo AI');
+    ins.setAttribute('w:date', dateIso);
+
+    for (const child of Array.from(paragraph.childNodes || [])) {
+        if (child?.nodeType === 1 && child.namespaceURI === NS_W && child.localName === 'pPr') continue;
+        ins.appendChild(child.cloneNode(true));
+    }
+
+    wrappedParagraph.appendChild(ins);
+    return wrappedParagraph;
+}
+
+async function buildInsertedPlainParagraph(xmlDoc, anchorParagraph, text, revisionId, author, dateIso, options = {}) {
+    const generateRedlines = options.generateRedlines !== false;
+    const serializer = createSerializer();
+    const templateParagraph = buildEmptyParagraphTemplateFromAnchor(xmlDoc, anchorParagraph);
+    const templateXml = serializer.serializeToString(templateParagraph);
+    const markdownResult = await applyRedlineToOxml(
+        templateXml,
+        '',
+        String(text || ''),
+        {
+            author,
+            generateRedlines: false
+        }
+    );
+
+    let sourceParagraph = null;
+    if (typeof markdownResult?.oxml === 'string') {
+        const extracted = extractReplacementNodes(markdownResult.oxml);
+        sourceParagraph = (extracted.replacementNodes || []).find(
+            node => node && node.nodeType === 1 && node.namespaceURI === NS_W && node.localName === 'p'
+        ) || null;
+    }
+
+    if (!sourceParagraph) {
+        return buildFallbackInsertedPlainParagraph(
+            xmlDoc,
+            text,
+            revisionId,
+            author,
+            dateIso,
+            { generateRedlines }
+        );
+    }
+
+    if (!generateRedlines) {
+        return sourceParagraph;
+    }
+
+    return wrapParagraphContentInInsertion(xmlDoc, sourceParagraph, revisionId, author, dateIso);
+}
+
 async function tryExplicitDecimalHeaderListConversion({
     xmlDoc,
     serializer,
@@ -694,6 +828,41 @@ async function applyToParagraphByExactText(documentXml, targetText, modifiedText
             ? targetParagraph
             : targetParagraph.nextSibling;
         parent.insertBefore(listParagraph, insertionPoint);
+        normalizeBodySectionOrder(xmlDoc);
+        return { documentXml: serializer.serializeToString(xmlDoc), hasChanges: true, numberingXml: null };
+    }
+
+    const plainAdjacencyInsertionCandidate = (!useTableScope && !hasExplicitRangeScope && !targetListInfo)
+        ? deriveSingleParagraphPlainAdjacencyInsertion(currentParagraphText, effectiveModifiedText)
+        : null;
+    if (plainAdjacencyInsertionCandidate) {
+        onInfo(
+            `[Text] Applying single-paragraph plain adjacency insertion heuristic `
+            + `(${plainAdjacencyInsertionCandidate.position}, count=${plainAdjacencyInsertionCandidate.paragraphs.length}).`
+        );
+        const parent = targetParagraph.parentNode;
+        if (!parent) throw new Error('Target paragraph has no parent for plain adjacency insertion');
+
+        const dateIso = generateRedlines ? new Date().toISOString() : null;
+        let revisionId = generateRedlines ? getNextTrackedChangeId(xmlDoc) : null;
+        const insertionPoint = plainAdjacencyInsertionCandidate.position === 'before'
+            ? targetParagraph
+            : targetParagraph.nextSibling;
+
+        for (const paragraphText of plainAdjacencyInsertionCandidate.paragraphs) {
+            const plainParagraph = await buildInsertedPlainParagraph(
+                xmlDoc,
+                targetParagraph,
+                paragraphText,
+                revisionId,
+                author,
+                dateIso,
+                { generateRedlines }
+            );
+            parent.insertBefore(xmlDoc.importNode(plainParagraph, true), insertionPoint);
+            if (generateRedlines) revisionId += 1;
+        }
+
         normalizeBodySectionOrder(xmlDoc);
         return { documentXml: serializer.serializeToString(xmlDoc), hasChanges: true, numberingXml: null };
     }

@@ -261,6 +261,45 @@ async function testSingleParagraphConcatenationInsertionShape() {
     assert.strictEqual(texts.includes(original), true, 'single-paragraph insertion shape should retain original item text');
 }
 
+async function testSingleParagraphPlainInsertionBeforeShape() {
+    const original = 'NON-DISCLOSURE AGREEMENT';
+    const insertedMarkdown = '**INSTRUCTIONS:** Please review this Non-Disclosure Agreement carefully.';
+    const insertedPlain = 'INSTRUCTIONS: Please review this Non-Disclosure Agreement carefully.';
+    const modified = `${insertedMarkdown}\n${original}`;
+    const { paragraph, insertCalls } = createMockParagraph(buildParagraphXml(original));
+    const { context } = createMockContext();
+
+    const applied = await applyWordOperation(
+        context,
+        {
+            type: 'redline',
+            targetRef: 'P1',
+            target: original,
+            modified
+        },
+        { paragraph },
+        {
+            author: 'AdapterTest',
+            generateRedlines: true,
+            disableNativeTracking: true,
+            baseTrackingMode: global.Word.ChangeTrackingMode.trackAll
+        }
+    );
+
+    assert.strictEqual(applied, true, 'single-paragraph plain insertion-before shape should apply');
+    assert.strictEqual(insertCalls.length, 1, 'single-paragraph plain insertion-before shape should insert one package');
+    const texts = extractTextsFromPayload(insertCalls[0].payload);
+    assert.strictEqual(
+        texts.length >= 2,
+        true,
+        'single-paragraph plain insertion-before shape should preserve multi-paragraph output'
+    );
+    assert.strictEqual(texts[0], insertedPlain, 'plain insertion-before shape should place inserted paragraph first');
+    assert.strictEqual(texts.includes(original), true, 'plain insertion-before shape should retain original paragraph text');
+    const payload = String(insertCalls[0].payload || '');
+    assert.strictEqual(payload.includes('<w:b'), true, 'plain insertion-before shape should render markdown bold formatting');
+}
+
 async function testRangeTableReplaceApply() {
     const scopeXml = buildScopeDocumentXml([
         buildParagraphXml('Disclosing Party: [Name of Disclosing Party]'),
@@ -387,6 +426,7 @@ async function run() {
     await testAdapterCallsRunnerAndNoOpsWithoutChanges();
     await testRangeListInsertionRedlineApply();
     await testSingleParagraphConcatenationInsertionShape();
+    await testSingleParagraphPlainInsertionBeforeShape();
     await testRangeTableReplaceApply();
     await testSingleParagraphHighlightApply();
     await testSingleParagraphCommentApply();

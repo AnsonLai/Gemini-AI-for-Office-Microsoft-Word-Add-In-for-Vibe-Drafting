@@ -268,6 +268,12 @@ To verify the Word integration adapter that applies shared standalone operations
 node tests/word_operation_runner_adapter_tests.mjs
 ```
 
+To verify migrated command tools remain on shared-engine cutover paths (no legacy fallback routing):
+
+```bash
+node tests/migrated_tool_cutover_tests.mjs
+```
+
 The add-in uses Google Gemini models (e.g., `gemini-1.5-flash`, `gemini-1.5-pro`). You can modify the default models in [`taskpane.js`](src/taskpane/taskpane.js).
 
 ```javascript

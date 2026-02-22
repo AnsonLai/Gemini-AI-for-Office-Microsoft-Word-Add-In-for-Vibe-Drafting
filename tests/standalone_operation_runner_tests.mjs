@@ -218,6 +218,65 @@ async function testSingleParagraphListConcatenationUsesSurgicalInsertion() {
     assert.strictEqual(revisionInserts, 1, 'adjacency insertion should emit exactly one inserted revision');
 }
 
+async function testPlainParagraphInsertionBeforeTargetCreatesSeparateParagraph() {
+    const original = 'NON-DISCLOSURE AGREEMENT';
+    const insertedMarkdown = '**INSTRUCTIONS:** Please review this Non-Disclosure Agreement carefully.';
+    const insertedPlain = 'INSTRUCTIONS: Please review this Non-Disclosure Agreement carefully.';
+    const logs = [];
+    const inputXml = buildDocumentXml(original);
+    const result = await applyOperationToDocumentXml(
+        inputXml,
+        {
+            type: 'redline',
+            target: original,
+            targetRef: 'P1',
+            modified: `${insertedMarkdown}\n${original}`
+        },
+        'StandaloneRunnerTest',
+        null,
+        {
+            generateRedlines: true,
+            onInfo: message => logs.push(String(message)),
+            onWarn: message => logs.push(String(message))
+        }
+    );
+
+    assert.strictEqual(result.hasChanges, true, 'plain insertion-before-target shape should report changes');
+    assert.strictEqual(
+        logs.some(message => message.includes('plain adjacency insertion heuristic')),
+        true,
+        'plain insertion-before-target shape should use plain adjacency insertion heuristic'
+    );
+
+    const resultDoc = parseXmlStrict(result.documentXml, 'plain insertion-before-target output');
+    const paragraphs = Array.from(resultDoc.getElementsByTagNameNS(NS_W, 'p'));
+    const paragraphTexts = paragraphs.map(paragraph => getParagraphText(paragraph).trim()).filter(Boolean);
+
+    assert.strictEqual(
+        paragraphTexts.length,
+        2,
+        'plain insertion-before-target should produce two paragraphs'
+    );
+    assert.strictEqual(
+        paragraphTexts[0],
+        insertedPlain,
+        'plain insertion-before-target should insert new paragraph text before original target paragraph'
+    );
+    assert.strictEqual(
+        paragraphTexts[1],
+        original,
+        'plain insertion-before-target should preserve original target paragraph as separate paragraph'
+    );
+    assert.ok(
+        result.documentXml.includes('<w:b'),
+        'plain insertion-before-target should parse markdown formatting via existing formatter pipeline'
+    );
+    assert.ok(
+        !paragraphTexts[0].includes('**'),
+        'plain insertion-before-target should not leave raw markdown markers in output text'
+    );
+}
+
 async function testFormatOnlyRedlineWithTrackedWrapperStillApplies() {
     const originalText = 'These instructions are for the user to fill out the document. Please replace all bracketed information (e.g., "[Name of Disclosing Party]") with the appropriate details. Ensure all necessary signatures are obtained. NON-DISCLOSURE AGREEMENT';
     const modifiedText = 'These instructions are for the user to fill out the document. Please replace all bracketed information (e.g., "[Name of Disclosing Party]") with the appropriate details. Ensure all necessary signatures are obtained. ++NON-DISCLOSURE AGREEMENT++';
@@ -473,6 +532,7 @@ async function run() {
     await testCommentOperation();
     await testRangeListRedlineDoesNotDuplicateExistingItems();
     await testSingleParagraphListConcatenationUsesSurgicalInsertion();
+    await testPlainParagraphInsertionBeforeTargetCreatesSeparateParagraph();
     await testFormatOnlyRedlineWithTrackedWrapperStillApplies();
     await testTextToTableWithoutHeaderSeparatorPreservesAllRows();
     await testFormatOnlyRedlineSupportsNonWPrefixOoxml();
