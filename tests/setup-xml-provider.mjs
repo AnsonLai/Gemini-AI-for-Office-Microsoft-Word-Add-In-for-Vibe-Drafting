@@ -1,4 +1,4 @@
-import { configureXmlProvider } from '../src/taskpane/modules/reconciliation/adapters/xml-adapter.js';
+import { configureXmlProvider } from '@gsd/docx-reconciliation';
 
 let DOMParserCtor = null;
 let XMLSerializerCtor = null;

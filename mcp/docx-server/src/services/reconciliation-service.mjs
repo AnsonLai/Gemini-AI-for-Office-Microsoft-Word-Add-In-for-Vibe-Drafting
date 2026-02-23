@@ -5,7 +5,7 @@ import {
     configureXmlProvider,
     ingestOoxml,
     injectCommentsIntoOoxml
-} from '../../../../src/taskpane/modules/reconciliation/index.js';
+} from '@gsd/docx-reconciliation';
 import { getLocalName, isElement, parseXmlStrict, toArray, allByTag } from './xml-utils.mjs';
 
 configureXmlProvider({

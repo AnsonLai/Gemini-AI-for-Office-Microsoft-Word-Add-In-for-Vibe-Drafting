@@ -7,16 +7,16 @@ import {
     inferTableReplacementParagraphBlock as inferTableReplacementParagraphBlockStandalone,
     isLikelyStructuredTableSourceParagraph as isLikelyStructuredTableSourceParagraphStandalone,
     parseOoxml
-} from '../src/taskpane/modules/reconciliation/index.js';
+} from '@gsd/docx-reconciliation/index.js';
 
 import {
     resolveParagraphRangeByRefs
-} from '../src/taskpane/modules/reconciliation/core/paragraph-targeting.js';
+} from '@gsd/docx-reconciliation/core/paragraph-targeting.js';
 
 import {
     inferTableReplacementParagraphBlock,
     isLikelyStructuredTableSourceParagraph
-} from '../src/taskpane/modules/reconciliation/core/table-targeting.js';
+} from '@gsd/docx-reconciliation/core/table-targeting.js';
 
 function testStandaloneReexportsMatchCore() {
     assert.strictEqual(resolveParagraphRangeByRefsStandalone, resolveParagraphRangeByRefs);
@@ -71,4 +71,5 @@ try {
     console.error('FAIL:', err.message);
     process.exit(1);
 }
+
 

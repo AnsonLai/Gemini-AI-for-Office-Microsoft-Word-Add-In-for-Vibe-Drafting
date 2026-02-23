@@ -8,10 +8,10 @@ import {
     setPlatform,
     getPlatform,
     applyRedlineToOxml
-} from '../src/taskpane/modules/reconciliation/index.js';
-import { createRevisionMetadata, resetRevisionIdCounter } from '../src/taskpane/modules/reconciliation/core/types.js';
-import { injectCommentsIntoOoxml, resetRevisionIdCounter as resetCommentRevisionIdCounter } from '../src/taskpane/modules/reconciliation/services/comment-engine.js';
-import { ReconciliationPipeline } from '../src/taskpane/modules/reconciliation/pipeline/pipeline.js';
+} from '@gsd/docx-reconciliation/index.js';
+import { createRevisionMetadata, resetRevisionIdCounter } from '@gsd/docx-reconciliation/core/types.js';
+import { injectCommentsIntoOoxml, resetRevisionIdCounter as resetCommentRevisionIdCounter } from '@gsd/docx-reconciliation/services/comment-engine.js';
+import { ReconciliationPipeline } from '@gsd/docx-reconciliation/pipeline/pipeline.js';
 
 function testCreateRevisionMetadataUsesConfiguredDefaultAuthor() {
     resetRevisionIdCounter(1000);
@@ -80,4 +80,5 @@ run().catch(err => {
     console.error('FAIL:', err.message);
     process.exit(1);
 });
+
 

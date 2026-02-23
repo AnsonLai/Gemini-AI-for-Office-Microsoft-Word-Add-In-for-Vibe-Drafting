@@ -5,14 +5,14 @@ import {
     getDefaultAuthor as getDefaultAuthorCore,
     setPlatform as setPlatformCore,
     getPlatform as getPlatformCore
-} from '../src/taskpane/modules/reconciliation/index.js';
+} from '@gsd/docx-reconciliation/index.js';
 
 import {
     setDefaultAuthor as setDefaultAuthorWordEntry,
     getDefaultAuthor as getDefaultAuthorWordEntry,
     setPlatform as setPlatformWordEntry,
     getPlatform as getPlatformWordEntry
-} from '../src/taskpane/modules/reconciliation/word-addin-entry.js';
+} from '../src/taskpane/modules/reconciliation-integration/index.js';
 
 function run() {
     setDefaultAuthorCore('ConfigTestAuthor');
@@ -40,4 +40,5 @@ try {
     console.error('FAIL:', err.message);
     process.exit(1);
 }
+
 

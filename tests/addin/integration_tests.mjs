@@ -10,8 +10,7 @@ import '../setup-xml-provider.mjs';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { applyRedlineToOxml } from '../../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
-import { ingestOoxml } from '../../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
+import { applyRedlineToOxml, ingestOoxml } from '@gsd/docx-reconciliation';
 
 // --- Config ---
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

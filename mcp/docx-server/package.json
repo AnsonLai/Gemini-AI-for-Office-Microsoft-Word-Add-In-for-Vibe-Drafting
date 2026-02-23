@@ -9,6 +9,7 @@
     "start": "node src/server.mjs"
   },
   "dependencies": {
+    "@gsd/docx-reconciliation": "file:../../../../Docx Redline JS",
     "@modelcontextprotocol/sdk": "^1.17.3",
     "@xmldom/xmldom": "^0.8.11",
     "jszip": "^3.10.1"

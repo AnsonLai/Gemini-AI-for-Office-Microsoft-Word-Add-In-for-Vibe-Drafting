@@ -23,8 +23,8 @@ This MCP server is built upon the shared **Reconciliation Core** and follows the
 
 ## Architecture Alignment
 
-The MCP server uses the same reconciliation modules documented in:
-- `src/taskpane/modules/reconciliation/ARCHITECTURE.md`
+The MCP server uses the external reconciliation package `@gsd/docx-reconciliation`
+plus this repo's high-level architecture docs (`ARCHITECTURE.md`, `ROADMAP.md`, `STATE.md`).
 
 Key points:
 - Edits are OOXML-first and reconciliation-driven.

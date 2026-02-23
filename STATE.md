@@ -7,7 +7,7 @@ This document records the current technical posture and "sacred" decisions of th
 ## Current Posture
 - **Engine Version**: Hybrid Mode V5.1.
 - **Key Strategy**: Surgical DOM manipulation is prioritized over full string serialization to ensure Word detects pre-embedded redlines.
-- **Portability Status**: Core reconciliation logic is 100% independent of Word JS API at the package boundary.
+- **Portability Status**: Core reconciliation logic is consumed from external package `@gsd/docx-reconciliation`.
 
 ## Sacred Decisions
 1. **OOXML > Word JS**: Any document modification MUST be implemented in the OOXML engine if possible. Word JS is reserved for UI and host-specific discovery.
@@ -30,4 +30,9 @@ This document records the current technical posture and "sacred" decisions of th
   - Core helpers extracted (`engine/formatting-removal.js`, `services/numbering-helpers.js`, core targeting helpers).
   - Test ownership split into `tests/core/` and `tests/addin/`.
   - Prep package metadata added as `@gsd/docx-reconciliation` (`src/taskpane/modules/reconciliation/package.json`).
+- **Feb 23, 2026**: Completed repository split cutover in AIWordPlugin:
+  - Installed local package dependency (`file:../../Docx Redline JS`) and removed in-repo `src/taskpane/modules/reconciliation/`.
+  - Moved add-in-only bridge to `src/taskpane/modules/reconciliation-integration/`.
+  - Updated add-in, browser demo, and MCP imports to `@gsd/docx-reconciliation`.
+  - Updated add-in integration tests to reference new package and bridge paths.
 - **Jan 2026**: Migrated from HTML fallback to pure OOXML for list and table insertion.

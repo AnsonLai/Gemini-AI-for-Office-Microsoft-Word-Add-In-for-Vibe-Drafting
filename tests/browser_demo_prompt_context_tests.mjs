@@ -4,7 +4,7 @@ import {
     buildFormattingDiagnostics,
     isFormattingRemovalIntent,
     buildFormattingRemovalFallbackCandidate
-} from '../src/taskpane/modules/reconciliation/services/browser-demo-prompt-context.js';
+} from '@gsd/docx-reconciliation/services/browser-demo-prompt-context.js';
 
 function testBuildPromptParagraphSectionsIncludesFormattingOnlyWhenDifferent() {
     const sections = buildPromptParagraphSections([
@@ -144,3 +144,4 @@ try {
     console.error('FAIL:', error?.message || error);
     process.exit(1);
 }
+

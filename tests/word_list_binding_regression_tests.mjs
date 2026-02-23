@@ -1,7 +1,7 @@
 import './setup-xml-provider.mjs';
 
 import assert from 'assert';
-import { applySharedOperationToParagraphOoxml } from '../src/taskpane/modules/reconciliation/integration/word-operation-runner.js';
+import { applySharedOperationToParagraphOoxml } from '../src/taskpane/modules/reconciliation-integration/word-operation-runner.js';
 
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
@@ -67,3 +67,4 @@ run().catch(error => {
     console.error('FAIL:', error?.message || error);
     process.exit(1);
 });
+

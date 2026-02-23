@@ -12,7 +12,7 @@ import {
     createDynamicNumberingIdState,
     mergeNumberingXmlBySchemaOrder,
     remapNumberingPayloadForDocument
-} from '../../src/taskpane/modules/reconciliation/index.js';
+} from '@gsd/docx-reconciliation/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
@@ -492,4 +492,5 @@ main().catch(error => {
     console.error('FAIL:', error.message || String(error));
     process.exit(1);
 });
+
 

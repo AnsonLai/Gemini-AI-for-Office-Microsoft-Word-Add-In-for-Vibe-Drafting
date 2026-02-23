@@ -5,11 +5,14 @@
  * same reconciliation-driven route behavior.
  */
 
-import { applyRedlineToOxml } from '../engine/oxml-engine.js';
-import { ReconciliationPipeline } from '../pipeline/pipeline.js';
-import { wrapInDocumentFragment } from '../pipeline/serialization.js';
-import { extractParagraphIdFromOoxml } from '../core/ooxml-identifiers.js';
-import { buildReconciliationPlan, RoutePlanKind } from '../orchestration/route-plan.js';
+import {
+    applyRedlineToOxml,
+    ReconciliationPipeline,
+    wrapInDocumentFragment,
+    extractParagraphIdFromOoxml,
+    buildReconciliationPlan,
+    RoutePlanKind
+} from '@gsd/docx-reconciliation';
 import { applyStructuredListDirectOoxml } from './word-structured-list.js';
 import {
     getParagraphOoxmlWithFallback,

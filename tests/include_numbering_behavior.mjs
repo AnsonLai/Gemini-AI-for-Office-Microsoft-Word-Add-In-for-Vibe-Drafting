@@ -1,8 +1,8 @@
 import './setup-xml-provider.mjs';
 
 import assert from 'assert';
-import { applyRedlineToOxml } from '../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
-import { ReconciliationPipeline } from '../src/taskpane/modules/reconciliation/pipeline/pipeline.js';
+import { applyRedlineToOxml } from '@gsd/docx-reconciliation/engine/oxml-engine.js';
+import { ReconciliationPipeline } from '@gsd/docx-reconciliation/pipeline/pipeline.js';
 
 const ORIGINAL_OOXML = '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:r><w:t>Seed</w:t></w:r></w:p>';
 const ORIGINAL_TEXT = 'Seed';
@@ -49,3 +49,4 @@ run().catch(err => {
     console.error('FAIL:', err.message);
     process.exit(1);
 });
+

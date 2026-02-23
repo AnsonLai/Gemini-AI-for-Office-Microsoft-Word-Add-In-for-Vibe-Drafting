@@ -5,16 +5,16 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { NS_W, resetRevisionIdCounter } from '../../src/taskpane/modules/reconciliation/core/types.js';
-import { ingestOoxml } from '../../src/taskpane/modules/reconciliation/pipeline/ingestion.js';
-import { applyRedlineToOxml } from '../../src/taskpane/modules/reconciliation/engine/oxml-engine.js';
-import { generateTableOoxml } from '../../src/taskpane/modules/reconciliation/services/table-reconciliation.js';
+import { NS_W, resetRevisionIdCounter } from '@gsd/docx-reconciliation/core/types.js';
+import { ingestOoxml } from '@gsd/docx-reconciliation/pipeline/ingestion.js';
+import { applyRedlineToOxml } from '@gsd/docx-reconciliation/engine/oxml-engine.js';
+import { generateTableOoxml } from '@gsd/docx-reconciliation/services/table-reconciliation.js';
 import {
     buildCommentsPartXml,
     injectCommentIntoParagraphOoxml,
     injectCommentsIntoOoxml,
     injectCommentsIntoPackage
-} from '../../src/taskpane/modules/reconciliation/services/comment-engine.js';
+} from '@gsd/docx-reconciliation/services/comment-engine.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BASELINE_PATH = path.join(__dirname, '..', 'fixtures', 'phase4-golden-baseline.json');
@@ -289,3 +289,4 @@ main().catch(error => {
     console.error('FAIL:', error.message);
     process.exit(1);
 });
+

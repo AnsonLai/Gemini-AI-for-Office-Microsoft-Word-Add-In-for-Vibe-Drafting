@@ -6,13 +6,13 @@ import {
     createDynamicNumberingIdState as createDynamicNumberingIdStateStandalone,
     reserveNextNumberingIdPair as reserveNextNumberingIdPairStandalone,
     mergeNumberingXmlBySchemaOrder as mergeNumberingXmlBySchemaOrderStandalone
-} from '../src/taskpane/modules/reconciliation/index.js';
+} from '@gsd/docx-reconciliation/index.js';
 
 import {
     createDynamicNumberingIdState,
     reserveNextNumberingIdPair,
     mergeNumberingXmlBySchemaOrder
-} from '../src/taskpane/modules/reconciliation/services/numbering-helpers.js';
+} from '@gsd/docx-reconciliation/services/numbering-helpers.js';
 
 function testStandaloneReexportsMatchNumberingHelpers() {
     assert.strictEqual(createDynamicNumberingIdStateStandalone, createDynamicNumberingIdState);
@@ -60,4 +60,5 @@ try {
     console.error('FAIL:', err.message);
     process.exit(1);
 }
+
 

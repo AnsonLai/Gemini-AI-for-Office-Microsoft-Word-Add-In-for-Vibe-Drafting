@@ -19,19 +19,18 @@ This document tracks migration from Word JS API to pure OOXML and the core packa
 - [ ] **Table Editing**: `executeEditTable()` uses Word Table API for row/column insertion in existing tables.
 
 ### In Progress (Phase 3: Final Decoupling and Repo Split)
-- [~] **Repository Split**: Reconciliation package boundary is prepared in-repo as `@gsd/docx-reconciliation`.
-  - Current package-ready structure lives at `src/taskpane/modules/reconciliation/`.
-  - Core entrypoint layout is finalized: `index.js` (primary), `standalone.js` (compatibility alias), and `word-addin-entry.js` (add-in local, not for publish).
-  - Test ownership is split: `tests/core/` (core) and `tests/addin/` (add-in integration).
-  - Next step: move publishable package files into a dedicated repository and repoint add-in/demo/MCP imports to published package coordinates.
+- [x] **Repository Split**: AIWordPlugin now consumes external `@gsd/docx-reconciliation`.
+  - Add-in-specific bridge moved to `src/taskpane/modules/reconciliation-integration/`.
+  - Browser demo and MCP service now import from package coordinates.
+  - In-repo `src/taskpane/modules/reconciliation/` source removed after migration.
 - [ ] **Context Extraction**: Replace `Word.Paragraph.load()` logic with pure OOXML parsing of the document body.
 - [ ] **Comment Operations**: Replace remaining host-only comment entrypoints with direct OOXML-first flows where applicable.
 - [ ] **Navigation**: Implement OOXML-based position tracking.
 - [ ] **Search**: Implement pure OOXML text search parser.
 
 ### Planned (Phase 3+: Remaining Host-Decoupling Work)
-- [ ] **Host Consumer Migration**: complete downstream migration away from `standalone.js` compatibility imports.
-- [ ] **Repository Separation**: split `core`, `word-addin`, `browser-demo`, and `mcp` into independent repositories.
+- [ ] **Host Consumer Migration**: complete downstream migration away from any legacy bridge-specific fallback surfaces.
+- [ ] **Repository Separation**: split `word-addin`, `browser-demo`, and `mcp` into independent repositories (core already extracted).
 
 ## Long-Term Vision
 1. **Zero Office.js Logic**: All document manipulation happens via OOXML.

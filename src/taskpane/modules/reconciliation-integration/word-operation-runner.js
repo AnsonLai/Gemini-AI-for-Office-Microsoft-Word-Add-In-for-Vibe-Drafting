@@ -5,25 +5,28 @@
  * writes package OOXML back using Word integration helpers.
  */
 
-import { createParser, createSerializer } from '../adapters/xml-adapter.js';
 import {
     enforceListBindingOnParagraphNodes,
     getParagraphText,
     extractReplacementNodesFromOoxml,
-    normalizeBodySectionOrderStandalone
-} from '../standalone.js';
-import { applyOperationToDocumentXml } from '../services/standalone-operation-runner.js';
-import { wrapParagraphWithComments } from '../services/comment-package.js';
+    normalizeBodySectionOrderStandalone,
+    getDefaultAuthor
+} from '@gsd/docx-reconciliation';
+import {
+    createParser,
+    createSerializer
+} from '@gsd/docx-reconciliation/adapters/xml-adapter.js';
+import { applyOperationToDocumentXml } from '@gsd/docx-reconciliation/services/standalone-operation-runner.js';
+import { wrapParagraphWithComments } from '@gsd/docx-reconciliation/services/comment-package.js';
 import {
     buildDocumentCommentsPackage,
     buildDocumentFragmentPackage,
     buildParagraphOnlyPackage
-} from '../services/package-builder.js';
+} from '@gsd/docx-reconciliation/services/package-builder.js';
 import {
     insertOoxmlWithRangeFallback,
     withNativeTrackingDisabled
 } from './word-ooxml.js';
-import { getDefaultAuthor } from '../adapters/config.js';
 
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const SIMPLE_LIST_MARKER_RE = /^\s*(?:[-*+]\s+|\d+(?:\.\d+)*[.)]\s+|[A-Za-z][.)]\s+)/;

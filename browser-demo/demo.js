@@ -18,14 +18,14 @@ import {
     ensureNumberingArtifactsInZip,
     ensureCommentsArtifactsInZip,
     validateDocxPackage
-} from '../src/taskpane/modules/reconciliation/index.js';
-import { applyOperationToDocumentXml } from '../src/taskpane/modules/reconciliation/services/standalone-operation-runner.js';
+} from '@gsd/docx-reconciliation';
+import { applyOperationToDocumentXml } from '@gsd/docx-reconciliation/services/standalone-operation-runner.js';
 import {
     buildPromptParagraphSections,
     buildFormattingDiagnostics,
     isFormattingRemovalIntent,
     buildFormattingRemovalFallbackCandidate
-} from '../src/taskpane/modules/reconciliation/services/browser-demo-prompt-context.js';
+} from '@gsd/docx-reconciliation/services/browser-demo-prompt-context.js';
 
 const DEMO_VERSION = '2026-02-22-chat-docx-preview-26';
 const GEMINI_API_KEY_STORAGE_KEY = 'browserDemo.geminiApiKey';
