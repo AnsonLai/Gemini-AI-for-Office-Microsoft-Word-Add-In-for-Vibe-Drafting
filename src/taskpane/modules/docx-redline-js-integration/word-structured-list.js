@@ -5,7 +5,7 @@
  */
 
 import { insertOoxmlWithRangeFallback } from './word-ooxml.js';
-import { inferNumberingStyleFromMarker } from '@gsd/docx-reconciliation';
+import { inferNumberingStyleFromMarker } from '@ansonlai/docx-redline-js';
 
 /**
  * Applies structured list items via direct OOXML insertion against Word paragraph APIs.

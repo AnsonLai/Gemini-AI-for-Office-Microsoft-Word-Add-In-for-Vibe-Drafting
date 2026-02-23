@@ -5,16 +5,16 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { NS_W, resetRevisionIdCounter } from '@gsd/docx-reconciliation/core/types.js';
-import { ingestOoxml } from '@gsd/docx-reconciliation/pipeline/ingestion.js';
-import { applyRedlineToOxml } from '@gsd/docx-reconciliation/engine/oxml-engine.js';
-import { generateTableOoxml } from '@gsd/docx-reconciliation/services/table-reconciliation.js';
+import { NS_W, resetRevisionIdCounter } from '@ansonlai/docx-redline-js/core/types.js';
+import { ingestOoxml } from '@ansonlai/docx-redline-js/pipeline/ingestion.js';
+import { applyRedlineToOxml } from '@ansonlai/docx-redline-js/engine/oxml-engine.js';
+import { generateTableOoxml } from '@ansonlai/docx-redline-js/services/table-reconciliation.js';
 import {
     buildCommentsPartXml,
     injectCommentIntoParagraphOoxml,
     injectCommentsIntoOoxml,
     injectCommentsIntoPackage
-} from '@gsd/docx-reconciliation/services/comment-engine.js';
+} from '@ansonlai/docx-redline-js/services/comment-engine.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BASELINE_PATH = path.join(__dirname, '..', 'fixtures', 'phase4-golden-baseline.json');

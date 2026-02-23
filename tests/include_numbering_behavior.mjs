@@ -1,8 +1,8 @@
 import './setup-xml-provider.mjs';
 
 import assert from 'assert';
-import { applyRedlineToOxml } from '@gsd/docx-reconciliation/engine/oxml-engine.js';
-import { ReconciliationPipeline } from '@gsd/docx-reconciliation/pipeline/pipeline.js';
+import { applyRedlineToOxml } from '@ansonlai/docx-redline-js/engine/oxml-engine.js';
+import { ReconciliationPipeline } from '@ansonlai/docx-redline-js/pipeline/pipeline.js';
 
 const ORIGINAL_OOXML = '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:r><w:t>Seed</w:t></w:r></w:p>';
 const ORIGINAL_TEXT = 'Seed';

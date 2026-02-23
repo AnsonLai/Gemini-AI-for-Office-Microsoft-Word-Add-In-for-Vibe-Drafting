@@ -1,4 +1,4 @@
-import { configureXmlProvider } from '@gsd/docx-reconciliation';
+import { configureXmlProvider } from '@ansonlai/docx-redline-js';
 
 let DOMParserCtor = null;
 let XMLSerializerCtor = null;

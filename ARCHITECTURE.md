@@ -8,7 +8,7 @@ This repository consumes one reusable external package.
 
 ```mermaid
 graph TD
-    Core[@gsd/docx-reconciliation\nexternal dependency] --> Word[Word Add-in\nsrc/taskpane]
+    Core[@ansonlai/docx-redline-js\nexternal dependency] --> Word[Word Add-in\nsrc/taskpane]
     Core --> Demo[Browser Demo\nbrowser-demo]
     Core --> MCP[MCP docx server\nmcp/docx-server]
 ```
@@ -16,23 +16,23 @@ graph TD
 ## Subprojects
 
 1. `src/taskpane`: Word add-in host.
-2. `src/taskpane/modules/reconciliation-integration`: add-in-only bridge layer around Word APIs.
+2. `src/taskpane/modules/docx-redline-js-integration`: add-in-only bridge layer around Word APIs.
 3. `browser-demo`: browser runtime for manual validation and demo workflows.
 4. `mcp/docx-server`: Node runtime exposing reconciliation as MCP tools.
 
 ## Core Boundary and Entrypoints
 
-- Host-agnostic engine now comes from `@gsd/docx-reconciliation`.
-- Add-in local bridge entrypoint is `src/taskpane/modules/reconciliation-integration/index.js`.
+- Host-agnostic engine now comes from `@ansonlai/docx-redline-js`.
+- Add-in local bridge entrypoint is `src/taskpane/modules/docx-redline-js-integration/index.js`.
 - `src/taskpane/modules/reconciliation/` was removed after extraction.
 
 ## Import Path Conventions
 
 - Word add-in command modules import the bridge:
-  - `src/taskpane/modules/commands/agentic-tools.js` -> `../reconciliation-integration/index.js`
+  - `src/taskpane/modules/commands/agentic-tools.js` -> `../docx-redline-js-integration/index.js`
 - Browser and MCP consumers import package entrypoints directly:
-  - `browser-demo/demo.js` -> `@gsd/docx-reconciliation`
-  - `mcp/docx-server/src/services/reconciliation-service.mjs` -> `@gsd/docx-reconciliation`
+  - `browser-demo/demo.js` -> `@ansonlai/docx-redline-js`
+  - `mcp/docx-server/src/services/docx-redline-js-service.mjs` -> `@ansonlai/docx-redline-js`
 
 ## Reconciliation Engine Overview
 
@@ -58,6 +58,6 @@ Core reconciliation code is host-agnostic and consumed as a package:
 ## Operational Guidance
 
 1. Prefer OOXML-first implementations for document manipulation.
-2. Keep Word API usage inside `src/taskpane/modules/reconciliation-integration/`.
-3. Route reusable logic to `@gsd/docx-reconciliation` rather than command-layer duplication.
+2. Keep Word API usage inside `src/taskpane/modules/docx-redline-js-integration/`.
+3. Route reusable logic to `@ansonlai/docx-redline-js` rather than command-layer duplication.
 4. Update `STATE.md` and `ROADMAP.md` whenever package boundaries or entrypoints change.

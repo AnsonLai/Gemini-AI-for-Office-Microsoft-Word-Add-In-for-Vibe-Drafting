@@ -71,11 +71,11 @@ One-click demo that applies a fixed set of operations to marker paragraphs:
   - includes right-side `docxjs` (`docx-preview`) live preview pane
 - `browser-demo/demo.js`: browser module pipeline (chat engine + OOXML operations)
   - renders preview with `renderChanges` enabled so insertions/deletions are visible
-- `@gsd/docx-reconciliation/services/standalone-docx-plumbing.js`: shared standalone OOXML/docx package plumbing
+- `@ansonlai/docx-redline-js/services/standalone-docx-plumbing.js`: shared standalone OOXML/docx package plumbing
   - output extraction (`pkg:package`/`w:document`/fragment)
   - body/section normalization + nested table paragraph sanitization
   - numbering/comments artifact wiring + package validation
-- `@gsd/docx-reconciliation/services/standalone-operation-runner.js`: shared operation bridge for full-document OOXML mutation
+- `@ansonlai/docx-redline-js/services/standalone-operation-runner.js`: shared operation bridge for full-document OOXML mutation
   - routes `redline` / `highlight` / `comment` operations
   - owns table/list/single-paragraph targeting heuristics used by chat and kitchen-sink flows
 

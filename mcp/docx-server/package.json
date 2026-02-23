@@ -1,5 +1,5 @@
 {
-  "name": "reconciliation-docx-mcp",
+  "name": "docx-redline-js-mcp",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "start": "node src/server.mjs"
   },
   "dependencies": {
-    "@gsd/docx-reconciliation": "file:../../../../Docx Redline JS",
+    "@ansonlai/docx-redline-js": "file:../../../../Docx Redline JS",
     "@modelcontextprotocol/sdk": "^1.17.3",
     "@xmldom/xmldom": "^0.8.11",
     "jszip": "^3.10.1"

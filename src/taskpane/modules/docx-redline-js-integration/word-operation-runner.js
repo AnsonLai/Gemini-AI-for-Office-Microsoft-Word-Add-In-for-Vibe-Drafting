@@ -11,18 +11,18 @@ import {
     extractReplacementNodesFromOoxml,
     normalizeBodySectionOrderStandalone,
     getDefaultAuthor
-} from '@gsd/docx-reconciliation';
+} from '@ansonlai/docx-redline-js';
 import {
     createParser,
     createSerializer
-} from '@gsd/docx-reconciliation/adapters/xml-adapter.js';
-import { applyOperationToDocumentXml } from '@gsd/docx-reconciliation/services/standalone-operation-runner.js';
-import { wrapParagraphWithComments } from '@gsd/docx-reconciliation/services/comment-package.js';
+} from '@ansonlai/docx-redline-js/adapters/xml-adapter.js';
+import { applyOperationToDocumentXml } from '@ansonlai/docx-redline-js/services/standalone-operation-runner.js';
+import { wrapParagraphWithComments } from '@ansonlai/docx-redline-js/services/comment-package.js';
 import {
     buildDocumentCommentsPackage,
     buildDocumentFragmentPackage,
     buildParagraphOnlyPackage
-} from '@gsd/docx-reconciliation/services/package-builder.js';
+} from '@ansonlai/docx-redline-js/services/package-builder.js';
 import {
     insertOoxmlWithRangeFallback,
     withNativeTrackingDisabled

@@ -42,7 +42,7 @@ import {
   executeEditTable,
   executeEditSection
 } from './modules/commands/agentic-tools.js';
-import { setPlatform } from '@gsd/docx-reconciliation';
+import { setPlatform } from '@ansonlai/docx-redline-js';
 
 // Configure marked for GFM (GitHub Flavored Markdown) with tables, breaks, etc.
 marked.setOptions({

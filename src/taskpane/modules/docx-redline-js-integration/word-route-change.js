@@ -12,7 +12,7 @@ import {
     extractParagraphIdFromOoxml,
     buildReconciliationPlan,
     RoutePlanKind
-} from '@gsd/docx-reconciliation';
+} from '@ansonlai/docx-redline-js';
 import { applyStructuredListDirectOoxml } from './word-structured-list.js';
 import {
     getParagraphOoxmlWithFallback,

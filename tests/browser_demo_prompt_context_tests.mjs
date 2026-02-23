@@ -4,7 +4,7 @@ import {
     buildFormattingDiagnostics,
     isFormattingRemovalIntent,
     buildFormattingRemovalFallbackCandidate
-} from '@gsd/docx-reconciliation/services/browser-demo-prompt-context.js';
+} from '@ansonlai/docx-redline-js/services/browser-demo-prompt-context.js';
 
 function testBuildPromptParagraphSectionsIncludesFormattingOnlyWhenDifferent() {
     const sections = buildPromptParagraphSections([

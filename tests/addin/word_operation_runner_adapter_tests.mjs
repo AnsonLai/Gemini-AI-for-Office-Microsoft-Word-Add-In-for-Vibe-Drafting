@@ -3,11 +3,11 @@ import '../setup-xml-provider.mjs';
 import assert from 'assert';
 import {
     applyWordOperation
-} from '../../src/taskpane/modules/reconciliation-integration/word-operation-runner.js';
+} from '../../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
 import {
     extractReplacementNodesFromOoxml,
     getParagraphText
-} from '@gsd/docx-reconciliation';
+} from '@ansonlai/docx-redline-js';
 
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 

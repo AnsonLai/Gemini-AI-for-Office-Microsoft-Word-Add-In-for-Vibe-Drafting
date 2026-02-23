@@ -1,5 +1,5 @@
 // Re-export the standalone package surface.
-export * from '@gsd/docx-reconciliation';
+export * from '@ansonlai/docx-redline-js';
 
 // Add-in-only integration bridge exports.
 export {

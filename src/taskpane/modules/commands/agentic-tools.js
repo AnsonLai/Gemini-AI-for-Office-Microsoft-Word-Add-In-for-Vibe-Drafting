@@ -12,7 +12,7 @@ import {
   applySharedOperationToWordParagraph,
   applySharedOperationToWordScope,
   applyRedlineChangesToWordContext
-} from '../reconciliation-integration/index.js';
+} from '../docx-redline-js-integration/index.js';
 import {
   detectDocumentFont
 } from '../utils/markdown-utils.js';

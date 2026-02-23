@@ -6,13 +6,13 @@ import {
     createDynamicNumberingIdState as createDynamicNumberingIdStateStandalone,
     reserveNextNumberingIdPair as reserveNextNumberingIdPairStandalone,
     mergeNumberingXmlBySchemaOrder as mergeNumberingXmlBySchemaOrderStandalone
-} from '@gsd/docx-reconciliation/index.js';
+} from '@ansonlai/docx-redline-js/index.js';
 
 import {
     createDynamicNumberingIdState,
     reserveNextNumberingIdPair,
     mergeNumberingXmlBySchemaOrder
-} from '@gsd/docx-reconciliation/services/numbering-helpers.js';
+} from '@ansonlai/docx-redline-js/services/numbering-helpers.js';
 
 function testStandaloneReexportsMatchNumberingHelpers() {
     assert.strictEqual(createDynamicNumberingIdStateStandalone, createDynamicNumberingIdState);

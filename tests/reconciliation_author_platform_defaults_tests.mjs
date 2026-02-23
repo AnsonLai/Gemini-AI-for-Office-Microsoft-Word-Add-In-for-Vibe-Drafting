@@ -8,10 +8,10 @@ import {
     setPlatform,
     getPlatform,
     applyRedlineToOxml
-} from '@gsd/docx-reconciliation/index.js';
-import { createRevisionMetadata, resetRevisionIdCounter } from '@gsd/docx-reconciliation/core/types.js';
-import { injectCommentsIntoOoxml, resetRevisionIdCounter as resetCommentRevisionIdCounter } from '@gsd/docx-reconciliation/services/comment-engine.js';
-import { ReconciliationPipeline } from '@gsd/docx-reconciliation/pipeline/pipeline.js';
+} from '@ansonlai/docx-redline-js/index.js';
+import { createRevisionMetadata, resetRevisionIdCounter } from '@ansonlai/docx-redline-js/core/types.js';
+import { injectCommentsIntoOoxml, resetRevisionIdCounter as resetCommentRevisionIdCounter } from '@ansonlai/docx-redline-js/services/comment-engine.js';
+import { ReconciliationPipeline } from '@ansonlai/docx-redline-js/pipeline/pipeline.js';
 
 function testCreateRevisionMetadataUsesConfiguredDefaultAuthor() {
     resetRevisionIdCounter(1000);

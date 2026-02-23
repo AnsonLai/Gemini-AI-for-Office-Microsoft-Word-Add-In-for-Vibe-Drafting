@@ -5,14 +5,14 @@ import {
     getDefaultAuthor as getDefaultAuthorCore,
     setPlatform as setPlatformCore,
     getPlatform as getPlatformCore
-} from '@gsd/docx-reconciliation/index.js';
+} from '@ansonlai/docx-redline-js/index.js';
 
 import {
     setDefaultAuthor as setDefaultAuthorWordEntry,
     getDefaultAuthor as getDefaultAuthorWordEntry,
     setPlatform as setPlatformWordEntry,
     getPlatform as getPlatformWordEntry
-} from '../src/taskpane/modules/reconciliation-integration/index.js';
+} from '../src/taskpane/modules/docx-redline-js-integration/index.js';
 
 function run() {
     setDefaultAuthorCore('ConfigTestAuthor');

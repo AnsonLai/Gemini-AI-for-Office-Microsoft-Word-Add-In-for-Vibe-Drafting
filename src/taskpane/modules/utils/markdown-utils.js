@@ -1,7 +1,7 @@
 /* global Word */
 
 import { marked } from 'marked';
-import { preprocessMarkdown, parseMarkdownListContent } from '@gsd/docx-reconciliation';
+import { preprocessMarkdown, parseMarkdownListContent } from '@ansonlai/docx-redline-js';
 
 // Cached document font - set by detectDocumentFont() before edits
 let cachedDocumentFont = "Calibri"; // Safe default for Word

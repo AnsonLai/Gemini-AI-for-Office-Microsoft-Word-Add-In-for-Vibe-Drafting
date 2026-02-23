@@ -10,7 +10,7 @@ import '../setup-xml-provider.mjs';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { applyRedlineToOxml, ingestOoxml } from '@gsd/docx-reconciliation';
+import { applyRedlineToOxml, ingestOoxml } from '@ansonlai/docx-redline-js';
 
 // --- Config ---
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

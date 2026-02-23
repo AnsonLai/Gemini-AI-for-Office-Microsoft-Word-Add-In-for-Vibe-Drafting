@@ -23,7 +23,7 @@ This MCP server is built upon the shared **Reconciliation Core** and follows the
 
 ## Architecture Alignment
 
-The MCP server uses the external reconciliation package `@gsd/docx-reconciliation`
+The MCP server uses the external reconciliation package `@ansonlai/docx-redline-js`
 plus this repo's high-level architecture docs (`ARCHITECTURE.md`, `ROADMAP.md`, `STATE.md`).
 
 Key points:

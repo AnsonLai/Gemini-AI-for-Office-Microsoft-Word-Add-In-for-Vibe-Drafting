@@ -19,8 +19,8 @@ This document tracks migration from Word JS API to pure OOXML and the core packa
 - [ ] **Table Editing**: `executeEditTable()` uses Word Table API for row/column insertion in existing tables.
 
 ### In Progress (Phase 3: Final Decoupling and Repo Split)
-- [x] **Repository Split**: AIWordPlugin now consumes external `@gsd/docx-reconciliation`.
-  - Add-in-specific bridge moved to `src/taskpane/modules/reconciliation-integration/`.
+- [x] **Repository Split**: AIWordPlugin now consumes external `@ansonlai/docx-redline-js`.
+  - Add-in-specific bridge moved to `src/taskpane/modules/docx-redline-js-integration/`.
   - Browser demo and MCP service now import from package coordinates.
   - In-repo `src/taskpane/modules/reconciliation/` source removed after migration.
 - [ ] **Context Extraction**: Replace `Word.Paragraph.load()` logic with pure OOXML parsing of the document body.

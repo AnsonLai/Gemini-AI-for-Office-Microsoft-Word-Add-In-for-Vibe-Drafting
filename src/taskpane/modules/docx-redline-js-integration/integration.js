@@ -5,8 +5,8 @@
  * the new OOXML-based reconciliation pipeline.
  */
 
-import { ReconciliationPipeline, getDefaultAuthor } from '@gsd/docx-reconciliation';
-import { log, warn, error } from '@gsd/docx-reconciliation/adapters/logger.js';
+import { ReconciliationPipeline, getDefaultAuthor } from '@ansonlai/docx-redline-js';
+import { log, warn, error } from '@ansonlai/docx-redline-js/adapters/logger.js';
 
 /**
  * Applies OOXML-level reconciliation to a paragraph.

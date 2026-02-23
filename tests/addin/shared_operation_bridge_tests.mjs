@@ -4,12 +4,12 @@ import assert from 'assert';
 import {
     applySharedOperationToParagraphOoxml,
     applySharedOperationToScopeOoxml
-} from '../../src/taskpane/modules/reconciliation-integration/word-operation-runner.js';
+} from '../../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
 import {
     extractReplacementNodesFromOoxml,
     getParagraphText
-} from '@gsd/docx-reconciliation';
-import { buildDocumentFragmentPackage } from '@gsd/docx-reconciliation/services/package-builder.js';
+} from '@ansonlai/docx-redline-js';
+import { buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
 
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 

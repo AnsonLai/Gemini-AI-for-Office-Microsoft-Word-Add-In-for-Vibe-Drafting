@@ -5,7 +5,7 @@ import {
     configureXmlProvider,
     ingestOoxml,
     injectCommentsIntoOoxml
-} from '@gsd/docx-reconciliation';
+} from '@ansonlai/docx-redline-js';
 import { getLocalName, isElement, parseXmlStrict, toArray, allByTag } from './xml-utils.mjs';
 
 configureXmlProvider({

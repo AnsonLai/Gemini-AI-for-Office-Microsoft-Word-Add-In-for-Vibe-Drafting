@@ -7,4 +7,4 @@
 export {
     applySubstringSearchReplace,
     toScopedSharedRedlineOperation
-} from '@gsd/docx-reconciliation';
+} from '@ansonlai/docx-redline-js';

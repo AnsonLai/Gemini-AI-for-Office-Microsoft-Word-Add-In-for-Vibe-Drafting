@@ -21,11 +21,11 @@ import {
     deriveParagraphAcceptedText,
     reconcileAddComment,
     reconcileParagraphEdit
-} from './services/reconciliation-service.mjs';
+} from './services/docx-redline-js-service.mjs';
 
 const server = new Server(
     {
-        name: 'reconciliation-docx-local',
+        name: 'docx-redline-js-local',
         version: '0.1.0'
     },
     {

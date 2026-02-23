@@ -7,16 +7,16 @@ import {
     inferTableReplacementParagraphBlock as inferTableReplacementParagraphBlockStandalone,
     isLikelyStructuredTableSourceParagraph as isLikelyStructuredTableSourceParagraphStandalone,
     parseOoxml
-} from '@gsd/docx-reconciliation/index.js';
+} from '@ansonlai/docx-redline-js/index.js';
 
 import {
     resolveParagraphRangeByRefs
-} from '@gsd/docx-reconciliation/core/paragraph-targeting.js';
+} from '@ansonlai/docx-redline-js/core/paragraph-targeting.js';
 
 import {
     inferTableReplacementParagraphBlock,
     isLikelyStructuredTableSourceParagraph
-} from '@gsd/docx-reconciliation/core/table-targeting.js';
+} from '@ansonlai/docx-redline-js/core/table-targeting.js';
 
 function testStandaloneReexportsMatchCore() {
     assert.strictEqual(resolveParagraphRangeByRefsStandalone, resolveParagraphRangeByRefs);

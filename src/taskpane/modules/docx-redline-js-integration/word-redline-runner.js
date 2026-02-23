@@ -1,5 +1,5 @@
 import { applyWordOperation } from './word-operation-runner.js';
-import { toScopedSharedRedlineOperation } from '@gsd/docx-reconciliation/orchestration/redline-operation-converter.js';
+import { toScopedSharedRedlineOperation } from '@ansonlai/docx-redline-js/orchestration/redline-operation-converter.js';
 
 function normalizeNeedleText(value) {
     if (value == null) return '';
