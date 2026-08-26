@@ -314,6 +314,43 @@ function loadModel(type = 'fast') {
 
 Per-model behavior (token limits, temperature, retries, preview-throttle warnings) is centralized in [`src/taskpane/modules/config/model-profiles.js`](src/taskpane/modules/config/model-profiles.js); add a profile there when introducing a new model.
 
+## Deployment to Azure
+
+### 1. Build the Production Bundle
+Run the production build script to compile the assets and replace local URLs in `manifest.xml` with your production Azure URL:
+
+```bash
+# Using the configured Azure Storage default URL:
+npm run build:prod
+
+# OR with a custom Azure Static Web App / custom domain URL:
+npm run build -- --env urlProd=https://<your-app-name>.azurestaticapps.net/
+```
+*(Ensure the URL has a trailing slash `/`)*
+
+This compiles all files and the production-ready `manifest.xml` into the `dist/` directory.
+
+### 2. Deploy from VS Code (Right-Click)
+
+#### Option A: Azure Storage Static Website (for `*.web.core.windows.net`)
+1. Install the **Azure Storage** extension in VS Code (`ms-azuretools.vscode-azurestorage`).
+2. In the VS Code File Explorer, right-click the **`dist`** folder.
+3. Select **"Deploy to Static Website via Azure Storage..."**.
+4. Choose your Azure subscription and Storage Account (e.g., `stgeminiforword`).
+
+#### Option B: Azure Static Web Apps (SWA)
+1. Install the **Azure Static Web Apps** extension in VS Code (`ms-azuretools.vscode-azurestaticwebapps`).
+2. In the VS Code File Explorer, right-click the **`dist`** folder.
+3. Select **"Deploy to Static Web App..."**.
+
+---
+
+### 3. Sideload / Deploy the Manifest
+
+After deploying the web assets, upload the generated `dist/manifest.xml`:
+- **Word Desktop / Web (Individual Sideload):** Open Word &rarr; **Home** &rarr; **Add-ins** &rarr; **More Add-ins** &rarr; **Upload My Add-in** &rarr; select `dist/manifest.xml`.
+- **Organization-Wide (M365 Admin Center):** Go to [Microsoft 365 Admin Center](https://admin.microsoft.com/) &rarr; **Settings** &rarr; **Integrated apps** &rarr; **Upload custom apps** &rarr; select `dist/manifest.xml`.
+
 ## Security Notes
 
 ⚠️ **Important Security Considerations:**
