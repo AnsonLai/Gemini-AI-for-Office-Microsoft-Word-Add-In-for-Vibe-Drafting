@@ -45,7 +45,5 @@ assets/marketplace/
 .gsd/
 .anson/
 
-plans/
-
 tests/unzipped Sample NDA/
 tests/Sample NDA.xml

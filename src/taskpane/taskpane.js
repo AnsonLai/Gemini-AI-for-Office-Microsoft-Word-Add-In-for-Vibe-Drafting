@@ -41,7 +41,8 @@ import {
   executeEditList,
   executeConvertHeadersToList,
   executeEditTable,
-  executeEditSection
+  executeEditSection,
+  executeGetSelectionStats
 } from './modules/commands/agentic-tools.js';
 import { setPlatform } from '@ansonlai/docx-redline-js';
 import { getModelProfile } from './modules/config/model-profiles.js';
@@ -1538,6 +1539,27 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
               required: ["paragraphIndices"],
             },
           },
+          {
+            name: "get_selection_stats",
+            description: "Calculates the exact word count and character count (stripping out all formatting like markdown, internal tags, and HTML) of a selection, text snippet, or specified paragraph range. Use this tool whenever the user asks for word count, character count, or document statistics.",
+            parameters: {
+              type: "OBJECT",
+              properties: {
+                text: {
+                  type: "STRING",
+                  description: "Optional: The text string to count. If user provided a specific quote or text, pass it here.",
+                },
+                startParagraphIndex: {
+                  type: "INTEGER",
+                  description: "Optional: The starting 1-based paragraph index (e.g., 1 for [P1])",
+                },
+                endParagraphIndex: {
+                  type: "INTEGER",
+                  description: "Optional: The ending 1-based paragraph index (e.g., 3 for [P3])",
+                },
+              },
+            },
+          },
         ],
       },
     ];
@@ -1564,6 +1586,7 @@ TOOL SELECTION GUIDANCE:
 - For converting non-contiguous headers (like "1. PURPOSE", "2. DEFINITION" with body text between them) to a proper numbered list: use \`convert_headers_to_list\`
 - For editing tables: prefer \`edit_table\` to preserve structure
 - For editing legal contract sections (numbered headers + body paragraphs): prefer \`edit_section\`
+- For word count, character count, or text statistics of selection/paragraphs: use \`get_selection_stats\`
 - The § marker indicates section structure - paragraphs marked §N belong to section N
 
 IMPORTANT: You have access to tools. You can chat and respond normally to questions. However, when the user asks for an action that involves manipulating the document, you should HEAVILY FAVOR using the corresponding tool rather than just describing the action.
@@ -1778,7 +1801,8 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
           "insert_list_item",
           "edit_table",
           "edit_section",
-          "convert_headers_to_list"
+          "convert_headers_to_list",
+          "get_selection_stats"
         ];
 
         const tryParseArgs = (rawArgs) => {
@@ -2036,7 +2060,8 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
               "insert_comment": `Inserting comments: "${instruction}"...`,
               "highlight_text": `Highlighting text: "${instruction}"...`,
               "perform_research": `Researching: "${instruction}"...`,
-              "navigate_to_section": `Navigating to: "${instruction}"...`
+              "navigate_to_section": `Navigating to: "${instruction}"...`,
+              "get_selection_stats": "Analyzing word & character count..."
             };
             const statusText = toolFriendlyNames[functionCall.name] || "Working...";
             updateSystemMessage(loadingMsg, statusText);
@@ -2266,6 +2291,21 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
             } else {
               updateSystemMessage(loadingMsg, toolResult);
             }
+          } else if (functionCall.name === "get_selection_stats") {
+            updateSystemMessage(loadingMsg, "Analyzing word & character count...");
+            const result = await executeGetSelectionStats(args, docText);
+            toolResult = result.message;
+            toolSucceeded = !!result.success;
+
+            // Track tool execution
+            toolsExecutedInCurrentRequest.push({
+              name: functionCall.name,
+              instruction: args.text ? `count text: "${args.text.substring(0, 30)}..."` : `count paragraphs: P${args.startParagraphIndex || 1}`,
+              result: toolResult,
+              success: result.success
+            });
+
+            updateSystemMessage(loadingMsg, result.success ? "Calculated statistics." : toolResult);
           }
 
           const isMutatingTool = mutatingToolNames.has(functionCall.name);

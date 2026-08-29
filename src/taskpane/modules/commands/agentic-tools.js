@@ -17,6 +17,10 @@ import {
   detectDocumentFont
 } from '../utils/markdown-utils.js';
 import {
+  calculateTextStatistics,
+  stripFormatting
+} from '../utils/text-statistics.js';
+import {
   resolveInsertListItemLevel
 } from './list-level-utils.js';
 import {
@@ -1662,6 +1666,99 @@ async function executeEditSection(sectionHeaderIndex, newHeaderText, newBodyPara
   }
 }
 
+/**
+ * Host-Agnostic Agentic Tool: Computes word count, character count (with & without spaces),
+ * paragraphs, sentences, and reading time for a text selection, text snippet, or paragraph range.
+ * Completely free of Office.js / Word / DOM dependencies.
+ *
+ * @param {object} params - { text, startParagraphIndex, endParagraphIndex }
+ * @param {string} fullDocumentText - The full document text with anchors from the chat turn
+ * @returns {Promise<{ success: boolean, message: string, stats?: object, scope?: string }>}
+ */
+async function executeGetSelectionStats({ text, startParagraphIndex, endParagraphIndex } = {}, fullDocumentText = "") {
+  try {
+    let targetText = "";
+    let analyzedScope = "selection";
+
+    // 1. Direct text passed in arguments (highest priority, fully generic)
+    if (typeof text === "string" && text.trim().length > 0) {
+      targetText = text;
+      analyzedScope = "provided text";
+    }
+    // 2. Paragraph range requested by index
+    else if (typeof startParagraphIndex === "number") {
+      const startIdx = startParagraphIndex;
+      const endIdx = typeof endParagraphIndex === "number" ? endParagraphIndex : startIdx;
+      const parsed = parseAnchoredParagraphs(fullDocumentText);
+
+      if (parsed.length > 0) {
+        const clampedStart = Math.max(1, Math.min(startIdx, parsed.length));
+        const clampedEnd = Math.max(clampedStart, Math.min(endIdx, parsed.length));
+        const selectedParagraphs = [];
+        for (let i = clampedStart; i <= clampedEnd; i++) {
+          const pText = parsed[i - 1];
+          if (pText != null) selectedParagraphs.push(pText);
+        }
+        targetText = selectedParagraphs.join("\n\n");
+        analyzedScope = clampedStart === clampedEnd ? `paragraph ${clampedStart}` : `paragraphs ${clampedStart}-${clampedEnd}`;
+      }
+    }
+    // 3. Extract highlighted text from document context string if available
+    else if (typeof fullDocumentText === "string" && fullDocumentText.includes("User Highlighted Text:")) {
+      const match = fullDocumentText.match(/User Highlighted Text:\s*"""([\s\S]*?)"""/);
+      if (match && match[1] && match[1].trim()) {
+        targetText = match[1];
+        analyzedScope = "selected text";
+      }
+    }
+    // 4. Fallback to full document text if provided
+    else if (typeof fullDocumentText === "string" && fullDocumentText.trim()) {
+      targetText = fullDocumentText;
+      analyzedScope = "document";
+    }
+
+    // Check if target text is empty
+    if (!targetText || !targetText.trim()) {
+      return {
+        success: false,
+        message: "No text was provided or selected to analyze. Please highlight text or specify a paragraph range.",
+        stats: {
+          wordCount: 0,
+          characterCountWithSpaces: 0,
+          characterCountWithoutSpaces: 0,
+          paragraphCount: 0,
+          sentenceCount: 0,
+          estimatedReadingTime: "0 sec"
+        }
+      };
+    }
+
+    const stats = calculateTextStatistics(targetText);
+
+    const message = `Text Statistics (${analyzedScope}):\n`
+      + `- Word Count: ${stats.wordCount}\n`
+      + `- Character Count (with spaces): ${stats.characterCountWithSpaces}\n`
+      + `- Character Count (no spaces): ${stats.characterCountWithoutSpaces}\n`
+      + `- Paragraphs: ${stats.paragraphCount}\n`
+      + `- Sentences: ${stats.sentenceCount}\n`
+      + `- Estimated Reading Time: ${stats.estimatedReadingTime}\n`
+      + (stats.preview ? `- Clean Text Preview: "${stats.preview}"` : "");
+
+    return {
+      success: true,
+      message,
+      stats,
+      scope: analyzedScope
+    };
+  } catch (error) {
+    console.error("Error in executeGetSelectionStats:", error);
+    return {
+      success: false,
+      message: `Failed to calculate statistics: ${error.message}`
+    };
+  }
+}
+
 export {
   initAgenticTools,
   executeRedline,
@@ -1673,5 +1770,6 @@ export {
   executeEditList,
   executeConvertHeadersToList,
   executeEditTable,
-  executeEditSection
+  executeEditSection,
+  executeGetSelectionStats
 };

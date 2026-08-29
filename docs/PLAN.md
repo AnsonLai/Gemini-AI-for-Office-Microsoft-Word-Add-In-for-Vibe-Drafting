@@ -5,12 +5,12 @@
 > code skeletons, search anchors, test names, and per-WP acceptance criteria.
 > When a line number has drifted, search for the quoted symbol name instead.
 > When the plan and the code disagree, the code wins — note the deviation in the
-> WP's status entry (see how `plans/reliability-hardening-plan.md` recorded
+> WP's status entry (see how `docs/plans/reliability-hardening-plan.md` recorded
 > deviations) rather than forcing the plan's literal text.
 
 ## Objective
 
-Phase 1 (`plans/reliability-hardening-plan.md`, complete) hardened the **redline
+Phase 1 (`docs/plans/reliability-hardening-plan.md`, complete) hardened the **redline
 pipeline**: anchors, sanitizer, model profiles, checkpoints, history invariants,
 truncation salvage, corrective retry. Yet the project still feels fragile.
 Phase 2 attacks the reasons *why* incidents keep happening despite those defenses:

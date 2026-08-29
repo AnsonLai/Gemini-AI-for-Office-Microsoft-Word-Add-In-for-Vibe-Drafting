@@ -209,7 +209,8 @@ AIWordPlugin/
 ├── browser-demo/                      # Browser runtime for manual validation
 ├── mcp/docx-server/                   # MCP server exposing reconciliation tools
 ├── tests/                             # Node regression tests (*.mjs) + evals/ harness
-├── plans/                             # Implementation plans
+├── docs/plans/                        # Active implementation plans
+│   └── completed/                     # Archived completed plans
 ├── assets/                            # Icons
 ├── manifest.xml                       # Add-in manifest
 ├── package.json

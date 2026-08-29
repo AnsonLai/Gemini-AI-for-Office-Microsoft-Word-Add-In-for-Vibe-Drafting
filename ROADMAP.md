@@ -24,7 +24,7 @@ This document tracks migration from Word JS API to pure OOXML and the core packa
   - Browser demo and MCP service now import from package coordinates.
   - In-repo `src/taskpane/modules/reconciliation/` source removed after migration.
 - [ ] **Context Extraction**: Replace `Word.Paragraph.load()` logic with pure OOXML parsing of the document body.
-- [ ] **Comment Operations**: Replace remaining host-only comment entrypoints with direct OOXML-first flows where applicable.
+- [x] **Comment Operations**: Replaced remaining host-only comment entrypoints with direct OOXML-first flows where applicable.
 - [ ] **Navigation**: Implement OOXML-based position tracking.
 - [ ] **Search**: Implement pure OOXML text search parser.
 
