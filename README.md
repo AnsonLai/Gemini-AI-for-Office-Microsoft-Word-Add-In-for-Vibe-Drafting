@@ -210,7 +210,8 @@ AIWordPlugin/
 ├── mcp/docx-server/                   # MCP server exposing reconciliation tools
 ├── tests/                             # Node regression tests (*.mjs) + evals/ harness
 ├── docs/plans/                        # Active implementation plans
-│   └── completed/                     # Archived completed plans
+│   ├── completed/                     # Archived completed plans
+│   └── migrated/                      # Superseded plans mapped to current plans
 ├── assets/                            # Icons
 ├── manifest.xml                       # Add-in manifest
 ├── package.json

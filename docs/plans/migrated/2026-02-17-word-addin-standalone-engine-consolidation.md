@@ -1,5 +1,9 @@
 # Word Add-In Standalone Engine Consolidation Implementation Plan
 
+> **Migrated on 2026-08-29:** Remaining rollout verification was consolidated
+> into [`2026-08-29-package-boundaries-and-integrations.md`](../2026-08-29-package-boundaries-and-integrations.md).
+> This document is retained in `migrated/` as historical detail.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Consolidate Word add-in mutation paths so `apply_redlines`, `insert_comment`, and `highlight_text` use the same shared reconciliation operation engine already used by standalone/browser flows.

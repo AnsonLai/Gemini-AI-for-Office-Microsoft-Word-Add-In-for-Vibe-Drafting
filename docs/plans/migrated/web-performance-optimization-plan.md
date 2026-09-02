@@ -1,5 +1,9 @@
 # Web Performance Optimization Plan
 
+> **Migrated on 2026-08-29:** Remaining performance work was consolidated into
+> [`2026-08-29-oxml-engine-and-performance.md`](../2026-08-29-oxml-engine-and-performance.md).
+> This document is retained in `migrated/` as historical detail.
+
 Date: 2026-02-08 (updated)
 
 ## Problem Statement

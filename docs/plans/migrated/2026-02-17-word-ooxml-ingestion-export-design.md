@@ -1,5 +1,9 @@
 # Word OOXML Ingestion Export Design
 
+> **Superseded on 2026-08-29:** This design is represented by the completed
+> implementation plan in `completed/2026-02-17-word-ooxml-ingestion-export.md`.
+> No open work was carried forward from this document.
+
 ## Goal
 
 Add standalone-friendly helpers that ingest Word OOXML and return:

@@ -1,5 +1,9 @@
 # OXML Engine Refactor Plan (Phase 1 First)
 
+> **Migrated on 2026-08-29:** Remaining engine/performance follow-up was
+> consolidated into [`2026-08-29-oxml-engine-and-performance.md`](../2026-08-29-oxml-engine-and-performance.md).
+> This document is retained in `migrated/` as historical detail.
+
 ## Scope
 
 This plan captures the full set of refactors identified in the `reconciliation` stack and prioritizes a minimal-risk Phase 1 for immediate execution.

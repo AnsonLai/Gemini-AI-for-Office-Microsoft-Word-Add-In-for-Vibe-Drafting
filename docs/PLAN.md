@@ -1,5 +1,10 @@
 # Robustness & Reliability Plan — Phase 2
 
+> **Migrated on 2026-08-29:** The open work in this document is consolidated
+> into [`docs/plans/2026-08-29-reliability-and-quality-gates.md`](plans/2026-08-29-reliability-and-quality-gates.md).
+> This file is retained for historical detail; use the dated plan as the
+> current source of truth.
+
 > **Audience note:** this plan is written to be executed by a smaller/cheaper model,
 > one work package at a time. It is deliberately prescriptive: exact file paths,
 > code skeletons, search anchors, test names, and per-WP acceptance criteria.

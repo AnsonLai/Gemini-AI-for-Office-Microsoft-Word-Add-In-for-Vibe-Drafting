@@ -1,5 +1,9 @@
 # Agentic Tools Move-Out Plan (High ROI)
 
+> **Migrated on 2026-08-29:** The remaining extraction and list-reliability work
+> was consolidated into [`2026-08-29-agentic-tools-and-list-reliability.md`](../2026-08-29-agentic-tools-and-list-reliability.md).
+> This document is retained in `migrated/` as historical detail.
+
 ## Goals
 - Reduce complexity in `src/taskpane/modules/commands/agentic-tools.js` by moving reusable orchestration into reconciliation.
 - Keep reconciliation modules Word-agnostic where possible so browser and MCP surfaces can reuse them.

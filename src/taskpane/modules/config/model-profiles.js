@@ -30,7 +30,7 @@ const COMMON = {
   maxOutputTokens: 48000,
   // Tighter budget for the diff-generation call: a legitimate change set never
   // needs 48k tokens, and a smaller cap bounds the cost/latency of model
-  // repetition loops (observed on gemini-3.5-flash) before salvage kicks in.
+  // repetition loops (observed on gemini-3.8-flash) before salvage kicks in.
   diffMaxOutputTokens: 16384,
   temperature: 0.1,
   retries: 3,
@@ -46,7 +46,7 @@ const MODEL_PROFILES = {
   "gemini-flash-lite-latest": { ...COMMON, toolCallReliability: "medium" },
   // 3.x are preview/throttled relative to 2.5; the timeout warning telling users
   // to revert to 2.5 only makes sense for these models.
-  "gemini-3.5-flash": { ...COMMON, previewThrottleWarning: true },
+  "gemini-3.8-flash": { ...COMMON, previewThrottleWarning: true },
   "gemini-3.1-pro-preview": { ...COMMON, previewThrottleWarning: true },
 };
 
@@ -68,8 +68,8 @@ export function getModelProfile(modelName) {
   if (MODEL_PROFILES[modelName]) {
     return MODEL_PROFILES[modelName];
   }
-  // Prefer the longest matching prefix so "gemini-3.5-flash-preview" resolves to
-  // "gemini-3.5-flash" rather than a shorter accidental match.
+  // Prefer the longest matching prefix so "gemini-3.8-flash-preview" resolves to
+  // "gemini-3.8-flash" rather than a shorter accidental match.
   const key = Object.keys(MODEL_PROFILES)
     .filter((k) => modelName.startsWith(k))
     .sort((a, b) => b.length - a.length)[0];

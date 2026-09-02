@@ -7,14 +7,14 @@ import {
 
 function testExactNameLookup() {
   assert.strictEqual(getModelProfile('gemini-2.5-pro'), MODEL_PROFILES['gemini-2.5-pro']);
-  assert.strictEqual(getModelProfile('gemini-3.5-flash'), MODEL_PROFILES['gemini-3.5-flash']);
+  assert.strictEqual(getModelProfile('gemini-3.8-flash'), MODEL_PROFILES['gemini-3.8-flash']);
 }
 
 function testPrefixMatch() {
   // Versioned name resolves to the base profile.
   assert.strictEqual(getModelProfile('gemini-2.5-flash-002'), MODEL_PROFILES['gemini-2.5-flash']);
   // Longest prefix wins (3.5-flash-preview -> 3.5-flash, not a shorter accidental match).
-  assert.strictEqual(getModelProfile('gemini-3.5-flash-preview'), MODEL_PROFILES['gemini-3.5-flash']);
+  assert.strictEqual(getModelProfile('gemini-3.8-flash-preview'), MODEL_PROFILES['gemini-3.8-flash']);
 }
 
 function testUnknownReturnsDefault() {
@@ -37,7 +37,7 @@ function testBehaviorPreservingDefaults() {
 
 function testPreviewThrottleFlag() {
   // Only 3.x preview models carry the "revert to 2.5" throttle warning.
-  assert.strictEqual(getModelProfile('gemini-3.5-flash').previewThrottleWarning, true);
+  assert.strictEqual(getModelProfile('gemini-3.8-flash').previewThrottleWarning, true);
   assert.strictEqual(getModelProfile('gemini-3.1-pro-preview').previewThrottleWarning, true);
   assert.strictEqual(getModelProfile('gemini-2.5-pro').previewThrottleWarning, false);
   assert.strictEqual(getModelProfile('gemini-2.5-flash').previewThrottleWarning, false);

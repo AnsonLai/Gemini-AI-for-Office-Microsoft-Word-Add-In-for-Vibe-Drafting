@@ -1,5 +1,9 @@
 # Reconciliation Core: Repository Extraction & Publish Plan
 
+> **Migrated on 2026-08-29:** Remaining publication and repository-boundary
+> work was consolidated into [`2026-08-29-package-boundaries-and-integrations.md`](../2026-08-29-package-boundaries-and-integrations.md).
+> This document is retained in `migrated/` as historical detail.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Extract the reconciliation core from `src/taskpane/modules/reconciliation/` into a standalone Git repository, set it up for npm publishing and CDN distribution, and update the current AIWordPlugin repo to consume it as an external dependency. The package must work cleanly via:

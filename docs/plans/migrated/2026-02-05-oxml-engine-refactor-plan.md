@@ -1,5 +1,9 @@
 # OXML-Engine Refactoring Plan
 
+> **Migrated on 2026-08-29:** Remaining work was consolidated into
+> [`2026-08-29-oxml-engine-and-performance.md`](../2026-08-29-oxml-engine-and-performance.md).
+> This document is retained in `migrated/` as historical detail.
+
 ## Goals
 
 1. **Portability** — The OXML engine must be able to run outside the Word JS API environment, so it can be used as a standalone JS library to modify `.docx` files on a webpage (e.g., with JSZip + browser DOMParser).

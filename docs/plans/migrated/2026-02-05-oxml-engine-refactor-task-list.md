@@ -1,5 +1,9 @@
 # OXML Engine Refactor Task List
 
+> **Migrated on 2026-08-29:** The unfinished Phase 7 verification work was
+> consolidated into [`2026-08-29-oxml-engine-and-performance.md`](../2026-08-29-oxml-engine-and-performance.md).
+> Completed phases remain historical context in `migrated/`.
+
 ## Status Legend
 - [ ] Pending
 - [~] In progress

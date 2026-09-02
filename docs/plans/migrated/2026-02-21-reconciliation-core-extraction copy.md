@@ -1,5 +1,9 @@
 # Reconciliation Core Package Extraction Plan
 
+> **Superseded on 2026-08-29:** This duplicate plan is covered by the completed
+> `completed/2026-02-21-reconciliation-core-extraction.md`. No open work was
+> carried forward from this document.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Prepare the OOXML reconciliation core (`src/taskpane/modules/reconciliation/`) for extraction into its own standalone repository. Clean all host-specific (Office.js/Word JS API) and AI-specific (`'Gemini AI'`) contamination from the core, refactor the bloated `standalone.js` entry point, strengthen isolation tests, and set up package infrastructure.
