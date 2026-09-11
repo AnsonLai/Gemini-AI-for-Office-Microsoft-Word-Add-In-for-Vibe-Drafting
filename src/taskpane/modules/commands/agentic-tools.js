@@ -5,13 +5,13 @@ import {
   preprocessMarkdown,
   ReconciliationPipeline,
   wrapInDocumentFragment,
-  getAuthorForTracking,
   buildListMarkdown,
   normalizeListItemsWithLevels,
   withNativeTrackingDisabled,
   applySharedOperationToWordParagraph,
   applySharedOperationToWordScope,
-  applyRedlineChangesToWordContext
+  applyRedlineChangesToWordContext,
+  assertRedlineResult
 } from '../docx-redline-js-integration/index.js';
 import {
   detectDocumentFont
@@ -137,6 +137,7 @@ async function applyRedlineChangeSet(aiChanges, instruction = '', paragraphTexts
       const result = await applyRedlineChangesToWordContext(context, changesToApply, {
         author: redlineAuthor,
         generateRedlines: redlineEnabled,
+        sanitizeInput: true,
         disableNativeTracking: redlineEnabled,
         baseTrackingMode,
         logPrefix: "Redline/Shared",
@@ -524,7 +525,7 @@ JSON ARRAY OF HIGHLIGHTS:`;
     await Word.run(async (context) => {
       // Load redline settings
       const redlineEnabled = loadRedlineSetting();
-      const authorName = getAuthorForTracking();
+      const authorName = loadRedlineAuthor();
 
       // CRITICAL: For OOXML insertion with manual redline tags (w:rPrChange), 
       // we MUST turn OFF Word's native Track Changes during the insertion.
@@ -1092,6 +1093,7 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
           }
         );
 
+        assertRedlineResult(result, 'Agentic list reconciliation');
         if (!result?.oxml || !result.hasChanges) {
           console.log("[executeEditList] Reconciliation reported no changes; forcing structural list generation fallback");
 

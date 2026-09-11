@@ -20,6 +20,25 @@ configureLogger({
     error: () => {}
 });
 
+function assertReconciliationResult(result, context) {
+    if (result?.status !== 'error' && !result?.error) return result;
+
+    const code = result?.error?.code || 'OPERATION_ERROR';
+    const error = new Error(`[${code}] ${result?.error?.message || `${context} failed`}`);
+    error.name = 'RedlineOperationError';
+    error.code = code;
+    error.warnings = result?.warnings || [];
+    error.details = {
+        packageError: result?.error || null,
+        ...(result?.receipt ? { receipt: result.receipt } : {}),
+        ...(result?.receipts ? { receipts: result.receipts } : {}),
+        ...(result?.rolledBack !== undefined ? { rolledBack: result.rolledBack } : {}),
+        ...(result?.validation !== undefined ? { validation: result.validation } : {}),
+        ...(result?.validationSummary !== undefined ? { validationSummary: result.validationSummary } : {})
+    };
+    throw error;
+}
+
 /**
  * @param {{
  *   paragraphXml: string,
@@ -44,6 +63,8 @@ export async function reconcileParagraphEdit(input) {
             targetParagraphId: input.paraId || null
         }
     );
+
+    assertReconciliationResult(result, 'MCP paragraph reconciliation');
 
     if (!result || result.useNativeApi) {
         throw new Error('Edit requires Word native API fallback and cannot be completed in local MCP mode');

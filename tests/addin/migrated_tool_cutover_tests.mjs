@@ -37,10 +37,16 @@ function assertNotContains(text, token, message) {
 
 function testRedlineCutover() {
     const body = extractFunctionBody('executeRedline');
+    const applyBody = extractFunctionBody('applyRedlineChangeSet');
     assertContains(
         body,
+        'applyRedlineChangeSet(',
+        'executeRedline should route through applyRedlineChangeSet'
+    );
+    assertContains(
+        applyBody,
         'applyRedlineChangesToWordContext(',
-        'executeRedline should route through shared redline runner'
+        'applyRedlineChangeSet should route through shared redline runner'
     );
     assertNotContains(
         body,

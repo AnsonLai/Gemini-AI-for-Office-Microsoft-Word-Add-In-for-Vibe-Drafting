@@ -3,18 +3,17 @@ export * from '@ansonlai/docx-redline-js';
 
 // Add-in-only integration bridge exports.
 export {
-    applyReconciliationToParagraph,
-    applyReconciliationToParagraphBatch,
-    shouldUseOoxmlReconciliation,
-    getAuthorForTracking
-} from './integration.js';
-export {
     getParagraphOoxmlWithFallback,
     insertOoxmlWithRangeFallback,
     withNativeTrackingDisabled
 } from './word-ooxml.js';
 export { applyStructuredListDirectOoxml } from './word-structured-list.js';
-export { routeWordParagraphChange } from './word-route-change.js';
+export {
+    assertRedlineResult,
+    INPUT_SANITIZED_WARNING,
+    prepareOperationInput,
+    RedlineOperationError
+} from './redline-result.js';
 export {
     applyWordOperation,
     applySharedOperationToWordParagraph,

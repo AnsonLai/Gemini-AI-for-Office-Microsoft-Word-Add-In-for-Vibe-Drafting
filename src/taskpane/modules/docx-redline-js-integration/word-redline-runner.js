@@ -3,6 +3,7 @@ import { toScopedSharedRedlineOperation } from '@ansonlai/docx-redline-js/orches
 import {
     preprocessMarkdown,
     ReconciliationPipeline,
+    sanitizeAiResponse,
     wrapInDocumentFragment
 } from '@ansonlai/docx-redline-js';
 import {
@@ -735,7 +736,21 @@ function parseParagraphIndex(value) {
 }
 
 export async function applyRedlineChangesToWordContext(context, aiChanges, options = {}) {
-    const changes = Array.isArray(aiChanges) ? aiChanges : [];
+    const sourceChanges = Array.isArray(aiChanges) ? aiChanges : [];
+    let sanitizedFieldCount = 0;
+    const changes = options.sanitizeInput === true
+        ? sourceChanges.map(change => {
+            if (!change || typeof change !== 'object') return change;
+            const sanitizedChange = { ...change };
+            for (const field of ['content', 'newContent', 'replacementText']) {
+                if (typeof sanitizedChange[field] !== 'string') continue;
+                const sanitized = sanitizeAiResponse(sanitizedChange[field]);
+                if (sanitized !== sanitizedChange[field]) sanitizedFieldCount += 1;
+                sanitizedChange[field] = sanitized;
+            }
+            return sanitizedChange;
+        })
+        : sourceChanges;
     const logPrefix = options.logPrefix || 'Redline/Shared';
     const onInfo = typeof options.onInfo === 'function'
         ? options.onInfo
@@ -743,16 +758,22 @@ export async function applyRedlineChangesToWordContext(context, aiChanges, optio
     const onWarn = typeof options.onWarn === 'function'
         ? options.onWarn
         : message => console.warn(`[${logPrefix}] ${message}`);
+    if (sanitizedFieldCount > 0) {
+        onWarn(`Sanitized ${sanitizedFieldCount} model-generated document content field(s).`);
+    }
     const requestedContentKind = options.requestedContentKind || null;
     const requiresTableContent = requestedContentKind === 'table';
 
     let changesApplied = 0;
     const skipped = [];
-    const recordSkip = (change, operation, reason) => {
+    const recordSkip = (change, operation, reason, code = undefined, details = undefined) => {
         skipped.push({
             paragraphIndex: change?.paragraphIndex,
             operation: operation || String(change?.operation || '').trim().toLowerCase(),
-            reason
+            reason,
+            ...(code ? { code } : {}),
+            ...(details?.receipt ? { receipt: details.receipt } : {}),
+            ...(details?.rolledBack !== undefined ? { rolledBack: details.rolledBack } : {})
         });
     };
 
@@ -1049,6 +1070,7 @@ export async function applyRedlineChangesToWordContext(context, aiChanges, optio
                 {
                     author: options.author,
                     generateRedlines: options.generateRedlines,
+                    sanitizeInput: options.sanitizeInput === true,
                     disableNativeTracking: options.disableNativeTracking,
                     baseTrackingMode: options.baseTrackingMode ?? null,
                     logPrefix,
@@ -1065,7 +1087,13 @@ export async function applyRedlineChangesToWordContext(context, aiChanges, optio
             }
         } catch (changeError) {
             onWarn(`Failed to apply change ${JSON.stringify(change)}: ${changeError?.message || changeError}`);
-            recordSkip(change, undefined, `apply error: ${changeError?.message || changeError}`);
+            recordSkip(
+                change,
+                undefined,
+                `apply error: ${changeError?.message || changeError}`,
+                changeError?.code,
+                changeError?.details
+            );
         }
     }
 

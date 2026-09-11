@@ -179,6 +179,74 @@ async function testAdapterCallsRunnerAndNoOpsWithoutChanges() {
     assert.strictEqual(insertCalls.length, 0, 'adapter should not insert OOXML when no changes are produced');
 }
 
+async function testAdapterSurfacesStructuredRunnerErrors() {
+    for (const code of ['PARSE_ERROR', 'TARGET_NOT_FOUND', 'GENERATED_OOXML_INVALID']) {
+        const { paragraph, insertCalls } = createMockParagraph(buildParagraphXml('Original text'));
+        const { context } = createMockContext();
+
+        await assert.rejects(
+            applyWordOperation(
+                context,
+                {
+                    type: 'redline',
+                    targetRef: 'P1',
+                    target: 'Original text',
+                    modified: 'Updated text'
+                },
+                { paragraph },
+                {
+                    author: 'AdapterTest',
+                    generateRedlines: false,
+                    runner: async () => ({
+                        status: 'error',
+                        hasChanges: false,
+                        error: { code, message: 'Synthetic runner failure', stage: 'test-stage' },
+                        receipt: { operationIndex: 1, committed: false },
+                        rolledBack: true
+                    })
+                }
+            ),
+            error => error.code === code
+                && error.message.includes('Synthetic runner failure')
+                && error.details?.packageError?.stage === 'test-stage'
+                && error.details?.receipt?.committed === false
+                && error.details?.rolledBack === true,
+            `adapter should surface ${code} as a coded error`
+        );
+        assert.strictEqual(insertCalls.length, 0, `${code} must not insert OOXML`);
+    }
+}
+
+async function testAdapterSanitizesModelInputBeforeStandaloneRunner() {
+    const original = 'Original text';
+    const { paragraph } = createMockParagraph(buildParagraphXml(original));
+    const { context } = createMockContext();
+    let receivedOperation = null;
+
+    const applied = await applyWordOperation(
+        context,
+        {
+            type: 'redline',
+            targetRef: 'P1',
+            target: original,
+            modified: 'Here is the redline:\nPay $1,000 under $term$.'
+        },
+        { paragraph },
+        {
+            author: 'AdapterTest',
+            generateRedlines: false,
+            sanitizeInput: true,
+            runner: async (_xml, operation) => {
+                receivedOperation = operation;
+                return { status: 'no-op', hasChanges: false, warnings: [] };
+            }
+        }
+    );
+
+    assert.strictEqual(applied, false);
+    assert.strictEqual(receivedOperation.modified, 'Pay $1,000 under $term$.');
+}
+
 async function testRangeListInsertionRedlineApply() {
     const existingItems = [
         'Business plans, strategies, financial information, pricing, and marketing data.',
@@ -424,6 +492,8 @@ async function testInsertionErrorsPropagateWithoutLegacyFallback() {
 async function run() {
     await testSingleParagraphRedlineApply();
     await testAdapterCallsRunnerAndNoOpsWithoutChanges();
+    await testAdapterSurfacesStructuredRunnerErrors();
+    await testAdapterSanitizesModelInputBeforeStandaloneRunner();
     await testRangeListInsertionRedlineApply();
     await testSingleParagraphConcatenationInsertionShape();
     await testSingleParagraphPlainInsertionBeforeShape();

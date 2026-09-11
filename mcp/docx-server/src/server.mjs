@@ -359,7 +359,10 @@ function errorResult(error) {
             {
                 type: 'text',
                 text: JSON.stringify({
-                    error: error?.message || String(error)
+                    error: error?.message || String(error),
+                    ...(error?.code ? { code: error.code } : {}),
+                    ...(error?.warnings?.length ? { warnings: error.warnings } : {}),
+                    ...(error?.details ? { details: error.details } : {})
                 }, null, 2)
             }
         ]

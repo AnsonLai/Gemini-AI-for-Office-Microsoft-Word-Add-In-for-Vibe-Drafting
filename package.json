@@ -33,7 +33,7 @@
     "docx:harness": "powershell -ExecutionPolicy Bypass -File tests/docx-harness/docx-xml-harness.ps1"
   },
   "dependencies": {
-    "@ansonlai/docx-redline-js": "0.2.0",
+    "@ansonlai/docx-redline-js": "0.5.4",
     "caniuse-lite": "^1.0.30001800",
     "core-js": "^3.36.0",
     "diff-match-patch": "^1.0.5",

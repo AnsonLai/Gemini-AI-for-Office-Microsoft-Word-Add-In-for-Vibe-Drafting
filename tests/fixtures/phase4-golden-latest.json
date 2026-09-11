@@ -6,8 +6,8 @@
       "hasChanges": true,
       "hasInsertion": false,
       "hasRPrChange": true,
-      "length": 501,
-      "hash": "5d2b1607fb9ae06b43e2a846353ce6b4e664dea88a420a475809b10b08462bdc"
+      "length": 480,
+      "hash": "3a36fc893d865d773efaecbd87abf210d15f2f760b84706bef37c5d321d4ab9e"
     },
     "format_only_remove": {
       "hasChanges": true,
@@ -19,8 +19,8 @@
       "hasChanges": true,
       "hasInsertion": true,
       "hasDeletion": true,
-      "length": 1694,
-      "hash": "dc1f2603c4cb002c96e43dd64d54db2e7287af065fb8c16c6304eb24b9b1fa7a"
+      "length": 740,
+      "hash": "91a22568953ab6ea39126d9a99d613c79c776b08b81e50a1d94caa0902e7262b"
     },
     "list_generation": {
       "hasChanges": true,
@@ -37,8 +37,8 @@
     "text_to_table_transform": {
       "hasChanges": true,
       "hasTable": true,
-      "length": 2379,
-      "hash": "7a25f562377c3f337698d94190a9f52cf34a07965496ff28de6fb0b0c9a92e7c"
+      "length": 2487,
+      "hash": "92e831893acd5e1ca2b7434adbaaf9b7a787eb256d168c99092ec46787e1244b"
     },
     "comment_document_injection": {
       "commentsApplied": 2,

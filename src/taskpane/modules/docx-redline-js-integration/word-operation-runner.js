@@ -10,7 +10,8 @@ import {
     getParagraphText,
     extractReplacementNodesFromOoxml,
     normalizeBodySectionOrderStandalone,
-    getDefaultAuthor
+    getDefaultAuthor,
+    acceptTrackedChangesInOoxml
 } from '@ansonlai/docx-redline-js';
 import {
     createParser,
@@ -27,6 +28,11 @@ import {
     insertOoxmlWithRangeFallback,
     withNativeTrackingDisabled
 } from './word-ooxml.js';
+import {
+    assertRedlineResult,
+    INPUT_SANITIZED_WARNING,
+    prepareOperationInput
+} from './redline-result.js';
 
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const SIMPLE_LIST_MARKER_RE = /^\s*(?:[-*+]\s+|\d+(?:\.\d+)*[.)]\s+|[A-Za-z][.)]\s+)/;
@@ -146,6 +152,8 @@ function selectParagraphNodesForParagraphScope(paragraphNodes, operation) {
  *   packageOoxml?: string|null,
  *   commentsXml?: string|null,
  *   numberingXml?: string|null,
+ *   receipt?: Object,
+ *   resolvedTarget?: Object,
  *   warnings?: string[]
  * }>}
  */
@@ -162,22 +170,35 @@ export async function applySharedOperationToParagraphOoxml(paragraphOoxml, opera
 
     const inputDocumentXml = wrapParagraphNodesAsDocument(scopedParagraphNodes);
     const runner = typeof options.runner === 'function' ? options.runner : applyOperationToDocumentXml;
-    const result = await runner(
+    const prepared = prepareOperationInput(operation, options.sanitizeInput);
+    let result = await runner(
         inputDocumentXml,
-        operation,
+        prepared.operation,
         options.author || getDefaultAuthor(),
         null,
         {
             generateRedlines: options.generateRedlines !== false,
+            sanitizeInput: options.sanitizeInput === true,
+            existingRevisions: options.existingRevisions,
             onInfo: options.onInfo,
             onWarn: options.onWarn
         }
     );
 
+    assertRedlineResult(result, 'Shared paragraph operation');
+    if (prepared.sanitized) {
+        result = {
+            ...result,
+            warnings: [...(result?.warnings || []), INPUT_SANITIZED_WARNING]
+        };
+        options.onWarn?.(INPUT_SANITIZED_WARNING);
+    }
     if (!result?.hasChanges) {
         return {
             hasChanges: false,
             singleParagraphOutput: false,
+            receipt: result?.receipt,
+            resolvedTarget: result?.resolvedTarget,
             warnings: result?.warnings || []
         };
     }
@@ -242,6 +263,8 @@ export async function applySharedOperationToParagraphOoxml(paragraphOoxml, opera
         packageOoxml,
         commentsXml,
         numberingXml,
+        receipt: result.receipt,
+        resolvedTarget: result.resolvedTarget,
         warnings: result.warnings || []
     };
 }
@@ -257,6 +280,8 @@ export async function applySharedOperationToParagraphOoxml(paragraphOoxml, opera
  *   packageOoxml?: string|null,
  *   commentsXml?: string|null,
  *   numberingXml?: string|null,
+ *   receipt?: Object,
+ *   resolvedTarget?: Object,
  *   warnings?: string[]
  * }>}
  */
@@ -268,22 +293,49 @@ export async function applySharedOperationToScopeOoxml(scopeOoxml, operation, op
 
     const inputDocumentXml = wrapParagraphNodesAsDocument(paragraphNodes);
     const runner = typeof options.runner === 'function' ? options.runner : applyOperationToDocumentXml;
-    const result = await runner(
+    const prepared = prepareOperationInput(operation, options.sanitizeInput);
+    const cleanRangeWorkaround = prepared.operation?.type === 'redline'
+        && !!prepared.operation?.targetEndRef
+        && options.generateRedlines === false;
+    let result = await runner(
         inputDocumentXml,
-        operation,
+        prepared.operation,
         options.author || getDefaultAuthor(),
         null,
         {
-            generateRedlines: options.generateRedlines !== false,
+            generateRedlines: cleanRangeWorkaround ? true : options.generateRedlines !== false,
+            sanitizeInput: options.sanitizeInput === true,
+            existingRevisions: options.existingRevisions,
             onInfo: options.onInfo,
             onWarn: options.onWarn
         }
     );
 
+    assertRedlineResult(result, 'Shared scope operation');
+    if (cleanRangeWorkaround && result?.hasChanges) {
+        const accepted = acceptTrackedChangesInOoxml(result.documentXml, {
+            author: options.author || getDefaultAuthor()
+        });
+        assertRedlineResult(accepted, 'Clean range normalization');
+        result = {
+            ...result,
+            documentXml: accepted.oxml,
+            warnings: [...(result?.warnings || []), ...(accepted?.warnings || [])]
+        };
+    }
+    if (prepared.sanitized) {
+        result = {
+            ...result,
+            warnings: [...(result?.warnings || []), INPUT_SANITIZED_WARNING]
+        };
+        options.onWarn?.(INPUT_SANITIZED_WARNING);
+    }
     if (!result?.hasChanges) {
         return {
             hasChanges: false,
             singleParagraphOutput: false,
+            receipt: result?.receipt,
+            resolvedTarget: result?.resolvedTarget,
             warnings: result?.warnings || []
         };
     }
@@ -316,6 +368,8 @@ export async function applySharedOperationToScopeOoxml(scopeOoxml, operation, op
         packageOoxml,
         commentsXml,
         numberingXml,
+        receipt: result.receipt,
+        resolvedTarget: result.resolvedTarget,
         warnings: result.warnings || []
     };
 }
@@ -355,6 +409,8 @@ export async function applyWordOperation(context, operation, scope, options = {}
     const bridgeOptions = {
         author: options.author,
         generateRedlines: options.generateRedlines,
+        sanitizeInput: options.sanitizeInput === true,
+        existingRevisions: options.existingRevisions,
         onInfo: options.onInfo,
         onWarn: options.onWarn,
         runner: options.runner

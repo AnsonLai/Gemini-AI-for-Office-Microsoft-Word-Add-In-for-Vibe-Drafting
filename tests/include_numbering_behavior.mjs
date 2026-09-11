@@ -1,52 +1,29 @@
-import './setup-xml-provider.mjs';
-
 import assert from 'assert';
-import { applyRedlineToOxml } from '@ansonlai/docx-redline-js/engine/oxml-engine.js';
-import { ReconciliationPipeline } from '@ansonlai/docx-redline-js/pipeline/pipeline.js';
+import { buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
 
-const ORIGINAL_OOXML = '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:r><w:t>Seed</w:t></w:r></w:p>';
-const ORIGINAL_TEXT = 'Seed';
-const LIST_TEXT = '1. First item\n2. Second item';
+const PARAGRAPH_OOXML = '<w:p><w:r><w:t>Mock List Output</w:t></w:r></w:p>';
 
-async function runCase(label, includeNumbering, expectedHasNumberingRelationship) {
-    const originalExecute = ReconciliationPipeline.prototype.execute;
-    ReconciliationPipeline.prototype.execute = async function mockedExecute() {
-        return {
-            ooxml: '<w:p><w:r><w:t>Mock List Output</w:t></w:r></w:p>',
-            isValid: true,
-            warnings: [],
-            includeNumbering,
-            numberingXml: null
-        };
-    };
-
-    try {
-        const result = await applyRedlineToOxml(ORIGINAL_OOXML, ORIGINAL_TEXT, LIST_TEXT, {
-            author: 'TestUser',
-            generateRedlines: false
-        });
-
-        assert(result.hasChanges, `${label}: expected changes`);
-        const hasNumberingRelationship = result.oxml.includes('/relationships/numbering');
-        assert.strictEqual(
-            hasNumberingRelationship,
-            expectedHasNumberingRelationship,
-            `${label}: unexpected numbering relationship presence`
-        );
-    } finally {
-        ReconciliationPipeline.prototype.execute = originalExecute;
-    }
+function runCase(label, includeNumbering, expectedHasNumberingRelationship) {
+    const packageOoxml = buildDocumentFragmentPackage(PARAGRAPH_OOXML, {
+        includeNumbering,
+        numberingXml: null
+    });
+    const hasNumberingRelationship = packageOoxml.includes('/relationships/numbering');
+    assert.strictEqual(
+        hasNumberingRelationship,
+        expectedHasNumberingRelationship,
+        `${label}: unexpected numbering relationship presence`
+    );
 }
 
-async function run() {
-    await runCase('includeNumbering=false', false, false);
-    await runCase('includeNumbering=true', true, true);
-    await runCase('includeNumbering=undefined', undefined, true);
+function run() {
+    runCase('includeNumbering=false', false, false);
+    runCase('includeNumbering=true', true, true);
+    // Numbering packaging remains opt-in when the pipeline does not explicitly
+    // request it.
+    runCase('includeNumbering=undefined', undefined, false);
     console.log('PASS: includeNumbering behavior');
 }
 
-run().catch(err => {
-    console.error('FAIL:', err.message);
-    process.exit(1);
-});
+run();
 

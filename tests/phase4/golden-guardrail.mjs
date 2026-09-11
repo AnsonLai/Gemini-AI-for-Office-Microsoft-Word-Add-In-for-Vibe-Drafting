@@ -110,7 +110,8 @@ async function runCases() {
     const formatRemoveOriginal = ingestOoxml(formatRemoveOxml).acceptedText;
     const formatRemoveResult = await applyRedlineToOxml(formatRemoveOxml, formatRemoveOriginal, 'This is sample text.', {
         author: 'Phase4Golden',
-        generateRedlines: true
+        generateRedlines: true,
+        removeFormatting: true
     });
     cases.format_only_remove = {
         hasChanges: formatRemoveResult.hasChanges,

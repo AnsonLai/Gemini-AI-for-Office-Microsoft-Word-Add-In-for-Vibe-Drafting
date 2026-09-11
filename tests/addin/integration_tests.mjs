@@ -36,19 +36,15 @@ function extractTableOoxml(fullOoxml) {
 }
 
 function extractTableText(tableOoxml) {
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(`<root>${tableOoxml}</root>`, 'text/xml');
-    const cells = xmlDoc.getElementsByTagName('w:tc');
-    const texts = [];
-    for (const cell of cells) {
-        const textNodes = cell.getElementsByTagName('w:t');
-        let cellText = '';
-        for (const t of textNodes) {
-            cellText += t.textContent || '';
-        }
-        if (cellText.trim()) texts.push(cellText.trim());
+    return ingestOoxml(tableOoxml).acceptedText;
+}
+
+function assertSuccessfulResult(result, context) {
+    if (result?.status === 'error' || result?.error) {
+        const code = result?.error?.code || 'OPERATION_ERROR';
+        throw new Error(`[${code}] ${context}: ${result?.error?.message || 'operation failed'}`);
     }
-    return texts.join(' | ');
+    return result;
 }
 
 async function runTest(name, transformFn, assertionFn) {
@@ -65,14 +61,16 @@ async function runTest(name, transformFn, assertionFn) {
             author: 'TestUser',
             generateRedlines: true
         });
+        assertSuccessfulResult(result, name);
         if (!result.hasChanges) {
-            console.log('⚠️ No changes detected by engine.');
+            throw new Error(`${name}: no changes detected by engine`);
         }
         const passed = assertionFn(result.oxml, originalOoxml);
         if (passed) console.log('✅ PASS');
-        else console.log('❌ FAIL');
+        else throw new Error(`${name}: output assertion failed`);
     } catch (e) {
         console.error('💥 ERROR:', e);
+        throw e;
     }
 }
 
@@ -139,13 +137,15 @@ async function runNdaTests() {
                 author: 'TestUser',
                 generateRedlines: true
             });
+            assertSuccessfulResult(result, 'Add Date Row');
             const hasDateRow = result.oxml.includes('Date:');
             const hasTableRows = result.oxml.includes('<w:tr') || result.oxml.includes('w:tr>');
             if (hasDateRow && hasTableRows) console.log('✅ PASS');
-            else console.log('❌ FAIL');
+            else throw new Error('Add Date Row: output assertion failed');
         }
     } catch (e) {
         console.error('💥 ERROR:', e);
+        throw e;
     }
 
     await runTest('Add Confidential Info Bullet',
@@ -204,10 +204,11 @@ async function runRedlineToggleTests() {
         author: 'TestUser',
         generateRedlines: true
     });
+    assertSuccessfulResult(resultEnabled, 'Redlines enabled');
     if (resultEnabled.oxml.includes('<w:ins') && resultEnabled.oxml.includes('<w:del')) {
         console.log('✅ PASS: Track changes generated in redline mode');
     } else {
-        console.log('❌ FAIL: Track changes NOT generated in redline mode');
+        throw new Error('Track changes were not generated in redline mode');
     }
 
     console.log('\n--- Test 2: Redlines DISABLED ---');
@@ -215,6 +216,7 @@ async function runRedlineToggleTests() {
         author: 'TestUser',
         generateRedlines: false
     });
+    assertSuccessfulResult(resultDisabled, 'Redlines disabled');
     const hasInsDisabled = resultDisabled.oxml.includes('<w:ins');
     const hasDelDisabled = resultDisabled.oxml.includes('<w:del');
     const hasNewText = resultDisabled.oxml.includes('Gemini');
@@ -224,6 +226,7 @@ async function runRedlineToggleTests() {
     } else {
         console.log(`❌ FAIL: Redline toggle NOT honored. Ins: ${hasInsDisabled}, Del: ${hasDelDisabled}, NewText: ${hasNewText}`);
         console.log('Partial Output:', resultDisabled.oxml.substring(0, 200));
+        throw new Error('Redline toggle was not honored');
     }
 
 
@@ -233,10 +236,11 @@ async function runRedlineToggleTests() {
         author: 'TestUser',
         generateRedlines: false
     });
+    assertSuccessfulResult(resultListDisabled, 'List expansion with redlines disabled');
     if (!resultListDisabled.oxml.includes('<w:ins') && resultListDisabled.oxml.includes('Item 1')) {
         console.log('✅ PASS: List expansion honors redline toggle');
     } else {
-        console.log('❌ FAIL: List expansion redline toggle issue');
+        throw new Error('List expansion redline toggle issue');
     }
 
     console.log('\n--- Test 4: Table Reconciliation with Redlines DISABLED ---');
@@ -252,6 +256,7 @@ async function runRedlineToggleTests() {
         author: 'TestUser',
         generateRedlines: false
     });
+    assertSuccessfulResult(resultTableDisabled, 'Table reconciliation with redlines disabled');
 
     // Strict check to avoid matching <w:insideH> in table properties
     const hasInsTable = /<w:ins\b/.test(resultTableDisabled.oxml);
@@ -265,6 +270,7 @@ async function runRedlineToggleTests() {
         console.log(`❌ FAIL: Table reconciliation redline toggle issue. Ins: ${hasInsTable}, Del: ${hasDelTable}, UpdatedText: ${hasUpdatedText}`);
         console.log('Output Preview:', resultTableDisabled.oxml.substring(0, 500));
         console.log('Includes Header Updated:', resultTableDisabled.oxml.includes('Header Updated'));
+        throw new Error('Table reconciliation redline toggle issue');
     }
 
 }
@@ -274,6 +280,9 @@ async function runRedlineToggleTests() {
     await runNdaTests();
     await runRedlineToggleTests();
     console.log('\nALL INTEGRATION TESTS COMPLETE.');
-})();
+})().catch(error => {
+    console.error('INTEGRATION TEST FAILURE:', error?.stack || error);
+    process.exit(1);
+});
 
 

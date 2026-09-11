@@ -39,7 +39,8 @@ async function testPprChangeOnlyListMetadataDoesNotForceDirectBinding() {
         },
         {
             author: 'RegressionTest',
-            generateRedlines: true
+            generateRedlines: true,
+            existingRevisions: 'accept-all-first'
         }
     );
 

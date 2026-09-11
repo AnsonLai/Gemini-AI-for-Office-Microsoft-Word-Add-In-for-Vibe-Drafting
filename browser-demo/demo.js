@@ -15,6 +15,8 @@ import {
     insertBodyElementBeforeSectPr,
     normalizeBodySectionOrderStandalone,
     sanitizeNestedParagraphsInTables,
+    sanitizeAiResponse,
+    acceptTrackedChangesInOoxml,
     ensureNumberingArtifactsInZip,
     ensureCommentsArtifactsInZip,
     validateDocxPackage
@@ -510,11 +512,60 @@ function createSimpleParagraph(xmlDoc, text) {
 }
 
 async function runOperation(documentXml, op, author, runtimeContext = null, options = {}) {
-    return applyOperationToDocumentXml(documentXml, op, author, runtimeContext, {
+    const sanitizedModified = options.sanitizeInput === true
+        && op?.type === 'redline'
+        && typeof op?.modified === 'string'
+        ? sanitizeAiResponse(op.modified)
+        : op?.modified;
+    const operation = sanitizedModified === op?.modified
+        ? op
+        : { ...op, modified: sanitizedModified };
+    const cleanRangeWorkaround = operation?.type === 'redline'
+        && !!operation?.targetEndRef
+        && options.generateRedlines === false;
+    let result = await applyOperationToDocumentXml(documentXml, operation, author, runtimeContext, {
         ...options,
+        generateRedlines: cleanRangeWorkaround ? true : options.generateRedlines,
         onInfo: message => log(message),
         onWarn: message => log(message)
     });
+    if (result?.status === 'error' || result?.error) {
+        const code = result?.error?.code || 'OPERATION_ERROR';
+        const error = new Error(`[${code}] ${result?.error?.message || 'Browser DOCX operation failed'}`);
+        error.code = code;
+        error.warnings = result?.warnings || [];
+        error.details = {
+            packageError: result?.error || null,
+            ...(result?.receipt ? { receipt: result.receipt } : {}),
+            ...(result?.receipts ? { receipts: result.receipts } : {}),
+            ...(result?.rolledBack !== undefined ? { rolledBack: result.rolledBack } : {}),
+            ...(result?.validation !== undefined ? { validation: result.validation } : {}),
+            ...(result?.validationSummary !== undefined ? { validationSummary: result.validationSummary } : {})
+        };
+        throw error;
+    }
+    if (cleanRangeWorkaround && result?.hasChanges) {
+        const accepted = acceptTrackedChangesInOoxml(result.documentXml, { author });
+        if (accepted?.status === 'error' || accepted?.error) {
+            const code = accepted?.error?.code || 'OPERATION_ERROR';
+            const error = new Error(`[${code}] ${accepted?.error?.message || 'Clean range normalization failed'}`);
+            error.code = code;
+            error.warnings = accepted?.warnings || [];
+            error.details = { packageError: accepted?.error || null };
+            throw error;
+        }
+        result = { ...result, documentXml: accepted.oxml };
+    }
+    if (sanitizedModified !== op?.modified) {
+        result = {
+            ...result,
+            warnings: [
+                ...(result?.warnings || []),
+                'Input was sanitized; pass sanitizeInput: false to disable.'
+            ]
+        };
+    }
+    return result;
 }
 
 // ── Package artifact helpers ───────────────────────────
@@ -915,7 +966,10 @@ async function applyChatOperations(zip, operations, author, editModeValue = EDIT
         const label = `${op.type}: ${targetRefLabel}"${(op.target || '').slice(0, 50)}…"`;
         log(`Applying: ${label}`);
         try {
-            const step = await runOperation(documentXml, op, author, runtimeContext, { generateRedlines });
+            const step = await runOperation(documentXml, op, author, runtimeContext, {
+                generateRedlines,
+                sanitizeInput: true
+            });
             documentXml = step.documentXml;
             if (step.numberingXml) capturedNumberingXml.push(step.numberingXml);
             if (step.commentsXml) capturedCommentsXml.push(step.commentsXml);
@@ -1466,14 +1520,15 @@ async function runKitchenSink(inputFile, author, geminiApiKey) {
     for (const op of operations) {
         log(`Running: ${op.label}`);
         let step;
-        try { step = await runOperation(documentXml, op, author, runtimeContext); }
+        try { step = await runOperation(documentXml, op, author, runtimeContext, { sanitizeInput: true }); }
         catch (error) {
-            const msg = error?.message || String(error);
             const isSurprise = op.label === 'Gemini Surprise Tool Action' || op.label === 'AI Surprise Fallback';
-            if (!isSurprise || !msg.includes('Target paragraph not found')) throw error;
-            log(`[WARN] ${msg}`);
+            if (!isSurprise || error?.code !== 'TARGET_NOT_FOUND') throw error;
+            log(`[WARN] ${error?.message || String(error)}`);
             log('[WARN] Retrying on safe target.');
-            step = await runOperation(documentXml, buildSurpriseFallbackOperation(op), author, runtimeContext);
+            step = await runOperation(documentXml, buildSurpriseFallbackOperation(op), author, runtimeContext, {
+                sanitizeInput: true
+            });
         }
         documentXml = step.documentXml;
         if (step.numberingXml) capturedNumberingXml.push(step.numberingXml);

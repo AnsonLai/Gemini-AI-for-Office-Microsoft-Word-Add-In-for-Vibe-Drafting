@@ -151,7 +151,8 @@ async function testParagraphRedlineBridgePreservesDirectListBinding() {
         },
         {
             author: 'BridgeTest',
-            generateRedlines: true
+            generateRedlines: true,
+            existingRevisions: 'accept-all-first'
         }
     );
 
