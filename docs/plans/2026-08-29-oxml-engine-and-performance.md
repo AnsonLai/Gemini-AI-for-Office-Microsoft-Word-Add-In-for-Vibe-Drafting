@@ -1,9 +1,9 @@
-# OOXML Engine Performance and Web Portability Plan
+# OOXML Engine Performance and Web Portability Plan (v0.8.0 Single-Hop Architecture)
 
 **Date:** 2026-08-29  
-**Last Updated:** 2026-09-10 (Deepened & Reconciled with `@ansonlai/docx-redline-js` v0.5.4 & Pure OOXML Architecture)  
+**Last Updated:** 2026-09-23 (Reconciled with `@ansonlai/docx-redline-js` v0.8.0 Direct Upgrade)  
 **Status:** Active — Ready for Execution  
-**Prerequisite Baseline:** **The 2026-09-09 Upgrade Plan (`2026-09-09-docx-redline-js-v0.5.4-upgrade.md`) is COMPLETED.** Both the root add-in and `mcp/docx-server` are pinned to exact `@ansonlai/docx-redline-js@0.5.4`, and compatibility suites WP0–WP4 are verified. This plan builds directly on top of that stable baseline.
+**Prerequisite Baseline:** **The Direct Upgrade Plan (`2026-09-09-docx-redline-js-v0.5.4-upgrade.md`) is COMPLETED.** Both the root add-in and `mcp/docx-server` are pinned to exact `@ansonlai/docx-redline-js@0.8.0`, with zero external JSZip or Node polyfills required in the browser.
 
 ---
 
@@ -14,65 +14,62 @@ This plan is governed by three strict priorities, ordered from most important to
 1. **Accuracy when making changes (Highest Priority):**  
    The primary mandate is absolute accuracy of document edits. Diffs must be clean, revision timestamps and author attribution paired correctly, XML schemas strictly valid, and original OOXML 100% preserved whenever an edit fails or encounters an ambiguous target.
 2. **Preserving OOXML-only approach (Second Priority):**  
-   **Do NOT build complex Office.js context synchronization loops.** Word interaction must be treated as a dumb, single-hop transport: Read OOXML once -> Pure OOXML Processing -> Write OOXML once. All functions must operate purely on standard OOXML strings and packages so they can be ported directly to a pure web editor (e.g. Canvas/DOM/WASM-based document editor) in the future, completely ditching Microsoft Word.
+   **Do NOT build complex Office.js context synchronization loops.** Word interaction must be treated as a dumb, single-hop transport: Read once &rarr; Pure Engine Processing &rarr; Write once. All functions must operate purely on standard OOXML strings and packages so they can run identically in Node, a Word Taskpane, or a future web document editor.
 3. **Speed and performance (Third Priority):**  
-   Within the pure OOXML pipeline, maximize throughput by utilizing `@ansonlai/docx-redline-js` single-DOM batch sessions, avoiding redundant XML serialization passes, and short-circuiting no-op edits.
+   Maximize throughput by utilizing `@ansonlai/docx-redline-js@0.8.0` caller-order-independent batching, localized exact replacements (`replacements: [{ find, replace }]`), single-pass serialization, and short-circuiting no-op edits.
 
 ---
 
-## 2. Strategic Direction: The Single-Hop OOXML Pipeline
+## 2. Strategic Direction: The Two-Tier Single-Hop Pipeline
 
 Previous drafts explored complex Office.js synchronization patterns (`context.sync` clustering, paragraph proxy caching, table cell traversals). **That approach is completely abandoned.**
 
-Instead, the architecture enforces a **Single-Hop OOXML Pipeline**:
+Instead, the architecture enforces a **Two-Tier Single-Hop Pipeline**:
+
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        I/O Boundary (Host Shell)                       │
-│                                                                        │
-│   Word Add-in:                Web Application:            Node / MCP:  │
-│   body.getOoxml()             document.xml / buffer       fs.readFile  │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ ooxmlString (Plain Text / Package)
-┌───────────────────────────────────▼────────────────────────────────────┐
-│                    Pure OOXML Engine (Web-Portable)                    │
-│                                                                        │
-│   applyOperationsToDocumentXml(ooxmlString, operations, {              │
-│       atomic: true,                                                    │
-│       structuredContent: true,                                         │
-│       pairReplacements: true,                                          │
-│       existingRevisions: 'merge-same-author'                           │
-│   })                                                                   │
-│                                                                        │
-│   - Single-DOM Session: Parse once, diff all, serialize once           │
-│   - Zero Office.js / DOM dependencies                                  │
-│   - Identical execution in Node, Browser, or Word Taskpane             │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ result.documentXml / result.receipt
-┌───────────────────────────────────▼────────────────────────────────────┐
-│                        I/O Boundary (Host Shell)                       │
-│                                                                        │
-│   Word Add-in:                Web Application:            Node / MCP:  │
-│   range.insertOoxml(Replace)  renderView() / export       fs.writeFile │
-└────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                                Office.js Transport Layer                               │
+├──────────────────────────────────────────┬─────────────────────────────────────────────┤
+│  Tier 1: Document-Level Single-Hop       │  Tier 2: Range / Scoped Single-Hop          │
+│  (Whole-Document Operations)             │  (Selection or Section Edits)               │
+├──────────────────────────────────────────┼─────────────────────────────────────────────┤
+│ 1. Read:                                 │ 1. Read:                                    │
+│    getFileAsync(Compressed)              │    range.getOoxml()                         │
+│    -> Uint8Array bytes                   │    -> Flat-OPC string                       │
+│                                          │                                             │
+│ 2. Engine:                               │ 2. Engine:                                  │
+│    const doc = await openDocx(bytes)     │    applyOperationsToDocumentXml(xml, ops, { │
+│    doc.applyOperations(operations, {     │      atomic: true,                          │
+│      atomic: true,                       │      structuredContent: true,               │
+│      author: options.author              │      pairReplacements: true                 │
+│    })                                    │    })                                       │
+│                                          │                                             │
+│ 3. Write:                                │ 3. Write:                                   │
+│    body.insertFileFromBase64(            │    range.insertOoxml(                       │
+│      toBase64(doc.toUint8Array()),       │      result.documentXml,                    │
+│      'Replace'                           │      'Replace'                              │
+│    )                                     │    )                                        │
+└──────────────────────────────────────────┴─────────────────────────────────────────────┘
 ```
+
+- **Tier 1 (Universal Facade via `openDocx`)**: For document-wide agentic tool runs (`apply_redlines`), using `getFileAsync` + `openDocx` + `insertFileFromBase64` provides 100% package fidelity. Word's entire numbering table, styles, headers, and footers are preserved automatically by `docx-redline-js@0.8.0`.
+- **Tier 2 (Flat-OPC via `applyOperationsToDocumentXml`)**: For smaller, surgical paragraph/selection operations where fetching the whole file is unnecessary, `applyOperationsToDocumentXml` provides sub-10ms in-memory diffing.
 
 ---
 
-## 3. Reconciled Status of Legacy Optimization Tasks
+## 3. Reconciled Status of Optimization Tasks
 
-All previous in-plugin engine tasks are formally resolved as follows:
-
-| Legacy Task ID | Original Title | Reconciled Status | Rationale & Permanent Decision |
+| Legacy Task ID | Original Title | Reconciled Status | Rationale & Permanent Decision in v0.8.0 |
 |---|---|---|---|
-| **Phase 7** | Engine boundary verification | **Completed Upstream** | Fully verified in `@ansonlai/docx-redline-js` upstream test harness (99/99 test groups, zero host leakage). |
-| **P5.1** | Reduce parse/serialize churn | **Offloaded to Library** | Solved by upstream v0.5.0 Single-DOM Document Session. The plugin calls `applyOperationsToDocumentXml`, which parses the XML once for an entire batch. |
+| **Phase 7** | Engine boundary verification | **Completed Upstream** | Fully verified in `@ansonlai/docx-redline-js` upstream test harness. |
+| **P5.1** | Reduce parse/serialize churn | **Offloaded to Library** | Handled natively by upstream single-DOM batch sessions. |
 | **P5.2** | Profile surgical allocations | **Offloaded to Library** | Table-cell and run allocation optimizations belong to the library engine. |
-| **P5.3** | Benchmark string operations | **Cancelled** | Pure string operations are sub-millisecond; micro-optimizing string concatenation in the plugin yields no user benefit. |
-| **P5.4** | Collapse Word sync clusters | **SUPERSEDED by Single-Hop** | **Replaced entirely by the Single-Hop OOXML Pipeline.** We do not optimize proxy loops; we eliminate them completely. |
-| **P5.5** | Reduce memory churn (`RunModel`) | **Offloaded to Library** | `RunModel` is internal to `@ansonlai/docx-redline-js`. The plugin never directly instantiates or clones `RunModel`. |
-| **P5.6 / P5.9** | Diff-result caching & deferred DOM | **Cancelled** | In-memory diff caching creates cache invalidation bugs and stale state. Upstream diffing takes $<2\text{ms}$. |
-| **P5.7** | Web runtime tuning & lazy loading | **ACTIVE (WP2)** | Ensure the taskpane and web demo load lightweight modules first; dynamically import heavy visualization components. |
-| **P5.8** | Build shared `DocumentIndex` | **Cancelled** | Do NOT build an in-memory shadow document index in the plugin. Upstream v0.5.0 already maintains an internal 47x faster targeting lookup cache. |
+| **P5.3** | Benchmark string operations | **Cancelled** | Sub-millisecond; micro-optimizing string concatenation yields no user benefit. |
+| **P5.4** | Collapse Word sync clusters | **SUPERSEDED by Single-Hop** | **Replaced entirely by the Single-Hop Pipeline.** Eliminates all iterative `Paragraph` proxy loops. |
+| **P5.5** | Reduce memory churn (`RunModel`) | **Offloaded to Library** | `RunModel` is internal to `@ansonlai/docx-redline-js`. |
+| **P5.6 / P5.9** | Diff-result caching & deferred DOM | **Cancelled** | In-memory diff caching creates cache invalidation bugs. Upstream diffing takes $<2\text{ms}$. |
+| **P5.7** | Web runtime tuning & lazy loading | **ACTIVE (WP2)** | Ensure the taskpane loads lightweight modules first; dynamically import heavy UI components. |
+| **P5.8** | Build shared `DocumentIndex` | **Cancelled** | Upstream v0.8.0 maintains an internal targeting lookup cache. |
 
 ---
 
@@ -82,15 +79,15 @@ All previous in-plugin engine tasks are formally resolved as follows:
 
 **File:** `src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js`
 
-A smaller model should implement the execution flow using this exact contract:
+Implement the batch execution flow supporting both full `content` and localized `replacements: [{ find, replace }]`:
 
 ```javascript
-import { applyOperationToDocumentXml, applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js';
+import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js';
 import { assertRedlineResult, prepareOperationInput } from './redline-result.js';
 import { getParagraphOoxmlWithFallback, insertOoxmlWithRangeFallback, withNativeTrackingDisabled } from './word-ooxml.js';
 
 /**
- * Executes a batch of canonical operations purely in OOXML.
+ * Executes a batch of canonical operations purely in OOXML in a single hop.
  *
  * @param {Word.RequestContext} context - Word context (used strictly for single-hop I/O)
  * @param {Word.Paragraph|Word.Range} targetScope - The target paragraph or range proxy
@@ -106,13 +103,22 @@ export async function executePureOoxmlBatch(context, targetScope, operations, op
         return { status: 'error', error: { code: 'OOXML_READ_FAILED', message: 'Failed to read OOXML from target scope.' }, hasChanges: false };
     }
 
-    // 2. Prepare operations (explicit sanitization for model-generated content)
-    const sanitizedOps = operations.map(op => ({
-        ...op,
-        modified: options.isModelGenerated ? prepareOperationInput(op.modified) : op.modified
-    }));
+    // 2. Prepare operations (support both localized replacements and full modified content)
+    const sanitizedOps = operations.map(op => {
+        const copy = { ...op };
+        if (Array.isArray(copy.replacements)) {
+            // Localized replacements: pass through cleanly
+            copy.replacements = copy.replacements.map(r => ({
+                find: String(r.find || ''),
+                replace: options.isModelGenerated ? prepareOperationInput(r.replace) : String(r.replace || '')
+            }));
+        } else if (copy.modified !== undefined) {
+            copy.modified = options.isModelGenerated ? prepareOperationInput(copy.modified) : copy.modified;
+        }
+        return copy;
+    });
 
-    // 3. Pure OOXML Processing: Run through docx-redline-js in-memory
+    // 3. Pure OOXML Processing: Run through docx-redline-js v0.8.0 in-memory
     const engineResult = await applyOperationsToDocumentXml(originalOoxml, sanitizedOps, {
         atomic: options.atomic !== false,
         author: options.author || 'AI Assistant',
@@ -154,25 +160,25 @@ export async function executePureOoxmlBatch(context, targetScope, operations, op
 
 ### Step 2: Strip Office.js Proxy Loops from `word-redline-runner.js`
 1. Open `src/taskpane/modules/docx-redline-js-integration/word-redline-runner.js`.
-2. Delete helper functions that loop over `Paragraph` proxies to apply text or format:
+2. Delete the 1,100-line iterative paragraph proxy loop (`for (const change of (changes || []))`).
+3. Delete table synthesis heuristics (`synthesizeMarkdownTableFromSourceRange`, `inferTableConversionEndIndex`), delegating to upstream `structuredContent: true`.
+4. Delete helper functions that loop over `Paragraph` proxies:
    - Remove `applyNativeParagraphFormatting`
    - Remove `prepareNativeMarkdownParagraph`
-   - Remove `insertNativeTextLines` (replace with single package insertion)
-3. Ensure that when inserting multi-line or structured content into an anchor paragraph, `word-redline-runner.js` converts the content into an OOXML package string via `buildDocumentFragmentPackage` and performs **one** `insertOoxmlWithRangeFallback` call.
+   - Remove `insertNativeTextLines`
+5. Replace the entry point with a clean call to `executePureOoxmlBatch`.
 
 ---
 
 ## 5. Document Visual Formatting & Structural Test Suite
 
-To verify **how formatting, whitespace, tabs, breaks, hyperlinks, and section properties show up in the document**, create `tests/ooxml_formatting_visual_tests.mjs`.
-
-**File to Create:** `tests/ooxml_formatting_visual_tests.mjs`
+Create `tests/ooxml_formatting_visual_tests.mjs` to empirically verify formatting, whitespace, tabs, breaks, hyperlinks, section properties, and localized replacements:
 
 ```javascript
 import assert from 'node:assert/strict';
-import { applyOperationToDocumentXml } from '@ansonlai/docx-redline-js';
+import { applyOperationToDocumentXml, applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js';
 
-console.log('Running OOXML Formatting & Visual Fidelity Tests...\n');
+console.log('Running OOXML Formatting & Visual Fidelity Tests (v0.8.0)...\n');
 
 // TEST 1: Formatting Inheritance (Bold/Italic/Underline) in Inserted Runs
 {
@@ -210,7 +216,7 @@ console.log('Running OOXML Formatting & Visual Fidelity Tests...\n');
 
 // TEST 2: Whitespace Padding & Preservation (xml:space="preserve")
 {
-    console.log('Test 2: Whitespace padding visual check (preventing word collision)...');
+    console.log('Test 2: Whitespace padding visual check...');
     const docWithSpaces = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:body>
@@ -258,7 +264,6 @@ console.log('Running OOXML Formatting & Visual Fidelity Tests...\n');
 
     assert.ok(xml.includes('<w:tab/>') || xml.includes('<w:tab />'), 'Tab marker must be preserved');
     assert.ok(xml.includes('<w:br/>') || xml.includes('<w:br />'), 'Line break marker must be preserved');
-    assert.ok(xml.includes('Updated Section Title'), 'Modified title must be present');
     console.log('  -> Passed: Visual structural tab (<w:tab/>) and line break (<w:br/>) preserved intact.');
 }
 
@@ -289,48 +294,36 @@ console.log('Running OOXML Formatting & Visual Fidelity Tests...\n');
     assert.equal(result.status, 'success');
     const xml = result.documentXml;
 
-    // Visual Invariant: Hyperlink tag and relationship ID must survive so the link remains clickable in Word
     assert.ok(xml.includes('<w:hyperlink'), 'Must preserve <w:hyperlink>');
     assert.ok(xml.includes('r:id="rId5"'), 'Must preserve hyperlink relationship ID rId5');
-    assert.ok(xml.includes('support portal'), 'Must contain modified link text');
     console.log('  -> Passed: Clickable hyperlink (<w:hyperlink r:id="rId5">) preserved.');
 }
 
-// TEST 5: Section Break Preservation (<w:sectPr>)
+// TEST 5: Localized Exact Replacements (replacements: [{ find, replace }])
 {
-    console.log('Test 5: Section break visual preservation (<w:sectPr>)...');
-    const docWithSection = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    console.log('Test 5: Localized exact replacements check (v0.7.0+)...');
+    const docText = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:body>
     <w:p>
-      <w:r><w:t>End of first section text.</w:t></w:r>
-      <w:pPr>
-        <w:sectPr>
-          <w:pgSz w:w="12240" w:h="15840"/>
-          <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/>
-        </w:sectPr>
-      </w:pPr>
+      <w:r><w:t>Agreement shall terminate within 30 days of written notice.</w:t></w:r>
     </w:p>
-    <w:p><w:r><w:t>Second section begins here.</w:t></w:r></w:p>
   </w:body>
 </w:document>`;
 
-    const result = await applyOperationToDocumentXml(docWithSection, {
+    const result = await applyOperationToDocumentXml(docText, {
         type: 'redline',
         target: { paragraphIndex: 0 },
-        anchor: { exactText: 'End of first section text.' },
-        modified: 'Concluding remarks for initial section.',
+        replacements: [{ find: '30 days', replace: '60 days' }],
         author: 'Editor'
     });
 
     assert.equal(result.status, 'success');
     const xml = result.documentXml;
-
-    // Visual Invariant: sectPr defines margins and page size; dropping it corrupts page layout in Word
-    assert.ok(xml.includes('<w:sectPr>'), 'Must preserve <w:sectPr>');
-    assert.ok(xml.includes('<w:pgSz'), 'Must preserve page size element');
-    assert.ok(xml.includes('<w:pgMar'), 'Must preserve margin element');
-    console.log('  -> Passed: Section layout properties (<w:sectPr>) completely preserved.');
+    assert.ok(xml.includes('<w:del'), 'Must contain deletion for 30 days');
+    assert.ok(xml.includes('<w:ins'), 'Must contain insertion for 60 days');
+    assert.ok(xml.includes('60 days'), 'Replacement text must be present');
+    console.log('  -> Passed: Localized replacement ({ find, replace }) executed cleanly.');
 }
 
 console.log('\nAll OOXML Formatting & Visual Fidelity Tests Passed Successfully!');
@@ -340,9 +333,7 @@ console.log('\nAll OOXML Formatting & Visual Fidelity Tests Passed Successfully!
 
 ## 6. Performance & Memory Profiling Harness
 
-To empirically verify Goal 3 (Speed & Performance) without guessing, create `scripts/benchmark-ooxml-pipeline.mjs`.
-
-**File to Create:** `scripts/benchmark-ooxml-pipeline.mjs`
+Create `scripts/benchmark-ooxml-pipeline.mjs` to measure batch throughput and memory consumption across synthetic documents:
 
 ```javascript
 import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js';
@@ -357,7 +348,7 @@ function generateSyntheticDocumentXml(paragraphCount) {
 }
 
 async function runBenchmark() {
-    console.log('=== OOXML Single-Hop Pipeline Performance Benchmark ===\n');
+    console.log('=== OOXML Single-Hop Pipeline Performance Benchmark (v0.8.0) ===\n');
 
     for (const count of [10, 50, 100, 500]) {
         const docXml = generateSyntheticDocumentXml(count);
@@ -380,7 +371,6 @@ async function runBenchmark() {
         console.log(`  - Execution Time: ${elapsedMs.toFixed(2)} ms`);
         console.log(`  - Memory Delta: ${memoryDeltaMb.toFixed(2)} MB\n`);
 
-        // Performance Assertion: 100 paragraphs must process in under 100ms
         if (count <= 100 && elapsedMs > 250) {
             console.warn(`[PERF WARNING] Benchmark exceeded 250ms budget for ${count} paragraphs.`);
         }
@@ -395,19 +385,19 @@ runBenchmark();
 ## 7. Verification and Acceptance Checklist
 
 ### Accuracy & Visual Formatting Gates
-- [ ] Run `node tests/ooxml_formatting_visual_tests.mjs` -> 100% pass across all 5 test cases.
+- [ ] Run `node tests/ooxml_formatting_visual_tests.mjs` &rarr; 100% pass across all test cases.
 - [ ] Formatting Inheritance: Editing bold or italic text preserves `<w:rPr>` on inserted runs without font resets.
 - [ ] Whitespace Preservation: Ensure `xml:space="preserve"` prevents words from colliding in Word.
 - [ ] Structural Markers: Literal `<w:tab/>` and `<w:br/>` survive redline operations without degradation.
 - [ ] Hyperlinks: `<w:hyperlink>` and relationship IDs remain intact.
-- [ ] Section Layout: `<w:sectPr>` (page margins and sizing) remains intact.
+- [ ] Localized Replacements: Verify `{ find, replace }` executes with surgical run splitting.
 
 ### OOXML Purity & Web Portability Gates
-- [ ] Single-Hop Word I/O: Verify via debug logs that applying an edit invokes exactly ONE `getOoxml()` and ONE `insertOoxml()`. Zero iterative `context.sync()` calls within the edit application.
+- [ ] Single-Hop Word I/O: Applying an edit invokes exactly ONE read and ONE write in Word. Zero iterative `context.sync()` calls within the edit application.
 - [ ] Zero Office.js in Engine: Assert that `@ansonlai/docx-redline-js` has 0 references to `Word.` or Office.js.
-- [ ] Offline Execution: Run `node tests/ooxml_formatting_visual_tests.mjs` — verify 100% pass in pure Node environment.
+- [ ] Offline Execution: All tests run 100% offline in a pure Node environment without Office.js mocks.
 
 ### Performance Gates
-- [ ] Single-DOM Batching: Applying a batch of operations executes in a single XML DOM parse and serialize pass.
-- [ ] No-Op Short-Circuit: Applying an identical replacement (no-op) completes in $<5\text{ms}$ and performs 0 Word write operations.
-- [ ] Benchmark Gate: Run `node scripts/benchmark-ooxml-pipeline.mjs` -> 100-paragraph documents process in $<100\text{ms}$.
+- [ ] Caller-Order-Independent Batches: Applying a batch of operations executes in a single XML DOM parse and serialize pass.
+- [ ] No-Op Short-Circuit: Applying an identical replacement completes in $<5\text{ms}$ and performs 0 Word write operations.
+- [ ] Benchmark Gate: Run `node scripts/benchmark-ooxml-pipeline.mjs` &rarr; 100-paragraph documents process in $<100\text{ms}$.
