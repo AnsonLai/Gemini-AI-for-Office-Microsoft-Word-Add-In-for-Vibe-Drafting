@@ -8,8 +8,7 @@ export class DocxSessionStore {
 
     /**
      * @param {{
-     *   zip: any,
-     *   documentXml: string,
+     *   doc: import('@ansonlai/docx-redline-js').DocxDocument,
      *   sourcePath?: string|null,
      *   defaultGenerateRedlines?: boolean
      * }} input
@@ -20,8 +19,7 @@ export class DocxSessionStore {
 
         const session = {
             sessionId,
-            zip: input.zip,
-            documentXml: input.documentXml,
+            doc: input.doc,
             sourcePath: input.sourcePath ?? null,
             defaultGenerateRedlines: input.defaultGenerateRedlines ?? true,
             dirty: false,
@@ -59,4 +57,3 @@ export class DocxSessionStore {
         session.updatedAt = new Date().toISOString();
     }
 }
-

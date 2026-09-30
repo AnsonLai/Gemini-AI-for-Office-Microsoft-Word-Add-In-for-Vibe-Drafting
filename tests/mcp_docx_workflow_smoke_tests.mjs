@@ -1,92 +1,58 @@
-import './setup-xml-provider.mjs';
-
-import assert from 'assert';
+import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { validateDocxPackage } from '@ansonlai/docx-redline-js';
-
-import {
-    createNewDocxPackage,
-    loadDocxFromPath,
-    saveDocxSessionToPath
-} from '../mcp/docx-server/src/services/docx-package-service.mjs';
+import { MemoryZip, unzipDocx } from '@ansonlai/docx-redline-js/document/zip-archive.js';
 import { DocxSessionStore } from '../mcp/docx-server/src/services/docx-session-store.mjs';
 import {
-    listParagraphs,
-    replaceParagraph,
-    resolveParagraph,
-    serializeParagraph
-} from '../mcp/docx-server/src/services/paragraph-targeting-service.mjs';
-import {
-    deriveParagraphAcceptedText,
-    reconcileParagraphEdit
-} from '../mcp/docx-server/src/services/docx-redline-js-service.mjs';
+    addDocumentComment,
+    applyDocumentOperations,
+    createDocument,
+    editDocumentParagraph,
+    listDocumentParagraphs,
+    openDocument,
+    saveDocument
+} from '../mcp/docx-server/src/services/docx-document-service.mjs';
 
 async function run() {
     const outputPath = path.join(os.tmpdir(), `docx-redline-mcp-smoke-${crypto.randomUUID()}.docx`);
     try {
-        const created = await createNewDocxPackage({ title: 'Original clause.' });
+        const doc = await createDocument('Original clause.');
         const sessions = new DocxSessionStore();
-        const session = sessions.create({
-            ...created,
-            defaultGenerateRedlines: true
-        });
+        const session = sessions.create({ doc, defaultGenerateRedlines: true });
+        const before = listDocumentParagraphs(doc);
+        assert.equal(before.total, 1);
+        assert.equal(before.items[0].text, 'Original clause.');
+        assert.equal(doc.inspect().paragraphs[0].hasRevisions, false);
 
-        const beforeList = listParagraphs(session.documentXml);
-        assert.strictEqual(beforeList.total, 1);
-        assert.strictEqual(beforeList.items[0].text, 'Original clause.');
-
-        const beforeFailureXml = session.documentXml;
+        const beforeBytes = doc.toUint8Array();
         await assert.rejects(
-            reconcileParagraphEdit({
-                paragraphXml: serializeParagraph(resolveParagraph(session.documentXml, 'idx:1').paragraph),
-                paragraphText: 'Stale target text.',
-                modifiedText: 'This must not commit.',
-                author: 'MCP Smoke',
-                generateRedlines: true
-            }),
+            applyDocumentOperations(doc, [{ type: 'replace', target: { exactText: 'Stale target text.' }, modified: 'This must not commit.' }]),
             error => error.code === 'TARGET_NOT_FOUND'
         );
-        assert.strictEqual(session.documentXml, beforeFailureXml);
-        assert.strictEqual(session.dirty, false);
+        assert.deepEqual(doc.toUint8Array(), beforeBytes);
+        assert.equal(session.dirty, false);
 
-        const resolved = resolveParagraph(session.documentXml, 'idx:1');
-        const paragraphXml = serializeParagraph(resolved.paragraph);
-        const reconciliation = await reconcileParagraphEdit({
-            paragraphXml,
-            paragraphText: deriveParagraphAcceptedText(paragraphXml),
-            modifiedText: 'Updated clause.',
-            author: 'MCP Smoke',
-            generateRedlines: true
-        });
-        assert.strictEqual(reconciliation.hasChanges, true);
-
-        session.documentXml = replaceParagraph(
-            resolved.doc,
-            resolved.paragraph,
-            reconciliation.replacementNodes
-        );
+        const edit = await editDocumentParagraph(doc, before.items[0].id, 'Updated clause.', { author: 'MCP Smoke' });
+        assert.equal(edit.changed, true);
+        assert.equal(edit.updatedText, 'Updated clause.');
         session.dirty = true;
         sessions.touch(session);
+        const comment = await addDocumentComment(doc, edit.paragraphId, 'Updated', 'Review this word.', { author: 'Reviewer' });
+        assert.equal(comment.commentsApplied, 1);
 
-        const saved = await saveDocxSessionToPath(session, outputPath);
+        const saved = await saveDocument(doc, outputPath);
         assert.ok(saved.bytes > 0);
         session.dirty = false;
-
-        const reopened = await loadDocxFromPath(outputPath);
-        await validateDocxPackage(reopened.zip);
-        const reopenedParagraph = resolveParagraph(reopened.documentXml, 'idx:1').paragraph;
-        assert.strictEqual(
-            deriveParagraphAcceptedText(serializeParagraph(reopenedParagraph)),
-            'Updated clause.'
-        );
-        assert.ok(reopened.documentXml.includes('<w:ins'));
-        assert.ok(reopened.documentXml.includes('<w:del'));
-
-        assert.strictEqual(sessions.close(session.sessionId), true);
-        console.log('PASS: MCP DOCX create/edit/save/reopen smoke test');
+        const reopened = await openDocument(outputPath);
+        assert.equal(reopened.doc.inspect().paragraphs[0].text, 'Updated clause.');
+        assert.equal(reopened.doc.inspect().comments.length, 1);
+        assert.equal(reopened.doc.inspect().paragraphs[0].hasRevisions, true);
+        await validateDocxPackage(new MemoryZip(unzipDocx(reopened.doc.toUint8Array())));
+        assert.equal(sessions.close(session.sessionId), true);
+        console.log('PASS: MCP DOCX create/edit/comment/save/reopen smoke test');
     } finally {
         await fs.rm(outputPath, { force: true });
     }

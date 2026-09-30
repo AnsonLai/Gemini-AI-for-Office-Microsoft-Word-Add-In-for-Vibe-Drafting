@@ -25,39 +25,39 @@
     "list_generation": {
       "hasChanges": true,
       "hasNumberingRelationship": true,
-      "length": 8064,
-      "hash": "0bd365032ea48873d44bd94dc6e40788bd4ed00472332d661536da5c81dd2667"
+      "length": 8370,
+      "hash": "217e4d885a8f3bd0768a20814fa9ef8ab393de663d4a262038e7a123d66e518b"
     },
     "table_reconcile": {
       "hasChanges": true,
       "hasTable": true,
-      "length": 3227,
-      "hash": "f14768c113b39fd3fc2126d3845b447b87109d97ca351963c073e77762437d31"
+      "length": 3307,
+      "hash": "bbce87b8e928daeb6707f3e00edbef9acc725978a22bb46b933c763c9225a5b8"
     },
     "text_to_table_transform": {
       "hasChanges": true,
       "hasTable": true,
-      "length": 2487,
-      "hash": "92e831893acd5e1ca2b7434adbaaf9b7a787eb256d168c99092ec46787e1244b"
+      "length": 2567,
+      "hash": "f5905384d088cde9c584b688d1972261bb94aedda41fd24c7300046631f385b1"
     },
     "comment_document_injection": {
       "commentsApplied": 2,
       "warningCount": 0,
       "length": 642,
       "hash": "1ac692270a9d0387d1a5bc1adc9bc4ceab3466ac373b405d240ed97c827904c9",
-      "commentsXmlHash": "e0de8efae39f9ab57be72bc043105065837428e837679a87984c567fbef26c71"
+      "commentsXmlHash": "f4ef56906340afc628dffeca02fd2f7cb2d5581c6cc620c89b44ff0bd1c1867c"
     },
     "comment_paragraph_injection": {
       "success": true,
       "hasPackage": true,
-      "packageHash": "3e19a0d4a9ba8f26bd1826d01a738383640a8cac25ec9c1454ace195cdb557c1",
-      "packageLength": 2130
+      "packageHash": "f40af1711f5b3817afdec6df70f34ca133973c38e8fe526f5ead0ee465993b79",
+      "packageLength": 2217
     },
     "comment_package_injection": {
       "hasCommentsPart": true,
       "hasCommentsRel": true,
-      "length": 1568,
-      "hash": "7103daeba7201883a24404aa7278763e350ea6e2cf0ccfeefb5c2f5a8263dd68"
+      "length": 1655,
+      "hash": "c76106af81499cdc00caf9e3dde45d05de33e10c6fabf6a5d666d83537c3b1d9"
     }
   }
 }

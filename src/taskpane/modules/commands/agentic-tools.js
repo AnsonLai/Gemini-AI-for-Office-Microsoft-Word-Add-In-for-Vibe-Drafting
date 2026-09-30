@@ -193,7 +193,7 @@ async function executeRedline(instruction, fullDocumentText) {
       // WP2: mechanically sanitize the change set (enforce prompt rules in code)
       // before WP1 anchor verification + application.
       const { changes: sanitizedChanges, rejected: sanitizeRejected } =
-        sanitizeChangeSet(aiChanges, paragraphTexts.length);
+        sanitizeChangeSet(aiChanges, paragraphTexts.length, paragraphTexts);
 
       const { changesApplied, redlineEnabled, rejectedChanges: anchorRejected, engineSkipped } =
         await applyRedlineChangeSet(sanitizedChanges, paragraphTexts);

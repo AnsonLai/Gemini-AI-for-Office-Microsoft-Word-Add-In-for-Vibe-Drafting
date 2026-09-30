@@ -24,6 +24,8 @@ import {
     applyOperationsToDocumentXml
 } from '@ansonlai/docx-redline-js/services/standalone-operation-runner.js';
 import { wrapParagraphWithComments } from '@ansonlai/docx-redline-js/services/comment-package.js';
+import { reconcileCommentSiblingParts } from '@ansonlai/docx-redline-js/services/comment-thread-parts.js';
+import { getPartSpec } from '@ansonlai/docx-redline-js/services/package-parts.js';
 import {
     buildDocumentCommentsPackage,
     buildDocumentFragmentPackage,
@@ -42,12 +44,10 @@ import {
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const NS_PKG = 'http://schemas.microsoft.com/office/2006/xmlPackage';
 const NS_REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
-const REL_BASE = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/';
-const PART_TYPES = {
-    '/word/comments.xml': 'application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml',
-    '/word/commentsExtended.xml': 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml',
-    '/word/numbering.xml': 'application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml'
-};
+const PART_TYPES = Object.fromEntries(
+    ['comments', 'commentsExtended', 'commentsIds', 'commentsExtensible', 'numbering']
+        .map(kind => getPartSpec(kind)).map(spec => [`/${spec.path}`, spec.contentType])
+);
 const SIMPLE_LIST_MARKER_RE = /^\s*(?:[-*+]\s+|\d+(?:\.\d+)*[.)]\s+|[A-Za-z][.)]\s+)/;
 
 function getDirectWordChild(element, localName) {
@@ -152,6 +152,7 @@ function replacePackagePartXml(packageDoc, name, xml) {
         part.setAttribute('pkg:contentType', PART_TYPES[name]);
         packageDoc.documentElement.appendChild(part);
     }
+    if (PART_TYPES[name]) part.setAttribute('pkg:contentType', PART_TYPES[name]);
     let xmlData = part.getElementsByTagNameNS(NS_PKG, 'xmlData')[0];
     if (!xmlData) {
         xmlData = packageDoc.createElementNS(NS_PKG, 'pkg:xmlData');
@@ -167,9 +168,8 @@ function ensurePackageRelationship(packageDoc, kind) {
     if (!relsXml) relsXml = `<Relationships xmlns="${NS_REL}"/>`;
     const relsDoc = parseXmlStrict(relsXml, name);
     const relationships = Array.from(relsDoc.getElementsByTagNameNS(NS_REL, 'Relationship'));
-    const type = kind === 'commentsExtended'
-        ? 'http://schemas.microsoft.com/office/2011/relationships/commentsExtended'
-        : `${REL_BASE}${kind}`;
+    const spec = getPartSpec(kind);
+    const type = spec.relType;
     if (!relationships.some(rel => rel.getAttribute('Type') === type)) {
         const used = new Set(relationships.map(rel => rel.getAttribute('Id')));
         let next = 1;
@@ -177,7 +177,7 @@ function ensurePackageRelationship(packageDoc, kind) {
         const rel = relsDoc.createElementNS(NS_REL, 'Relationship');
         rel.setAttribute('Id', `rId${next}`);
         rel.setAttribute('Type', type);
-        rel.setAttribute('Target', kind === 'commentsExtended' ? 'commentsExtended.xml' : `${kind}.xml`);
+        rel.setAttribute('Target', spec.relTarget);
         relsDoc.documentElement.appendChild(rel);
     }
     // Relationship parts have a different content type from the Word XML parts.
@@ -206,6 +206,8 @@ function readBatchSource(scopeOoxml) {
             documentXml,
             commentsXml: packagePartXml(packageDoc, '/word/comments.xml'),
             commentsExtendedXml: packagePartXml(packageDoc, '/word/commentsExtended.xml'),
+            commentsIdsXml: packagePartXml(packageDoc, '/word/commentsIds.xml'),
+            commentsExtensibleXml: packagePartXml(packageDoc, '/word/commentsExtensible.xml'),
             numberingXml: packagePartXml(packageDoc, '/word/numbering.xml'),
             stylesXml: packagePartXml(packageDoc, '/word/styles.xml')
         };
@@ -231,6 +233,11 @@ function buildBatchInsertionPackage(source, result) {
     const outputDoc = parseXmlStrict(result.documentXml, 'batch output');
     normalizeBodySectionOrderStandalone(outputDoc);
     const outputXml = serializer.serializeToString(outputDoc.documentElement);
+    const commentSiblings = reconcileCommentSiblingParts({
+        commentsXml: result.commentsXml,
+        commentsIdsXml: source.commentsIdsXml,
+        commentsExtensibleXml: source.commentsExtensibleXml
+    });
     let numberingXml = source.numberingXml || null;
     for (const part of result.numberingXmlParts || []) {
         numberingXml = numberingXml ? mergeNumberingXmlBySchemaOrder(numberingXml, part) : part;
@@ -245,6 +252,13 @@ function buildBatchInsertionPackage(source, result) {
             replacePackagePartXml(source.packageDoc, '/word/commentsExtended.xml', result.commentsExtendedXml);
             ensurePackageRelationship(source.packageDoc, 'commentsExtended');
         }
+        for (const kind of ['commentsIds', 'commentsExtensible']) {
+            const xml = commentSiblings[`${kind}Xml`];
+            if (xml) replacePackagePartXml(source.packageDoc, `/${getPartSpec(kind).path}`, xml);
+        }
+        // A body edit must also repair the commentsExtended type written before 0.8.1.
+        const extendedPart = packagePart(source.packageDoc, '/word/commentsExtended.xml');
+        if (extendedPart) extendedPart.setAttribute('pkg:contentType', getPartSpec('commentsExtended').contentType);
         if (numberingXml && (result.numberingXmlParts?.length || !source.numberingXml)) {
             replacePackagePartXml(source.packageDoc, '/word/numbering.xml', numberingXml);
             ensurePackageRelationship(source.packageDoc, 'numbering');

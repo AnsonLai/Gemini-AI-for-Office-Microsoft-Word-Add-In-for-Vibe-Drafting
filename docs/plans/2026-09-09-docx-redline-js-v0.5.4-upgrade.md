@@ -1,43 +1,71 @@
-# `@ansonlai/docx-redline-js` v0.8.1 Direct Upgrade Plan
+# `@ansonlai/docx-redline-js` v0.8.2 Direct Upgrade Plan
 
 **Date:** 2026-09-23  
-**Updated:** 2026-09-29
+**Updated:** 2026-09-30
 
-**Status:** WP0–WP3 implemented; WP4–WP6 remain — direct migration to v0.8.1. WP3 still needs Word Desktop validation in WP6.
+**Status:** **Near complete.** WP0–WP5 are implemented and WP6 tooling, offline checks and native Word checks pass on exact v0.8.2. One acceptance gate remains: actual Office.js transport validation. PDF export is optional; measured large-document performance is accepted by the user. See the [v0.8.2 validation report](../validation-reports/2026-09-30-docx-redline-js-v0.8.2.md).
 
-**Target:** Upgrade both root add-in and `mcp/docx-server` directly to exact version `0.8.1`.
+**Target:** Upgrade both root add-in and `mcp/docx-server` directly to exact version `0.8.2`.
+
+## Completion snapshot (2026-09-30)
+
+| Work package | State |
+| --- | --- |
+| WP0: baseline | Complete |
+| WP1: pins and compatibility | Complete; both consumers use exact 0.8.2 |
+| WP2: obsolete workaround cleanup | Complete; active supported helpers retained |
+| WP3: atomic Word redline batch runner | Complete for range/body Flat-OPC transport |
+| WP4: localized prompt/schema validation | Complete |
+| WP5: MCP document facade | Complete |
+| WP6: verification | Near complete: 33 offline suites, 69 live Word checks and both builds pass; actual Office.js insertion pending |
+
+### Final closure task
+
+Run the production add-in in real Word through `getOoxml` / `insertOoxml`, covering a localized body edit and threaded-comment package. Record successful insertion, save/reopen without repair, exact Accept All/Reject All outcomes, comment identities and no-write behavior on no-op/preparation failure. The COM native insertion checks already pass, but do not certify Office.js transport. Record the host/build and artifacts, then mark WP6 and this plan complete.
+
+This check is also tracked in [reliability WP1](2026-08-29-reliability-and-quality-gates.md); it is one shared task, not two implementations. The implementation/validation state above does not imply that all changes have been committed.
+
+### Follow-on plan order
+
+1. [Reliability and quality gates](2026-08-29-reliability-and-quality-gates.md): close the host gate, centralize provider recovery and clarify mutation outcomes.
+2. [Agentic tools and list reliability](2026-08-29-agentic-tools-and-list-reliability.md): align remaining tool/list paths and expand independent Word coverage.
+3. [Package boundaries and integrations](2026-08-29-package-boundaries-and-integrations.md): extract portable consumer logic and migrate browser-demo editing; MCP migration is already complete.
+4. [OOXML engine and performance](2026-08-29-oxml-engine-and-performance.md): profile settled paths, then optimize measured consumer costs; route library findings upstream.
+
+The August plans now distinguish inherited completed work from remaining work. They do not require repeating this upgrade.
 
 This plan supersedes and consolidates:
 - `2026-09-02-docx-redline-js-v0.4.0-upgrade.md`
 - `2026-09-07-docx-redline-js-v0.5.0-upgrade.md`
 
-Because the four 2026-08-29 optimization plans were never executed against v0.5.4, an intermediate step through v0.8.0 is unnecessary. Upgrade directly to **v0.8.1** and use the document lifecycle introduced in v0.8.0 to retire temporary glue code (such as manual XML wrapping, synthetic `<w:document>` envelopes, and external JSZip handling). Verify those APIs and behaviors against v0.8.1 before removing existing code.
+Because the four 2026-08-29 optimization plans were never executed against v0.5.4, an intermediate step through v0.8.0 is unnecessary. Upgrade directly to **v0.8.2** and use the document lifecycle introduced in v0.8.0 to retire temporary glue code (such as manual XML wrapping, synthetic `<w:document>` envelopes, and external JSZip handling). Verify those APIs and behaviors against v0.8.2 before removing existing code. The records below preserve the initial v0.8.1 implementation and its subsequent v0.8.2 verification.
 
 ---
 
-## 1. Summary of Major Library Capabilities (v0.5.0 &rarr; v0.8.1)
+## 1. Summary of Major Library Capabilities (v0.5.0 &rarr; v0.8.2)
 
 | Release Span | Architectural Breakthrough | Direct Impact on This Repository |
 |---|---|---|
 | **v0.5.1 – v0.5.4** | Multi-Author Revision Slicing (`slice-cross-author`), Paragraph Restoration (`restore`), and Baseline-Delta Validation. | Pre-existing document defects or existing tracked changes in user files no longer fail subsequent valid operations. |
 | **v0.6.0 – v0.6.2** | **Caller-Order-Independent Batches**: Targets resolve against the immutable starting state of the document. | Prior splits or insertions in a batch no longer throw off later paragraph indexes, eliminating the need for manual bottom-up sorting or iterative single-paragraph loops in `word-redline-runner.js`. |
 | **v0.6.0 – v0.6.2** | Compact Mutation Outputs & Receipts (`completion`, `written`, `status`, `receipts`). | Clean structured receipts allow caller verification without inspecting verbose OOXML dumps. |
-| **v0.7.0 – v0.7.2** | **Localized Exact Replacements (`replacements: [{ find, replace }]`)**: Operations specify exact phrase substitutions inside a target paragraph. | **60–90% reduction in generated prompt tokens**; prevents model truncation and eliminates anchor mismatch rejections. |
+| **v0.7.0 – v0.7.2** | **Localized Exact Replacements (`replacements: [{ find, replace }]`)**: Operations specify exact phrase substitutions inside a target paragraph. | Avoids repeating unchanged paragraph text; token savings depend on the workload. Exact target and occurrence validation remain required. |
 | **v0.7.0 – v0.7.2** | Two-Turn Golden Path: Single computed success gate (`completion: true` + non-null output). | Streamlines machine recovery and verification. |
 | **v0.8.0** | **Universal `openDocx` Facade & Zero-Node Architecture**: Runs natively in modern browsers without `node:zlib`, `node:crypto`, or `Buffer`. Ingests and serializes canonical `Uint8Array`. | Zero-Node packaging runs out-of-the-box in the Word taskpane and browser demo. |
 | **v0.8.0** | **Built-in `fflate` ZIP Container**: ZIP extraction, OOXML part loading, and rebuilding are handled internally. | **Removes external `jszip` and `@xmldom/xmldom` dependencies** from `mcp/docx-server`. |
 | **v0.8.0** | **Integrated Document Lifecycle**: `doc.inspect()`, `doc.applyOperations()`, and `doc.resolveRevisions('accept' \| 'reject')`. | Extracts paragraphs, applies batches, manages `numbering.xml`/`comments.xml`, and resolves revisions in one step. |
 | **v0.8.1** | Fixes the `commentsExtended.xml` content type and comment-thread markers; adds comment resolve/reopen/delete-by-id and editing of existing header/footer parts. | Prevents Word repair prompts when editing commented files; requires regression coverage for comment preservation, thread operations, and body/part batch isolation. |
+| **v0.8.2** | Fixes hyperlink/plain-run boundary preservation and Reject All text ordering around manual line breaks. CLI contract 8, APIs, schemas and error shapes remain unchanged. | Resolves library issues #3/#4; localized and full-paragraph forms now run as required offline and real Word regressions. |
 
 ---
 
-## 2. Migration Principles for Direct v0.8.1 Upgrade
+## 2. Migration Principles for Direct v0.8.2 Upgrade
 
-1. **Pin `0.8.1` exactly** in both `package.json` and `mcp/docx-server/package.json`. Regenerate lockfiles via `npm install`.
+1. **Pin `0.8.2` exactly** in both `package.json` and `mcp/docx-server/package.json`. Regenerate lockfiles via `npm install`.
 2. **Eliminate Redundant Dependencies in WP5**: Keep `jszip` and `@xmldom/xmldom` until the MCP server stops importing them. Remove them with the WP5 facade refactor.
 3. **Adopt Universal `openDocx` & Lifecycle Methods**:
    - In MCP: Use `openDocx(fs.readFileSync(path))` &rarr; `doc.inspect()` &rarr; `doc.applyOperations()` &rarr; `doc.toUint8Array()`.
-   - In Word Add-in: Support both Document-Level Binary Single-Hop (`getFileAsync` &rarr; `openDocx` &rarr; `insertFileFromBase64`) and Range-Level OOXML Single-Hop (`applyOperationsToDocumentXml`).
+   - In Word Add-in: Use Range/Body-Level OOXML Single-Hop (`applyOperationsToDocumentXml`) with Flat-OPC part preservation. Document-Level Binary transport (`getFileAsync` &rarr; `openDocx` &rarr; `insertFileFromBase64`) remains a future option in the package-boundaries plan; it is not implemented or required to close this upgrade.
 4. **Transition to Order-Independent Batches**: Eliminate the 1,100-line iterative `for (const change of changes)` loop in `word-redline-runner.js`. Send operations as a single batch with `atomic: true`.
 5. **Modernize Prompt & Validation for Localized Replacements**:
    - Update `redline-prompt.js` to encourage `replacements: [{ find, replace }]` for phrase/sentence edits.
@@ -66,10 +94,10 @@ Because the four 2026-08-29 optimization plans were never executed against v0.5.
 
 **v0.8.1 release delta (user-supplied notes, checked against the installed API declarations):** The CLI contract remains v8 and existing operation shapes remain valid. The release fixes the `word/commentsExtended.xml` content type, preserves untouched comment parts byte-for-byte, repairs the old type on a subsequent write, and rejects the old type during package validation. It corrects multi-paragraph thread keys and reply markers, preserves anchors during edits, and synchronizes optional comment sibling parts. It adds `comment_resolve`, `doc.resolveComment`, `doc.deleteComments({ ids })`, and opt-in `part` selectors for existing headers/footers; `inspect().headersFooters` exposes those parts. Body searches remain body-only. New failure codes include `COMMENT_NOT_FOUND`, `PARENT_ANCHOR_NOT_FOUND`, `FIELD_EDIT_REFUSED`, `COMMENT_IN_HEADER_FOOTER`, `PART_NOT_FOUND`, and `PART_AMBIGUOUS`. `artifactsChanged` may include comment sibling parts, content types, and header/footer parts. Limitations: no header/footer creation or removal, no header/footer image/text-box edits, and no field protection for body edits.
 
-### WP1 — Dependency Upgrade & Compatibility Suite (`v0.8.1`)
-1. In `package.json`, set `"@ansonlai/docx-redline-js": "0.8.1"`.
+### WP1 — Dependency Upgrade & Compatibility Suite (`v0.8.2`, unchanged v0.8.1 API)
+1. In `package.json`, set `"@ansonlai/docx-redline-js": "0.8.2"`.
 2. In `mcp/docx-server/package.json`:
-   - Set `"@ansonlai/docx-redline-js": "0.8.1"`.
+   - Set `"@ansonlai/docx-redline-js": "0.8.2"`.
    - Retain `"jszip"` and `"@xmldom/xmldom"` until WP5 removes their imports.
 3. Run `npm install` in root and `npm install --prefix mcp/docx-server`.
 4. Create `tests/docx_redline_v081_compat_tests.mjs`:
@@ -114,31 +142,56 @@ Because the four 2026-08-29 optimization plans were never executed against v0.5.
 2. In `src/taskpane/modules/commands/change-validation.js`:
    - Update `verifyAnchor` and `sanitizeChangeSet` to validate localized replacements against target paragraph text.
 
+**WP4 record (2026-09-29):** The prompt now prefers `edit_paragraph` with `replacements: [{ find, replace }]` for local text edits and retains `newContent` for full rewrites. The Gemini response schema exposes the replacement array and optional 1-based `occurrence`. Sanitization validates item shape, exact case-sensitive matches, ambiguous repeated finds, and occurrences when source paragraph text is available. Anchor verification checks the finds again after any unambiguous paragraph-index correction. The add-in and eval harness pass the same source paragraph texts to sanitization. Prompt, validation, and end-to-end batch tests pass.
+
 ### WP5 — Modernize `mcp/docx-server`
 1. Remove direct `jszip` and `@xmldom/xmldom` dependencies only after replacing the services that import them.
-2. In `mcp/docx-server/src/server.mjs`:
-   - Refactor to use `openDocx(fs.readFileSync(path))` directly.
+2. In `mcp/docx-server/src/server.mjs` and its document service:
+   - Open file bytes with `openDocx` and keep a `DocxDocument` in each session.
    - Wire `docx_list_paragraphs` to `doc.inspect().paragraphs`.
-   - Wire `docx_edit_paragraph` and batch edits to `doc.applyOperations()`.
-   - Wire `docx_save` to write `doc.toUint8Array()`.
+   - Wire `docx_edit_paragraph`, comments, and `docx_apply_operations` batches to atomic `doc.applyOperations()`.
+   - Wire the existing `docx_save_as` tool to write `doc.toUint8Array()`.
+   - Use a small blank DOCX template for `docx_new`, since v0.8.1 does not expose a new-document factory.
 3. Delete redundant services:
    - `mcp/docx-server/src/services/docx-package-service.mjs`
    - `mcp/docx-server/src/services/paragraph-targeting-service.mjs`
+   - `mcp/docx-server/src/services/docx-redline-js-service.mjs`
+   - `mcp/docx-server/src/services/xml-utils.mjs`
+
+**WP5 record (2026-09-29):** The MCP server now stores `DocxDocument` sessions and uses the v0.8.1 lifecycle for opening, inspection, edits, comments, and saving. It exposes `docx_apply_operations` for atomic batches and returns structured engine errors. The four redundant services and direct `jszip`/`@xmldom/xmldom` dependencies were removed from its manifest and lockfile. A 2,022-byte blank template supports `docx_new`; a clean initial title is applied through the package. The stdio workflow test and both root MCP tests pass, including create, edit, batch, comment, rollback, save, and reopen.
 
 ### WP6 — Verification & Quality Gates
 1. Create `tests/ooxml_formatting_visual_tests.mjs` (verifying bold/italic inheritance, tabs, line breaks, hyperlinks, section layout, and localized replacements). Include Word-authored multi-paragraph comment threads, optional `commentsIds.xml`/`commentsExtensible.xml` synchronization, and Word Desktop open-without-repair checks for commented documents. Review the v0.5.4 golden XML differences before updating hashes.
-2. Create `scripts/benchmark-ooxml-pipeline.mjs` to empirically verify sub-100ms batch processing.
+2. Create `scripts/benchmark-ooxml-pipeline.mjs` to measure median/p95 for explicit workloads, separating core batches from open/save and host latency. Treat sub-100ms as an optional workload-specific budget, not a universal claim.
 3. Create `scripts/run-all-tests.mjs` and configure `"test": "node scripts/run-all-tests.mjs"`.
+
+**WP6 record (2026-09-30):** The offline runner passes all 33 consumer suites and reports four excluded entrypoints plus the historical v0.5.4 package-behavior skip. Development and production builds pass; production retains bundle-size warnings. The fidelity suite covers exact accepted/rejected text, formatting and structure preservation, three Word-authored fixtures, thread lifecycle, optional sibling identities, a localized first-page footer edit and atomic no-write refusal. The add-in bridge now delegates sibling synchronization and package metadata to the library's public helper/registry; tests cover old content-type repair.
+
+**Golden provenance correction:** The earlier WP1 statement attributing list/table/comment deltas to the v0.5.4-to-v0.8.1 jump was incorrect. The stored hashes mixed older in-repository engine output with a partial v0.5.4 refresh. Replaying all nine exact cases against upstream v0.5.4 tag commit `2871bca73d590bd626518d9c419aff81254a4219` produces raw XML identical to v0.8.1. Historical XML differences were reviewed (paragraph-mark tracking, table header/row properties, comment paragraph IDs) before refreshing baseline/latest. Golden `--verify` no longer rewrites latest output.
+
+**Word evidence (expanded):** Word 16.0/build 16.0.20326 passes 45 live checks across six supported fixtures, two native insertion roundtrips and the invalid-content-type negative control. `npm run test:word` now reads Word's own `Content.WordOpenXML`, runs exact fixture operations through the production bridge, performs native insertion, saves and reopens, checks recognized revisions, exact Accept All/Reject All text, comment parent identities/resolved state and first-page footer text. Engine-resolved files are checked for residual revisions before Word resolves anything. The earlier insertion timeout attribution was wrong: insertion returned and `SaveAs2` stalled. Boxed by-reference save arguments, as used upstream, fix the harness. PDF export is disabled by default and optional via `-Render`; it is not an upgrade feature or required gate. Office.js transport itself remains untested.
+
+**Performance:** Ten localized edits measured a 35.610 ms core median (39.126 ms p95) at 100 paragraphs and 296.499 ms (393.545 ms p95) at 1,000 paragraphs. The user accepts the larger workload's slower performance; it does not block the upgrade. Raw samples are retained in `scripts/ooxml-benchmark-latest.json`.
+
+**Additional live structural checks:** The formatting fixture checks Word's bold/italic state, plain-run isolation, Calibri/12-point font inheritance, explicit right tab stop, portrait/landscape sections and column counts. Word's additional default tab stops are distinguished from the explicit stop. These assertions complement XML preservation checks without claiming rendered page appearance.
+
+**v0.8.2 follow-up (2026-09-30):** Both manifests, lockfiles and installed copies now resolve exact `0.8.2`. Library issues [#3](https://github.com/AnsonLai/docx-redline-js/issues/3) and [#4](https://github.com/AnsonLai/docx-redline-js/issues/4) are fixed upstream, with no consumer-side workaround. Their localized and full-paragraph forms are mandatory default regressions. All 33 offline suites, the portable reproducer, 69 live Word checks and both webpack builds pass. Word verifies exact accepted/rejected text, hyperlink boundaries and recognized revisions for all four fixed cases; native plain-edit and threaded-comment roundtrips still pass. Existing golden hashes are unchanged. Historical v0.8.1 evidence remains in its separate report.
+
+**Open WP6 gate:** Perform the actual Office.js transport closure task described above and tracked in reliability WP1. This is the only remaining upgrade acceptance task. PDF export is optional and accepted performance does not block the upgrade. The two library fidelity defects no longer block it.
 
 ---
 
 ## 4. Definition of Done
 
-- The v0.8.1 release delta is recorded and relevant changes are covered by compatibility tests.
-- Both manifests and lockfiles resolve exact `0.8.1`.
-- External `jszip` and `@xmldom/xmldom` are removed from `mcp/docx-server` in WP5 after the imports are replaced.
-- The unused `word-structured-list.js` module and WP5 MCP services are deleted. Active list-level helpers remain until their callers no longer need them.
-- Single-hop batch execution replaces the 1,100-line iterative proxy loop in `word-redline-runner.js`.
-- Localized replacements (`replacements: [{ find, replace }]`) are fully functional in prompt, validation, and engine execution.
-- All test suites execute offline via `npm test` and pass 100%.
-- Webpack builds cleanly for development and production without Node polyfill errors.
+- [x] The v0.8.1/v0.8.2 release deltas are recorded and covered by compatibility/fidelity tests.
+- [x] Both manifests and lockfiles resolve exact `0.8.2`.
+- [x] Direct `jszip` and `@xmldom/xmldom` dependencies removed from MCP after import migration.
+- [x] Unused structured-list module and obsolete MCP services deleted; active helpers retained.
+- [x] Atomic single-hop batching replaces the iterative redline proxy loop.
+- [x] Localized replacements work in prompting, validation and execution.
+- [x] Offline consumer suites pass; exclusions/version-specific skips reported explicitly.
+- [x] Word-authored no-repair/revision and native COM insertion checks pass; both library defects fixed upstream without consumer workarounds.
+- [ ] Actual Office.js single-hop insertion verified and closure evidence recorded.
+- [x] Development/production builds pass without Node polyfill errors; existing production bundle warnings recorded.
+
+PDF export is optional diagnostic evidence. The measured 1,000-paragraph performance is accepted. Live model evaluation and broader list/browser/portability work belong to the August follow-on plans.

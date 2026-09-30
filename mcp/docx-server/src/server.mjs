@@ -2,26 +2,16 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import {
-    createNewDocxPackage,
-    ensureCommentsArtifacts,
-    ensureNumberingArtifacts,
-    loadDocxFromPath,
-    normalizeDocumentXml,
-    saveDocxSessionToPath
-} from './services/docx-package-service.mjs';
 import { DocxSessionStore } from './services/docx-session-store.mjs';
 import {
-    listParagraphs,
-    replaceParagraph,
-    resolveParagraph,
-    serializeParagraph
-} from './services/paragraph-targeting-service.mjs';
-import {
-    deriveParagraphAcceptedText,
-    reconcileAddComment,
-    reconcileParagraphEdit
-} from './services/docx-redline-js-service.mjs';
+    addDocumentComment,
+    applyDocumentOperations,
+    createDocument,
+    editDocumentParagraph,
+    listDocumentParagraphs,
+    openDocument,
+    saveDocument
+} from './services/docx-document-service.mjs';
 
 const server = new Server(
     {
@@ -80,7 +70,7 @@ const tools = [
     },
     {
         name: 'docx_edit_paragraph',
-        description: 'Edit one paragraph using the reconciliation engine.',
+        description: 'Edit one paragraph using the DOCX document lifecycle.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -91,6 +81,21 @@ const tools = [
                 generateRedlines: { type: 'boolean', description: 'Per-call override for redlines on/off.' }
             },
             required: ['sessionId', 'paragraphId', 'newText'],
+            additionalProperties: false
+        }
+    },
+    {
+        name: 'docx_apply_operations',
+        description: 'Apply a batch of docx-redline-js operations atomically to a session.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                sessionId: { type: 'string' },
+                operations: { type: 'array', minItems: 1, items: { type: 'object' } },
+                author: { type: 'string' },
+                generateRedlines: { type: 'boolean' }
+            },
+            required: ['sessionId', 'operations'],
             additionalProperties: false
         }
     },
@@ -155,6 +160,8 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
                 return runDocxListParagraphs(args);
             case 'docx_edit_paragraph':
                 return await runDocxEditParagraph(args);
+            case 'docx_apply_operations':
+                return await runDocxApplyOperations(args);
             case 'docx_add_comment':
                 return await runDocxAddComment(args);
             case 'docx_save_as':
@@ -173,166 +180,116 @@ await server.connect(new StdioServerTransport());
 
 async function runDocxNew(args) {
     const defaultGenerateRedlines = resolveRedlineMode(args.generateRedlines, true);
-    const created = await createNewDocxPackage({
-        title: args.title || ''
-    });
-
-    const session = sessions.create({
-        zip: created.zip,
-        documentXml: created.documentXml,
-        sourcePath: null,
-        defaultGenerateRedlines
-    });
-
+    const doc = await createDocument(args.title || '');
+    const session = sessions.create({ doc, sourcePath: null, defaultGenerateRedlines });
     let saved = null;
     if (args.outputPath) {
-        saved = await saveDocxSessionToPath(session, args.outputPath);
+        saved = await saveDocument(doc, args.outputPath);
         session.sourcePath = saved.outputPath;
     }
-
-    const preview = listParagraphs(session.documentXml, { start: 0, limit: 5 });
     return okResult({
         sessionId: session.sessionId,
-        defaultGenerateRedlines: session.defaultGenerateRedlines,
-        paragraphs: preview,
+        defaultGenerateRedlines,
+        paragraphs: listDocumentParagraphs(doc, { start: 0, limit: 5 }),
         saved
     });
 }
 
 async function runDocxOpen(args) {
-    const loaded = await loadDocxFromPath(String(args.path));
+    const loaded = await openDocument(String(args.path));
     const defaultGenerateRedlines = resolveRedlineMode(args.generateRedlines, true);
-    const session = sessions.create({
-        zip: loaded.zip,
-        documentXml: loaded.documentXml,
-        sourcePath: loaded.sourcePath,
-        defaultGenerateRedlines
-    });
-
-    const preview = listParagraphs(session.documentXml, { start: 0, limit: 5 });
+    const session = sessions.create({ ...loaded, defaultGenerateRedlines });
     return okResult({
         sessionId: session.sessionId,
         sourcePath: session.sourcePath,
-        defaultGenerateRedlines: session.defaultGenerateRedlines,
-        paragraphs: preview
+        defaultGenerateRedlines,
+        paragraphs: listDocumentParagraphs(session.doc, { start: 0, limit: 5 })
     });
 }
 
 function runDocxListParagraphs(args) {
     const session = sessions.get(String(args.sessionId));
-    const listing = listParagraphs(session.documentXml, {
-        start: args.start,
-        limit: args.limit
-    });
-
     return okResult({
         sessionId: session.sessionId,
         defaultGenerateRedlines: session.defaultGenerateRedlines,
-        ...listing
+        ...listDocumentParagraphs(session.doc, { start: args.start, limit: args.limit })
     });
 }
 
 async function runDocxEditParagraph(args) {
     const session = sessions.get(String(args.sessionId));
-    const resolved = resolveParagraph(session.documentXml, String(args.paragraphId));
-    const paragraphXml = serializeParagraph(resolved.paragraph);
-    const paragraphText = deriveParagraphAcceptedText(paragraphXml);
     const generateRedlines = resolveRedlineMode(args.generateRedlines, session.defaultGenerateRedlines);
-
-    const recon = await reconcileParagraphEdit({
-        paragraphXml,
-        paragraphText,
-        modifiedText: String(args.newText),
-        paraId: resolved.paraId,
-        author: args.author || 'MCP AI',
+    const edited = await editDocumentParagraph(session.doc, String(args.paragraphId), String(args.newText), {
+        author: args.author,
         generateRedlines
     });
-
-    if (!recon.hasChanges) {
-        return okResult({
-            sessionId: session.sessionId,
-            paragraphId: resolved.id,
-            changed: false,
-            generateRedlines
-        });
+    if (edited.changed) {
+        session.dirty = true;
+        sessions.touch(session);
     }
-
-    let updatedXml = replaceParagraph(resolved.doc, resolved.paragraph, recon.replacementNodes);
-    updatedXml = normalizeDocumentXml(updatedXml);
-
-    session.documentXml = updatedXml;
-    session.dirty = true;
-    sessions.touch(session);
-
-    if (recon.numberingXml) {
-        await ensureNumberingArtifacts(session.zip, recon.numberingXml);
-    }
-
-    const updatedWindow = listParagraphs(session.documentXml, {
-        start: Math.max(0, resolved.index - 1),
-        limit: 1
-    });
-    const updatedItem = updatedWindow.items[0] || null;
-
     return okResult({
         sessionId: session.sessionId,
-        paragraphId: updatedItem ? updatedItem.id : resolved.id,
-        changed: true,
+        paragraphId: edited.paragraphId,
+        changed: edited.changed,
         generateRedlines,
-        sourceType: recon.sourceType,
-        updatedText: updatedItem ? updatedItem.text : ''
+        sourceType: 'package',
+        updatedText: edited.updatedText
+    });
+}
+
+async function runDocxApplyOperations(args) {
+    const session = sessions.get(String(args.sessionId));
+    if (!Array.isArray(args.operations) || args.operations.length === 0) {
+        throw new Error('operations must be a non-empty array');
+    }
+    const result = await applyDocumentOperations(session.doc, args.operations, {
+        author: args.author || 'MCP AI',
+        generateRedlines: resolveRedlineMode(args.generateRedlines, session.defaultGenerateRedlines)
+    });
+    if (result.written) {
+        session.dirty = true;
+        sessions.touch(session);
+    }
+    return okResult({
+        sessionId: session.sessionId,
+        changed: Boolean(result.written),
+        status: result.status,
+        completion: result.completion,
+        results: result.results,
+        receipts: result.receipts,
+        artifactsChanged: result.artifactsChanged
     });
 }
 
 async function runDocxAddComment(args) {
     const session = sessions.get(String(args.sessionId));
-    const resolved = resolveParagraph(session.documentXml, String(args.paragraphId));
-
-    const result = reconcileAddComment({
-        documentXml: session.documentXml,
-        paragraphIndex: resolved.index,
-        textToFind: String(args.textToFind),
-        commentContent: String(args.comment),
-        author: args.author || 'MCP AI'
-    });
-
-    if (!result.commentsApplied) {
-        return okResult({
-            sessionId: session.sessionId,
-            paragraphId: resolved.id,
-            commentsApplied: 0,
-            warnings: result.warnings || []
-        });
+    const added = await addDocumentComment(
+        session.doc,
+        String(args.paragraphId),
+        String(args.textToFind),
+        String(args.comment),
+        { author: args.author }
+    );
+    if (added.result.written) {
+        session.dirty = true;
+        sessions.touch(session);
     }
-
-    session.documentXml = normalizeDocumentXml(result.oxml);
-    session.dirty = true;
-    sessions.touch(session);
-
-    const mergeInfo = await ensureCommentsArtifacts(session.zip, result.commentsXml);
-
     return okResult({
         sessionId: session.sessionId,
-        paragraphId: resolved.id,
-        commentsApplied: result.commentsApplied,
-        warnings: result.warnings || [],
-        mergedComments: mergeInfo.addedComments
+        paragraphId: added.paragraphId,
+        commentsApplied: added.commentsApplied,
+        warnings: added.result.warnings || [],
+        mergedComments: added.commentsApplied
     });
 }
 
 async function runDocxSaveAs(args) {
     const session = sessions.get(String(args.sessionId));
-    const saveResult = await saveDocxSessionToPath(session, String(args.outputPath));
-    session.sourcePath = saveResult.outputPath;
+    const saved = await saveDocument(session.doc, String(args.outputPath));
+    session.sourcePath = saved.outputPath;
     session.dirty = false;
     sessions.touch(session);
-
-    return okResult({
-        sessionId: session.sessionId,
-        outputPath: saveResult.outputPath,
-        bytes: saveResult.bytes,
-        dirty: session.dirty
-    });
+    return okResult({ sessionId: session.sessionId, ...saved, dirty: false });
 }
 
 function runDocxClose(args) {

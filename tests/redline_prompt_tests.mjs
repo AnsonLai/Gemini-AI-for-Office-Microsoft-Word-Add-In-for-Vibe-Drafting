@@ -13,7 +13,8 @@ function testPromptContainsSentinels() {
     'You are an expert legal editor.',
     'CRITICAL: Return ONLY valid JSON.',
     '"anchorText": REQUIRED for every change. Copy the first 30-60 characters',
-    'precise word-level changes using diff-match-patch',
+    'PREFER LOCALIZED EDITS',
+    '"replacements": [{"find":"exact current text","replace":"new text"}]',
     // The table example uses LITERAL backslash-n (not real newlines):
     '| Column A | Column B |\\n|---|---|\\n| Value A | Value B |',
     'Do NOT include the [P#] marker in any content fields.',
@@ -38,10 +39,12 @@ function testSchemaShape() {
   assert.strictEqual(REDLINE_DIFF_SCHEMA.type, 'ARRAY');
   assert.deepStrictEqual(REDLINE_DIFF_SCHEMA.items.required, ['paragraphIndex', 'operation', 'anchorText']);
   const props = REDLINE_DIFF_SCHEMA.items.properties;
-  for (const key of ['paragraphIndex', 'anchorText', 'endParagraphIndex', 'operation', 'newContent', 'content', 'originalText', 'replacementText']) {
+  for (const key of ['paragraphIndex', 'anchorText', 'endParagraphIndex', 'operation', 'newContent', 'replacements', 'content', 'originalText', 'replacementText']) {
     assert.ok(props[key], `schema missing property: ${key}`);
   }
   assert.deepStrictEqual(props.operation.enum, ['edit_paragraph', 'replace_paragraph', 'modify_text', 'replace_range']);
+  assert.strictEqual(props.replacements.type, 'ARRAY');
+  assert.deepStrictEqual(props.replacements.items.required, ['find', 'replace']);
 }
 
 function testCorrectiveRetryPrompt() {

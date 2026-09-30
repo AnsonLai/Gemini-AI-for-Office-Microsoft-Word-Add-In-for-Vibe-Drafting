@@ -27,6 +27,27 @@ export function normalizeForAnchor(value) {
     .trim();
 }
 
+function validateLocalizedReplacements(replacements, paragraphText = null) {
+  if (!Array.isArray(replacements) || replacements.length === 0) return "invalid_replacements";
+  const text = paragraphText == null ? null : String(paragraphText);
+  for (const item of replacements) {
+    if (!item || typeof item !== "object" || Array.isArray(item)
+      || typeof item.find !== "string" || item.find.length === 0
+      || typeof item.replace !== "string"
+      || (item.occurrence != null && (!Number.isInteger(item.occurrence) || item.occurrence < 1))) {
+      return "invalid_replacements";
+    }
+    if (text != null) {
+      const count = text.split(item.find).length - 1;
+      if (count === 0 || (item.occurrence != null && item.occurrence > count)) {
+        return "replacement_find_not_found";
+      }
+      if (count > 1 && item.occurrence == null) return "replacement_ambiguous_find";
+    }
+  }
+  return null;
+}
+
 /**
  * Parse the anchored document text (lines shaped like `[P#|meta] text`) into an
  * array of paragraph texts where array index 0 corresponds to [P1].
@@ -73,6 +94,14 @@ export function parseAnchoredParagraphs(fullDocumentText) {
 export function verifyAnchor(change, paragraphTexts) {
   const claimedIndex = change ? change.paragraphIndex : undefined;
   const texts = Array.isArray(paragraphTexts) ? paragraphTexts : [];
+  const verifyFinds = (idx) => {
+    if (!change || change.replacements == null) return { ok: true };
+    if (!Number.isInteger(idx) || idx < 1 || idx > texts.length || texts[idx - 1] == null) {
+      return { ok: false, reason: "replacement_find_not_found" };
+    }
+    const reason = validateLocalizedReplacements(change.replacements, texts[idx - 1]);
+    return reason ? { ok: false, reason } : { ok: true };
+  };
 
   // Backwards-compatible: no anchor provided -> skip verification.
   const anchorRaw = change ? change.anchorText : undefined;
@@ -80,12 +109,12 @@ export function verifyAnchor(change, paragraphTexts) {
     console.warn(
       `verifyAnchor: change for P${claimedIndex} has no anchorText; skipping verification.`
     );
-    return { ok: true };
+    return verifyFinds(claimedIndex);
   }
 
   const anchor = normalizeForAnchor(anchorRaw);
   if (anchor === "") {
-    return { ok: true };
+    return verifyFinds(claimedIndex);
   }
 
   const matchesAt = (idx) => {
@@ -98,7 +127,7 @@ export function verifyAnchor(change, paragraphTexts) {
 
   // 1. Exact claimed index.
   if (matchesAt(claimedIndex)) {
-    return { ok: true };
+    return verifyFinds(claimedIndex);
   }
 
   // 2. Search a ±2 window; only accept an unambiguous single match.
@@ -108,7 +137,8 @@ export function verifyAnchor(change, paragraphTexts) {
     if (matchesAt(claimedIndex + delta)) neighbors.push(claimedIndex + delta);
   }
   if (neighbors.length === 1) {
-    return { ok: true, correctedIndex: neighbors[0] };
+    const verdict = verifyFinds(neighbors[0]);
+    return verdict.ok ? { ok: true, correctedIndex: neighbors[0] } : verdict;
   }
 
   // 3. No unambiguous match -> reject with what is actually at the claimed index.
@@ -148,9 +178,10 @@ const SCHEMA_LEAK_RE = /\bparagraphIndex\b|\bendParagraphIndex\b|"operation"\s*:
  * @param {Array} rawChanges
  * @param {number} paragraphCount - total paragraphs in the document (0/unknown
  *   disables the upper-bound index check but still rejects index < 1)
+ * @param {string[]|null} [paragraphTexts] - optional source paragraphs for exact find validation
  * @returns {{ changes: Array, rejected: Array<{change: *, paragraphIndex: *, operation: *, reason: string}> }}
  */
-export function sanitizeChangeSet(rawChanges, paragraphCount) {
+export function sanitizeChangeSet(rawChanges, paragraphCount, paragraphTexts = null) {
   const changes = [];
   const rejected = [];
   if (!Array.isArray(rawChanges)) {
@@ -205,6 +236,22 @@ export function sanitizeChangeSet(rawChanges, paragraphCount) {
 
     // 3. Strip [P#] markers from content fields (repair, on a shallow copy).
     const change = { ...raw };
+    if (change.replacements != null) {
+      if (operation !== "edit_paragraph" || (typeof change.newContent === "string" && change.newContent.trim() !== "")) {
+        reject("invalid_replacements");
+        continue;
+      }
+      const shapeError = validateLocalizedReplacements(change.replacements);
+      if (shapeError) {
+        reject(shapeError);
+        continue;
+      }
+      change.replacements = change.replacements.map(item => ({
+        find: item.find,
+        replace: item.replace.replace(PARAGRAPH_MARKER_RE, ""),
+        ...(item.occurrence != null ? { occurrence: item.occurrence } : {})
+      }));
+    }
     for (const field of ["content", "newContent", "replacementText"]) {
       if (typeof change[field] === "string") {
         change[field] = change[field].replace(PARAGRAPH_MARKER_RE, "");
@@ -227,12 +274,13 @@ export function sanitizeChangeSet(rawChanges, paragraphCount) {
       delete change.originalText;
       delete change.replacementText;
     } else if (operation === "edit_paragraph") {
-      if (!hasText(change.newContent) && hasText(change.content)) {
+      if (change.replacements == null && !hasText(change.newContent) && hasText(change.content)) {
         change.newContent = change.content;
       }
       delete change.content;
       delete change.originalText;
       delete change.replacementText;
+      if (change.replacements != null) delete change.newContent;
     } else if (operation === "modify_text") {
       delete change.content;
       delete change.newContent;
@@ -245,9 +293,21 @@ export function sanitizeChangeSet(rawChanges, paragraphCount) {
         continue;
       }
     }
-    if (operation === "edit_paragraph" && !hasText(change.newContent)) {
+    if (operation === "edit_paragraph" && change.replacements == null && !hasText(change.newContent)) {
       reject("empty_content");
       continue;
+    }
+    if (change.replacements != null && Array.isArray(paragraphTexts)) {
+      const actual = paragraphTexts[idx - 1];
+      const anchor = normalizeForAnchor(change.anchorText);
+      const anchorMatches = anchor === "" || normalizeForAnchor(actual).includes(anchor);
+      if (anchorMatches) {
+        const reason = validateLocalizedReplacements(change.replacements, actual);
+        if (reason) {
+          reject(reason);
+          continue;
+        }
+      }
     }
 
     // 5/6. modify_text specific guards.
@@ -284,8 +344,10 @@ export function sanitizeChangeSet(rawChanges, paragraphCount) {
 
     // 8. Schema-text leak guard.
     let leaked = false;
-    for (const field of ["content", "newContent", "replacementText"]) {
-      if (typeof change[field] === "string" && SCHEMA_LEAK_RE.test(change[field])) {
+    const contentValues = [change.content, change.newContent, change.replacementText,
+      ...(change.replacements || []).map(item => item.replace)];
+    for (const value of contentValues) {
+      if (typeof value === "string" && SCHEMA_LEAK_RE.test(value)) {
         leaked = true;
         break;
       }
@@ -393,7 +455,13 @@ const REJECTION_HINTS = {
   index_out_of_range:
     "paragraphIndex (and endParagraphIndex for replace_range) must be within the document",
   empty_content:
-    'replace_paragraph/replace_range require a non-empty "content" field; edit_paragraph requires a non-empty "newContent" field',
+    'replace_paragraph/replace_range require non-empty "content"; edit_paragraph requires non-empty "newContent" or "replacements"',
+  invalid_replacements:
+    'edit_paragraph replacements require a non-empty array of {find, replace} items, with no newContent; occurrence must be a positive integer when provided',
+  replacement_find_not_found:
+    'each find must match the current target paragraph exactly, including case and punctuation; an occurrence must exist',
+  replacement_ambiguous_find:
+    'find appears more than once in the target paragraph; specify its 1-based occurrence',
   original_text_too_long:
     'modify_text "originalText" must be 80 characters or fewer; use edit_paragraph with the full rewritten paragraph instead',
   modify_text_structural_content:

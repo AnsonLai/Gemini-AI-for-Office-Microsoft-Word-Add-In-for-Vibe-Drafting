@@ -262,6 +262,37 @@ function testModifyTextStructuralContent() {
   assert.strictEqual(rejectReason({ paragraphIndex: 2, operation: 'modify_text', originalText: 'a', replacementText: '- bullet' }), 'modify_text_structural_content');
 }
 
+function testLocalizedReplacements() {
+  const texts = ['The Seller shall notify the Buyer promptly.', 'A repeated term and term again.'];
+  const valid = { paragraphIndex: 1, operation: 'edit_paragraph', anchorText: 'The Seller shall',
+    replacements: [{ find: 'Seller', replace: 'Provider' }, { find: 'Buyer', replace: 'Customer' }] };
+  const accepted = sanitizeChangeSet([valid], texts.length, texts);
+  assert.strictEqual(accepted.rejected.length, 0);
+  assert.deepStrictEqual(accepted.changes[0].replacements, valid.replacements);
+  assert.deepStrictEqual(verifyAnchor(valid, texts), { ok: true });
+
+  const missing = { ...valid, replacements: [{ find: 'seller', replace: 'Provider' }] };
+  assert.strictEqual(sanitizeChangeSet([missing], texts.length, texts).rejected[0].reason, 'replacement_find_not_found');
+  assert.strictEqual(verifyAnchor(missing, texts).reason, 'replacement_find_not_found');
+  assert.strictEqual(rejectReason({ ...valid, replacements: [] }, 2), 'invalid_replacements');
+  assert.strictEqual(rejectReason({ ...valid, newContent: 'Full rewrite' }, 2), 'invalid_replacements');
+  assert.strictEqual(rejectReason({ ...valid, replacements: [{ find: '', replace: 'x' }] }, 2), 'invalid_replacements');
+
+  const ambiguous = { paragraphIndex: 2, operation: 'edit_paragraph', anchorText: 'A repeated',
+    replacements: [{ find: 'term', replace: 'phrase' }] };
+  assert.strictEqual(sanitizeChangeSet([ambiguous], texts.length, texts).rejected[0].reason, 'replacement_ambiguous_find');
+  assert.strictEqual(verifyAnchor(ambiguous, texts).reason, 'replacement_ambiguous_find');
+  const selected = { ...ambiguous, replacements: [{ find: 'term', replace: 'phrase', occurrence: 2 }] };
+  assert.strictEqual(sanitizeChangeSet([selected], texts.length, texts).changes.length, 1);
+  assert.deepStrictEqual(verifyAnchor(selected, texts), { ok: true });
+  const missingOccurrence = { ...ambiguous, replacements: [{ find: 'term', replace: 'phrase', occurrence: 3 }] };
+  assert.strictEqual(sanitizeChangeSet([missingOccurrence], texts.length, texts).rejected[0].reason, 'replacement_find_not_found');
+
+  const corrected = { paragraphIndex: 2, operation: 'edit_paragraph', anchorText: 'The Seller shall',
+    replacements: [{ find: 'Seller', replace: 'Provider' }] };
+  assert.deepStrictEqual(verifyAnchor(corrected, texts), { ok: true, correctedIndex: 1 });
+}
+
 function testMalformedTable() {
   assert.strictEqual(rejectReason({ paragraphIndex: 2, operation: 'replace_paragraph', content: 'A|B|C' }), 'malformed_table');
   // A real multiline markdown table is fine.
@@ -378,6 +409,7 @@ testWrongFieldContentRepair();
 testInapplicableFieldsStripped();
 testOriginalTextTooLong();
 testModifyTextStructuralContent();
+testLocalizedReplacements();
 testMalformedTable();
 testSchemaTextLeak();
 testDeduplicate();

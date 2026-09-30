@@ -30,10 +30,13 @@
     "watch": "webpack --mode development --watch",
     "mcp:docx:install": "npm install --prefix mcp/docx-server",
     "mcp:docx": "npm --prefix mcp/docx-server run start",
-    "docx:harness": "powershell -ExecutionPolicy Bypass -File tests/docx-harness/docx-xml-harness.ps1"
+    "docx:harness": "powershell -ExecutionPolicy Bypass -File tests/docx-harness/docx-xml-harness.ps1",
+    "test": "node scripts/run-all-tests.mjs",
+    "benchmark:ooxml": "node scripts/benchmark-ooxml-pipeline.mjs",
+    "test:word": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-wp6-word.ps1"
   },
   "dependencies": {
-    "@ansonlai/docx-redline-js": "0.8.1",
+    "@ansonlai/docx-redline-js": "0.8.2",
     "caniuse-lite": "^1.0.30001800",
     "core-js": "^3.36.0",
     "diff-match-patch": "^1.0.5",

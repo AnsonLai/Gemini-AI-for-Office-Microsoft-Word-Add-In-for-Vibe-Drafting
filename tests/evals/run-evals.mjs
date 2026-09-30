@@ -112,7 +112,7 @@ async function callGemini(model, apiKey, instruction, anchoredText) {
 // ---------------------------------------------------------------------------
 
 export function scoreChangeSet(expect, rawChanges, paragraphTexts) {
-  const { changes: sanitized } = sanitizeChangeSet(rawChanges, paragraphTexts.length);
+  const { changes: sanitized } = sanitizeChangeSet(rawChanges, paragraphTexts.length, paragraphTexts);
   const applied = sanitized.filter((c) => verifyAnchor(c, paragraphTexts).ok);
   const changesApplied = applied.length;
   const proposed = Array.isArray(rawChanges) ? rawChanges.length : 0;

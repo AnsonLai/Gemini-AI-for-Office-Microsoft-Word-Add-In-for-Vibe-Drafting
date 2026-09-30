@@ -1,6 +1,6 @@
 # Reconciliation Local MCP (`docx`)
 
-Local MCP server for creating and editing `.docx` files using the standalone OOXML reconciliation engine.
+Local MCP server for creating and editing `.docx` files with `@ansonlai/docx-redline-js@0.8.2`.
 
 This server is intended for local automation and testing without Word JS APIs.
 
@@ -9,30 +9,17 @@ This server is intended for local automation and testing without Word JS APIs.
 - `docx_new`: create a minimal valid `.docx` session
 - `docx_open`: open an existing `.docx` file into a session
 - `docx_list_paragraphs`: inspect paragraph ids + text for targeting
-- `docx_edit_paragraph`: edit one paragraph via reconciliation (`applyRedlineToOxml`)
+- `docx_edit_paragraph`: edit one paragraph via `doc.applyOperations()`
+- `docx_apply_operations`: apply an atomic batch of package operations
 - `docx_add_comment`: add OOXML comments anchored to text
 - `docx_save_as`: write session to disk
 - `docx_close`: close and release session memory
 
-## Architecture Alignment (GSD Workflow)
+## Document Lifecycle
 
-This MCP server is built upon the shared **Reconciliation Core** and follows the global project documentation:
-- **[SPEC.md](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/SPEC.md)**: Host-agnostic vision.
-- **[ARCHITECTURE.md](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/ARCHITECTURE.md)**: Deep technical details of the core engine.
-- **[ROADMAP.md](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/ROADMAP.md)**: The splitting vision for independent sub-projects.
+Sessions hold a `DocxDocument` from `openDocx`. The server uses `doc.inspect()` to list and resolve paragraph handles, `doc.applyOperations()` for edits and comments, and `doc.toUint8Array()` when saving. A small blank template supplies `docx_new`; its optional title is inserted without tracked changes. The package manages ZIP, comments, numbering, relationships, and content types.
 
-## Architecture Alignment
-
-The MCP server uses the external reconciliation package `@ansonlai/docx-redline-js`
-plus this repo's high-level architecture docs (`ARCHITECTURE.md`, `ROADMAP.md`, `STATE.md`).
-
-Key points:
-- Edits are OOXML-first and reconciliation-driven.
-- Redlines are emitted as OOXML revision markup (`w:ins`/`w:del`) when enabled.
-- Numbering/comment artifacts are merged into package parts when required.
-- No Word-native fallback is available in MCP mode.
-
-If reconciliation returns `useNativeApi`, the tool errors because there is no Word runtime in MCP.
+A failed atomic batch leaves the session document unchanged. Structured engine error codes are returned to the MCP client.
 
 ## Install
 
@@ -84,7 +71,7 @@ Adjust the path for your machine:
 
 1. Create or open a session: `docx_new` or `docx_open`
 2. Discover targets: `docx_list_paragraphs`
-3. Edit by id: `docx_edit_paragraph`
+3. Edit by id: `docx_edit_paragraph`, or submit a batch with `docx_apply_operations`
 4. Optionally annotate: `docx_add_comment`
 5. Persist: `docx_save_as`
 6. Cleanup: `docx_close`
@@ -95,7 +82,7 @@ Session default:
 - `generateRedlines` on `docx_new` / `docx_open` (default `true`)
 
 Per-call override:
-- `docx_edit_paragraph.generateRedlines`
+- `docx_edit_paragraph.generateRedlines` and `docx_apply_operations.generateRedlines`
 
 When `generateRedlines=true`:
 - Text edits are written with OOXML revisions (`w:ins`/`w:del`)
@@ -115,26 +102,21 @@ Input:
 Output fields include:
 - `changed`
 - `generateRedlines`
-- `sourceType` (`package`, `document`, or `fragment`)
+- `sourceType` (`package`)
 - `updatedText`
 
-For list-style edits, if numbering definitions are produced, the server merges `word/numbering.xml` and related package metadata automatically.
+The package updates numbering definitions and related metadata when needed.
 
 ### `docx_add_comment`
 
-Anchors comments by `textToFind` inside the target paragraph and merges:
-- `word/comments.xml`
-- content type overrides
-- document relationships
+Anchors comments by `textToFind` inside the target paragraph. The package updates comment parts and relationships.
 
 ## Current Constraints
 
-- Paragraph-scoped editing only (`docx_edit_paragraph` edits one paragraph handle).
-- No Word JS features (selection, native comments API, native list API).
-- Operations that require native Word fallback are rejected in local MCP mode.
+- `docx_edit_paragraph` edits one paragraph handle. Use `docx_apply_operations` for multi-operation batches.
+- No Word JS features (selection or native Word APIs).
 
 ## Troubleshooting
 
 - "Unknown paragraph id": refresh ids using `docx_list_paragraphs` after edits.
-- "requires Word native API fallback": the requested transform is not fully OOXML-compatible in standalone mode.
 - Save output frequently with `docx_save_as` during iterative edits.

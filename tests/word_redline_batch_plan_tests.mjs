@@ -3,6 +3,7 @@ import './setup-xml-provider.mjs';
 import assert from 'node:assert/strict';
 import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalone-runner';
 import { buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
+import { sanitizeChangeSet } from '../src/taskpane/modules/commands/change-validation.js';
 import {
     applyRedlineChangesToWordContext,
     planRedlineBatchOperations
@@ -27,6 +28,12 @@ function testPlanningUsesInitialParagraphDescriptors() {
     assert.equal(operations[2].target.exactText, '');
     assert.equal(operations[2].modified, 'Filled blank.');
     assert.ok(operations.every(item => item.structuredContent === true));
+    const localized = planRedlineBatchOperations([
+        { operation: 'edit_paragraph', paragraphIndex: 2,
+          replacements: [{ find: 'Second', replace: 'Updated' }] }
+    ], paragraphs);
+    assert.deepEqual(localized[0].replacements, [{ find: 'Second', replace: 'Updated' }]);
+    assert.equal(localized[0].modified, undefined);
 }
 
 function testRangeAndInsertionPlanning() {
@@ -118,10 +125,15 @@ async function testEndToEndSingleWordWrite() {
         insertOoxml(xml) { writes.push(xml); }
     };
     const context = { document: { body }, async sync() {} };
-    const outcome = await applyRedlineChangesToWordContext(context, [
-        { operation: 'modify_text', paragraphIndex: 2, originalText: 'Second', replacementText: 'Updated' },
+    const proposed = [
+        { operation: 'edit_paragraph', paragraphIndex: 2, anchorText: 'Second clause.',
+          replacements: [{ find: 'Second', replace: 'Updated' }] },
         { operation: 'replace_paragraph', paragraphIndex: 1, content: 'Rewritten first clause.' }
-    ], { author: 'Editor', onInfo: () => {}, onWarn: () => {} });
+    ];
+    const validated = sanitizeChangeSet(proposed, 2, ['First clause.', 'Second clause.']);
+    assert.equal(validated.rejected.length, 0);
+    const outcome = await applyRedlineChangesToWordContext(context, validated.changes,
+        { author: 'Editor', onInfo: () => {}, onWarn: () => {} });
     assert.equal(outcome.batchResult?.status, 'ok', JSON.stringify(outcome.batchResult?.error));
     assert.equal(outcome.changesApplied, 2);
     assert.equal(reads, 1);
@@ -155,6 +167,22 @@ async function testRangeAndAppendAgainstEngine() {
     assert.match(appendResult.documentXml, /Appendix\./);
 }
 
+async function testRepeatedFindOccurrenceAgainstEngine() {
+    const xml = '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        + '<w:body><w:p><w:r><w:t>term and term</w:t></w:r></w:p><w:sectPr/></w:body></w:document>';
+    const changes = [{ operation: 'edit_paragraph', paragraphIndex: 1,
+        replacements: [{ find: 'term', replace: 'phrase', occurrence: 2 }] }];
+    const sanitized = sanitizeChangeSet(changes, 1, ['term and term']);
+    assert.equal(sanitized.rejected.length, 0);
+    const operations = planRedlineBatchOperations(sanitized.changes,
+        [{ index: 1, exactText: 'term and term' }]);
+    const result = await applyOperationsToDocumentXml(xml, operations, 'Editor', null, {
+        atomic: true, structuredContent: true, pairReplacements: true
+    });
+    assert.equal(result.status, 'ok', JSON.stringify(result.error));
+    assert.match(result.documentXml, /phrase/);
+}
+
 testPlanningUsesInitialParagraphDescriptors();
 testRangeAndInsertionPlanning();
 testInvalidChangeFailsBeforeBatch();
@@ -162,4 +190,5 @@ await testCallerSubmitsOneBatchAndReportsRollback();
 await testEmptyParagraphIsHandledByEngine();
 await testEndToEndSingleWordWrite();
 await testRangeAndAppendAgainstEngine();
+await testRepeatedFindOccurrenceAgainstEngine();
 console.log('word redline batch plan tests passed');

@@ -25,13 +25,14 @@ Each change must be an object with the following structure:
 - "anchorText": REQUIRED for every change. Copy the first 30-60 characters of the CURRENT text of the paragraph at "paragraphIndex" VERBATIM from the document content above (do NOT include the [P#] marker). For "replace_range", anchor the START paragraph. For an empty paragraph, use "". This is used to verify your edit lands on the correct paragraph.
 - "endParagraphIndex": (Only for "replace_range") The integer number of the END paragraph (inclusive).
 - "operation": "edit_paragraph", "replace_paragraph", "modify_text", or "replace_range".
-- "newContent": (For "edit_paragraph" ONLY) The complete rewritten paragraph content. The system will automatically compute precise word-level changes.
+- "newContent": (For "edit_paragraph" full rewrites ONLY) The complete rewritten paragraph content.
+- "replacements": (For "edit_paragraph" localized edits ONLY) An array of {"find":"exact existing text","replace":"new text"}. Use this instead of "newContent" for word, phrase, or sentence edits within one paragraph. Each "find" must match the CURRENT paragraph text exactly, including case and punctuation. Use "occurrence" (1-based) if "find" appears more than once.
 - "content": (REQUIRED for "replace_paragraph" and "replace_range" ONLY) The new content to insert.
 - "originalText": (For "modify_text" ONLY) The specific text snippet within the paragraph to find and replace. **MAX 80 characters**.
 - "replacementText": (For "modify_text" ONLY) The new text to replace "originalText" with.
 
 **MARKDOWN FORMATTING (VERY IMPORTANT)**:
-All content and replacementText values support Markdown formatting. Use these when the user requests formatting:
+All content, newContent, replacementText, and replacements.replace values support Markdown formatting. Use these when the user requests formatting:
 - **Bold**: Use **text** (double asterisks)
 - *Italic*: Use *text* (single asterisks)
 - **Underline**: Use ++text++ (double pluses)
@@ -60,8 +61,8 @@ All content and replacementText values support Markdown formatting. Use these wh
 When the user asks for formatted content (bullets, tables, bold, etc.), ALWAYS use the appropriate Markdown syntax.
 
 Rules:
-- **PRIORITIZE \`edit_paragraph\`**: This is the NEW preferred method. For ANY text edit (small or large), use \`edit_paragraph\` with the complete rewritten paragraph. The system will automatically compute precise word-level changes using diff-match-patch. This is more reliable than \`modify_text\`.
-- Use "edit_paragraph" for ALL text edits: spelling changes, word replacements, sentence rewrites, or even 60% paragraph rewrites. Just provide the full new paragraph content.
+- **PREFER LOCALIZED EDITS**: For word, phrase, or sentence edits inside one existing paragraph, use "edit_paragraph" with "replacements": [{"find":"exact current text","replace":"new text"}] instead of rewriting the entire paragraph. Multiple distinct replacements may be included in one change.
+- Use "edit_paragraph" with "newContent" for broad paragraph rewrites. Provide either "replacements" or "newContent", never both.
 - Use "replace_paragraph" only when you need to replace with complex formatted content (lists, tables, headings) that requires HTML insertion.
 - If converting text into a Markdown table:
   - Use "replace_paragraph" when it is a single paragraph.
@@ -74,7 +75,7 @@ Rules:
   - For multi-line source blocks, use additional table rows instead of HTML tags inside cells.
   - Example for turning party paragraphs into a two-column table:
     [{"paragraphIndex":4,"endParagraphIndex":6,"operation":"replace_range","content":"| Disclosing Party | Receiving Party |\\n|---|---|\\n| [Name of Disclosing Party] | [Name of Receiving Party] |\\n| [Address of Disclosing Party] | [Address of Receiving Party] |"}]
-- Use "modify_text" ONLY as a fallback for very specific surgical edits where you need to target exact substrings.
+- Use legacy "modify_text" only when the localized "edit_paragraph" form is unavailable.
 - Never use "modify_text" when the replacement includes line breaks, list markers, headings, or Markdown tables.
 - **CRITICAL LENGTH LIMIT**: For "modify_text", "originalText" MUST be **80 characters or fewer**. This is a hard limit.
 - Use "replace_range" when you need to replace multiple consecutive paragraphs (like converting a bulleted list to a single paragraph).
@@ -82,7 +83,8 @@ Rules:
 - A "replace_range" or "replace_paragraph" without a non-empty "content" field is INVALID. If you cannot determine the replacement content, return [].
 - INVALID replace_range example: {"paragraphIndex":3,"operation":"replace_range","endParagraphIndex":5,"originalText":"","replacementText":""}
 - Never put schema explanations, validation errors, or instructions about JSON fields inside "content", "newContent", or "replacementText". These fields must contain ONLY text that should appear in the Word document.
-- For "edit_paragraph", provide ONLY "paragraphIndex", "operation", and "newContent".
+- For "edit_paragraph", provide "paragraphIndex", "operation", "anchorText", and exactly one of "replacements" or "newContent".
+- For localized replacements, copy each "find" verbatim from the target paragraph. If the text occurs more than once, specify the 1-based "occurrence". Do not use localized replacements for multi-paragraph edits or structural content such as lists and tables.
 - For "modify_text", "originalText" must match EXACTLY text found within that specific paragraph.
 - Do NOT include the [P#] marker in any content fields.
 - Return ONLY ONE change per unique text location. Do NOT create duplicate entries.
@@ -127,7 +129,20 @@ export const REDLINE_DIFF_SCHEMA = {
       },
       newContent: {
         type: "STRING",
-        description: "For edit_paragraph only: the complete rewritten paragraph content",
+        description: "For edit_paragraph full rewrites only: the complete rewritten paragraph content. Omit when using replacements.",
+      },
+      replacements: {
+        type: "ARRAY",
+        description: "For localized edit_paragraph changes inside one paragraph. Use instead of newContent. Each find must exactly match current paragraph text.",
+        items: {
+          type: "OBJECT",
+          properties: {
+            find: { type: "STRING", description: "Exact, case-sensitive text in the current paragraph" },
+            replace: { type: "STRING", description: "Replacement text; may be empty to delete the found text" },
+            occurrence: { type: "INTEGER", description: "1-based occurrence when find appears more than once" },
+          },
+          required: ["find", "replace"],
+        },
       },
       content: {
         type: "STRING",
@@ -182,7 +197,7 @@ ${rejectionDetail}
 
 Produce a CORRECTED JSON array for the same instruction and document above. Rules for the correction:
 - Fix ONLY the problems listed; keep the intent of the edit.
-- Include every REQUIRED field for the chosen operation ("content" for replace_paragraph/replace_range; "newContent" for edit_paragraph).
+- Include every REQUIRED field for the chosen operation ("content" for replace_paragraph/replace_range; exactly one of "newContent" or non-empty "replacements" for edit_paragraph).
 - Content fields must contain ONLY the text that should appear in the document. NEVER write notes, schema commentary, or reasoning inside any field value.
 - OMIT fields that do not apply to the chosen operation.
 

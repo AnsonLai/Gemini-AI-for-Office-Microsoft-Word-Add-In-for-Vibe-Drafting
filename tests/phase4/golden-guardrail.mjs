@@ -20,6 +20,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BASELINE_PATH = path.join(__dirname, '..', 'fixtures', 'phase4-golden-baseline.json');
 const LATEST_PATH = path.join(__dirname, '..', 'fixtures', 'phase4-golden-latest.json');
 const FIXED_DATE_ISO = '2026-02-07T00:00:00.000Z';
+const reviewXml = new Map();
 
 const NativeDate = Date;
 const fixedMs = Date.parse(FIXED_DATE_ISO);
@@ -104,6 +105,7 @@ async function runCases() {
         hasRPrChange: formatAddResult.oxml.includes('w:rPrChange'),
         ...summarizeXml(formatAddResult.oxml)
     };
+    reviewXml.set('format_only_add.xml', formatAddResult.oxml);
 
     const formatRemoveOxml = `<w:document xmlns:w="${NS_W}"><w:body><w:p><w:r><w:t>This is </w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>sample</w:t></w:r><w:r><w:t> text.</w:t></w:r></w:p></w:body></w:document>`;
     resetRevisionIdCounter(1000);
@@ -118,6 +120,7 @@ async function runCases() {
         hasRPrChange: formatRemoveResult.oxml.includes('w:rPrChange'),
         ...summarizeXml(formatRemoveResult.oxml)
     };
+    reviewXml.set('format_only_remove.xml', formatRemoveResult.oxml);
 
     const mixedOxml = `<w:document xmlns:w="${NS_W}"><w:body><w:p><w:r><w:t>The quick brown fox jumps.</w:t></w:r></w:p></w:body></w:document>`;
     resetRevisionIdCounter(1000);
@@ -132,6 +135,7 @@ async function runCases() {
         hasDeletion: mixedResult.oxml.includes('w:del'),
         ...summarizeXml(mixedResult.oxml)
     };
+    reviewXml.set('mixed_insert_delete.xml', mixedResult.oxml);
 
     const listOxml = `<w:document xmlns:w="${NS_W}"><w:body><w:p><w:r><w:t>List seed</w:t></w:r></w:p></w:body></w:document>`;
     resetRevisionIdCounter(1000);
@@ -147,6 +151,7 @@ async function runCases() {
         hasNumberingRelationship: listResult.oxml.includes('numbering.xml'),
         ...summarizeXml(listResult.oxml)
     };
+    reviewXml.set('list_generation.xml', listResult.oxml);
 
     const originalTableData = {
         headers: ['Name', 'Qty'],
@@ -171,6 +176,7 @@ async function runCases() {
         hasTable: tableResult.oxml.includes('<w:tbl'),
         ...summarizeXml(tableResult.oxml)
     };
+    reviewXml.set('table_reconcile.xml', tableResult.oxml);
 
     const textToTableOxml = `<w:document xmlns:w="${NS_W}"><w:body><w:p><w:r><w:t>Replace this with a table</w:t></w:r></w:p></w:body></w:document>`;
     resetRevisionIdCounter(1000);
@@ -186,6 +192,7 @@ async function runCases() {
         hasTable: textToTableResult.oxml.includes('<w:tbl') || textToTableResult.oxml.includes('<w:ins'),
         ...summarizeXml(textToTableResult.oxml)
     };
+    reviewXml.set('text_to_table_transform.xml', textToTableResult.oxml);
 
     const commentDocOxml = `<w:document xmlns:w="${NS_W}"><w:body><w:p><w:r><w:t>Paragraph with target_one and target_two.</w:t></w:r></w:p><w:p><w:r><w:t>Second paragraph target_three.</w:t></w:r></w:p></w:body></w:document>`;
     resetRevisionIdCounter(1000);
@@ -199,6 +206,8 @@ async function runCases() {
         ...summarizeXml(commentDocResult.oxml),
         commentsXmlHash: sha256(commentDocResult.commentsXml || '')
     };
+    reviewXml.set('comment_document_injection.xml', commentDocResult.oxml);
+    reviewXml.set('comment_document_comments.xml', commentDocResult.commentsXml);
 
     const paragraphOxml = `<w:p xmlns:w="${NS_W}"><w:r><w:t>Paragraph level target marker.</w:t></w:r></w:p>`;
     resetRevisionIdCounter(1000);
@@ -214,6 +223,7 @@ async function runCases() {
         packageHash: sha256(paragraphCommentResult.package || ''),
         packageLength: (paragraphCommentResult.package || '').length
     };
+    reviewXml.set('comment_paragraph_injection.xml', paragraphCommentResult.package);
 
     const commentsXml = buildCommentsPartXml([
         { id: 1, content: 'Packaged comment', author: 'Phase4Golden', date: FIXED_DATE_ISO }
@@ -226,6 +236,7 @@ async function runCases() {
         hasCommentsRel: packageCommentResult.includes('relationships/comments'),
         ...summarizeXml(packageCommentResult)
     };
+    reviewXml.set('comment_package_injection.xml', packageCommentResult);
 
     return {
         generatedAt: FIXED_DATE_ISO,
@@ -266,10 +277,19 @@ async function writeJson(filePath, value) {
 
 async function main() {
     const shouldUpdate = process.argv.includes('--update');
+    const exportIndex = process.argv.indexOf('--export-dir');
+    const exportDir = exportIndex >= 0 ? process.argv[exportIndex + 1] : null;
+    if (exportIndex >= 0 && (!exportDir || exportDir.startsWith('--'))) throw new Error('--export-dir requires a directory');
 
     await withFixedDate(async () => {
         const actual = await runCases();
-        await writeJson(LATEST_PATH, actual);
+        if (exportDir) {
+            await fs.mkdir(exportDir, { recursive: true });
+            for (const [name, xml] of reviewXml) await fs.writeFile(path.join(exportDir, name), xml, 'utf8');
+            await writeJson(path.join(exportDir, 'summary.json'), actual);
+            if (process.argv.includes('--export-only')) return;
+        }
+        if (!process.argv.includes('--verify')) await writeJson(LATEST_PATH, actual);
 
         if (shouldUpdate) {
             await writeJson(BASELINE_PATH, actual);
