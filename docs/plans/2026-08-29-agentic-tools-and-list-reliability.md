@@ -1,9 +1,10 @@
 # Agentic Tools and List Reliability Plan (v0.8.0 Architecture)
 
 **Date:** 2026-08-29  
-**Last Updated:** 2026-09-23 (Reconciled with `@ansonlai/docx-redline-js` v0.8.0 & Localized Replacements)  
+**Last Updated:** 2026-09-29 (Upgrade target v0.8.1; v0.8.0 architecture and localized replacements)
+
 **Status:** Active — Ready for Execution  
-**Prerequisite Baseline:** **The Direct Upgrade Plan (`2026-09-09-docx-redline-js-v0.5.4-upgrade.md`) is COMPLETED.** Both the root add-in and `mcp/docx-server` are pinned to exact `@ansonlai/docx-redline-js@0.8.0`.
+**Prerequisite Baseline:** **The Direct Upgrade Plan (`2026-09-09-docx-redline-js-v0.5.4-upgrade.md`) is COMPLETED.** Both the root add-in and `mcp/docx-server` are pinned to exact `@ansonlai/docx-redline-js@0.8.1`.
 
 ---
 
@@ -16,13 +17,13 @@ This plan is governed by three strict priorities, ordered from most important to
 2. **Preserving OOXML-only approach (Second Priority):**  
    **No Office.js object-model synchronization or paragraph proxy manipulation in core logic.** All agent tools, operations, list conversions, table creations, diff reconciliations, and anchor validations must operate strictly on **plain OOXML** or canonical DOCX buffers. Office.js is strictly relegated to an ephemeral I/O transport shell (`getOoxml()` / `getFileAsync` on read, `insertOoxml()` / `insertFileFromBase64` on write).
 3. **Speed and performance (Third Priority):**  
-   Leverage `@ansonlai/docx-redline-js@0.8.0` caller-order-independent batching, localized replacements (`replacements: [{ find, replace }]`), single-pass serialization, and byte-exact short-circuiting when `hasChanges: false`.
+   Leverage `@ansonlai/docx-redline-js@0.8.1` caller-order-independent batching, localized replacements (`replacements: [{ find, replace }]`), single-pass serialization, and byte-exact short-circuiting when `hasChanges: false`.
 
 ---
 
 ## 2. Strategic Context & What Has Changed
 
-With `@ansonlai/docx-redline-js@0.8.0`, the library natively handles what previously required complex add-in glue code:
+With `@ansonlai/docx-redline-js@0.8.1`, the library natively handles what previously required complex add-in glue code:
 - **v0.5.0 Structured Content (`structuredContent: true`)**: Converts Markdown tables, headings (`#`), and lists into native Word elements (`w:tbl`, `w:pStyle`, `w:numPr`) directly inside OOXML.
 - **v0.6.0 Caller-Order-Independent Batches**: Targets resolve against the immutable initial document state; operations no longer need manual bottom-up sorting.
 - **v0.7.0 Localized Exact Replacements (`replacements: [{ find, replace }]`)**: Operations specify exact phrase substitutions inside a target paragraph rather than repeating full paragraphs, **slashing prompt token payloads by 60–90%** and eliminating LLM truncation bugs.

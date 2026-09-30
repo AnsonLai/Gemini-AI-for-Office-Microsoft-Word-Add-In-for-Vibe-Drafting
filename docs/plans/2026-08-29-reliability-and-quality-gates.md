@@ -1,9 +1,10 @@
 # Reliability, Quality Gates, and Accuracy Verification Plan (v0.8.0 Architecture)
 
 **Date:** 2026-08-29  
-**Last Updated:** 2026-09-23 (Reconciled with `@ansonlai/docx-redline-js` v0.8.0 Direct Upgrade)  
+**Last Updated:** 2026-09-29 (Upgrade target v0.8.1; v0.8.0 architecture)
+
 **Status:** Active — Ready for Execution  
-**Prerequisite Baseline:** **The Direct Upgrade Plan (`2026-09-09-docx-redline-js-v0.5.4-upgrade.md`) is COMPLETED.** Both the root add-in and `mcp/docx-server` are pinned to exact `@ansonlai/docx-redline-js@0.8.0`.
+**Prerequisite Baseline:** **The Direct Upgrade Plan (`2026-09-09-docx-redline-js-v0.5.4-upgrade.md`) is COMPLETED.** Both the root add-in and `mcp/docx-server` are pinned to exact `@ansonlai/docx-redline-js@0.8.1`.
 
 ---
 
@@ -25,7 +26,7 @@ This plan is governed by three strict priorities, ordered from most important to
 Adhere strictly to these validation and error handling contracts under v0.8.0:
 
 ### A. Non-Retryable Fail-Closed Errors
-The following error codes emitted by `@ansonlai/docx-redline-js@0.8.0` are permanent failures for the given document state. **They must NEVER be retried automatically, and MUST NEVER trigger an unverified local fallback algorithm:**
+The following error codes emitted by `@ansonlai/docx-redline-js@0.8.1` are permanent failures for the given document state. **They must NEVER be retried automatically, and MUST NEVER trigger an unverified local fallback algorithm:**
 
 | Error Code | Meaning | Required Consumer Action |
 |---|---|---|

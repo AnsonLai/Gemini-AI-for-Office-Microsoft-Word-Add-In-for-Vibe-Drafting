@@ -1,9 +1,10 @@
 # OOXML Engine Performance and Web Portability Plan (v0.8.0 Single-Hop Architecture)
 
 **Date:** 2026-08-29  
-**Last Updated:** 2026-09-23 (Reconciled with `@ansonlai/docx-redline-js` v0.8.0 Direct Upgrade)  
+**Last Updated:** 2026-09-29 (Upgrade target v0.8.1; v0.8.0 architecture)
+
 **Status:** Active — Ready for Execution  
-**Prerequisite Baseline:** **The Direct Upgrade Plan (`2026-09-09-docx-redline-js-v0.5.4-upgrade.md`) is COMPLETED.** Both the root add-in and `mcp/docx-server` are pinned to exact `@ansonlai/docx-redline-js@0.8.0`, with zero external JSZip or Node polyfills required in the browser.
+**Prerequisite Baseline:** **The Direct Upgrade Plan (`2026-09-09-docx-redline-js-v0.5.4-upgrade.md`) is COMPLETED.** Both the root add-in and `mcp/docx-server` are pinned to exact `@ansonlai/docx-redline-js@0.8.1`, with zero external JSZip or Node polyfills required in the browser.
 
 ---
 
@@ -16,7 +17,7 @@ This plan is governed by three strict priorities, ordered from most important to
 2. **Preserving OOXML-only approach (Second Priority):**  
    **Do NOT build complex Office.js context synchronization loops.** Word interaction must be treated as a dumb, single-hop transport: Read once &rarr; Pure Engine Processing &rarr; Write once. All functions must operate purely on standard OOXML strings and packages so they can run identically in Node, a Word Taskpane, or a future web document editor.
 3. **Speed and performance (Third Priority):**  
-   Maximize throughput by utilizing `@ansonlai/docx-redline-js@0.8.0` caller-order-independent batching, localized exact replacements (`replacements: [{ find, replace }]`), single-pass serialization, and short-circuiting no-op edits.
+   Maximize throughput by utilizing `@ansonlai/docx-redline-js@0.8.1` caller-order-independent batching, localized exact replacements (`replacements: [{ find, replace }]`), single-pass serialization, and short-circuiting no-op edits.
 
 ---
 

@@ -1,9 +1,10 @@
 # Package Boundaries, Integrations, and Web Portability Plan (v0.8.0 Architecture)
 
 **Date:** 2026-08-29  
-**Last Updated:** 2026-09-23 (Reconciled with `@ansonlai/docx-redline-js` v0.8.0 Universal Facade)  
+**Last Updated:** 2026-09-29 (Upgrade target v0.8.1; v0.8.0 universal facade)
+
 **Status:** Active — Ready for Execution  
-**Prerequisite Baseline:** **The Direct Upgrade Plan (`2026-09-09-docx-redline-js-v0.5.4-upgrade.md`) is COMPLETED.** Both the root add-in and `mcp/docx-server` are pinned to exact `@ansonlai/docx-redline-js@0.8.0`.
+**Prerequisite Baseline:** **The Direct Upgrade Plan (`2026-09-09-docx-redline-js-v0.5.4-upgrade.md`) is COMPLETED.** Both the root add-in and `mcp/docx-server` are pinned to exact `@ansonlai/docx-redline-js@0.8.1`.
 
 ---
 
@@ -52,7 +53,7 @@ The repository enforces a strict separation between **Disposable Host Shells** a
 └────────────────────────────────────────────┬────────────────────────────────────────────┘
                                              │
 ┌────────────────────────────────────────────▼────────────────────────────────────────────┐
-│                       Underlying Engine (@ansonlai/docx-redline-js@0.8.0)               │
+│                       Underlying Engine (@ansonlai/docx-redline-js@0.8.1)               │
 │                                                                                         │
 │   - Caller-order-independent batching with atomic rollback                              │
 │   - Localized exact replacements (replacements: [{ find, replace }])                   │
@@ -114,7 +115,7 @@ export { applyRedlineChangesToWordContext } from './word-redline-runner.js';
 
 **Step-by-Step Instructions:**
 1. In `mcp/docx-server/package.json`:
-   - Set `"@ansonlai/docx-redline-js": "0.8.0"`.
+   - Set `"@ansonlai/docx-redline-js": "0.8.1"`.
    - Remove `"jszip"` and `"@xmldom/xmldom"`.
 2. Refactor `mcp/docx-server/src/server.mjs`:
    ```javascript
