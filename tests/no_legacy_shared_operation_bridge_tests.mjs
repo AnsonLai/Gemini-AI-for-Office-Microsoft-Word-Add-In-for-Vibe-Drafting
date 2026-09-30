@@ -4,7 +4,8 @@ import { existsSync, readFileSync } from 'fs';
 const retiredModulePaths = [
     'src/taskpane/modules/commands/shared-operation-bridge.js',
     'src/taskpane/modules/docx-redline-js-integration/integration.js',
-    'src/taskpane/modules/docx-redline-js-integration/word-route-change.js'
+    'src/taskpane/modules/docx-redline-js-integration/word-route-change.js',
+    'src/taskpane/modules/docx-redline-js-integration/word-structured-list.js'
 ];
 
 const retiredSymbols = [
@@ -12,7 +13,8 @@ const retiredSymbols = [
     'applyReconciliationToParagraphBatch',
     'shouldUseOoxmlReconciliation',
     'getAuthorForTracking',
-    'routeWordParagraphChange'
+    'routeWordParagraphChange',
+    'applyStructuredListDirectOoxml'
 ];
 
 function run() {
@@ -43,6 +45,11 @@ function run() {
             `Agentic tools should not use retired symbol: ${retiredSymbol}`
         );
     }
+
+    assert.ok(
+        !agenticTools.includes('ReconciliationPipeline'),
+        'Agentic list edits should use the package reconciliation entry point without a direct pipeline fallback'
+    );
 
     assert.ok(
         agenticTools.includes('const authorName = loadRedlineAuthor();'),

@@ -7,7 +7,6 @@ export {
     insertOoxmlWithRangeFallback,
     withNativeTrackingDisabled
 } from './word-ooxml.js';
-export { applyStructuredListDirectOoxml } from './word-structured-list.js';
 export {
     assertRedlineResult,
     INPUT_SANITIZED_WARNING,
@@ -19,10 +18,11 @@ export {
     applySharedOperationToWordParagraph,
     applySharedOperationToWordScope,
     applySharedOperationToParagraphOoxml,
-    applySharedOperationToScopeOoxml
+    applySharedOperationToScopeOoxml,
+    executePureOoxmlBatch
 } from './word-operation-runner.js';
 export {
     applyRedlineChangesToWordContext,
-    findNearbyParagraphIndexForModifyText
+    planRedlineBatchOperations
 } from './word-redline-runner.js';
 

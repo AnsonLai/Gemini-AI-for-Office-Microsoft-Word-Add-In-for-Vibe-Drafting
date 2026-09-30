@@ -11,13 +11,18 @@ import {
     extractReplacementNodesFromOoxml,
     normalizeBodySectionOrderStandalone,
     getDefaultAuthor,
-    acceptTrackedChangesInOoxml
+    acceptTrackedChangesInOoxml,
+    inspectDocumentParts,
+    mergeNumberingXmlBySchemaOrder
 } from '@ansonlai/docx-redline-js';
 import {
     createParser,
     createSerializer
 } from '@ansonlai/docx-redline-js/adapters/xml-adapter.js';
-import { applyOperationToDocumentXml } from '@ansonlai/docx-redline-js/services/standalone-operation-runner.js';
+import {
+    applyOperationToDocumentXml,
+    applyOperationsToDocumentXml
+} from '@ansonlai/docx-redline-js/services/standalone-operation-runner.js';
 import { wrapParagraphWithComments } from '@ansonlai/docx-redline-js/services/comment-package.js';
 import {
     buildDocumentCommentsPackage,
@@ -35,6 +40,14 @@ import {
 } from './redline-result.js';
 
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+const NS_PKG = 'http://schemas.microsoft.com/office/2006/xmlPackage';
+const NS_REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
+const REL_BASE = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/';
+const PART_TYPES = {
+    '/word/comments.xml': 'application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml',
+    '/word/commentsExtended.xml': 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml',
+    '/word/numbering.xml': 'application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml'
+};
 const SIMPLE_LIST_MARKER_RE = /^\s*(?:[-*+]\s+|\d+(?:\.\d+)*[.)]\s+|[A-Za-z][.)]\s+)/;
 
 function getDirectWordChild(element, localName) {
@@ -116,6 +129,160 @@ function extractBodyChildElements(xmlDoc) {
             && node.nodeType === 1
             && !(node.namespaceURI === NS_W && node.localName === 'sectPr')
     );
+}
+
+function packagePart(packageDoc, name) {
+    return Array.from(packageDoc.getElementsByTagNameNS(NS_PKG, 'part')).find(
+        part => (part.getAttribute('pkg:name') || part.getAttribute('name')) === name
+    ) || null;
+}
+
+function packagePartXml(packageDoc, name) {
+    const xmlData = packagePart(packageDoc, name)?.getElementsByTagNameNS(NS_PKG, 'xmlData')[0];
+    const root = Array.from(xmlData?.childNodes || []).find(node => node.nodeType === 1);
+    return root ? createSerializer().serializeToString(root) : null;
+}
+
+function replacePackagePartXml(packageDoc, name, xml) {
+    if (!xml) return;
+    let part = packagePart(packageDoc, name);
+    if (!part) {
+        part = packageDoc.createElementNS(NS_PKG, 'pkg:part');
+        part.setAttribute('pkg:name', name);
+        part.setAttribute('pkg:contentType', PART_TYPES[name]);
+        packageDoc.documentElement.appendChild(part);
+    }
+    let xmlData = part.getElementsByTagNameNS(NS_PKG, 'xmlData')[0];
+    if (!xmlData) {
+        xmlData = packageDoc.createElementNS(NS_PKG, 'pkg:xmlData');
+        part.appendChild(xmlData);
+    }
+    while (xmlData.firstChild) xmlData.removeChild(xmlData.firstChild);
+    xmlData.appendChild(packageDoc.importNode(parseXmlStrict(xml, name).documentElement, true));
+}
+
+function ensurePackageRelationship(packageDoc, kind) {
+    const name = '/word/_rels/document.xml.rels';
+    let relsXml = packagePartXml(packageDoc, name);
+    if (!relsXml) relsXml = `<Relationships xmlns="${NS_REL}"/>`;
+    const relsDoc = parseXmlStrict(relsXml, name);
+    const relationships = Array.from(relsDoc.getElementsByTagNameNS(NS_REL, 'Relationship'));
+    const type = kind === 'commentsExtended'
+        ? 'http://schemas.microsoft.com/office/2011/relationships/commentsExtended'
+        : `${REL_BASE}${kind}`;
+    if (!relationships.some(rel => rel.getAttribute('Type') === type)) {
+        const used = new Set(relationships.map(rel => rel.getAttribute('Id')));
+        let next = 1;
+        while (used.has(`rId${next}`)) next++;
+        const rel = relsDoc.createElementNS(NS_REL, 'Relationship');
+        rel.setAttribute('Id', `rId${next}`);
+        rel.setAttribute('Type', type);
+        rel.setAttribute('Target', kind === 'commentsExtended' ? 'commentsExtended.xml' : `${kind}.xml`);
+        relsDoc.documentElement.appendChild(rel);
+    }
+    // Relationship parts have a different content type from the Word XML parts.
+    let part = packagePart(packageDoc, name);
+    if (!part) {
+        part = packageDoc.createElementNS(NS_PKG, 'pkg:part');
+        part.setAttribute('pkg:name', name);
+        part.setAttribute('pkg:contentType', 'application/vnd.openxmlformats-package.relationships+xml');
+        packageDoc.documentElement.appendChild(part);
+    }
+    let xmlData = part.getElementsByTagNameNS(NS_PKG, 'xmlData')[0];
+    if (!xmlData) {
+        xmlData = packageDoc.createElementNS(NS_PKG, 'pkg:xmlData');
+        part.appendChild(xmlData);
+    }
+    while (xmlData.firstChild) xmlData.removeChild(xmlData.firstChild);
+    xmlData.appendChild(packageDoc.importNode(relsDoc.documentElement, true));
+}
+
+function readBatchSource(scopeOoxml) {
+    if (scopeOoxml.includes('<pkg:package')) {
+        const packageDoc = parseXmlStrict(scopeOoxml, 'Word scope package');
+        const documentXml = packagePartXml(packageDoc, '/word/document.xml');
+        if (!documentXml) throw new Error('Word scope package has no document.xml part');
+        const parts = {
+            documentXml,
+            commentsXml: packagePartXml(packageDoc, '/word/comments.xml'),
+            commentsExtendedXml: packagePartXml(packageDoc, '/word/commentsExtended.xml'),
+            numberingXml: packagePartXml(packageDoc, '/word/numbering.xml'),
+            stylesXml: packagePartXml(packageDoc, '/word/styles.xml')
+        };
+        const inspection = inspectDocumentParts(parts);
+        if (inspection.status === 'error') throw new Error(inspection.error?.message || 'Cannot inspect Word scope');
+        return { ...parts, paragraphs: inspection.paragraphs, packageDoc };
+    }
+    const extracted = extractReplacementNodesFromOoxml(scopeOoxml);
+    if (extracted.status === 'error' || !extracted.replacementNodes?.length) {
+        throw new Error(extracted.error?.message || 'Word scope has no editable OOXML nodes');
+    }
+    const documentXml = extracted.sourceType === 'document'
+        ? scopeOoxml
+        : wrapParagraphNodesAsDocument(extracted.replacementNodes);
+    const parts = { documentXml, numberingXml: extracted.numberingXml || null };
+    const inspection = inspectDocumentParts(parts);
+    if (inspection.status === 'error') throw new Error(inspection.error?.message || 'Cannot inspect Word scope');
+    return { ...parts, paragraphs: inspection.paragraphs, packageDoc: null };
+}
+
+function buildBatchInsertionPackage(source, result) {
+    const serializer = createSerializer();
+    const outputDoc = parseXmlStrict(result.documentXml, 'batch output');
+    normalizeBodySectionOrderStandalone(outputDoc);
+    const outputXml = serializer.serializeToString(outputDoc.documentElement);
+    let numberingXml = source.numberingXml || null;
+    for (const part of result.numberingXmlParts || []) {
+        numberingXml = numberingXml ? mergeNumberingXmlBySchemaOrder(numberingXml, part) : part;
+    }
+    if (source.packageDoc) {
+        replacePackagePartXml(source.packageDoc, '/word/document.xml', outputXml);
+        if (result.commentsXml) {
+            replacePackagePartXml(source.packageDoc, '/word/comments.xml', result.commentsXml);
+            ensurePackageRelationship(source.packageDoc, 'comments');
+        }
+        if (result.commentsExtendedXml) {
+            replacePackagePartXml(source.packageDoc, '/word/commentsExtended.xml', result.commentsExtendedXml);
+            ensurePackageRelationship(source.packageDoc, 'commentsExtended');
+        }
+        if (numberingXml && (result.numberingXmlParts?.length || !source.numberingXml)) {
+            replacePackagePartXml(source.packageDoc, '/word/numbering.xml', numberingXml);
+            ensurePackageRelationship(source.packageDoc, 'numbering');
+        }
+        return serializer.serializeToString(source.packageDoc);
+    }
+    const bodyXml = extractBodyChildElements(outputDoc).map(node => serializer.serializeToString(node)).join('');
+    const fragmentPackage = buildDocumentFragmentPackage(bodyXml, {
+        includeNumbering: !!numberingXml,
+        numberingXml,
+        appendTrailingParagraph: false
+    });
+    if (!result.commentsXml) return fragmentPackage;
+    const packageDoc = parseXmlStrict(fragmentPackage, 'batch fragment package');
+    replacePackagePartXml(packageDoc, '/word/comments.xml', result.commentsXml);
+    ensurePackageRelationship(packageDoc, 'comments');
+    if (result.commentsExtendedXml) {
+        replacePackagePartXml(packageDoc, '/word/commentsExtended.xml', result.commentsExtendedXml);
+        ensurePackageRelationship(packageDoc, 'commentsExtended');
+    }
+    return serializer.serializeToString(packageDoc);
+}
+
+function failedBatchWrite(result, source, code, error) {
+    const receipts = (result.receipts || []).map(receipt => ({
+        ...receipt,
+        committed: false,
+        finalDisposition: receipt.attemptedDisposition === 'applied' ? 'write_failed' : receipt.finalDisposition
+    }));
+    return {
+        ...result,
+        status: 'error',
+        hasChanges: false,
+        written: false,
+        receipts,
+        error: { code, message: error?.message || String(error) },
+        source
+    };
 }
 
 function normalizeTextForParagraphSelection(text) {
@@ -390,6 +557,99 @@ function resolveWordOperationScope(scope) {
         return { kind: 'range', target: scope };
     }
     throw new Error('Unsupported scope shape for applyWordOperation');
+}
+
+/**
+ * Applies one atomic operation batch to a Word body, range, or paragraph.
+ * `operations` may be an array or an async factory receiving the one-read source.
+ * The engine result and its receipts are returned unchanged, with `written` added.
+ */
+export async function executePureOoxmlBatch(context, targetScope, operations, options = {}) {
+    if (!context || typeof context.sync !== 'function') {
+        throw new TypeError('A Word request context is required');
+    }
+    const resolved = resolveWordOperationScope(targetScope);
+    const ooxmlResult = resolved.target.getOoxml();
+    await context.sync();
+    const source = readBatchSource(ooxmlResult?.value || '');
+    const publicSource = {
+        documentXml: source.documentXml,
+        paragraphs: source.paragraphs,
+        commentsXml: source.commentsXml || null,
+        numberingXml: source.numberingXml || null,
+        stylesXml: source.stylesXml || null
+    };
+    const batch = typeof operations === 'function'
+        ? await operations(publicSource)
+        : operations;
+    if (!Array.isArray(batch)) throw new TypeError('Batch operations must be an array');
+    if (batch.length === 0) {
+        return { status: 'ok', hasChanges: false, written: false, results: [], receipts: [], source: publicSource };
+    }
+    const runner = typeof options.runner === 'function' ? options.runner : applyOperationsToDocumentXml;
+    const runtimeContext = {
+        commentsXml: source.commentsXml || null,
+        commentsExtendedXml: source.commentsExtendedXml || null,
+        numberingXml: source.numberingXml || null,
+        stylesXml: source.stylesXml || null
+    };
+    const result = await runner(
+        source.documentXml,
+        batch,
+        options.author || getDefaultAuthor(),
+        runtimeContext,
+        {
+            atomic: true,
+            structuredContent: true,
+            pairReplacements: true,
+            generateRedlines: options.generateRedlines !== false,
+            existingRevisions: options.existingRevisions,
+            sanitizeInput: options.sanitizeInput === true,
+            onInfo: options.onInfo,
+            onWarn: options.onWarn
+        }
+    );
+    if (!result || result.status === 'error' || result.status === 'partial' || result.error || result.rolledBack) {
+        return { ...result, written: false, source: publicSource };
+    }
+    if (!result.hasChanges) return { ...result, written: false, source: publicSource };
+
+    let insertionPayload;
+    try {
+        insertionPayload = buildBatchInsertionPackage(source, result);
+    } catch (error) {
+        return failedBatchWrite(result, publicSource, 'WORD_OOXML_PACKAGE_FAILED', error);
+    }
+    const writeBatch = async () => {
+        if (resolved.kind === 'paragraph') {
+            await insertOoxmlWithRangeFallback(
+                resolved.target,
+                insertionPayload,
+                'Replace',
+                context,
+                options.logPrefix || 'WordOp/Batch'
+            );
+        } else {
+            const insertMode = (typeof Word !== 'undefined' && (Word.InsertLocation?.replace || Word.InsertLocation?.Replace))
+                || 'Replace';
+            resolved.target.insertOoxml(insertionPayload, insertMode);
+            await context.sync();
+        }
+    };
+    try {
+        if (options.disableNativeTracking) {
+            await withNativeTrackingDisabled(context, writeBatch, {
+                enabled: true,
+                baseTrackingMode: options.baseTrackingMode ?? null,
+                logPrefix: options.logPrefix || 'WordOp/Batch'
+            });
+        } else {
+            await writeBatch();
+        }
+    } catch (error) {
+        return failedBatchWrite(result, publicSource, 'WORD_OOXML_WRITE_FAILED', error);
+    }
+    return { ...result, written: true, source: publicSource };
 }
 
 /**

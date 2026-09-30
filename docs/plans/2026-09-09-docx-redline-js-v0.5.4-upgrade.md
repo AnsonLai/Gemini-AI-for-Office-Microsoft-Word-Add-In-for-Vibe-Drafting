@@ -3,7 +3,7 @@
 **Date:** 2026-09-23  
 **Updated:** 2026-09-29
 
-**Status:** WP0 and WP1 complete; WP2–WP6 remain — direct migration to v0.8.1.
+**Status:** WP0–WP3 implemented; WP4–WP6 remain — direct migration to v0.8.1. WP3 still needs Word Desktop validation in WP6.
 
 **Target:** Upgrade both root add-in and `mcp/docx-server` directly to exact version `0.8.1`.
 
@@ -43,7 +43,7 @@ Because the four 2026-08-29 optimization plans were never executed against v0.5.
    - Update `redline-prompt.js` to encourage `replacements: [{ find, replace }]` for phrase/sentence edits.
    - Update `change-validation.js` to validate `find` targets within paragraph text rather than demanding full paragraph rewrites.
 6. **Preserve Error Codes Generically**: Ensure structured error codes (`COMMENTED_CONTENT_DELETE`, `FOREIGN_PARAGRAPH_MARK_DELETION`, `GENERATED_OOXML_INVALID`, `PATCH_ROUNDTRIP_MISMATCH`, `UNSAFE_REVISION_BOUNDARY`, `TARGET_NOT_FOUND`, `AMBIGUOUS_ANCHOR`) pass cleanly through all host boundaries.
-7. **Purge Bespoke Workarounds**: Delete `word-structured-list.js`, `list-level-utils.js`, and manual table recovery heuristics.
+7. **Purge Obsolete Workarounds**: Delete the unused `word-structured-list.js` module and redline runner's manual table recovery. Retain active, supported list helpers and legacy bridge functions until their other callers migrate.
 
 ---
 
@@ -90,17 +90,11 @@ Because the four 2026-08-29 optimization plans were never executed against v0.5.
 **WP1 progress (2026-09-29):** Both manifests and lockfiles now pin exact `0.8.1`, and both installed package copies report `0.8.1`. Existing root consumer/adapter/bridge tests, MCP service tests, table normalization and prompt tests, and `npm run build:dev` passed. The v0.5.4 compatibility suite passed its consumer guards and skipped package behavior by design because the installed version is now 0.8.1. `tests/phase4/golden-guardrail.mjs` reported changed list, table, and comment XML hashes against the v0.5.4 baseline. Its semantic flags and counts still match. The comment-package size increase is the new `w14:paraId` on comment paragraphs; the list/table deltas span the whole v0.5.4-to-v0.8.1 jump and need XML-level review before updating goldens. The generated latest fixture was restored to its previous tracked state. The new `tests/docx_redline_v081_compat_tests.mjs` passes. It covers package opening, inspection, localized atomic batches, comment content types and preservation, thread operations, header/footer editing and refusal, rollback, revision IDs, and artifact reporting. `npm ls @ansonlai/docx-redline-js --depth=0` confirms exact `0.8.1` in both projects. Word-authored thread fixtures, optional sibling parts, and full golden updates remain WP6 quality gates.
 
 ### WP2 — Purge Obsolete Workarounds & Dead Code
-1. **Delete**:
-   - `src/taskpane/modules/docx-redline-js-integration/word-structured-list.js` (176 lines of hardcoded OPC XML).
-   - `src/taskpane/modules/commands/list-level-utils.js` (regex marker parsing).
-2. **Clean `agentic-tools.js`**:
-   - Remove `detectRequestedContentKind`.
-   - Remove `normalizeListItemsWithLevels` and `buildListMarkdown`.
-   - Remove direct `ReconciliationPipeline` references.
-3. **Clean `word-operation-runner.js`**:
-   - Remove `enforceListBindingOnParagraphNodes`.
-   - Remove `wrapParagraphNodesAsDocument`, `buildParagraphOnlyPackage`, and `wrapParagraphWithComments`.
-4. Update `tests/no_legacy_shared_operation_bridge_tests.mjs` resurrection guards to protect against reintroducing deleted files.
+1. Delete the unused `src/taskpane/modules/docx-redline-js-integration/word-structured-list.js` and its add-in export.
+2. Remove the direct `ReconciliationPipeline` structural fallback and unused `detectRequestedContentKind` table-intent heuristic from `agentic-tools.js`; use the supported package list helpers for list generation.
+3. Guard against restoring the deleted module in `tests/no_legacy_shared_operation_bridge_tests.mjs` and verify list generation through the package API.
+
+**WP2 record (2026-09-29):** The unused structured-list module, direct reconciliation fallback, and table-intent heuristic were removed. `tests/agentic_list_generation_tests.mjs` covers the supported list path. Investigation found that `normalizeListItemsWithLevels` and `buildListMarkdown` are supported v0.8.1 exports still used by active commands, and `list-level-utils.js` is an active list-level clamp helper, so these remain. The older `word-operation-runner.js` paragraph/scope helpers also remain because other agentic commands and adapter tests still call them. They are outside the WP3 redline batch path. Remove them only after those callers migrate.
 
 ### WP3 — Refactor Word Add-In to True Single-Hop Batch Runner
 1. In `src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js`:
@@ -110,6 +104,8 @@ Because the four 2026-08-29 optimization plans were never executed against v0.5.
 2. In `src/taskpane/modules/docx-redline-js-integration/word-redline-runner.js`:
    - Replace the 1,100-line iterative `Paragraph` proxy walking loop with a direct invocation of `executePureOoxmlBatch`.
    - Remove manual table synthesis and range-expansion heuristics.
+
+**WP3 record (2026-09-29):** `executePureOoxmlBatch` now reads scope OOXML once, inspects the immutable source, submits one atomic structured batch, preserves existing package parts, and writes once only when the batch succeeds. The redline caller plans operations from the inspected paragraph descriptors and uses package-localized replacements for `modify_text`; full paragraph and range edits remain supported. The iterative proxy loop, native insertion recovery, and manual table synthesis were removed. `tests/addin/word_pure_ooxml_batch_tests.mjs` covers the bridge, and `tests/word_redline_batch_plan_tests.mjs` covers planning, rollback, range/append behavior, and an end-to-end one-read/one-write mock Word flow. Word Desktop package insertion and commented-document opening remain WP6 manual gates.
 
 ### WP4 — Modernize Prompting & Schema for Localized Replacements
 1. In `src/taskpane/modules/commands/redline-prompt.js`:
@@ -141,7 +137,7 @@ Because the four 2026-08-29 optimization plans were never executed against v0.5.
 - The v0.8.1 release delta is recorded and relevant changes are covered by compatibility tests.
 - Both manifests and lockfiles resolve exact `0.8.1`.
 - External `jszip` and `@xmldom/xmldom` are removed from `mcp/docx-server` in WP5 after the imports are replaced.
-- All obsolete files (`word-structured-list.js`, `list-level-utils.js`, `docx-package-service.mjs`, `paragraph-targeting-service.mjs`) are deleted.
+- The unused `word-structured-list.js` module and WP5 MCP services are deleted. Active list-level helpers remain until their callers no longer need them.
 - Single-hop batch execution replaces the 1,100-line iterative proxy loop in `word-redline-runner.js`.
 - Localized replacements (`replacements: [{ find, replace }]`) are fully functional in prompt, validation, and engine execution.
 - All test suites execute offline via `npm test` and pass 100%.

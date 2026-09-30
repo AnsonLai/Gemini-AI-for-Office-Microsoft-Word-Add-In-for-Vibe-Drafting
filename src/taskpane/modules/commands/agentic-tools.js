@@ -3,8 +3,6 @@
 import {
   applyRedlineToOxml,
   preprocessMarkdown,
-  ReconciliationPipeline,
-  wrapInDocumentFragment,
   buildListMarkdown,
   normalizeListItemsWithLevels,
   withNativeTrackingDisabled,
@@ -63,32 +61,10 @@ function initAgenticTools(deps) {
   } = deps);
 }
 
-export function detectRequestedContentKind(instruction) {
-  const normalizedInstruction = String(instruction || '').toLowerCase();
-  if (!/\btables?\b/.test(normalizedInstruction)) {
-    return null;
-  }
-
-  if (/\b(delete|remove|drop)\b.{0,40}\btables?\b|\btables?\b.{0,40}\b(delete|remove|drop)\b|\bwithout (?:a )?table\b|\bno table\b/.test(normalizedInstruction)) {
-    return null;
-  }
-
-  if (
-    /\b(?:turn|convert|make|create|insert|add|format|reformat|restructure|organize|put|place|transform|change)\b[\s\S]{0,120}\b(?:into|as|to|in)\s+(?:a\s+|an\s+)?table\b/.test(normalizedInstruction)
-    || /\b(?:into|as)\s+(?:a\s+|an\s+)?table\b/.test(normalizedInstruction)
-    || /\btable\b.{0,80}\b(?:to save space|side[- ]by[- ]side|two[- ]column|columns?|rows?)\b/.test(normalizedInstruction)
-  ) {
-    return 'table';
-  }
-
-  return null;
-}
-
-async function applyRedlineChangeSet(aiChanges, instruction = '', paragraphTexts = null) {
+async function applyRedlineChangeSet(aiChanges, paragraphTexts = null) {
   const redlineEnabled = loadRedlineSetting();
   const redlineAuthor = loadRedlineAuthor();
   let changesApplied = 0;
-  const requestedContentKind = detectRequestedContentKind(instruction);
 
   // WP1: Verify content anchors before applying. Reject changes whose anchorText
   // does not match the targeted paragraph; auto-correct unambiguous off-by-one
@@ -140,8 +116,7 @@ async function applyRedlineChangeSet(aiChanges, instruction = '', paragraphTexts
         sanitizeInput: true,
         disableNativeTracking: redlineEnabled,
         baseTrackingMode,
-        logPrefix: "Redline/Shared",
-        requestedContentKind
+        logPrefix: "Redline/Shared"
       });
       changesApplied = result.changesApplied;
       engineSkipped = Array.isArray(result.skipped) ? result.skipped : [];
@@ -221,7 +196,7 @@ async function executeRedline(instruction, fullDocumentText) {
         sanitizeChangeSet(aiChanges, paragraphTexts.length);
 
       const { changesApplied, redlineEnabled, rejectedChanges: anchorRejected, engineSkipped } =
-        await applyRedlineChangeSet(sanitizedChanges, instruction, paragraphTexts);
+        await applyRedlineChangeSet(sanitizedChanges, paragraphTexts);
 
       // Merge validation rejections (WP1/WP2) with reasons the apply engine
       // reported for changes it could not apply (e.g. empty target paragraph),
@@ -1095,38 +1070,8 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
 
         assertRedlineResult(result, 'Agentic list reconciliation');
         if (!result?.oxml || !result.hasChanges) {
-          console.log("[executeEditList] Reconciliation reported no changes; forcing structural list generation fallback");
-
-          const fallbackPipeline = new ReconciliationPipeline({
-            generateRedlines: redlineEnabled,
-            author: redlineAuthor
-          });
-
-          const fallbackResult = await fallbackPipeline.executeListGeneration(
-            listMarkdown,
-            null,
-            null,
-            originalRangeText
-          );
-
-          const fallbackOoxml = fallbackResult?.ooxml || fallbackResult?.oxml || "";
-          const fallbackIsValid = fallbackResult?.isValid !== false;
-
-          if (!fallbackOoxml || !fallbackIsValid) {
-            console.log("[executeEditList] Fallback list generation produced no valid OOXML");
-            listApplied = false;
-            return;
-          }
-
-          const wrappedFallbackOoxml = wrapInDocumentFragment(fallbackOoxml, {
-            includeNumbering: true,
-            numberingXml: fallbackResult.numberingXml
-          });
-
-          fullRange.insertOoxml(wrappedFallbackOoxml, "Replace");
-          await context.sync();
-          listApplied = true;
-          console.log("[executeEditList] Structural fallback replacement succeeded");
+          console.log("[executeEditList] Reconciliation reported no list changes");
+          listApplied = false;
           return;
         }
 
