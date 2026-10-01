@@ -4,7 +4,7 @@
 
 **Last Updated:** 2026-09-30
 
-**Status:** Original batching, fidelity-suite and benchmark setup completed in the upgrade; measured consumer performance work remains.
+**Status:** In progress — current-version workload profiling, bundle/startup analysis and actual Word transport timing underway.
 
 **Recommended order:** 4 of 4 August plans.
 
@@ -41,6 +41,13 @@ Raw samples: `scripts/ooxml-benchmark-latest.json`. Measurements exclude actual 
 Production builds pass with bundle-size warnings (taskpane approximately 762 KiB after reliability work; upgrade baseline was 747 KiB). Investigate startup impact before choosing a bundle target.
 
 ## Remaining work packages
+
+### Execution record (2026-09-30)
+
+- Baseline commit: `b8f23b9`; exact library 0.8.2. Package boundaries are complete and archived.
+- Profiling ownership is split across workload/core/package measurements, production bundle/startup analysis, and real Word transport instrumentation.
+- No new timing gate is imposed. Consumer changes require measured benefit and preserved fidelity; library internals and defects remain separate work items.
+- No model/provider calls are required for these measurements.
 
 ### WP1 — Profile current consumer workloads
 
