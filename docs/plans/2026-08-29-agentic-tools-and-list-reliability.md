@@ -10,7 +10,7 @@
 
 ## Baseline and dependencies
 
-Use exact `@ansonlai/docx-redline-js@0.8.2` in both consumers. The [September upgrade](2026-09-09-docx-redline-js-v0.5.4-upgrade.md) and [reliability and quality gates](2026-08-29-reliability-and-quality-gates.md) are complete, including actual Office.js validation, bounded provider recovery and structured mutation outcomes. This is the next plan to execute.
+Use exact `@ansonlai/docx-redline-js@0.8.2` in both consumers. The [September upgrade](completed/2026-09-09-docx-redline-js-v0.5.4-upgrade.md) and [reliability and quality gates](completed/2026-08-29-reliability-and-quality-gates.md) are complete, including actual Office.js validation, bounded provider recovery and structured mutation outcomes. This is the next plan to execute.
 
 Accuracy comes first: target against an immutable source, fail closed on ambiguity, preserve formatting/package parts, and pass canonical operations to the library. Word proxies belong in transport adapters.
 

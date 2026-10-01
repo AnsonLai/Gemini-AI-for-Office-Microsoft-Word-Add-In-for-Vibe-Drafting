@@ -10,9 +10,9 @@
 
 ## Baseline and dependencies
 
-Both consumers pin exact `@ansonlai/docx-redline-js@0.8.2`. The [September upgrade](2026-09-09-docx-redline-js-v0.5.4-upgrade.md) is complete, including actual Office.js transport validation.
+Both consumers pin exact `@ansonlai/docx-redline-js@0.8.2`. The [September upgrade](completed/2026-09-09-docx-redline-js-v0.5.4-upgrade.md) is complete, including actual Office.js transport validation.
 
-Outcome/recovery policies in [reliability](2026-08-29-reliability-and-quality-gates.md) are complete. Finish remaining mappings in [agentic tools](2026-08-29-agentic-tools-and-list-reliability.md) before consolidating their interfaces. The browser demo already uses the shared Gemini request client; its document facade migration remains pending.
+Outcome/recovery policies in [reliability](completed/2026-08-29-reliability-and-quality-gates.md) are complete. Preserve the verified mappings and explicit capability limits in [agentic tools](2026-08-29-agentic-tools-and-list-reliability.md) when consolidating interfaces. Its broader list migration remains open on separately recorded library dependencies; that does not prevent portable extraction or browser document-lifecycle migration. The browser demo already uses the shared Gemini request client.
 
 ## Current architecture and completed work
 

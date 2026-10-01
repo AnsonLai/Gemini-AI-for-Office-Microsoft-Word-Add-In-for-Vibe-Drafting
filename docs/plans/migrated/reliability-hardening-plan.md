@@ -1,7 +1,7 @@
 # Reliability Hardening Plan (Model-Variance Reduction)
 
 > **Migrated on 2026-08-29:** Remaining verification and quality-gate work was
-> consolidated into [`2026-08-29-reliability-and-quality-gates.md`](../2026-08-29-reliability-and-quality-gates.md).
+> consolidated into [`2026-08-29-reliability-and-quality-gates.md`](../completed/2026-08-29-reliability-and-quality-gates.md).
 > This document is retained in `migrated/` as historical detail.
 
 ## Objective

@@ -12,9 +12,9 @@
 
 Both consumers pin exact `@ansonlai/docx-redline-js@0.8.2`. The [September upgrade](2026-09-09-docx-redline-js-v0.5.4-upgrade.md) is **complete**: its actual Office.js insertion gate passed during this plan. This plan owns ongoing quality-gate maintenance.
 
-The [current validation report](../validation-reports/2026-09-30-docx-redline-js-v0.8.2.md) records 33 offline suites, 69 live Word checks and successful development/production builds. These are dated results, not a guarantee that future changes pass.
+The [current validation report](../../validation-reports/2026-09-30-docx-redline-js-v0.8.2.md) records 33 offline suites, 69 live Word checks and successful development/production builds. These are dated results, not a guarantee that future changes pass.
 
-The [reliability validation report](../validation-reports/2026-09-30-reliability-and-quality-gates.md) records the final 35-suite offline run, seven actual Office.js checks, 12 independent Word package/revision checks, both builds, outcome semantics and reproduction commands. Prior upgrade/plan changes were committed as `68da8a4` before implementation began; reliability work is saved as a separate milestone commit before starting the agentic-tools plan.
+The [reliability validation report](../../validation-reports/2026-09-30-reliability-and-quality-gates.md) records the final 35-suite offline run, seven actual Office.js checks, 12 independent Word package/revision checks, both builds, outcome semantics and reproduction commands. Prior upgrade/plan changes were committed as `68da8a4` before implementation began; reliability work is saved as a separate milestone commit before starting the agentic-tools plan.
 
 1. Exact targeting, independent Accept All/Reject All expectations, preserved formatting/relationships, and fail-closed engine failures.
 2. Portable OOXML core tests with host tests in separate lanes.
@@ -79,4 +79,4 @@ Regression coverage includes first-comment success followed by an unknown host f
 - [x] Tool/UI outcomes distinguish engine and host completion, including unknown errors.
 - [x] Required checks and optional lanes have documented execution criteria.
 
-**Next:** [Agentic tools and list reliability](2026-08-29-agentic-tools-and-list-reliability.md), after host and outcome policies are established.
+**Next:** [Agentic tools and list reliability](../2026-08-29-agentic-tools-and-list-reliability.md), after host and outcome policies are established.

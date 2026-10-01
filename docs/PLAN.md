@@ -1,7 +1,7 @@
 # Robustness & Reliability Plan — Phase 2
 
 > **Migrated on 2026-08-29:** The open work in this document is consolidated
-> into [`docs/plans/2026-08-29-reliability-and-quality-gates.md`](plans/2026-08-29-reliability-and-quality-gates.md).
+> into [`docs/plans/completed/2026-08-29-reliability-and-quality-gates.md`](plans/completed/2026-08-29-reliability-and-quality-gates.md).
 > This file is retained for historical detail; use the dated plan as the
 > current source of truth.
 
