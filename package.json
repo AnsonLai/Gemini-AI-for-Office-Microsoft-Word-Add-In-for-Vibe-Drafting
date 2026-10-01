@@ -36,7 +36,7 @@
     "test:word": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-wp6-word.ps1"
   },
   "dependencies": {
-    "@ansonlai/docx-redline-js": "0.8.2",
+    "@ansonlai/docx-redline-js": "0.8.3",
     "caniuse-lite": "^1.0.30001800",
     "core-js": "^3.36.0",
     "diff-match-patch": "^1.0.5",

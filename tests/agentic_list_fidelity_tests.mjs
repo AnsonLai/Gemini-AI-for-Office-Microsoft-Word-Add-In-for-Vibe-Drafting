@@ -250,6 +250,11 @@ const allCases = [
   {
     name: 'list-insert-after-plain-paragraph',
     request: { tool: 'insert_list_item', afterParagraphIndex: 2, text: 'Planner plain insertion after paragraph', indentLevel: 1 },
+    productionInsert: {
+      expectedRoute: 'native',
+      expectedParagraphInsertCalls: 1,
+      expectedBodyInsertCalls: 0
+    },
     expected: sourceExactTexts.toSpliced(2, 0, 'Planner plain insertion after paragraph'),
     newLists: [],
     assertions: ({ paragraphs }) => {
@@ -320,11 +325,7 @@ const allCases = [
     }
   }
 ];
-const knownDefects = allCases.filter(testCase => [
-  'list-insert-after-plain-paragraph',
-  'list-edit-bullet-range'
-].includes(testCase.name));
-const cases = allCases.filter(testCase => !knownDefects.includes(testCase));
+const cases = allCases;
 
 function inspectResolvedDoc(bytes) {
   const doc = openDocx(bytes);
@@ -417,7 +418,7 @@ async function runCase(testCase) {
   // The independently authored numbering fixture proves continuity and restart
   // groups; check those same group relationships in resolved packages without
   // asserting Word's generated absolute IDs.
-  for (const state of [accepted, ...(testCase.defect ? [] : [rejected])]) {
+  for (const state of [accepted, rejected]) {
     const actual = new Map(state.paragraphs.filter(paragraph => paragraph.list?.numId)
       .map(paragraph => [paragraph.exactText, paragraph.list.numId]));
     assert.equal(actual.get('Bullet Untouched Tail'), actual.get('Bullet Root B'), `${testCase.name} retains bullet-list identity`);
@@ -442,7 +443,8 @@ function manifestCase(testCase) {
     expectedMinimumBodyRevisions: 1,
     expectedFormatting: [{ sourceText: 'Untouched bold sentinel', acceptedText: 'Untouched bold sentinel', bold: true, italic: false }],
     expectedNumbering: listItems,
-    agenticRequest: testCase.request
+    agenticRequest: testCase.request,
+    ...(testCase.productionInsert ? { productionInsert: testCase.productionInsert } : {})
   };
 }
 
@@ -453,7 +455,7 @@ async function exportHostFixtures(exportDir, results) {
     provenance: {
       source: 'Word-authored Microsoft Word COM fixture; see ../tests/fixtures/agentic-lists/source-observations.json',
       sourceWordBuild: sourceEvidence.provenance.wordBuild,
-      trackedPackages: 'docx-redline-js 0.8.2 standalone Office.js bridge; fixed author/date; outputs are independent inputs for Word resolution checks',
+      trackedPackages: 'docx-redline-js 0.8.3 standalone Office.js bridge; fixed author/date; outputs are independent inputs for Word resolution checks',
       numberingExpectations: 'Hard-coded from Word source observations and requested list semantics; not copied from tracked-package output.'
     },
     cases: cases.map((testCase, index) => {
@@ -471,51 +473,12 @@ async function exportHostFixtures(exportDir, results) {
       expectedErrorCode: 'UNSUPPORTED_LIST_CONVERSION',
       sourceParagraphs: ['Header First Candidate', 'Header Second Candidate']
     }],
-    knownDefects: knownDefects.map(testCase => ({
-      name: testCase.name,
-      request: testCase.request,
-      expectedOutcome: 'engine-defect-reproduced; excluded from passing host cases',
-      expectedRejectedText: testCase.expectedRejected.join('\n'),
-      defect: testCase.defect
-    }))
   };
   writeFileSync(join(exportDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
-  const diagnosticCases = knownDefects.map(testCase => {
-    const base = manifestCase(testCase);
-    base.tracked = `${testCase.name}-diagnostic-tracked.docx`;
-    base.accepted = `${testCase.name}-diagnostic-accepted.docx`;
-    base.rejected = `${testCase.name}-diagnostic-rejected.docx`;
-    // The defect manifest asks the independent Word host to Reject All back to
-    // the true source text. The standalone outputs are retained as diagnostics.
-    base.expectedRejectedText = sourceText;
-    const result = testCase.result;
-    writeFileSync(join(exportDir, base.tracked), result.trackedBytes);
-    writeFileSync(join(exportDir, base.accepted), result.acceptedBytes);
-    writeFileSync(join(exportDir, base.rejected), result.rejectedBytes);
-    return base;
-  });
-  writeFileSync(join(exportDir, 'known-defects-manifest.json'), `${JSON.stringify({
-    schemaVersion: 1,
-    provenance: {
-      source: 'Word-authored Microsoft Word COM fixture; independent Word Reject All is expected to confirm or refute the engine defect.',
-      numberingExpectations: 'Source and accepted numbering expectations are specified independently from the tracked output.'
-    },
-    cases: diagnosticCases,
-    controls: []
-  }, null, 2)}\n`);
   return manifest;
 }
 
-for (const testCase of [...cases, ...knownDefects]) {
-  if (knownDefects.includes(testCase)) {
-    if (testCase.name === 'list-insert-after-plain-paragraph') {
-      testCase.expectedRejected = sourceExactTexts.toSpliced(2, 0, '');
-      testCase.defect = 'Reject All leaves one extra empty paragraph after the plain insertion anchor.';
-    } else {
-      testCase.expectedRejected = sourceExactTexts.toSpliced(2, 2, 'Bullet Root ABullet Insertion Anchor');
-      testCase.defect = 'Reject All collapses the original adjacent list paragraphs into one paragraph.';
-    }
-  }
+for (const testCase of cases) {
   const result = await runCase(testCase);
   testCase.result = result;
 }
@@ -539,10 +502,6 @@ if (exportIndex >= 0) {
   const absolute = resolve(destination);
   const manifest = await exportHostFixtures(absolute, cases.map(testCase => testCase.result));
   console.log(`Exported ${manifest.cases.length} Word host cases to ${absolute}`);
-}
-
-for (const testCase of knownDefects) {
-  console.log(`KNOWN_LIBRARY_DEFECT: ${testCase.name}: ${testCase.defect} See the separate known-defects-manifest.json for independent Word Reject All confirmation.`);
 }
 
 console.log(`PASS: ${cases.length} agentic list fidelity cases on Word-authored OOXML; bold formatting, exact Accept/Reject, and numbering identities preserved`);

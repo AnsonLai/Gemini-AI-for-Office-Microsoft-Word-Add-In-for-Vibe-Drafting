@@ -8,12 +8,10 @@ import {
   openDocx,
   rejectTrackedChangesInOoxml
 } from '@ansonlai/docx-redline-js';
-import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalone-runner';
 import {
   initAgenticTools,
   executeInsertListItem
 } from '../src/taskpane/modules/commands/agentic-tools.js';
-import { planAgenticListOperations } from '../src/taskpane/modules/commands/list-operation-plan.js';
 import { captureWordSourceBaseline } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
 
 const FIXTURE_PATH = fileURLToPath(new URL('./fixtures/agentic-lists/nested-lists-source.docx', import.meta.url));
@@ -318,53 +316,30 @@ async function testOrdinaryPlainParagraphRetainsNativeFallback() {
     'an ordinary plain paragraph retains the established native insertion behavior');
 }
 
-async function testHistoricalPPrChangeListBindingRefusesWithoutWrites() {
+async function testHistoricalPPrChangeDoesNotSupplyCurrentListBinding() {
   initTools(true);
   const targetText = 'Plain paragraph before bullet list.';
   const modifiedDocumentXml = addHistoricalListPropertiesToPlainParagraph(fixtureDocumentXml, targetText);
   const inspected = inspectDocumentParts({ documentXml: modifiedDocumentXml, numberingXml: fixtureNumberingXml, stylesXml: fixtureStylesXml });
-  assert.deepEqual(inspected.paragraphs.find(item => item.exactText === targetText)?.list, {
-    numId: '1', level: 0, label: '', format: 'bullet'
-  }, 'the installed library currently treats historical pPrChange numPr as active list binding');
+  assert.equal(inspected.paragraphs.find(item => item.exactText === targetText)?.list, null,
+    'historical pPrChange numPr must not be reported as the paragraph current list binding');
   const flatOpc = flatOpcFromFixture(modifiedDocumentXml);
   const sourceParagraphs = sourceParagraphsFromFlatOpc(flatOpc);
   const target = sourceParagraphs.find(item => item.exactText === targetText);
-  const source = {
-    documentXml: modifiedDocumentXml,
-    paragraphs: sourceParagraphs,
-    numberingXml: fixtureNumberingXml,
-    stylesXml: fixtureStylesXml
-  };
-  const operations = planAgenticListOperations(source, {
-    kind: 'insert_list_item', afterParagraphIndex: target.index,
-    text: 'Keep this as a plain paragraph', indentLevel: 0
-  });
-  const engineResult = await applyOperationsToDocumentXml(
-    modifiedDocumentXml,
-    operations,
-    'Historical list inspection test',
-    { numberingXml: fixtureNumberingXml, stylesXml: fixtureStylesXml },
-    { atomic: true, structuredContent: true, pairReplacements: true, generateRedlines: true }
-  );
-  assert.equal(engineResult.error.code, 'BATCH_OPERATION_FAILED');
-  assert.equal(engineResult.results[0].error.code, 'EXISTING_REVISIONS');
-  assert.equal(engineResult.results[0].receipt.finalDisposition, 'refused');
+  assert.ok(target.list == null,
+    'the Word source baseline used by the production route must also ignore historical list properties');
 
   const harness = createWordHarness(flatOpc);
   const result = await executeInsertListItem(target.index, 'Keep this as a plain paragraph', 0);
 
-  assert.equal(result.success, false);
-  assert.equal(result.error.code, 'BATCH_OPERATION_FAILED');
-  assert.equal(result.operationResults[0].error.code, 'BATCH_OPERATION_FAILED');
-  assert.equal(result.receipts[0].finalDisposition, 'refused');
-  assert.equal(result.writeAttempted, false);
-  assert.equal(result.written, false);
+  assert.equal(result.success, true, result.message);
+  assert.equal(result.written, true);
   assert.equal(harness.events.filter(event => event.type === 'body.getOoxml').length, 1,
-    'the production cutover reads one immutable source snapshot');
+    'the production cutover reads one immutable source snapshot before choosing the plain-paragraph path');
   assert.equal(harness.events.filter(event => event.type === 'body.insertOoxml').length, 0,
-    'the library refusal must not be committed');
-  assert.equal(harness.events.some(event => event.type === 'native.insertParagraph'), false,
-    'a canonical-path refusal must not replay a possibly mis-targeted native insertion');
+    'historical numbering must not incorrectly route a plain paragraph through the canonical list engine');
+  assert.equal(harness.events.filter(event => event.type === 'native.insertParagraph').length, 1,
+    'the historical numPr must not route a plain paragraph through the canonical list engine');
 }
 
 async function testUnsupportedOutdentUsesEstablishedNativePath() {
@@ -514,7 +489,7 @@ try {
   await testEligibleWordListsUseOneCanonicalBodyBatch();
   await testStaleAndUnavailableProvidedBaselinesRefuseBeforeNativeOrEngineWrites();
   await testOrdinaryPlainParagraphRetainsNativeFallback();
-  await testHistoricalPPrChangeListBindingRefusesWithoutWrites();
+  await testHistoricalPPrChangeDoesNotSupplyCurrentListBinding();
   await testUnsupportedOutdentUsesEstablishedNativePath();
   await testDeeperListLevelsRetainNativeFallback();
   await testUnsupportedNumberStyleRetainsNativeFallback();
