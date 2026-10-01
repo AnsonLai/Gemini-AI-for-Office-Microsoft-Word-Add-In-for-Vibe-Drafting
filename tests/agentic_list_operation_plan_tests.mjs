@@ -3,6 +3,7 @@ import './setup-xml-provider.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { DOMParser as StrictXmlDomParser } from '@xmldom/xmldom';
 import {
   inspectDocumentParts,
   mergeNumberingXmlBySchemaOrder,
@@ -45,6 +46,52 @@ function findFollowingSameListLevel(target, level) {
   return null;
 }
 
+function numberingDefinitions(xml) {
+  const document = new DOMParser().parseFromString(xml, 'text/xml');
+  const serializer = new XMLSerializer();
+  const definitions = [];
+  for (const node of Array.from(document.documentElement.childNodes)) {
+    if (node.nodeType !== 1) continue;
+    const localName = node.localName || node.nodeName.split(':').at(-1);
+    if (localName === 'abstractNum') {
+      definitions.push({
+        key: `abstractNum:${node.getAttribute('w:abstractNumId') ?? node.getAttribute('abstractNumId')}`,
+        xml: serializer.serializeToString(node)
+      });
+    } else if (localName === 'num') {
+      definitions.push({
+        key: `num:${node.getAttribute('w:numId') ?? node.getAttribute('numId')}`,
+        xml: serializer.serializeToString(node)
+      });
+    }
+  }
+  return definitions;
+}
+
+function assertSourceNumberingDefinitionsRetained(numberingXml, caseName) {
+  const outputByKey = new Map(numberingDefinitions(numberingXml).map(definition => [definition.key, definition.xml]));
+  for (const definition of numberingDefinitions(source.numberingXml)) {
+    assert.equal(
+      outputByKey.get(definition.key),
+      definition.xml,
+      `${caseName} must preserve source numbering definition ${definition.key}`
+    );
+  }
+}
+
+function assertStrictXml(xml, partName) {
+  const diagnostics = [];
+  const document = new StrictXmlDomParser({
+    errorHandler: {
+      warning: message => diagnostics.push(`warning: ${message}`),
+      error: message => diagnostics.push(`error: ${message}`),
+      fatalError: message => diagnostics.push(`fatal: ${message}`)
+    }
+  }).parseFromString(xml, 'text/xml');
+  assert.ok(document.documentElement, `${partName} should have one document element`);
+  assert.deepEqual(diagnostics, [], `${partName} should parse without XML warnings or errors`);
+}
+
 function inspectOutput(result) {
   let numberingXml = source.numberingXml;
   for (const part of result.numberingXmlParts || []) {
@@ -52,13 +99,16 @@ function inspectOutput(result) {
       ? mergeNumberingXmlBySchemaOrder(numberingXml, part)
       : part;
   }
+  assertStrictXml(result.documentXml, 'Generated word/document.xml');
+  if (numberingXml) assertStrictXml(numberingXml, 'Merged word/numbering.xml');
   const inspected = inspectDocumentParts({
     documentXml: result.documentXml,
     numberingXml,
     stylesXml: source.stylesXml
   });
   assert.equal(inspected.status, 'ok', inspected.error?.message || 'Output inspection failed');
-  return inspected.paragraphs;
+  assertSourceNumberingDefinitionsRetained(numberingXml, 'Standalone operation');
+  return { paragraphs: inspected.paragraphs, numberingXml };
 }
 
 async function applyRequest(request) {
@@ -78,16 +128,40 @@ async function applyRequest(request) {
   );
   assert.equal(result.status, 'ok', JSON.stringify(result.error));
   assert.equal(result.hasChanges, true, 'Planned operation should change the fixture');
-  return { operations, result, paragraphs: inspectOutput(result) };
+  return { operations, result, ...inspectOutput(result) };
 }
 
-async function testNestedListInsertionPreservesListIdentityAndOutdents() {
-  const target = requireParagraph(paragraph => (
-    paragraph.list?.level === 1
-    && paragraph.list?.numId
-    && findFollowingSameListLevel(paragraph, 0)
-  ), 'a nested list item followed by a same-list level-0 sibling');
-  const tail = findFollowingSameListLevel(target, 0);
+async function testListInsertionAtLevelZero(kind, targetText) {
+  const target = requireParagraph(paragraph => textOf(paragraph) === targetText, `the ${kind} level-0 anchor`);
+  assert.equal(target.list?.level, 0);
+  const insertedText = `Planner ${kind} level-zero item`;
+  const { operations, paragraphs } = await applyRequest({
+    tool: 'insert_list_item',
+    afterParagraphIndex: target.index,
+    text: insertedText,
+    indentLevel: 0
+  });
+  assert.equal(operations.length, 1);
+  assert.equal(operations[0].target.index, target.index);
+  const inserted = paragraphs.find(paragraph => textOf(paragraph) === insertedText);
+  assert.ok(inserted, `${kind} +0 item should appear in the accepted output`);
+  assert.equal(inserted.list?.numId, target.list.numId, `${kind} +0 should continue the original numbering instance`);
+  assert.equal(inserted.list?.level, 0, `${kind} +0 should remain at level 0`);
+}
+
+async function testNestedListInsertionPreservesListIdentityAndOutdents(targetText = null, tailText = null) {
+  const target = targetText
+    ? requireParagraph(paragraph => textOf(paragraph) === targetText, `nested anchor ${targetText}`)
+    : requireParagraph(paragraph => (
+      paragraph.list?.level === 1
+      && paragraph.list?.numId
+      && findFollowingSameListLevel(paragraph, 0)
+    ), 'a nested list item followed by a same-list level-0 sibling');
+  const tail = tailText
+    ? requireParagraph(paragraph => textOf(paragraph) === tailText, `following root sibling ${tailText}`)
+    : findFollowingSameListLevel(target, 0);
+  assert.equal(target.list?.level, 1);
+  assert.equal(tail?.list?.numId, target.list?.numId);
   const insertedText = 'Planner inserted at the shallower level';
   const { operations, paragraphs } = await applyRequest({
     tool: 'insert_list_item',
@@ -112,9 +186,12 @@ async function testNestedListInsertionPreservesListIdentityAndOutdents() {
   assert.equal(preservedTail.list?.level, tail.list.level, 'outdent insertion must retain the following item level');
 }
 
-async function testNestedListInsertionCanEncodeDeeperLevel() {
-  const target = requireParagraph(paragraph => paragraph.list?.level === 0 && paragraph.list?.numId, 'a root list item');
-  const insertedText = 'Planner inserted one level deeper';
+async function testNestedListInsertionCanEncodeDeeperLevel(targetText = null) {
+  const target = targetText
+    ? requireParagraph(paragraph => textOf(paragraph) === targetText, `root anchor ${targetText}`)
+    : requireParagraph(paragraph => paragraph.list?.level === 0 && paragraph.list?.numId, 'a root list item');
+  assert.equal(target.list?.level, 0);
+  const insertedText = `Planner deeper item after ${textOf(target)}`;
   const { operations, paragraphs } = await applyRequest({
     tool: 'insert_list_item',
     afterParagraphIndex: target.index,
@@ -268,8 +345,12 @@ function testUntrustedIndexesAndUnsupportedOutdentFailBeforeMutation() {
   );
 }
 
-await testNestedListInsertionPreservesListIdentityAndOutdents();
-await testNestedListInsertionCanEncodeDeeperLevel();
+await testListInsertionAtLevelZero('bullet', 'Bullet Root A');
+await testListInsertionAtLevelZero('numbered', 'Number Root A');
+await testNestedListInsertionPreservesListIdentityAndOutdents('Bullet Insertion Anchor', 'Bullet Untouched Tail');
+await testNestedListInsertionPreservesListIdentityAndOutdents('Number Nested Anchor', 'Number Root B');
+await testNestedListInsertionCanEncodeDeeperLevel('Bullet Root A');
+await testNestedListInsertionCanEncodeDeeperLevel('Number Root A');
 await testPlainParagraphInsertionStaysPlain();
 await testEditListUsesTheOriginalRangeAndRetainsUntouchedItems();
 await testNoncontiguousHeaderTextRemainsPairedWithItsSource();

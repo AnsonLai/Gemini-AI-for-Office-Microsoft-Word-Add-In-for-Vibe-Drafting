@@ -1,6 +1,7 @@
 import { requestGemini } from '../chat/gemini-client.js';
 import { createMutationObserver } from './mutation-outcome.js';
 import { validateListRequest } from './agentic-request-validation.js';
+import { validateTableRequest } from './table-request-validation.js';
 /* global Word */
 
 import {
@@ -65,6 +66,17 @@ function initAgenticTools(deps) {
     SAFETY_SETTINGS_BLOCK_NONE,
     API_LIMITS
   } = deps);
+}
+
+function missingApiKeyResult(mutation = null, showToUser = false) {
+  const message = 'Error: Please set your Gemini API key in the Settings.';
+  const error = Object.assign(new Error(message), { code: 'MISSING_API_KEY' });
+  const observed = mutation?.result ? mutation.result(error) : {
+    status: 'error',
+    success: false,
+    error: { code: error.code, message: error.message }
+  };
+  return { ...observed, success: false, message, showToUser };
 }
 
 async function applyRedlineChangeSet(aiChanges, paragraphTexts = null, sourceBaseline) {
@@ -163,7 +175,7 @@ async function executeRedline(instruction, fullDocumentText, sourceBaseline) {
   // Check for API key
   const geminiApiKey = loadApiKey();
   if (!geminiApiKey) {
-    return "Error: Please set your Gemini API key in the Settings.";
+    return missingApiKeyResult(createMutationObserver(getRequestSignal));
   }
 
   try {
@@ -380,7 +392,7 @@ async function executeComment(instruction, fullDocumentText) {
   const mutation = createMutationObserver(getRequestSignal);
   const geminiApiKey = loadApiKey();
   if (!geminiApiKey) {
-    return "Error: Please set your Gemini API key in the Settings.";
+    return missingApiKeyResult(mutation);
   }
 
   try {
@@ -493,7 +505,7 @@ async function executeHighlight(instruction, fullDocumentText, highlightColor = 
   const mutation = createMutationObserver(getRequestSignal);
   const geminiApiKey = loadApiKey();
   if (!geminiApiKey) {
-    return "Error: Please set your Gemini API key in the Settings.";
+    return missingApiKeyResult(mutation);
   }
 
   // Normalize color to proper case for Word API
@@ -608,7 +620,7 @@ JSON ARRAY OF HIGHLIGHTS:`;
 async function executeNavigate(instruction, fullDocumentText) {
   const geminiApiKey = loadApiKey();
   if (!geminiApiKey) {
-    return "Error: Please set your Gemini API key in the Settings.";
+    return missingApiKeyResult(null, true);
   }
 
   try {
@@ -639,6 +651,9 @@ JSON RESPONSE:`;
 
     if (!navigationResult || !navigationResult.paragraphIndex) {
       return {
+        status: 'error',
+        success: false,
+        error: { code: 'NAVIGATION_TARGET_NOT_FOUND', message: 'Could not determine a document location from the instruction.' },
         message: "Could not determine where to navigate based on the instruction.",
         showToUser: false
       };
@@ -651,7 +666,9 @@ JSON RESPONSE:`;
 
       const pIndex = navigationResult.paragraphIndex - 1;
       if (pIndex < 0 || pIndex >= paragraphs.items.length) {
-        throw new Error(`Invalid paragraph index: ${navigationResult.paragraphIndex}`);
+        throw Object.assign(new Error(`Invalid paragraph index: ${navigationResult.paragraphIndex}`), {
+          code: 'NAVIGATION_TARGET_NOT_FOUND'
+        });
       }
 
       const targetParagraph = paragraphs.items[pIndex];
@@ -664,14 +681,21 @@ JSON RESPONSE:`;
     const description = navigationResult.navigationDescription || `Navigated to paragraph ${navigationResult.paragraphIndex}`;
 
     return {
+      status: 'ok',
+      success: true,
       message: description,
       showToUser: true
     };
 
   } catch (error) {
     console.error("Error in executeNavigate:", error?.code || error?.name || "UNKNOWN_ERROR");
+    const code = error?.code || 'NAVIGATION_FAILED';
+    const errorMessage = error?.message || String(error);
     return {
-      message: `Error navigating: ${error.message}`,
+      status: 'error',
+      success: false,
+      error: { code, message: errorMessage },
+      message: `Error navigating: ${errorMessage}`,
       showToUser: false
     };
   }
@@ -1289,6 +1313,16 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
 
 async function executeEditTable(paragraphIndex, action, content, targetRow, targetColumn) {
   const mutation = createMutationObserver(getRequestSignal);
+  const request = { paragraphIndex, action,
+    ...(content !== undefined ? { content } : {}),
+    ...(targetRow !== undefined ? { targetRow } : {}),
+    ...(targetColumn !== undefined ? { targetColumn } : {}) };
+  const validation = validateTableRequest(request);
+  if (!validation.valid) {
+    return { ...mutation.result(validation.error), success: false,
+      message: `TOOL_FAILURE edit_table: ${validation.error.message}` };
+  }
+  content = validation.request.content;
   try {
     await Word.run(async (context) => {
       const redlineEnabled = loadRedlineSetting();
@@ -1315,7 +1349,17 @@ async function executeEditTable(paragraphIndex, action, content, targetRow, targ
         // Load primary table dimensions first. Rows collection is loaded lazily only when needed.
         stage = "load_table_dimensions";
         table.load("rowCount, columnCount");
+        table.rows.load("items/cellCount");
         await mutation.sync(context);
+
+        const liveValidation = validateTableRequest(request, {
+          paragraphCount: paragraphs.items.length,
+          rowCount: table.rows.items.length,
+          rowCellCounts: table.rows.items.map(row => row.cellCount)
+        });
+        if (!liveValidation.valid) {
+          throw Object.assign(new Error(liveValidation.error.message), { code: liveValidation.error.code });
+        }
 
         const normalizedAction = String(action || "").trim().toLowerCase();
 

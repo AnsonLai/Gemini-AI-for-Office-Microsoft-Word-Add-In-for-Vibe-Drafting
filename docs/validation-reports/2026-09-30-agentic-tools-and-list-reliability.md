@@ -7,6 +7,7 @@
 - `edit_list` no longer silently clamps an invalid range to another paragraph.
 - `convert_headers_to_list` binds replacement text to the original index before sorting; duplicate targets refuse.
 - Deterministic production invocation tests cover malformed input, live range refusal, unsorted header pairing and duplicate refusal. The pure request validator and existing mutation-outcome suites pass.
+- Table content is declared as nested arrays and normalized without silently discarding excess rows or cells. Live per-row dimensions are checked before the first content write. Production tests cover oversized overlays, strict coordinates, valid nested content, the declared schema, missing-key failures and navigation outcomes.
 - Canonical source-baseline tests confirm accepted-view text, manual line breaks and stable fingerprints. The stale-context guard checks every targeted source paragraph before batch preparation. Passing regressions cover matching source, whole-paragraph edits, range interiors, insert-before anchors, append after a changed paragraph count, unavailable baselines and mixed valid/stale batches with zero writes.
 - Ordinary development and development-only Word validation entry builds pass. Optional telemetry requests are blocked by the environment and do not fail compilation.
 
@@ -18,7 +19,7 @@ Independent Word source/export/engine-reference reopening passed **12 checks**, 
 
 Candidate mappings are being tested against Word-authored fixtures. They are not wired into production list commands until numbering, accepted/rejected text and host insertion fidelity pass.
 
-The current offline aggregate passes **39 suites**, zero failures, with four entrypoints excluded and the historical 0.5.4 package-behavior skip reported separately. The candidate planner suite passes against the Word-authored source; manual-header generation emits XML-provider diagnostics that require package and host investigation before migration.
+The current offline aggregate passes **41 suites**, zero failures, with four entrypoints excluded and the historical 0.5.4 package-behavior skip reported separately. The candidate planner suite passes against the Word-authored source, including exact accepted/rejected insertion text; manual-header generation emits XML-provider diagnostics that require package and host investigation before migration.
 
 The frozen source fixture was authored in Word and verified after save/reopen. It contains nested bullets and decimal outline numbering, a continuation across a plain paragraph, a separate restart, plain transitions, marked and unmarked noncontiguous headers, and an untouched bold sentinel. Its [source observations](../../tests/fixtures/agentic-lists/source-observations.json) record COM properties and actual numbering XML.
 

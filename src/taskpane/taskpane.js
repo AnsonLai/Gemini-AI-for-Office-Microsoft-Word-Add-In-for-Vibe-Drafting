@@ -1460,7 +1460,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
           },
           {
             name: "edit_table",
-            description: "Edit a table as a unit. Use this when you need to modify table content, add/remove rows or columns. This preserves table formatting. Look for paragraphs with |T:row,col in the context. NEVER say you have edited a table unless you have successfully called this tool.",
+            description: "Edit content or add/remove rows in an existing table. Look for paragraphs with |T:row,col in the context. NEVER say you have edited a table unless you have successfully called this tool.",
             parameters: {
               type: "OBJECT",
               properties: {
@@ -1475,12 +1475,12 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
                 },
                 content: {
                   type: "ARRAY",
-                  items: { type: "STRING" },
-                  description: "For replace_content: 2D array of strings [[row1cells], [row2cells]]. For add_row: array of cell values. For update_cell: single-element array with new text.",
+                  items: { type: "ARRAY", items: { type: "STRING" } },
+                  description: "For replace_content: rows of cell strings [[row1cells], [row2cells]]. For add_row: exactly one row [[cell1, cell2]]. For update_cell: exactly one cell [[new text]]. Omit for delete_row.",
                 },
                 targetRow: {
                   type: "INTEGER",
-                  description: "For add_row/delete_row/update_cell: the 0-based row index",
+                  description: "For delete_row/update_cell: the 0-based row index. add_row appends at the end.",
                 },
                 targetColumn: {
                   type: "INTEGER",
@@ -2108,17 +2108,19 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
           } else if (functionCall.name === "navigate_to_section") {
             updateSystemMessage(loadingMsg, `Navigating to: "${instruction}"...`);
             toolResult = await executeNavigate(instruction, docText);
-            toolSucceeded = true;
+            toolSucceeded = toolResult?.success === true;
 
             // Track successful tool execution for recovery
             toolsExecutedInCurrentRequest.push({
               name: functionCall.name,
               instruction: instruction,
               result: toolResult,
-              success: true
+              success: toolSucceeded
             });
 
-            updateSystemMessage(loadingMsg, `Navigated to: "${instruction}"`);
+            updateSystemMessage(loadingMsg, toolSucceeded
+              ? `Navigated to: "${instruction}"`
+              : `Navigation failed: ${toolResult?.message || 'No target selected.'}`);
           } else if (functionCall.name === "edit_list") {
             const checkpointIndex = await createCheckpoint(true, functionCall.name);
             updateSystemMessage(loadingMsg, `Editing list from P${args.startParagraphIndex} to P${args.endParagraphIndex}...`);

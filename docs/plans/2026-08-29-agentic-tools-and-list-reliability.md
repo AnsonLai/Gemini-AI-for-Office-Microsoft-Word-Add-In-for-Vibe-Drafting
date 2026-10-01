@@ -4,7 +4,7 @@
 
 **Last Updated:** 2026-09-30
 
-**Status:** In progress — contract inventory complete; exact request validation, canonical list capability checks and expanded Word fixtures underway.
+**Status:** In progress — WP1 complete; WP2 canonical list capability checks and WP3 expanded Word verification underway.
 
 **Recommended order:** 2 of 4 August plans.
 
@@ -48,6 +48,8 @@ Evidence: `tests/agentic_list_generation_tests.mjs`, `tests/insert_list_item_lev
 
 ### WP1 — Inventory and align actual tool contracts
 
+**Status: Complete.** Inventory and strict list/table argument validation are covered by production invocation tests. Table schema now declares its canonical nested-array shape; compatibility inputs are normalized without truncation. Missing-key failures and navigation results have explicit success/error fields. Canonical prompt-time redline baselines refuse stale targets atomically; actual Office.js refusal and independent Word reopening pass. Remaining structural-tool freshness/atomicity limits are recorded for WP2 and future library capabilities.
+
 - Trace every mutating tool in `commands/agentic-tools.js` to its mapper, library operation and transport adapter.
 - Record actual names/argument shapes. The previous example `replace_paragraph` mapping was not the implemented localized redline schema; current prompting uses `edit_paragraph` changes with `replacements`.
 - Preserve full `newContent` support and 1-based replacement occurrence semantics.
@@ -74,7 +76,7 @@ Evidence: `tests/agentic_list_generation_tests.mjs`, `tests/insert_list_item_lev
 ## Acceptance
 
 - [x] Localized redline prompting, validation and atomic batch execution implemented.
-- [ ] Actual tool-to-operation mapping/outcome contracts documented and covered.
+- [x] Actual tool-to-operation mapping/outcome contracts documented and covered, with unsupported/native structural paths explicit.
 - [ ] Remaining list command paths use canonical operations with preserved indentation/numbering semantics.
 - [ ] Nested-list Accept All/Reject All and real Word roundtrips pass.
 - [ ] No helper deleted while active callers rely on it.
