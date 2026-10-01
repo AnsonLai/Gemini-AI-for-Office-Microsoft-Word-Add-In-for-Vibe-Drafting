@@ -14,6 +14,8 @@ Use exact `@ansonlai/docx-redline-js@0.8.2` in both consumers. The [September up
 
 Accuracy comes first: target against an immutable source, fail closed on ambiguity, preserve formatting/package parts, and pass canonical operations to the library. Word proxies belong in transport adapters.
 
+**Closure decision (2026-09-30):** The user explicitly requires this plan to remain open until upstream fixes enable full canonical migration. Verified native fallbacks and documentation updates do not close that acceptance criterion. The published package and local library release remain 0.8.2; no later release was available in the registry check for this pass.
+
 ## Completed / inherited work
 
 | Original proposal | Current disposition |
@@ -48,6 +50,8 @@ Evidence: `tests/agentic_list_generation_tests.mjs`, `tests/insert_list_item_lev
 - Final checkpoint includes the verified insertion migration, 44 passing offline suites, successful builds and durable Word evidence. Remaining work is recorded below for resumption.
 - WP3 follow-up: expanded the frozen-source matrix to ten cases, adding bullet root insertion and decimal insertion at continuation/restart anchors. Static packages pass 60 independent Word checks; actual Office.js passes 40 checks across eight production insertion routes and two candidate routes. Export verification is recorded in the execution report.
 - The September upgrade closure was clarified in `1680349`; all of its acceptance criteria remain complete. Current agentic work does not reopen that plan.
+- Package boundaries and performance are complete (`b8f23b9`, `42a62df`). The aggregate now has 49 passing offline suites; that does not certify the remaining native list fidelity gates.
+- Final consumer follow-up is expanding real Word deep-level, alternate-numbering and tracking-off coverage. Documentation consolidation is underway; full canonical migration remains gated on the [separate upstream reports](../library-issues/README.md).
 
 ### WP1 — Inventory and align actual tool contracts
 
