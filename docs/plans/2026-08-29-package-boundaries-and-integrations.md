@@ -4,7 +4,7 @@
 
 **Last Updated:** 2026-09-30
 
-**Status:** MCP facade migration complete; portable consumer boundary and browser-demo migration pending.
+**Status:** In progress — WP1 portable consumer extraction complete; browser document-session migration and cross-host parity verification underway.
 
 **Recommended order:** 3 of 4 August plans.
 
@@ -29,7 +29,18 @@ The previous plan incorrectly placed `executePureOoxmlBatch` in a zero-Office.js
 
 ## Remaining work packages
 
+### Execution record (2026-09-30)
+
+- Completed upgrade/reliability plans moved to `completed/` in `3daf159`; links repaired.
+- WP1 extraction passes 45 offline suites and the development build. `consumer-core.js` separates preparation from Word I/O and preserves existing adapter exports; [validation record](../validation-reports/2026-09-30-package-boundaries-and-integrations.md).
+- Browser baseline failed at startup on an unresolved XML dependency; the import map now targets the published browser bundle.
+- Browser editing is migrating from sequential ZIP/XML writes to one atomic document-facade batch. JSZip remains for preview only.
+- Cross-host semantic parity and real browser open/edit/download/reopen checks are the remaining verification gates. No paid provider calls are required for this migration.
+- Responsibilities and deferred host capabilities are recorded in [consumer package boundaries](../package-boundaries.md).
+
 ### WP1 — Separate portable consumer logic from Word adapters
+
+**Status: Complete.** The explicit `consumer-core.js` entry point exports immutable source/baseline capture, redline and list mapping, argument validation, pure OOXML operation preparation and result handling. `prepareCanonicalBatch` returns ready/no-op/refused/package-error states without claiming a host write. Word adapters retain scope I/O, tracking and confirmed mutation outcomes. Existing named exports remain compatible. Boundary/import/execution tests and existing adapter suites pass.
 
 - Inventory imports/callers before splitting entry points; avoid a blanket export that pulls Word adapters into non-Word consumers.
 - Define a portable entry point for operation mapping, validation and engine result handling without Word globals, host context, filesystem access or browser UI dependencies.
@@ -62,8 +73,8 @@ Whole-document `getFileAsync(Compressed)` → `openDocx` → `insertFileFromBase
 ## Acceptance
 
 - [x] MCP uses document sessions without direct JSZip/xmldom editing services.
-- [ ] Portable consumer entry point executes without Word/UI globals.
-- [ ] Word I/O stays in its adapter, with callers migrated safely.
+- [x] Portable consumer entry point executes without Word/UI globals.
+- [x] Word I/O stays in its adapter, with callers migrated safely.
 - [ ] Browser demo uses supported document APIs for editing and passes save/reopen checks.
 - [ ] Preview dependencies and cross-host capability differences documented.
 
