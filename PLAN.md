@@ -1,4 +1,4 @@
-# Project Plan: Documentation Consolidation
+# Historical Plan: Documentation Consolidation
 
 > Role: **Atomic task execution plan** using XML-structured task blocks and explicit verification steps.
 
@@ -22,9 +22,9 @@
 </task>
 ```
 
-This plan tracks the atomic tasks for transitioning to the GSD documentation structure.
+This plan records the one-time transition to the GSD documentation structure, completed on 2026-02-13. It is not the current product roadmap. See [ROADMAP.md](ROADMAP.md), [STATE.md](STATE.md), and the [dated execution plans](docs/plans/) for current project status.
 
-## Active Planning Lock: [2026-02-13]
+## Completed Planning Record: [2026-02-13]
 
 ### [DOCUMENTATION] [Cleaning up legacy documentation]
 

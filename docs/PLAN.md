@@ -1,9 +1,20 @@
-# Robustness & Reliability Plan — Phase 2
+# Historical Plan: Robustness & Reliability — Phase 2
 
 > **Migrated on 2026-08-29:** The open work in this document is consolidated
 > into [`docs/plans/completed/2026-08-29-reliability-and-quality-gates.md`](plans/completed/2026-08-29-reliability-and-quality-gates.md).
 > This file is retained for historical detail; use the dated plan as the
 > current source of truth.
+
+> **Current status (2026-09-30):** The original WP status table and execution
+> instructions below are a historical 2026-07 draft, not the live task queue.
+> The September package upgrade, reliability, package boundaries, and OOXML
+> performance plans are complete. The [agentic tools and list reliability
+> plan](plans/2026-08-29-agentic-tools-and-list-reliability.md) remains open:
+> the supported insertion subset is verified, but full canonical list
+> migration still depends on separately tracked upstream capabilities and
+> fidelity fixes. Current consumers pin exact
+> `@ansonlai/docx-redline-js@0.8.2`; see [ROADMAP.md](../ROADMAP.md) and
+> [STATE.md](../STATE.md) for the current posture.
 
 > **Audience note:** this plan is written to be executed by a smaller/cheaper model,
 > one work package at a time. It is deliberately prescriptive: exact file paths,
@@ -35,7 +46,7 @@ Phase 2 attacks the reasons *why* incidents keep happening despite those defense
    verification** ("not verified in real Word" recurs across every plan).
 7. **Entropy is unchecked** — versions, docs, and lint drift with no gate.
 
-## Status (created 2026-07-05; expanded same day for smaller-model execution)
+## Original Draft Status (created 2026-07-05; not current completion status)
 
 | WP | Title | Status |
 |----|-------|--------|
@@ -51,7 +62,7 @@ Phase 2 attacks the reasons *why* incidents keep happening despite those defense
 When you finish a WP, change its row to ✅ Done and add a short indented note
 under this table recording what was actually built and any deviations.
 
-## Global rules for the implementing model
+## Original Execution Rules (Historical Draft)
 
 **Read this section before every WP. These rules override your defaults.**
 

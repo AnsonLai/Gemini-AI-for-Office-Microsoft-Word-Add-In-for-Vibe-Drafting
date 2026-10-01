@@ -1,58 +1,75 @@
-# Project Overview & Architecture Context
+# Project Specification
 
-## GSD Documentation Contract
+## Purpose
 
-| File | Role |
-|------|------|
-| `SPEC.md` | Project vision and operating principles (**always loaded**). |
-| `ARCHITECTURE.md` | System understanding and technical design map. |
-| `ROADMAP.md` | Direction of travel: what is done, in progress, and next. |
-| `STATE.md` | Durable memory across sessions: decisions, blockers, and current position. |
-| `PLAN.md` | Atomic execution plan with XML-structured task blocks and verification steps. |
-| `SUMMARY.md` | Session outcome log: what happened and what changed. |
+Gemini AI for Office is a Microsoft Word add-in that lets a user ask Gemini to
+review a document and apply edits through Word. The repository also contains a
+browser document demo and a local MCP server for DOCX workflows.
 
-## Project Purpose
-This is a **Microsoft Word add-in** that integrates **Gemini AI**. It provides Gemini with **agentic tools** to directly edit and markup the document within Word.
+## Runtime boundaries
 
-## Core Architectural Principle: Decoupling & Portability
-The architecture is designed to be **host-agnostic**. The core reconciliation engine is decoupled from any specific host (like Word), enabling a multi-project ecosystem:
-- **`core/`**: The host-independent reconciliation implementation (currently in `src/taskpane/modules/reconciliation`).
-- **`word-addin/`**: The Microsoft Word-specific implementation (currently in `src/taskpane`).
-- **`browser-demo/`**: A standalone web demonstration.
-- **`mcp/`**: Model Context Protocol servers for document automation.
+The consumers pin `@ansonlai/docx-redline-js@0.8.2` exactly. The package owns
+OOXML reconciliation and its public document facade. The add-in also has a
+portable consumer layer at
+`src/taskpane/modules/docx-redline-js-integration/consumer-core.js` for source
+inspection, canonical batch preparation and package construction. That module
+has no Office.js, UI or filesystem dependency. The Word adapter in the same
+directory owns Word proxy reads, insertions, synchronization and tracking
+state. Browser and MCP runtimes use the package facade directly for their
+document lifecycles.
 
-> [!NOTE]
-> **Splitting Vision**: While these currently reside in a single repository for ease of cross-module development, the long-term goal is to split these into independent projects once the core engine reaches maturity.
-The engine can be used in Node.js or browsers (using `jsdom` or `xmldom`) without Office.js:
-```javascript
-import { applyRedlineToOxml } from './modules/reconciliation/standalone.js';
+This is a shared repository, not a claim that every consumer uses one identical
+host adapter. Keep host I/O in the consumer that owns it and reusable OOXML
+behavior in the package or the tested portable boundary.
 
-const result = await applyRedlineToOxml(documentXml, originalText, modifiedText, {
-  author: 'AI Assistant',
-  generateRedlines: true
-});
-// result.oxml contains the updated document XML
-```
+## Editing and safety contracts
 
-## Implementation Guidelines
-- **Pure OOXML Over Word JS API**: To maintain portability, always prefer a **pure OOXML implementation** (modifying the XML DOM) for document manipulation.
-- **Thin Runtime Layers**: Host-specific logic (Word add-in UI, browser demo, MCP server) must stay thin and focus purely on **orchestration, I/O, and environment normalization**. No document-processing logic should live here.
-- **Logic Inward**: All new behavior (e.g., list handling, table diffing, property extraction) MUST be implemented in shared reconciliation modules first. If logic starts in `agentic-tools.js` or `demo.js`, it is **migration debt** that must be moved inward to the core engine.
-- **Future Goal: Complete Migration Inward**: The long-term technical debt reduction strategy is to move all document-shaping logic (like custom markdown preprocessing or complex structural heuristics currently in `agentic-tools.js`) into the reconciliation engine. This ensures that the Browser Demo and MCP Server eventually reach 100% feature parity with the Word Add-in.
-- **Avoid Word JS API**: Strictly avoid using the Word JS API (`Range.text = ...`, `Paragraph.insertHtml(...)`) unless there is no possible OOXML equivalent for the required UI/selection interaction.
-- **Consult User First**: If a solution seems to require the Word JS API, **you must consult with the user first** with a justification for why OOXML cannot be used.
+- Resolve edits against inspected source text and stable paragraph identities
+  where available. Refuse stale or ambiguous targets before content writes.
+- Prepare migrated Word operation batches from one source snapshot and perform
+  one insertion after successful preparation. An empty or refused batch has no
+  insertion.
+- Preserve engine receipts and distinguish preparation errors from host
+  outcomes. A failed synchronization after a write attempt is indeterminate;
+  do not replay a document mutation when the host may have applied it.
+- Browser and MCP batches use the public facade's atomic operation contract.
+  MCP save is explicit; sessions remain in memory until saved or closed.
+- Word-only behavior such as selection, tracking toggles and checkpoints stays
+  in the Word host layer.
 
-## Core Entry Points & Responsibilities
+## Current list migration limits
 
-| File | Responsibility | Host Environment |
-|------|----------------|------------------|
-| **`standalone.js`** | Public facade for the **Reconciliation Engine**. Handles normalization of XML providers and provides structural list fallbacks. | **Any** (Browser, Node, MCP) |
-| **`agentic-tools.js`** | Orchestrator for the **Word Add-in**. Handles Word-specific state, batching, and coordination between AI results and the document. | **Word Only** (Office.js) |
+Some list operations still use established native Word paths. Canonical
+`insert_list_item` routing is limited to the verified active bullet/decimal
+subset and documented preconditions. Other levels/styles, tracking-off requests
+and unsupported anchors continue through native capability paths; their tests
+and live validation evidence must be described separately.
 
-> [!IMPORTANT]
-> **`agentic-tools.js` should remains thin**. Its primary job is to parse AI JSON, loop through paragraphs, and call the engine. Any logic that touches the *content* of a paragraph (how it is edited, how lists are formed) belongs in the engine via `standalone.js`.
+The broader canonical list migration remains open. With package 0.8.2, the
+separate reports record Reject All defects for plain-anchor insertion and list
+range replacement, a missing canonical mapping for some header/list-format
+changes, and historical numbering that can be misread as active numbering.
+These constraints and their evidence are tracked in the [library follow-ups](docs/library-issues/README.md)
+and the [active agentic list plan](docs/plans/2026-08-29-agentic-tools-and-list-reliability.md).
+Do not infer complete canonical migration from passing native fallback checks.
 
-## Essential Documentation
-- [ARCHITECTURE.md](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/ARCHITECTURE.md): Deep dive into system components and the reconciliation engine.
-- [ROADMAP.md](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/ROADMAP.md): Migration status and future goals.
-- [STATE.md](file:///c:/Users/Phara/Desktop/Projects/AIWordPlugin/AIWordPlugin/STATE.md): Current technical posture and architectural decisions.
+## Provider and startup behavior
+
+Gemini HTTP transport is centralized in `src/taskpane/modules/chat/gemini-client.js`.
+Transient network/timeout and selected server/rate-limit responses receive a
+bounded retry policy; authorization, invalid-request and malformed-response
+failures are not retried. Transport retry never replays a document tool.
+
+Editing support is loaded on first use in the taskpane. Concurrent first loads
+share initialization; a failed import can be retried. Platform setup precedes
+Word source-baseline parsing, and tool dependencies initialize once after a
+successful load.
+
+## Verification
+
+Offline suites, real desktop Word checks, actual Office.js transport checks,
+browser session checks, and observational performance measurements are separate
+evidence. See [scripts/README.md](scripts/README.md) for commands and
+[ARCHITECTURE.md](ARCHITECTURE.md) for component responsibilities. Current
+validation limits and known library behavior are recorded in dated reports;
+none of those results guarantees behavior for every Word build or DOCX.

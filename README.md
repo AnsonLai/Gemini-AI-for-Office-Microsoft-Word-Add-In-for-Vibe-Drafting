@@ -25,7 +25,9 @@ Connect your personal Google AI Studio key directly. This ensures complete priva
 Chat naturally with your document. Ask for summaries, clarifications, or rewrites using the latest Gemini models from Google.
 
 ### Direct Document Editing
-The AI doesn't just suggest changes; it applies them. It rewrites sections with full Track Changes (redline) support, so you always stay in control. You can accept what you like and reject the rest.
+The AI can apply document edits as tracked changes for review in Word. Redline
+behavior depends on the selected tool and supported document shape; see the
+validation notes below for the current list-operation limits.
 
 ### Automated "Glance" Checks
 Set up custom criteria—like "Check for Grammar" or "Verify Factual Accuracy"—and get an instant analysis every time you open a document.
@@ -202,7 +204,9 @@ AIWordPlugin/
 │   │       ├── glance/                # "Glance" automated checks
 │   │       ├── ui/                    # UI helpers
 │   │       ├── utils/                 # Markdown/font helpers
-│   │       └── docx-redline-js-integration/  # Word-API bridge to @ansonlai/docx-redline-js
+│   │       └── docx-redline-js-integration/
+│   │           ├── consumer-core.js    # Portable preparation and package helpers
+│   │           └── word-operation-runner.js  # Word I/O and atomic batch adapter
 │   └── commands/
 │       ├── commands.html
 │       └── commands.js
@@ -219,7 +223,7 @@ AIWordPlugin/
 └── README.md
 ```
 
-> The document reconciliation engine lives in the external [`@ansonlai/docx-redline-js`](https://www.npmjs.com/package/@ansonlai/docx-redline-js) package; the add-in talks to it through the `docx-redline-js-integration/` bridge. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full system map.
+> The add-in and MCP pin [`@ansonlai/docx-redline-js@0.8.2`](https://www.npmjs.com/package/@ansonlai/docx-redline-js). The Word consumer has a portable preparation core and a separate Office.js adapter; the browser and MCP consumers use the public package facade. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the system map and contracts.
 
 ## Development
 
@@ -304,11 +308,18 @@ node scripts/run-officejs-validation.mjs --fixture-manifest .cache/reliability/a
 
 The last command opens a disposable Word validation document using existing local development certificates. After the collector reports success, independently verify its exports using `-FixtureManifest .cache/agentic-tools/list-officejs/officejs-fixtures.json`; stop the collector and remove its temporary registration with `node scripts/run-officejs-validation.mjs --artifacts-dir .cache/agentic-tools/list-officejs --cleanup`.
 
-The exporter also writes `known-defects-manifest.json`. That diagnostic manifest intentionally fails Reject All fidelity for the [plain insertion](docs/library-issues/2026-09-30-list-insertion-rejection.md) and [list range](docs/library-issues/2026-09-30-list-range-rejection.md) library issues until an upstream release fixes them. Current evidence and migration limits are in the [execution report](docs/validation-reports/2026-09-30-agentic-tools-and-list-reliability.md).
+The exporter also writes `known-defects-manifest.json`. Its Reject All failures for [plain-anchor insertion](docs/library-issues/2026-09-30-list-insertion-rejection.md) and [list-range replacement](docs/library-issues/2026-09-30-list-range-rejection.md) are separate known-library diagnostics, not passing cases. Canonical list migration remains open while these defects and capability gaps are unresolved. Deeper-level, alternate numbering-style and tracking-off cases have production invocation coverage; their live Word fidelity is still being validated. See the [execution report](docs/validation-reports/2026-09-30-agentic-tools-and-list-reliability.md) and [active plan](docs/plans/2026-08-29-agentic-tools-and-list-reliability.md) for current evidence. Passing native fallback checks do not complete the canonical migration.
 
 ### Portable preparation and browser document sessions
 
 Non-Word consumers import `src/taskpane/modules/docx-redline-js-integration/consumer-core.js` for immutable-source mapping, validation and OOXML preparation. The integration `index.js` retains Word exports for compatibility. Word I/O and tracking remain in the host adapters; [package responsibilities](docs/package-boundaries.md) describe the separation.
+
+The taskpane loads editing support on first use, shares concurrent first loads,
+and can retry after an import failure. Platform setup runs before baseline
+capture, and agentic dependencies initialize once after successful loading.
+Gemini HTTP transport is shared and applies bounded retries only to transient
+transport, rate-limit and selected server failures; it never replays document
+tools. See [ARCHITECTURE.md](ARCHITECTURE.md) for the host outcome contract.
 
 The [browser demo](browser-demo/README.md) opens, edits and saves using the public document facade. Its preview retains JSZip. Serve the repository locally and open `scripts/browser-document-validation.html` for deterministic real-browser session checks without a model request.
 

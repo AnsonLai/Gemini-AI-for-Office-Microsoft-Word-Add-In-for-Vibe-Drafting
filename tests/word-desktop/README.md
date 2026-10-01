@@ -1,5 +1,22 @@
 # Word Desktop List Inspector
 
+## Current acceptance harness
+
+The September upgrade and agentic list gates use the bounded worker in
+`scripts/verify-wp6-word.ps1`, with frozen fixture manifests, exact source and
+accepted/rejected expectations, and save/reopen checks in Word desktop. It
+checks rendered list levels, labels, values and continuation identity in
+addition to text and untouched formatting. Office.js transport is exercised
+separately by `scripts/run-officejs-validation.mjs`; its exported packages
+then pass through the independent Word worker. PDF rendering is optional.
+
+See the [agentic execution report](../../docs/validation-reports/2026-09-30-agentic-tools-and-list-reliability.md)
+for commands and durable evidence, and the [active plan](../../docs/plans/2026-08-29-agentic-tools-and-list-reliability.md)
+for outstanding library dependencies. The older inspector and regression
+scripts below remain useful diagnostics; they do not replace these acceptance
+gates. Use the bounded worker for automated runs so cleanup targets only its
+own Word process.
+
 `docxjs` preview is useful for quick feedback, but Microsoft Word desktop is the source of truth for list interpretation.
 
 For quick package-level XML inspection before/after running Word COM checks, use:

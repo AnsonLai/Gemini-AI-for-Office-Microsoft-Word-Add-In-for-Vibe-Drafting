@@ -1,131 +1,158 @@
-# Verification commands
+# Verification and profiling commands
 
-`npm test` runs each consumer JavaScript suite in its own Node process, including
-the MCP stdio workflow and the golden guardrail with `--verify`. Suites are
-discovered recursively under `tests/` and `mcp/docx-server/tests/`; new suites
-automatically enter the offline lane. Exit failures, timeouts, and known printed
-failure markers make the command fail. Output is ordered by filename.
+## Offline tests
 
-`node scripts/run-all-tests.mjs --list` shows the inventory without executing it.
-`DOCX_TEST_CONCURRENCY` controls parallel processes (default 4) and
-`DOCX_TEST_TIMEOUT` controls the per-suite timeout in milliseconds (default
-180000). Every excluded entrypoint and suite-internal skip is reported. The
-historical v0.5.4 suite runs its consumer guards but reports its version-specific
-package behavior as skipped when testing v0.8.2.
+`npm test` runs each consumer JavaScript suite in its own Node process,
+including the MCP stdio workflow and the golden guardrail with `--verify`.
+Suites are discovered recursively under `tests/` and
+`mcp/docx-server/tests/`; new suites enter the offline lane automatically.
+Failures, timeouts and known printed failure markers fail the command. Use
+`node scripts/run-all-tests.mjs --list` to inspect the inventory.
 
-The offline lane explicitly excludes live model/API evaluation, Word Desktop
-fixture generation, XML provider setup, and observational performance scripts.
-Passing it does not certify the native host. `npm run test:word` runs the separate
-live Word Desktop lane on Windows with Word installed. It checks no-repair
-opening, Word Accept All/Reject All, comment-thread identities, existing footer
-text, formatting, tab stops and section layout. Two insertion cases read real
-`Content.WordOpenXML`, replay exact operations through the production add-in
-bridge, insert with native `Range.InsertXML`, save, reopen and check revisions.
-This exercises real desktop Word and the production bridge, but COM transport
-does not certify the Office.js `insertOoxml` call itself.
-It has a 120-second timeout, records the stalled call and partial results, and
-stops only a Word process newly created by its worker with a matching creation
-time. `npm run test:word -- -SkipNativeInsert` runs only the differential lane.
-PDF export is optional (`-Render`) and is not an upgrade gate. Its success would
-still require visual inspection. `-SkipRender` remains accepted for older commands;
-rendering is disabled by default. `-ArtifactsDir .cache/wp6/word-run` selects an
-output directory; `-TimeoutSeconds 180` changes the bounded run time. A timeout
-fails the requested lane.
+`DOCX_TEST_CONCURRENCY` sets parallel processes (default 4), and
+`DOCX_TEST_TIMEOUT` sets each suite timeout in milliseconds (default 180000).
+Excluded entrypoints and suite-internal skips are reported. The historical
+v0.5.4 suite runs its consumer guards but skips version-specific behavior on
+the current 0.8.2 package.
 
-`-CaseName word-addin-plain-replacement` selects one case; `-VisibleWord` exposes
-the disposable Word window for diagnosis. The four boundary regressions (localized
-and full-paragraph forms of both defects) are mandatory in the offline and live
-Word lanes with v0.8.2. `-IncludeKnownDefects` remains accepted for compatibility;
-there are no longer excluded defect cases. The original defects are tracked as
-fixed library issues
-[#3](https://github.com/AnsonLai/docx-redline-js/issues/3) and
-[#4](https://github.com/AnsonLai/docx-redline-js/issues/4). A portable reproducer
-and issue drafts live under `docs/library-issues/`. No library workaround is
-applied by the host tests.
+The offline lane excludes live provider/model evaluation, desktop Word fixture
+generation, XML provider setup and observational performance scripts. Passing
+it does not certify native Word behavior.
 
-Golden XML can be exported for review with
-`node tests/phase4/golden-guardrail.mjs --export-dir .cache/wp6/golden-review --export-only`.
-`--verify` compares without rewriting tracked latest output. Update hashes with
-`--update` only after reviewing raw differences and their provenance.
+## Desktop Word lane
 
-`npm run benchmark:ooxml` observes independent localized tracked replacements
-in 100- and 1,000-paragraph legal-style documents, with 10 operations per batch.
-It reports raw samples, median and p95 after 3 warmups and 15 measured iterations.
-The core batch starts from XML; separate measurements cover DOCX open, serialization
-of an edited document, and the combined open/apply/save lifecycle. Their timings
-are separate observations and should not be subtracted or summed into an estimate.
-Fixture construction, Word calls, disk I/O, model calls, and transport are excluded.
-The correctness assertions run inside the measured actions.
+On Windows with desktop Word installed, run:
 
-Use `DOCX_BENCH_PARAGRAPHS`, `DOCX_BENCH_OPERATIONS`, `DOCX_BENCH_WARMUPS`, and
-`DOCX_BENCH_ITERATIONS` to reproduce a workload. All must be positive integers;
-operations must not exceed paragraphs. Save the full report with
-`npm run benchmark:ooxml -- --output=<existing-directory>/report.json`.
-`--require-sub100ms` optionally fails when any workload's core batch median
-reaches 100 ms. The ordinary benchmark is observational: the 100 ms goal is not
-a claim about every document size or Word round-trip latency.
+```powershell
+npm run test:word
+```
 
-This lane structure follows the upstream project's testing methodology:
-exact XML and return contracts, independent Word accept/reject expectations,
-and measured performance provide different evidence. Visual review remains a
-separate judgment even when Word opens and exports a document successfully.
+This lane opens fixtures without repair, exercises Word Accept All/Reject All,
+comment-thread identities, existing footer text, formatting, tab stops and
+section layout. Two insertion checks read real `Content.WordOpenXML`, replay
+the exact operations through the production add-in bridge, insert with native
+`Range.InsertXML`, save, reopen and inspect revisions. This tests desktop Word
+and the production bridge; COM transport does not certify Office.js
+`insertOoxml` itself. PDF export is optional (`-Render`) and is not an upgrade
+gate; successful export still requires visual inspection.
+
+The runner has a bounded timeout and records stalled calls and partial results.
+It stops only a Word process newly created by its worker with a matching
+creation time. Useful options include `-SkipNativeInsert`, `-CaseName`,
+`-VisibleWord`, `-ArtifactsDir` and `-TimeoutSeconds`; see the script help or
+the active validation report for a reproducible invocation. The known list
+Reject All defects have separate diagnostic cases and reports; they must not be
+counted as passing fidelity cases.
+
+Golden XML may be exported for review:
+
+```powershell
+node tests/phase4/golden-guardrail.mjs --export-dir .cache/wp6/golden-review --export-only
+node tests/phase4/golden-guardrail.mjs --verify
+```
+
+`--verify` compares without rewriting tracked output. Use `--update` only after
+reviewing raw differences and their provenance.
+
+## OOXML benchmark
+
+`npm run benchmark:ooxml` observes six deterministic workloads: no-op, ten
+localized edits, full-paragraph rewrite, localized text in a Word-authored
+nested list, localized text in an existing table, and a comment in a
+Word-authored threaded-comment document. Paragraph fixture size defaults to
+100; operation count defaults to 10. The multi-edit fixture has at least as
+many paragraphs as requested operations and caps its size at 1,000.
+
+The benchmark uses two warmups and ten measured samples per phase by default.
+It reports raw samples, median and nearest-rank p95 with machine, runtime,
+package and fixture metadata. Assertions run after each timed action. Mapping,
+baseline capture, package open/inspection, browser prompt projection, core
+application, package application, serialization and open/apply/save are timed
+as separate observations. Their durations are not additive. Fixture creation,
+Word calls, disk I/O, model calls and transport are excluded. Heap deltas are
+not peak-memory measurements. There is no default pass/fail timing threshold.
+
+Override workloads with `DOCX_BENCH_PARAGRAPHS`,
+`DOCX_BENCH_OPERATIONS`, `DOCX_BENCH_WARMUPS` (zero allowed) and
+`DOCX_BENCH_ITERATIONS` (positive integers). Save a full report to an existing
+directory:
+
+```powershell
+npm run benchmark:ooxml -- --output=.cache/ooxml-performance/report.json
+```
+
+Create the directory first. Compare runs only when workload and environment
+match. The measurements do not establish Word round-trip latency or a universal
+performance guarantee.
 
 ## Actual Office.js transport lane
 
-Use desktop Word on Windows and existing trusted development certificates.
-The collector does not install certificates or change trust settings. Close any
-previous collector before starting a new run; port 3000 must be available.
+This development-only lane requires desktop Word on Windows and already trusted
+development certificates. It does not install certificates or change trust
+settings. The collector uses a separate validation add-in identity and local
+loopback evidence server; it makes no provider calls. Port 3000 must be
+available.
 
 ```powershell
 npx webpack --mode development --env WORD_HOST_VALIDATION=1
 node scripts/run-officejs-validation.mjs --launch
 ```
 
-The second command registers a separate local validation add-in and launches a
-disposable Word document. It uses no API key and makes no model calls. The
-validation entry point is absent from ordinary development/production builds.
-The page seeds synthetic/Word-authored fixtures, forwards calls to genuine Word
-proxies through the production batch bridge, counts reads/inserts, checks an
-unchanged paragraph and an empty batch, and refuses an invalid target without
-insertion. It exports the resulting DOCX bytes through Office's compressed-file
-API to a collector bound to 127.0.0.1. See [Microsoft's whole-document API guide](https://learn.microsoft.com/en-us/office/dev/add-ins/develop/get-the-whole-document-from-an-add-in-for-powerpoint-or-word?tabs=powerpoint).
-Seeding/export are harness operations; the production edit path remains Flat-OPC.
+The validation entry is absent from ordinary builds. It forwards calls to real
+Word proxies through the production atomic batch bridge, checks reads/writes,
+no-op and refusal behavior, and exports DOCX bytes using Office's compressed
+file API. Seeding fixtures and exporting bytes are harness operations; the
+production edit path is `getOoxml` → portable preparation → `insertOoxml`.
+Inspect `.cache/reliability/officejs/officejs-report.json`; status must be
+`passed` and timestamps current. Collector checks alone do not prove Word's
+accepted/rejected result.
 
-Inspect `.cache/reliability/officejs/officejs-report.json`: it must have status
-`passed` and current timestamps. A pending/failed report is not completion. The
-collector accepts one claim per run so reopened exported packages do not rerun
-edits. It expires after ten minutes; stop it with Ctrl+C after verification.
-
-Then independently reopen and resolve the actual Office.js output in Word:
+Reopen the collector's export manifest through the independent desktop Word
+oracle, then clean up the temporary registration:
 
 ```powershell
 npm run test:word -- -FixtureManifest .cache/reliability/officejs/officejs-fixtures.json -SkipNativeInsert -ArtifactsDir .cache/reliability/officejs-oracle -TimeoutSeconds 120
 node scripts/run-officejs-validation.mjs --cleanup
 ```
 
-The external-manifest option reuses the supervised Word oracle without generating
-replacement fixtures. It checks source, actual Office.js tracked/accepted/rejected
-views and engine-resolved reference packages. The companion oracle report must
-also pass; the collector alone cannot certify Word's accepted/rejected result.
-Cleanup removes only this validation add-in's registration. Test documents and
-reports remain available for review; close the disposable document when finished.
+The oracle inspects the source, actual tracked/accepted/rejected views and
+engine-resolved references independently. Keep mocked invocation tests,
+Office.js proxy checks and the desktop Word oracle distinct in summaries.
+
+## Taskpane startup profile
+
+Startup profiling is enabled only in a dedicated build and is not part of
+ordinary production behavior:
+
+```powershell
+npx webpack --mode production --env TASKPANE_STARTUP_PROFILE=1 --env urlProd=https://localhost:3000/
+node scripts/run-officejs-validation.mjs --startup --artifacts-dir .cache/performance/startup --launch
+```
+
+The profile records module evaluation, Office readiness and usable UI to the
+local collector. It suppresses automatic Glance calls only in that profile
+build. Ordinary builds do not post startup reports. Use `--dist-dir` for an
+isolated build output when comparing before and after; stop the collector and
+remove its validation registration with `--cleanup` after collection. See
+[OOXML performance methodology](../docs/ooxml-performance.md) for phase
+definitions and reported sample limits.
 
 ## Provider and change verification
 
-`node tests/gemini_client_tests.mjs` uses deterministic stub responses to verify
-bounded transient retries, non-retryable HTTP failures, cancellation, timeout
-and cleanup. It is included in `npm test` and consumes no provider credits.
-All provider calls share `src/taskpane/modules/chat/gemini-client.js`; transport
-retries do not run document tools.
+`node tests/gemini_client_tests.mjs` verifies bounded transient retries,
+non-retryable HTTP failures, cancellation, timeout and cleanup using stubs. It
+is offline and consumes no provider credits. All provider calls share
+`src/taskpane/modules/chat/gemini-client.js`; transport retries do not rerun
+document tools.
 
-The usage comment in `tests/evals/run-evals.mjs` describes the optional live model
-lane: `node tests/evals/run-evals.mjs --model <configured-model> --case <case-name>`,
-with `GEMINI_API_KEY` supplied through the environment.
-Run it with explicitly configured credentials/model when evaluating model output;
-it incurs provider usage and is not part of the offline correctness gate.
-Do not print credentials or raw provider bodies as diagnostic evidence.
+Optional evals in `tests/evals/run-evals.mjs` call a configured live model and
+incur provider usage:
 
-For consumer changes, run `npm test`, `npm run build:dev` and `npm run build`.
-For transport/package/revision changes, also run the relevant live Word lane.
-Run the actual Office.js lane when Word transport or host outcome handling changes.
-Benchmarks remain observational; PDF export remains optional.
+```powershell
+$env:GEMINI_API_KEY = '...'
+node tests/evals/run-evals.mjs --model <configured-model> --case <case-name>
+```
+
+For consumer changes run `npm test`, `npm run build:dev` and `npm run build`.
+For host transport, package or revision behavior, run the relevant Word lane.
+Performance is observational; PDF export is optional.

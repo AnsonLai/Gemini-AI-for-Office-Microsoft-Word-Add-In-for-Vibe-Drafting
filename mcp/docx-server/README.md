@@ -1,122 +1,93 @@
-# Reconciliation Local MCP (`docx`)
+# Local DOCX MCP server
 
-Local MCP server for creating and editing `.docx` files with `@ansonlai/docx-redline-js@0.8.2`.
+This stdio MCP server creates and edits `.docx` files through the public
+`@ansonlai/docx-redline-js@0.8.2` facade. It runs in Node and does not use Word
+JS APIs, a Word selection or a live Office document.
 
-This server is intended for local automation and testing without Word JS APIs.
+## Tools
 
-## What It Supports
+- `docx_new`: create a session from the bundled blank DOCX; an optional title is
+  inserted without tracked changes.
+- `docx_open`: load a DOCX from a path relative to the server process.
+- `docx_list_paragraphs`: inspect a page of paragraphs for targeting.
+- `docx_edit_paragraph`: replace one inspected paragraph by its returned id.
+- `docx_apply_operations`: submit an atomic operation batch.
+- `docx_add_comment`: add a comment anchored to text in a paragraph.
+- `docx_save_as`: explicitly serialize a session and write it to disk.
+- `docx_close`: release the in-memory session.
 
-- `docx_new`: create a minimal valid `.docx` session
-- `docx_open`: open an existing `.docx` file into a session
-- `docx_list_paragraphs`: inspect paragraph ids + text for targeting
-- `docx_edit_paragraph`: edit one paragraph via `doc.applyOperations()`
-- `docx_apply_operations`: apply an atomic batch of package operations
-- `docx_add_comment`: add OOXML comments anchored to text
-- `docx_save_as`: write session to disk
-- `docx_close`: close and release session memory
+The server stores sessions in memory. Opening or editing a session does not
+change its source file; persist the current state with `docx_save_as`. Paragraph
+inspection returns a one-based paragraph `index` and an `id`: the package
+`paraId` when available, otherwise `idx:<index>`. Listing uses a zero-based
+`start` offset and a `limit` from 1 to 500 (default 50). Refresh ids after an
+edit because paragraph identities or indexes can change.
 
-## Document Lifecycle
+## Document lifecycle and atomicity
 
-Sessions hold a `DocxDocument` from `openDocx`. The server uses `doc.inspect()` to list and resolve paragraph handles, `doc.applyOperations()` for edits and comments, and `doc.toUint8Array()` when saving. A small blank template supplies `docx_new`; its optional title is inserted without tracked changes. The package manages ZIP, comments, numbering, relationships, and content types.
+The service uses `openDocx`, `doc.inspect()`, `doc.applyOperations()` and
+`doc.toUint8Array()`. `docx_new` uses the bundled blank template. The package
+manages ZIP, comments, numbering, relationships and content types. A failed
+atomic batch does not replace the session document; structured engine error
+codes are returned to the MCP client.
 
-A failed atomic batch leaves the session document unchanged. Structured engine error codes are returned to the MCP client.
+## Install and run
 
-## Install
+From the repository root:
 
-From repository root:
-
-```bash
-cd mcp/docx-server
-npm install
-```
-
-Or:
-
-```bash
+```powershell
 npm run mcp:docx:install
-```
-
-## Run
-
-```bash
-npm start
-```
-
-The server uses stdio transport (for MCP clients).
-
-From repository root:
-
-```bash
 npm run mcp:docx
 ```
 
-## Claude Code MCP Config Example
+Or install and run directly:
 
-Adjust the path for your machine:
+```powershell
+cd mcp/docx-server
+npm install
+npm start
+```
+
+Configure an MCP client with the absolute path to `mcp/docx-server/src/server.mjs`,
+for example:
 
 ```json
 {
   "mcpServers": {
     "docx": {
       "command": "node",
-      "args": [
-        "[root directory]/mcp/docx-server/src/server.mjs"
-      ]
+      "args": ["/absolute/path/to/AIWordPlugin/mcp/docx-server/src/server.mjs"]
     }
   }
 }
 ```
 
-## Typical Workflow
+## Typical workflow
 
-1. Create or open a session: `docx_new` or `docx_open`
-2. Discover targets: `docx_list_paragraphs`
-3. Edit by id: `docx_edit_paragraph`, or submit a batch with `docx_apply_operations`
-4. Optionally annotate: `docx_add_comment`
-5. Persist: `docx_save_as`
-6. Cleanup: `docx_close`
+1. Create or open a session.
+2. List paragraphs and target an item using its returned id.
+3. Edit one paragraph, or submit an atomic operations batch; optionally add a
+   comment.
+4. Save explicitly with `docx_save_as`.
+5. Close the session when finished.
 
-## Redline Behavior
+`generateRedlines` defaults to `true` for create/open sessions and can be
+overridden on edit/batch calls. Tracked text edits use OOXML revision wrappers;
+`generateRedlines=false` rewrites content without adding those wrappers. This
+is package-level DOCX behavior and is not a claim about Word's live Accept All
+or Reject All fidelity.
 
-Session default:
-- `generateRedlines` on `docx_new` / `docx_open` (default `true`)
+## Constraints
 
-Per-call override:
-- `docx_edit_paragraph.generateRedlines` and `docx_apply_operations.generateRedlines`
-
-When `generateRedlines=true`:
-- Text edits are written with OOXML revisions (`w:ins`/`w:del`)
-- Output is saved as tracked changes in the document package
-
-When `generateRedlines=false`:
-- Content is rewritten without revision wrappers
-
-## Tool Notes
-
-### `docx_edit_paragraph`
-
-Input:
-- `paragraphId` must come from `docx_list_paragraphs`
-- `newText` accepts plain text and markdown hints supported by reconciliation
-
-Output fields include:
-- `changed`
-- `generateRedlines`
-- `sourceType` (`package`)
-- `updatedText`
-
-The package updates numbering definitions and related metadata when needed.
-
-### `docx_add_comment`
-
-Anchors comments by `textToFind` inside the target paragraph. The package updates comment parts and relationships.
-
-## Current Constraints
-
-- `docx_edit_paragraph` edits one paragraph handle. Use `docx_apply_operations` for multi-operation batches.
-- No Word JS features (selection or native Word APIs).
+- `docx_edit_paragraph` edits one paragraph handle; use `docx_apply_operations`
+  for a multi-operation batch.
+- This server does not provide Word selection, native Word commands or
+  Office.js transport.
+- Refresh paragraph ids after each edit and save when you need durable output.
 
 ## Troubleshooting
 
-- "Unknown paragraph id": refresh ids using `docx_list_paragraphs` after edits.
-- Save output frequently with `docx_save_as` during iterative edits.
+- `TARGET_NOT_FOUND` / “Unknown paragraph id”: call `docx_list_paragraphs`
+  again and use a current id.
+- Use `docx_save_as` to write the current in-memory session; it is not
+  auto-saved.

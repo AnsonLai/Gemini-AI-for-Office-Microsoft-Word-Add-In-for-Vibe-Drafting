@@ -7,7 +7,7 @@ This inventory records the tool declarations and execution paths currently wired
 - The enhanced context enumerates `context.document.body.paragraphs` in document order and labels them `[P1]`, `[P2]`, and so on. These are 1-based indexes into Word's body paragraph collection, not visual line numbers. Paragraphs inside tables also receive a `P` index; their metadata includes `T:<row>,<cell>`.
 - Other context metadata includes the paragraph style, list kind and nesting level (`ListNumber` or `ListBullet`, `L:<level>`), and section markers (`§` or `§N`). Metadata is for tool selection and targeting; it is not paragraph text.
 - Table row and column arguments (`targetRow`, `targetColumn`) are 0-based. The `T:` marker positions come from `parentTableCellOrNullObject.rowIndex` and `cellIndex`.
-- Paragraphs can shift after an edit. The edit tools other than `apply_redlines` do not carry a content anchor through to execution; they resolve the supplied `P` index against the live Word paragraph collection.
+- Paragraphs can shift after an edit. The chat carries a canonical prompt-time baseline into `apply_redlines` and `insert_list_item`; execution compares it before a write. The optional insertion baseline preserves compatibility for callers that omit it. Other structural tools resolve their supplied `P` indexes against the live Word paragraph collection and do not inherit that full-source freshness contract.
 - If enhanced context extraction fails, the chat path falls back to plain `body.text`. In that case there are no `[P#]` anchors for the redline input validator to parse. The redline mapper still resolves its operation indexes against the live source read by the Word adapter.
 
 ## Mutating tool map
@@ -48,7 +48,9 @@ Markdown inline formatting and Markdown list/table parsing inside redline conten
 
 ## Redline input and exact-text contract
 
-`apply_redlines` is the only declared mutating tool with a full-document, immutable-source batch path.
+`apply_redlines` uses a full-document, immutable-source batch path. The verified
+`insert_list_item` subset also submits a canonical body batch; its unsupported
+shapes retain native Word execution selected before preparation.
 
 - The model change schema supports `edit_paragraph`, `replace_paragraph`, `modify_text`, and `replace_range`. `edit_paragraph` accepts either a whole-paragraph `newContent` or non-empty localized `replacements`; `replace_paragraph` and `replace_range` use `content`.
 - Each localized `find` must be non-empty and match the original paragraph exactly, including case and punctuation. `occurrence` is 1-based. A missing match or repeated match without `occurrence` is rejected before the batch write. A replacement may be the empty string to delete the matched text. Localized replacement cannot insert paragraph breaks; use a full-content operation for structural text.
