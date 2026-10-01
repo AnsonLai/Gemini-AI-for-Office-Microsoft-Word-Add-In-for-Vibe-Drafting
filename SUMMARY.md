@@ -30,11 +30,14 @@ baseline was unavailable or whether text/fingerprint comparison failed. Since
 the fingerprint includes `w14:paraId`, Word ID churn is a plausible false-stale
 cause, but it is not confirmed and the fingerprint guard remains unchanged.
 
-A bounded recovery is being added for a proven no-write stale refusal: take one
-fresh snapshot and baseline, then replan with the model. The old change set must
-not be replayed and the failed-mutation budget must not reset. Safe reason-only
-diagnostics and a real Word Undo probe are still pending, so the plan remains
-open.
+A bounded recovery is implemented in `54dd082` for a proven no-write stale
+refusal: take one fresh snapshot and baseline, then replan with the model. The
+old change set is not replayed and the failed-mutation budget is not reset.
+Safe mismatch diagnostics distinguish baseline, text and fingerprint failures.
+All 54 offline suites and the production build pass. A bounded Word COM probe
+found stability across repeated reads, tracking toggles and Reject All; restart
+and Ctrl+Z were not exercised, and Office.js behavior is not established by COM.
+The user's exact refusal cause remains unconfirmed; the fidelity plan stays open.
 
 ## Current package status: v0.8.3
 

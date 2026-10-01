@@ -29,9 +29,12 @@
   identify why the baseline guard refused. A changed `w14:paraId` could change
   the fingerprint despite unchanged text, but Word ID churn is unconfirmed and
   the fingerprint guard remains unchanged. A one-time refreshed snapshot and
-  model replan after proven no-write stale is in progress; it must not replay
-  the old batch or reset the failed-mutation budget. Reason-only diagnostics and
-  an actual Word Undo probe remain pending. The plan stays open.
+  model replan after proven no-write stale is implemented in `54dd082`; it does
+  not replay the old batch or reset the failed-mutation budget. Safe mismatch
+  diagnostics are included. All 54 offline suites and the production build pass.
+  The bounded COM probe found stable snapshots across repeated reads, tracking
+  changes and Reject All; restart and Ctrl+Z were not exercised. The exact cause
+  of the user's refusal remains unconfirmed. The fidelity plan stays open.
 
 - **Library:** the Word add-in and MCP server pin exact
   `@ansonlai/docx-redline-js@0.8.3`. Browser editing uses the same package

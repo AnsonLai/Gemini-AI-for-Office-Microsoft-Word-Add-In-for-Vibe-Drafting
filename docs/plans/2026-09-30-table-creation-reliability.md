@@ -1,7 +1,7 @@
 # Table creation and multi-step chat reliability
 
 **Date:** 2026-09-30  
-**Status:** Open — tracked Word fidelity remains blocked; a bounded Undo/stale-context recovery is in progress.
+**Status:** Open — consumer recovery is implemented; tracked Word fidelity remains blocked by separate upstream issues.
 
 **Updated:** 2026-10-01. Consumer regressions and the production build pass.
 Compatible edit-plus-append mapping, append-anchor preservation, receipt mapping,
@@ -21,15 +21,19 @@ not their specific cause. Missing `anchorText` skips the separate anchor check;
 the stale guard can also refuse an unavailable baseline or a text/fingerprint
 mismatch. The fingerprint includes `w14:paraId`, so an ID-only change is a
 plausible false-stale cause, but no host evidence confirms Word changed the ID.
-The fingerprint guard remains unchanged while a Word capture probe investigates.
+The fingerprint guard remains unchanged. A bounded COM probe found stable
+captures across repeated reads, tracking toggles and Reject All. Captured
+paragraph IDs were absent; restart and Ctrl+Z were not exercised. This does
+not establish Office.js `body.getOoxml()` behavior or the cause of the user's log.
+See the [baseline probe report](../validation-reports/2026-10-01-word-com-baseline-stability.md).
 
-The consumer recovery is in progress: after a proven no-write stale refusal,
-take one bounded fresh document snapshot and baseline, then ask the model to
-replan from that context. Do not replay the refused change set, reset the
-failed-mutation budget, or refresh after any uncertain write. Add reason-only
-diagnostics so host logs distinguish unavailable baseline, text mismatch, and
-fingerprint-only mismatch without exposing document text. Keep this work and
-the plan open until the regression and host probe finish.
+The consumer recovery is implemented in `54dd082`: after a proven no-write
+stale refusal, take one fresh document snapshot and baseline per request, then
+ask the model to replan from that context. The refused change set is not
+replayed, the failed-mutation budget is not reset, and uncertain writes do not
+trigger recovery. Safe diagnostics distinguish baseline, text and fingerprint
+mismatches without exposing document text or paragraph IDs. The post-Undo
+refusal/refresh/replan regressions, all 54 offline suites and production build pass.
 
 ## Incident
 
@@ -100,10 +104,11 @@ formatting preservation; it is not repaired by the consumer changes.
 - [x] WP6: current contracts/state/summary and library-issue notes are updated.
   Source/history and consumer/harness changes are committed as `7012fed` and
   `d3e315f`; these documentation updates accompany the validation checkpoint.
-- [ ] WP7: implement and verify one bounded fresh-context replan after a
+- [x] WP7: implement and verify one bounded fresh-context replan after a
   proven no-write `STALE_DOCUMENT_CONTEXT`; preserve the failed-mutation count,
-  never replay the old batch, and report safe refusal reasons. Confirm whether
-  an Undo changes Word's paragraph identity with the host probe.
+  never replay the old batch, and report safe refusal reasons. Record the COM
+  probe's covered paths and its restart/Ctrl+Z/Office.js limitations. No exact
+  reproduction of the user's source document is claimed.
 
 ## Acceptance
 
@@ -112,5 +117,6 @@ preserved source targeting, refreshed context, complete tool history, and a
 two-failure mutation budget that read-only calls cannot reset. Offline tests
 and the production build pass. Plain accepted table content passes in Word,
 but tracked Reject All paragraph structure and tracked underline fidelity do
-not. The new stale-context recovery and its Word ID probe remain unverified.
+not. Stale-refusal recovery passes deterministic regressions; the specific
+cause of the user's P4 refusal remains unconfirmed.
 No full live chat/model reproduction or provider call is claimed here.
