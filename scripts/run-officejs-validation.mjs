@@ -1,13 +1,20 @@
 // Local-only evidence collector. Uses existing certificates; never installs trust.
 import { createServer } from 'node:https';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
-import { resolve, join, extname } from 'node:path';
+import { resolve, join, extname, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const root = resolve(import.meta.dirname, '..');
-const directory = resolve(root, '.cache/reliability/officejs');
+function argument(name) {
+    const index = process.argv.indexOf(name);
+    if (index < 0) return null;
+    if (!process.argv[index + 1] || process.argv[index + 1].startsWith('--')) throw new Error(`Missing value for ${name}`);
+    return process.argv[index + 1];
+}
+const directory = resolve(root, argument('--artifacts-dir') || '.cache/reliability/officejs');
+const fixtureManifest = argument('--fixture-manifest');
 if (process.argv.includes('--cleanup')) {
     await require('office-addin-dev-settings').unregisterAddIn(join(directory, 'officejs-manifest.xml'));
     console.log('Local validation add-in registration removed.');
@@ -17,10 +24,12 @@ mkdirSync(directory, { recursive: true });
 const startedAt = new Date().toISOString();
 writeFileSync(join(directory, 'officejs-report.json'), JSON.stringify({ status: 'pending', startedAt }));
 writeFileSync(join(directory, 'officejs-fixtures.json'), JSON.stringify({ cases: [], controls: [] }));
-execFileSync(process.execPath, [join(root, 'tests/ooxml_formatting_visual_tests.mjs'), '--export-dir', directory], { stdio: 'inherit' });
-const manifest = JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8'));
-const cases = manifest.cases.filter(c => ['word-addin-plain-replacement', 'word-addin-sibling-reply'].includes(c.name));
-if (cases.length !== 2) throw new Error('Expected two native fixtures');
+if (!fixtureManifest) execFileSync(process.execPath, [join(root, 'tests/ooxml_formatting_visual_tests.mjs'), '--export-dir', directory], { stdio: 'inherit' });
+const inputManifest = fixtureManifest ? resolve(root, fixtureManifest) : join(directory, 'manifest.json');
+const sourceDirectory = dirname(inputManifest);
+const manifest = JSON.parse(readFileSync(inputManifest, 'utf8'));
+const cases = fixtureManifest ? manifest.cases : manifest.cases.filter(c => ['word-addin-plain-replacement', 'word-addin-sibling-reply'].includes(c.name));
+if (!cases.length || (!fixtureManifest && cases.length !== 2)) throw new Error('Expected runnable native fixtures');
 const certs = join(homedir(), '.office-addin-dev-certs');
 const cert = readFileSync(join(certs, 'localhost.crt'));
 const key = readFileSync(join(certs, 'localhost.key'));
@@ -43,7 +52,7 @@ const server = createServer({ cert, key }, async (request, response) => {
         }
         const testCase = cases.find(c => path.endsWith('/' + c.name));
         if (path.startsWith('/source/') && testCase) {
-            response.end(readFileSync(join(directory, testCase.source)).toString('base64')); return;
+            response.end(readFileSync(resolve(sourceDirectory, testCase.source)).toString('base64')); return;
         }
         if ((path.startsWith('/artifact/') && testCase || path === '/result') && request.method === 'POST') {
             const parts = []; let size = 0;
@@ -53,7 +62,9 @@ const server = createServer({ cert, key }, async (request, response) => {
                 const result = JSON.parse(payload.toString('utf8'));
                 writeFileSync(join(directory, 'officejs-report.json'), JSON.stringify({ ...result, startedAt, checkedAt: new Date().toISOString() }, null, 2));
                 if (result.status === 'passed') {
-                    writeFileSync(join(directory, 'officejs-fixtures.json'), JSON.stringify({ cases: cases.map(c => ({ ...c, tracked: `${c.name}-officejs.docx` })), controls: [] }, null, 2));
+                    writeFileSync(join(directory, 'officejs-fixtures.json'), JSON.stringify({ cases: cases.map(c => ({ ...c,
+                        source: resolve(sourceDirectory, c.source), accepted: resolve(sourceDirectory, c.accepted),
+                        rejected: resolve(sourceDirectory, c.rejected), tracked: `${c.name}-officejs.docx` })), controls: [] }, null, 2));
                 }
                 console.log(`Office.js result: ${result.status}`);
             } else writeFileSync(join(directory, `${testCase.name}-officejs.docx`), payload);

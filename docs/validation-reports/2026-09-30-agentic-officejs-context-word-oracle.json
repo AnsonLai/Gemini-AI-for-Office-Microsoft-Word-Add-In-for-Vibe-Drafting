@@ -1,0 +1,98 @@
+﻿{
+    "checkedAt":  "2026-10-01T00:48:54.6362010Z",
+    "wordVersion":  "16.0",
+    "wordBuild":  "16.0.20326",
+    "checks":  [
+                   {
+                       "case":  "word-addin-sibling-reply",
+                       "view":  "source",
+                       "status":  "passed",
+                       "comments":  3,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "word-addin-sibling-reply",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  4,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "word-addin-sibling-reply",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  4,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "word-addin-sibling-reply",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  4,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "word-addin-sibling-reply",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  4,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "word-addin-sibling-reply",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  4,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "word-addin-plain-replacement",
+                       "view":  "source",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "word-addin-plain-replacement",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  2
+                   },
+                   {
+                       "case":  "word-addin-plain-replacement",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "word-addin-plain-replacement",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "word-addin-plain-replacement",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "word-addin-plain-replacement",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   }
+               ],
+    "renders":  [
+
+                ],
+    "renderSkipped":  true,
+    "nativeInsertSkipped":  true,
+    "officeJsTransport":  "External collected packages verified; consult the collector report for transport provenance.",
+    "fixtureManifest":  ".cache/agentic-tools/officejs-context/officejs-fixtures.json"
+}

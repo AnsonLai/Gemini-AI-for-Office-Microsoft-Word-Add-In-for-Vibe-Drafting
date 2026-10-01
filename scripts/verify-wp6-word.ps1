@@ -75,6 +75,11 @@ function Save-Progress([string]$stage) {
     $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $reportPath -Encoding UTF8
 }
 
+function Resolve-FixturePath([string]$path) {
+    if ([IO.Path]::IsPathRooted($path)) { return [IO.Path]::GetFullPath($path) }
+    return [IO.Path]::GetFullPath((Join-Path $fixtureDir $path))
+}
+
 function Normalize-WordText([string]$text) {
     return $text.Replace("`r", "`n").Replace([string][char]11, "`n").Replace([string][char]12, "`n").TrimEnd([char[]]"`r`n")
 }
@@ -114,6 +119,54 @@ function Check-Document($case, [string]$file, [string]$view, [bool]$render, [boo
         }
         if ($view -eq 'accepted' -or $view -eq 'rejected') {
             if ($document.Revisions.Count -ne 0) { throw "Word $view retained revisions." }
+        }
+        if ($case.expectedNumbering -and $view -ne 'tracked') {
+            $numberingState = if ($view -eq 'source') { 'source' } else { $view }
+            $expectedNumberingItems = @($case.expectedNumbering.$numberingState)
+            $numberingGroups = @{}
+            [xml]$numberingDocumentPackage = [string]$document.Content.WordOpenXML
+            $numberingNamespaces = [System.Xml.XmlNamespaceManager]::new($numberingDocumentPackage.NameTable)
+            $numberingNamespaces.AddNamespace('pkg', 'http://schemas.microsoft.com/office/2006/xmlPackage')
+            $numberingNamespaces.AddNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main')
+            foreach ($expectedItem in $expectedNumberingItems) {
+                $matchingParagraphs = @()
+                for ($numberingIndex = 1; $numberingIndex -le $document.Paragraphs.Count; $numberingIndex++) {
+                    $candidateParagraph = $document.Paragraphs.Item($numberingIndex)
+                    if ((Normalize-WordText ([string]$candidateParagraph.Range.Text)) -ceq [string]$expectedItem.text) {
+                        $matchingParagraphs += [pscustomobject]@{ paragraph = $candidateParagraph; index = $numberingIndex }
+                    }
+                }
+                if ($matchingParagraphs.Count -ne 1) { throw "Word $view numbering target missing or ambiguous: $($expectedItem.text)" }
+                $numberingRange = $matchingParagraphs[0].paragraph.Range
+                $listFormat = $numberingRange.ListFormat
+                $isList = [int]$listFormat.ListType -ne 0
+                if ($isList -ne [bool]$expectedItem.isList) { throw "Word $view list/plain state differs: $($expectedItem.text)" }
+                foreach ($property in @('listType', 'listLevel', 'listValue', 'listString')) {
+                    if ($expectedItem.PSObject.Properties.Name -contains $property) {
+                        $actualProperty = switch ($property) {
+                            'listType' { [int]$listFormat.ListType }
+                            'listLevel' { [int]$listFormat.ListLevelNumber }
+                            'listValue' { [int]$listFormat.ListValue }
+                            'listString' { [string]$listFormat.ListString }
+                        }
+                        if ($actualProperty -cne $expectedItem.$property) { throw "Word $view $property differs for $($expectedItem.text): expected=$($expectedItem.$property), actual=$actualProperty" }
+                    }
+                }
+                if ($expectedItem.group) {
+                    # Inspect one whole-document package so independently exported
+                    # paragraph fragments cannot renumber each list to the same ID.
+                    $bodyParagraphIndex = [int]$matchingParagraphs[0].index
+                    $numIdNode = $numberingDocumentPackage.SelectSingleNode("//pkg:part[@pkg:name='/word/document.xml']/pkg:xmlData/w:document/w:body/w:p[$bodyParagraphIndex]/w:pPr/w:numPr/w:numId", $numberingNamespaces)
+                    if (-not $numIdNode) { throw "Word $view cannot inspect list identity for $($expectedItem.text)" }
+                    $actualNumId = $numIdNode.GetAttribute('val', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main')
+                    $groupName = [string]$expectedItem.group
+                    if ($numberingGroups.ContainsKey($groupName) -and $numberingGroups[$groupName] -cne $actualNumId) { throw "Word $view continuation list identity differs for group $groupName" }
+                    foreach ($otherGroup in @($numberingGroups.Keys)) {
+                        if ($otherGroup -cne $groupName -and $numberingGroups[$otherGroup] -ceq $actualNumId) { throw "Word $view restart groups share numbering identity: $otherGroup and $groupName" }
+                    }
+                    $numberingGroups[$groupName] = $actualNumId
+                }
+            }
         }
         if ($case.expectedSections) {
             if ($document.Sections.Count -ne @($case.expectedSections).Count) { throw 'Word section count differs.' }
@@ -227,18 +280,18 @@ try {
     $selectedCases = @($manifest.cases | Where-Object { -not $CaseName -or $_.name -eq $CaseName })
     if (-not $selectedCases.Count) { throw 'No Word fixtures matched the requested lane.' }
     foreach ($case in $selectedCases) {
-        Check-Document $case (Join-Path $fixtureDir $case.source) 'source' $false
+        Check-Document $case (Resolve-FixturePath $case.source) 'source' $false
         foreach ($view in @('tracked', 'accepted', 'rejected')) {
-            Check-Document $case (Join-Path $fixtureDir $case.tracked) $view $true
+            Check-Document $case (Resolve-FixturePath $case.tracked) $view $true
         }
         # Also open the engine-resolved package independently of Word's own resolution.
-        Check-Document $case (Join-Path $fixtureDir $case.accepted) 'accepted' $false $true
-        Check-Document $case (Join-Path $fixtureDir $case.rejected) 'rejected' $false $true
+        Check-Document $case (Resolve-FixturePath $case.accepted) 'accepted' $false $true
+        Check-Document $case (Resolve-FixturePath $case.rejected) 'rejected' $false $true
         if ($case.insertionXml -and -not $SkipNativeInsert) {
             $document = $null
             $nativePath = $null
             try {
-                $document = Open-WithoutRepair (Join-Path $fixtureDir $case.source)
+                $document = Open-WithoutRepair (Resolve-FixturePath $case.source)
                 $document.TrackRevisions = $false
                 if ($case.nativeOperations) {
                     $liveInput = Join-Path $fixtureDir "$($case.name)-live-input.xml"
@@ -279,7 +332,7 @@ try {
     foreach ($control in @($manifest.controls | Where-Object { $null -ne $_ })) {
         $document = $null
         $opened = $false
-        try { $document = Open-WithoutRepair (Join-Path $fixtureDir $control.file); $opened = $true } catch { }
+        try { $document = Open-WithoutRepair (Resolve-FixturePath $control.file); $opened = $true } catch { }
         finally { if ($document) { $document.Close(0) | Out-Null; [Runtime.InteropServices.Marshal]::FinalReleaseComObject($document) | Out-Null } }
         $status = if ($opened -eq [bool]$control.expectOpen) { 'passed' } else { 'failed' }
         $checks.Add([pscustomobject]@{ case = $control.file; view = 'negative-control'; status = $status; opened = $opened })

@@ -12,7 +12,15 @@
 
 ## Canonical list migration and live testing
 
+The actual Office.js context lane passed **8 checks** on Word `16.0.20326.20158` (PC), including `STALE_DOCUMENT_CONTEXT` refusal with `written: false`, `writeAttempted: false` and zero insertions after an intervening host edit. [Collector evidence](2026-09-30-agentic-officejs-context.json).
+
+Independent Word source/export/engine-reference reopening passed **12 checks**, including exact accepted/rejected text and comment-thread persistence. [Word oracle evidence](2026-09-30-agentic-officejs-context-word-oracle.json). The first oracle invocation exposed rooted-path handling in external manifests; after correcting the harness, all checks passed.
+
 Candidate mappings are being tested against Word-authored fixtures. They are not wired into production list commands until numbering, accepted/rejected text and host insertion fidelity pass.
+
+The current offline aggregate passes **39 suites**, zero failures, with four entrypoints excluded and the historical 0.5.4 package-behavior skip reported separately. The candidate planner suite passes against the Word-authored source; manual-header generation emits XML-provider diagnostics that require package and host investigation before migration.
+
+The frozen source fixture was authored in Word and verified after save/reopen. It contains nested bullets and decimal outline numbering, a continuation across a plain paragraph, a separate restart, plain transitions, marked and unmarked noncontiguous headers, and an untouched bold sentinel. Its [source observations](../../tests/fixtures/agentic-lists/source-observations.json) record COM properties and actual numbering XML.
 
 The Word oracle has been extended with list/plain state, levels, labels, values and logical continuation/restart identity checks. The Office.js collector supports external manifests and separate artifact directories. These harness changes do not establish a new passing live list result by themselves.
 
@@ -20,7 +28,7 @@ An initial library capability check found that an unmarked header conversion can
 
 ## Resume points
 
-1. Consumer validation and stale-context guard checkpoint is ready; live host guard evidence remains pending.
+1. Consumer validation and stale-context guard committed as `7e44b5d`; actual Office.js and independent Word evidence now pass.
 2. Complete Word-authored multilevel fixture structure assertions after save/reopen.
 3. Verify candidate list operations offline and in Word. Record unsupported library semantics separately, retain proven native functionality, and migrate only verified paths.
 4. Update the plan's acceptance checks from actual evidence.

@@ -1,0 +1,1008 @@
+{
+    "schemaVersion":  1,
+    "provenance":  {
+                       "authoredBy":  "Microsoft Word desktop COM",
+                       "wordVersion":  "16.0",
+                       "wordBuild":  "16.0.20326",
+                       "sourceFile":  "nested-lists-source.docx",
+                       "saveFormat":  "wdFormatDocumentDefault (16)",
+                       "verifiedAfterSaveReopen":  true,
+                       "structureAssertions":  "passed"
+                   },
+    "paragraphCount":  24,
+    "paragraphs":  [
+                       {
+                           "paragraphIndex":  1,
+                           "text":  "Untouched bold sentinel",
+                           "isList":  false,
+                           "listType":  0,
+                           "listId":  null,
+                           "listString":  null,
+                           "listLevel":  null,
+                           "listValue":  null,
+                           "bold":  true
+                       },
+                       {
+                           "paragraphIndex":  2,
+                           "text":  "Plain paragraph before bullet list.",
+                           "isList":  false,
+                           "listType":  0,
+                           "listId":  null,
+                           "listString":  null,
+                           "listLevel":  null,
+                           "listValue":  null,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  3,
+                           "text":  "Bullet Root A",
+                           "isList":  true,
+                           "listType":  4,
+                           "listId":  0,
+                           "listString":  "",
+                           "listLevel":  1,
+                           "listValue":  1,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  4,
+                           "text":  "Bullet Insertion Anchor",
+                           "isList":  true,
+                           "listType":  4,
+                           "listId":  0,
+                           "listString":  "",
+                           "listLevel":  2,
+                           "listValue":  1,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  5,
+                           "text":  "Bullet Untouched Tail",
+                           "isList":  true,
+                           "listType":  4,
+                           "listId":  0,
+                           "listString":  "",
+                           "listLevel":  1,
+                           "listValue":  2,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  6,
+                           "text":  "Bullet Root B",
+                           "isList":  true,
+                           "listType":  4,
+                           "listId":  0,
+                           "listString":  "",
+                           "listLevel":  1,
+                           "listValue":  3,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  7,
+                           "text":  "Plain transition after bullet list.",
+                           "isList":  false,
+                           "listType":  0,
+                           "listId":  null,
+                           "listString":  null,
+                           "listLevel":  null,
+                           "listValue":  null,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  8,
+                           "text":  "Number Root A",
+                           "isList":  true,
+                           "listType":  4,
+                           "listId":  0,
+                           "listString":  "1.",
+                           "listLevel":  1,
+                           "listValue":  1,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  9,
+                           "text":  "Number Nested Anchor",
+                           "isList":  true,
+                           "listType":  4,
+                           "listId":  0,
+                           "listString":  "1.1.",
+                           "listLevel":  2,
+                           "listValue":  1,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  10,
+                           "text":  "Number Root B",
+                           "isList":  true,
+                           "listType":  4,
+                           "listId":  0,
+                           "listString":  "2.",
+                           "listLevel":  1,
+                           "listValue":  2,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  11,
+                           "text":  "Plain transition before continuation.",
+                           "isList":  false,
+                           "listType":  0,
+                           "listId":  null,
+                           "listString":  null,
+                           "listLevel":  null,
+                           "listValue":  null,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  12,
+                           "text":  "Number Continued Item",
+                           "isList":  true,
+                           "listType":  4,
+                           "listId":  0,
+                           "listString":  "3.",
+                           "listLevel":  1,
+                           "listValue":  3,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  13,
+                           "text":  "Plain transition before restart.",
+                           "isList":  false,
+                           "listType":  0,
+                           "listId":  null,
+                           "listString":  null,
+                           "listLevel":  null,
+                           "listValue":  null,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  14,
+                           "text":  "Number Restart Root",
+                           "isList":  true,
+                           "listType":  4,
+                           "listId":  0,
+                           "listString":  "1.",
+                           "listLevel":  1,
+                           "listValue":  1,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  15,
+                           "text":  "Number Restart Nested",
+                           "isList":  true,
+                           "listType":  4,
+                           "listId":  0,
+                           "listString":  "1.1.",
+                           "listLevel":  2,
+                           "listValue":  1,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  16,
+                           "text":  "Plain transition after restart.",
+                           "isList":  false,
+                           "listType":  0,
+                           "listId":  null,
+                           "listString":  null,
+                           "listLevel":  null,
+                           "listValue":  null,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  17,
+                           "text":  "Header First Candidate",
+                           "isList":  false,
+                           "listType":  0,
+                           "listId":  null,
+                           "listString":  null,
+                           "listLevel":  null,
+                           "listValue":  null,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  18,
+                           "text":  "Plain paragraph between headers.",
+                           "isList":  false,
+                           "listType":  0,
+                           "listId":  null,
+                           "listString":  null,
+                           "listLevel":  null,
+                           "listValue":  null,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  19,
+                           "text":  "Header Second Candidate",
+                           "isList":  false,
+                           "listType":  0,
+                           "listId":  null,
+                           "listString":  null,
+                           "listLevel":  null,
+                           "listValue":  null,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  20,
+                           "text":  "Plain paragraph after headers.",
+                           "isList":  false,
+                           "listType":  0,
+                           "listId":  null,
+                           "listString":  null,
+                           "listLevel":  null,
+                           "listValue":  null,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  21,
+                           "text":  "1. Supported Header First",
+                           "isList":  false,
+                           "listType":  0,
+                           "listId":  null,
+                           "listString":  null,
+                           "listLevel":  null,
+                           "listValue":  null,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  22,
+                           "text":  "Plain paragraph between supported headers.",
+                           "isList":  false,
+                           "listType":  0,
+                           "listId":  null,
+                           "listString":  null,
+                           "listLevel":  null,
+                           "listValue":  null,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  23,
+                           "text":  "2. Supported Header Second",
+                           "isList":  false,
+                           "listType":  0,
+                           "listId":  null,
+                           "listString":  null,
+                           "listLevel":  null,
+                           "listValue":  null,
+                           "bold":  false
+                       },
+                       {
+                           "paragraphIndex":  24,
+                           "text":  "Plain paragraph after supported headers.",
+                           "isList":  false,
+                           "listType":  0,
+                           "listId":  null,
+                           "listString":  null,
+                           "listLevel":  null,
+                           "listValue":  null,
+                           "bold":  false
+                       }
+                   ],
+    "packageNumbering":  [
+                             {
+                                 "paragraphIndex":  1,
+                                 "text":  "Untouched bold sentinel",
+                                 "numId":  null,
+                                 "ilvl":  null,
+                                 "group":  null
+                             },
+                             {
+                                 "paragraphIndex":  2,
+                                 "text":  "Plain paragraph before bullet list.",
+                                 "numId":  null,
+                                 "ilvl":  null,
+                                 "group":  null
+                             },
+                             {
+                                 "paragraphIndex":  3,
+                                 "text":  "Bullet Root A",
+                                 "numId":  "1",
+                                 "ilvl":  0,
+                                 "numFmt":  "bullet",
+                                 "levelText":  "",
+                                 "group":  "bullet-chain"
+                             },
+                             {
+                                 "paragraphIndex":  4,
+                                 "text":  "Bullet Insertion Anchor",
+                                 "numId":  "1",
+                                 "ilvl":  1,
+                                 "numFmt":  "bullet",
+                                 "levelText":  "",
+                                 "group":  "bullet-chain"
+                             },
+                             {
+                                 "paragraphIndex":  5,
+                                 "text":  "Bullet Untouched Tail",
+                                 "numId":  "1",
+                                 "ilvl":  0,
+                                 "numFmt":  "bullet",
+                                 "levelText":  "",
+                                 "group":  "bullet-chain"
+                             },
+                             {
+                                 "paragraphIndex":  6,
+                                 "text":  "Bullet Root B",
+                                 "numId":  "1",
+                                 "ilvl":  0,
+                                 "numFmt":  "bullet",
+                                 "levelText":  "",
+                                 "group":  "bullet-chain"
+                             },
+                             {
+                                 "paragraphIndex":  7,
+                                 "text":  "Plain transition after bullet list.",
+                                 "numId":  null,
+                                 "ilvl":  null,
+                                 "group":  null
+                             },
+                             {
+                                 "paragraphIndex":  8,
+                                 "text":  "Number Root A",
+                                 "numId":  "2",
+                                 "ilvl":  0,
+                                 "numFmt":  "decimal",
+                                 "levelText":  "%1.",
+                                 "group":  "number-continuation"
+                             },
+                             {
+                                 "paragraphIndex":  9,
+                                 "text":  "Number Nested Anchor",
+                                 "numId":  "2",
+                                 "ilvl":  1,
+                                 "numFmt":  "decimal",
+                                 "levelText":  "%1.%2.",
+                                 "group":  "number-continuation"
+                             },
+                             {
+                                 "paragraphIndex":  10,
+                                 "text":  "Number Root B",
+                                 "numId":  "2",
+                                 "ilvl":  0,
+                                 "numFmt":  "decimal",
+                                 "levelText":  "%1.",
+                                 "group":  "number-continuation"
+                             },
+                             {
+                                 "paragraphIndex":  11,
+                                 "text":  "Plain transition before continuation.",
+                                 "numId":  null,
+                                 "ilvl":  null,
+                                 "group":  null
+                             },
+                             {
+                                 "paragraphIndex":  12,
+                                 "text":  "Number Continued Item",
+                                 "numId":  "2",
+                                 "ilvl":  0,
+                                 "numFmt":  "decimal",
+                                 "levelText":  "%1.",
+                                 "group":  "number-continuation"
+                             },
+                             {
+                                 "paragraphIndex":  13,
+                                 "text":  "Plain transition before restart.",
+                                 "numId":  null,
+                                 "ilvl":  null,
+                                 "group":  null
+                             },
+                             {
+                                 "paragraphIndex":  14,
+                                 "text":  "Number Restart Root",
+                                 "numId":  "3",
+                                 "ilvl":  0,
+                                 "numFmt":  "decimal",
+                                 "levelText":  "%1.",
+                                 "group":  "number-restart"
+                             },
+                             {
+                                 "paragraphIndex":  15,
+                                 "text":  "Number Restart Nested",
+                                 "numId":  "3",
+                                 "ilvl":  1,
+                                 "numFmt":  "decimal",
+                                 "levelText":  "%1.%2.",
+                                 "group":  "number-restart"
+                             },
+                             {
+                                 "paragraphIndex":  16,
+                                 "text":  "Plain transition after restart.",
+                                 "numId":  null,
+                                 "ilvl":  null,
+                                 "group":  null
+                             },
+                             {
+                                 "paragraphIndex":  17,
+                                 "text":  "Header First Candidate",
+                                 "numId":  null,
+                                 "ilvl":  null,
+                                 "group":  null
+                             },
+                             {
+                                 "paragraphIndex":  18,
+                                 "text":  "Plain paragraph between headers.",
+                                 "numId":  null,
+                                 "ilvl":  null,
+                                 "group":  null
+                             },
+                             {
+                                 "paragraphIndex":  19,
+                                 "text":  "Header Second Candidate",
+                                 "numId":  null,
+                                 "ilvl":  null,
+                                 "group":  null
+                             },
+                             {
+                                 "paragraphIndex":  20,
+                                 "text":  "Plain paragraph after headers.",
+                                 "numId":  null,
+                                 "ilvl":  null,
+                                 "group":  null
+                             },
+                             {
+                                 "paragraphIndex":  21,
+                                 "text":  "1. Supported Header First",
+                                 "numId":  null,
+                                 "ilvl":  null,
+                                 "group":  null
+                             },
+                             {
+                                 "paragraphIndex":  22,
+                                 "text":  "Plain paragraph between supported headers.",
+                                 "numId":  null,
+                                 "ilvl":  null,
+                                 "group":  null
+                             },
+                             {
+                                 "paragraphIndex":  23,
+                                 "text":  "2. Supported Header Second",
+                                 "numId":  null,
+                                 "ilvl":  null,
+                                 "group":  null
+                             },
+                             {
+                                 "paragraphIndex":  24,
+                                 "text":  "Plain paragraph after supported headers.",
+                                 "numId":  null,
+                                 "ilvl":  null,
+                                 "group":  null
+                             }
+                         ],
+    "galleryTemplateCatalog":  [
+                                   {
+                                       "gallery":  1,
+                                       "template":  1,
+                                       "levelCount":  1,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  23,
+                                                          "numberFormat":  ""
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  1,
+                                       "template":  2,
+                                       "levelCount":  1,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  23,
+                                                          "numberFormat":  "o"
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  1,
+                                       "template":  3,
+                                       "levelCount":  1,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  23,
+                                                          "numberFormat":  ""
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  1,
+                                       "template":  4,
+                                       "levelCount":  1,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  249,
+                                                          "numberFormat":  ""
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  1,
+                                       "template":  5,
+                                       "levelCount":  1,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  23,
+                                                          "numberFormat":  ""
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  1,
+                                       "template":  6,
+                                       "levelCount":  1,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  23,
+                                                          "numberFormat":  ""
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  1,
+                                       "template":  7,
+                                       "levelCount":  1,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  23,
+                                                          "numberFormat":  ""
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  2,
+                                       "template":  1,
+                                       "levelCount":  1,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1."
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  2,
+                                       "template":  2,
+                                       "levelCount":  1,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1)"
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  2,
+                                       "template":  3,
+                                       "levelCount":  1,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  1,
+                                                          "numberFormat":  "%1."
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  2,
+                                       "template":  4,
+                                       "levelCount":  1,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  3,
+                                                          "numberFormat":  "%1."
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  2,
+                                       "template":  5,
+                                       "levelCount":  1,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  4,
+                                                          "numberFormat":  "%1)"
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  2,
+                                       "template":  6,
+                                       "levelCount":  1,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  4,
+                                                          "numberFormat":  "%1."
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  2,
+                                       "template":  7,
+                                       "levelCount":  1,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  2,
+                                                          "numberFormat":  "%1."
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  3,
+                                       "template":  1,
+                                       "levelCount":  9,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1)"
+                                                      },
+                                                      {
+                                                          "level":  2,
+                                                          "numberStyle":  4,
+                                                          "numberFormat":  "%2)"
+                                                      },
+                                                      {
+                                                          "level":  3,
+                                                          "numberStyle":  2,
+                                                          "numberFormat":  "%3)"
+                                                      },
+                                                      {
+                                                          "level":  4,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "(%4)"
+                                                      },
+                                                      {
+                                                          "level":  5,
+                                                          "numberStyle":  4,
+                                                          "numberFormat":  "(%5)"
+                                                      },
+                                                      {
+                                                          "level":  6,
+                                                          "numberStyle":  2,
+                                                          "numberFormat":  "(%6)"
+                                                      },
+                                                      {
+                                                          "level":  7,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%7."
+                                                      },
+                                                      {
+                                                          "level":  8,
+                                                          "numberStyle":  4,
+                                                          "numberFormat":  "%8."
+                                                      },
+                                                      {
+                                                          "level":  9,
+                                                          "numberStyle":  2,
+                                                          "numberFormat":  "%9."
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  3,
+                                       "template":  2,
+                                       "levelCount":  9,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1."
+                                                      },
+                                                      {
+                                                          "level":  2,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1.%2."
+                                                      },
+                                                      {
+                                                          "level":  3,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1.%2.%3."
+                                                      },
+                                                      {
+                                                          "level":  4,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1.%2.%3.%4."
+                                                      },
+                                                      {
+                                                          "level":  5,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1.%2.%3.%4.%5."
+                                                      },
+                                                      {
+                                                          "level":  6,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1.%2.%3.%4.%5.%6."
+                                                      },
+                                                      {
+                                                          "level":  7,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1.%2.%3.%4.%5.%6.%7."
+                                                      },
+                                                      {
+                                                          "level":  8,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1.%2.%3.%4.%5.%6.%7.%8."
+                                                      },
+                                                      {
+                                                          "level":  9,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1.%2.%3.%4.%5.%6.%7.%8.%9."
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  3,
+                                       "template":  3,
+                                       "levelCount":  9,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  23,
+                                                          "numberFormat":  ""
+                                                      },
+                                                      {
+                                                          "level":  2,
+                                                          "numberStyle":  23,
+                                                          "numberFormat":  ""
+                                                      },
+                                                      {
+                                                          "level":  3,
+                                                          "numberStyle":  23,
+                                                          "numberFormat":  ""
+                                                      },
+                                                      {
+                                                          "level":  4,
+                                                          "numberStyle":  23,
+                                                          "numberFormat":  ""
+                                                      },
+                                                      {
+                                                          "level":  5,
+                                                          "numberStyle":  23,
+                                                          "numberFormat":  ""
+                                                      },
+                                                      {
+                                                          "level":  6,
+                                                          "numberStyle":  23,
+                                                          "numberFormat":  ""
+                                                      },
+                                                      {
+                                                          "level":  7,
+                                                          "numberStyle":  23,
+                                                          "numberFormat":  ""
+                                                      },
+                                                      {
+                                                          "level":  8,
+                                                          "numberStyle":  23,
+                                                          "numberFormat":  ""
+                                                      },
+                                                      {
+                                                          "level":  9,
+                                                          "numberStyle":  23,
+                                                          "numberFormat":  ""
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  3,
+                                       "template":  4,
+                                       "levelCount":  9,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  1,
+                                                          "numberFormat":  "Article %1."
+                                                      },
+                                                      {
+                                                          "level":  2,
+                                                          "numberStyle":  254,
+                                                          "numberFormat":  "Section %1.%2"
+                                                      },
+                                                      {
+                                                          "level":  3,
+                                                          "numberStyle":  4,
+                                                          "numberFormat":  "(%3)"
+                                                      },
+                                                      {
+                                                          "level":  4,
+                                                          "numberStyle":  2,
+                                                          "numberFormat":  "(%4)"
+                                                      },
+                                                      {
+                                                          "level":  5,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%5)"
+                                                      },
+                                                      {
+                                                          "level":  6,
+                                                          "numberStyle":  4,
+                                                          "numberFormat":  "%6)"
+                                                      },
+                                                      {
+                                                          "level":  7,
+                                                          "numberStyle":  2,
+                                                          "numberFormat":  "%7)"
+                                                      },
+                                                      {
+                                                          "level":  8,
+                                                          "numberStyle":  4,
+                                                          "numberFormat":  "%8."
+                                                      },
+                                                      {
+                                                          "level":  9,
+                                                          "numberStyle":  2,
+                                                          "numberFormat":  "%9."
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  3,
+                                       "template":  5,
+                                       "levelCount":  9,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1"
+                                                      },
+                                                      {
+                                                          "level":  2,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1.%2"
+                                                      },
+                                                      {
+                                                          "level":  3,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1.%2.%3"
+                                                      },
+                                                      {
+                                                          "level":  4,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1.%2.%3.%4"
+                                                      },
+                                                      {
+                                                          "level":  5,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1.%2.%3.%4.%5"
+                                                      },
+                                                      {
+                                                          "level":  6,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1.%2.%3.%4.%5.%6"
+                                                      },
+                                                      {
+                                                          "level":  7,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1.%2.%3.%4.%5.%6.%7"
+                                                      },
+                                                      {
+                                                          "level":  8,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1.%2.%3.%4.%5.%6.%7.%8"
+                                                      },
+                                                      {
+                                                          "level":  9,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%1.%2.%3.%4.%5.%6.%7.%8.%9"
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  3,
+                                       "template":  6,
+                                       "levelCount":  9,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  1,
+                                                          "numberFormat":  "%1."
+                                                      },
+                                                      {
+                                                          "level":  2,
+                                                          "numberStyle":  3,
+                                                          "numberFormat":  "%2."
+                                                      },
+                                                      {
+                                                          "level":  3,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "%3."
+                                                      },
+                                                      {
+                                                          "level":  4,
+                                                          "numberStyle":  4,
+                                                          "numberFormat":  "%4)"
+                                                      },
+                                                      {
+                                                          "level":  5,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "(%5)"
+                                                      },
+                                                      {
+                                                          "level":  6,
+                                                          "numberStyle":  4,
+                                                          "numberFormat":  "(%6)"
+                                                      },
+                                                      {
+                                                          "level":  7,
+                                                          "numberStyle":  2,
+                                                          "numberFormat":  "(%7)"
+                                                      },
+                                                      {
+                                                          "level":  8,
+                                                          "numberStyle":  4,
+                                                          "numberFormat":  "(%8)"
+                                                      },
+                                                      {
+                                                          "level":  9,
+                                                          "numberStyle":  2,
+                                                          "numberFormat":  "(%9)"
+                                                      }
+                                                  ]
+                                   },
+                                   {
+                                       "gallery":  3,
+                                       "template":  7,
+                                       "levelCount":  9,
+                                       "levels":  [
+                                                      {
+                                                          "level":  1,
+                                                          "numberStyle":  0,
+                                                          "numberFormat":  "Chapter %1"
+                                                      },
+                                                      {
+                                                          "level":  2,
+                                                          "numberStyle":  255,
+                                                          "numberFormat":  ""
+                                                      },
+                                                      {
+                                                          "level":  3,
+                                                          "numberStyle":  255,
+                                                          "numberFormat":  ""
+                                                      },
+                                                      {
+                                                          "level":  4,
+                                                          "numberStyle":  255,
+                                                          "numberFormat":  ""
+                                                      },
+                                                      {
+                                                          "level":  5,
+                                                          "numberStyle":  255,
+                                                          "numberFormat":  ""
+                                                      },
+                                                      {
+                                                          "level":  6,
+                                                          "numberStyle":  255,
+                                                          "numberFormat":  ""
+                                                      },
+                                                      {
+                                                          "level":  7,
+                                                          "numberStyle":  255,
+                                                          "numberFormat":  ""
+                                                      },
+                                                      {
+                                                          "level":  8,
+                                                          "numberStyle":  255,
+                                                          "numberFormat":  ""
+                                                      },
+                                                      {
+                                                          "level":  9,
+                                                          "numberStyle":  255,
+                                                          "numberFormat":  ""
+                                                      }
+                                                  ]
+                                   }
+                               ],
+    "logicalGroups":  {
+                          "bullets":  "Bullet Root A, Bullet Insertion Anchor, Bullet Untouched Tail, Bullet Root B share one direct numId; anchor is ilvl=1 and tail is ilvl=0",
+                          "numberedContinuation":  "Number Root A, Number Nested Anchor, Number Root B, Number Continued Item share one direct numId; nested anchor is ilvl=1",
+                          "numberedRestart":  "Number Restart Root and Number Restart Nested share a direct numId distinct from the continuation chain; nested item is ilvl=1 and root restarts at 1"
+                      }
+}

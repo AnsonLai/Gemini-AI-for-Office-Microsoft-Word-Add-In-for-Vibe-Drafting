@@ -1,6 +1,8 @@
 /* global Office, Word */
 // Development-only entry point; never included in ordinary taskpane builds.
-import { executePureOoxmlBatch } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
+import { executePureOoxmlBatch, captureWordSourceBaseline } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
+import { applyRedlineChangesToWordContext } from '../src/taskpane/modules/docx-redline-js-integration/word-redline-runner.js';
+import { planAgenticListOperations } from '../src/taskpane/modules/commands/list-operation-plan.js';
 
 const status = message => { document.getElementById('status').textContent = message; };
 function assert(condition, message) { if (!condition) throw new Error(message); }
@@ -60,12 +62,38 @@ Office.onReady(async info => {
                 await context.sync();
             });
             if (testCase.name === 'word-addin-plain-replacement') {
+                const stale = await Word.run(async context => {
+                    const body = context.document.body;
+                    const initialOoxml = body.getOoxml();
+                    await context.sync();
+                    const sourceBaseline = captureWordSourceBaseline(initialOoxml.value);
+                    // Simulate an intervening user edit in this disposable fixture.
+                    body.insertText('An intervening edit.', Word.InsertLocation.replace);
+                    await context.sync();
+                    let writes = 0;
+                    const result = await applyRedlineChangesToWordContext(context,
+                        [{ operation: 'edit_paragraph', paragraphIndex: 1, newContent: 'Must not overwrite.' }],
+                        { sourceBaseline, batchRunner: (ctx, scope, operations, options) => executePureOoxmlBatch(ctx, {
+                            getOoxml: () => scope.getOoxml(),
+                            insertOoxml(...args) { writes++; return scope.insertOoxml(...args); }
+                        }, operations, options), onWarn() {} });
+                    body.load('text');
+                    await context.sync();
+                    assert(result.error?.code === 'STALE_DOCUMENT_CONTEXT' && !result.writeAttempted && writes === 0
+                        && body.text.replace(/[\r\n]+$/, '') === 'An intervening edit.', 'Stale context overwrote the intervening edit');
+                    body.insertFileFromBase64(fixture, Word.InsertLocation.replace);
+                    await context.sync();
+                    return { errorCode: result.error.code, writes, written: result.written, writeAttempted: result.writeAttempted };
+                });
+                checks.push({ case: testCase.name, view: 'stale-context-refusal', ...stale });
                 const unchanged = await runBatch([{ type: 'replace', target: { exactText: 'Alpha beta gamma.' }, modified: 'Alpha beta gamma.' }]);
                 assert(unchanged.status === 'ok' && !unchanged.hasChanges && !unchanged.written && unchanged.reads === 1 && unchanged.writes === 0,
                     `Unchanged paragraph was not a successful no-op: ${JSON.stringify(unchanged)}`);
                 checks.push({ case: testCase.name, view: 'unchanged-paragraph', ...unchanged });
             }
-            const applied = await runBatch(testCase.nativeOperations);
+            const applied = await runBatch(testCase.agenticRequest
+                ? source => planAgenticListOperations(source, testCase.agenticRequest)
+                : testCase.nativeOperations);
             assert(applied.status === 'ok' && applied.written && applied.reads === 1 && applied.writes === 1,
                 `${testCase.name}: expected one successful read/write`);
             checks.push({ case: testCase.name, view: 'actual-officejs-insertion', ...applied });
