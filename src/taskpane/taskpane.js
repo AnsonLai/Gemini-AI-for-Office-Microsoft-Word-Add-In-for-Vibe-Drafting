@@ -29,6 +29,8 @@ import {
   sanitizeHistory,
   appendFunctionExchange
 } from './modules/chat/chat-history.js';
+import { advanceMutationLoopGuard, getMaxLoopStopMessage } from './modules/chat/mutation-loop-guard.js';
+import { appendRefreshedDocumentContext } from './modules/chat/refreshed-document-context.js';
 import { getModelProfile } from './modules/config/model-profiles.js';
 import {
   saveCheckpoint,
@@ -321,6 +323,35 @@ async function extractEnhancedDocumentContext(context) {
     formattedText: enhancedParagraphs.map(p => p.enhancedLine).join("\n"),
     sectionCount: sectionCounter
   };
+}
+
+/** Capture a fresh model view and canonical source baseline after a confirmed write. */
+async function captureRefreshedDocumentContext(wordOperationSupportPromise) {
+  let formattedText = '';
+  let sourceBaseline = [];
+
+  await Word.run(async (context) => {
+    const body = context.document.body;
+    try {
+      const enhancedContext = await extractEnhancedDocumentContext(context);
+      formattedText = enhancedContext.formattedText;
+    } catch (error) {
+      console.warn('Enhanced context refresh failed; using document text', error?.code || error?.name);
+      body.load('text');
+      await context.sync();
+      formattedText = body.text || '';
+    }
+
+    const sourceOoxml = body.getOoxml();
+    await context.sync();
+    const [wordOperationRunner] = await wordOperationSupportPromise;
+    sourceBaseline = wordOperationRunner.captureWordSourceBaseline(sourceOoxml.value);
+  });
+
+  if (!Array.isArray(sourceBaseline) || sourceBaseline.length === 0) {
+    throw new Error('The current document source baseline is unavailable.');
+  }
+  return { formattedText, sourceBaseline };
 }
 
 let chatHistory = [];
@@ -2081,6 +2112,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
         ]);
         let attemptedMutatingToolsThisLoop = 0;
         let successfulMutatingToolsThisLoop = 0;
+        let confirmedMutationThisLoop = false;
         const failedMutationSignatures = [];
 
         for (const functionCallPart of functionCallParts) {
@@ -2371,6 +2403,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
           const isMutatingTool = mutatingToolNames.has(functionCall.name);
           if (isMutatingTool) {
             if (toolMutation) {
+              confirmedMutationThisLoop = confirmedMutationThisLoop || toolMutation.written === true;
               const record = toolsExecutedInCurrentRequest[toolsExecutedInCurrentRequest.length - 1];
               Object.assign(record, {
                 status: toolMutation.status, error: toolMutation.error,
@@ -2428,6 +2461,26 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
           });
         }
 
+        // The tool arguments in this model turn all refer to the same original
+        // context, so refresh once after the full exchange rather than between
+        // queued calls. The next model turn receives both the new paragraph text
+        // and the baseline used to guard its edits against outside changes.
+        if (confirmedMutationThisLoop) {
+          try {
+            const refreshedContext = await captureRefreshedDocumentContext(wordOperationSupportPromise);
+            docText = refreshedContext.formattedText;
+            docSourceBaseline = refreshedContext.sourceBaseline;
+            appendRefreshedDocumentContext(functionResponses, docText);
+          } catch (error) {
+            console.error('Document context refresh failed after confirmed write:', error?.code || error?.name);
+            chatHistory = [];
+            updateSystemMessage(loadingMsg,
+              'A document edit was confirmed, but I could not refresh the document context. Inspect the current document before retrying; I stopped before another model turn.');
+            keepLooping = false;
+            break;
+          }
+        }
+
         // NOW add both the model's function call and the responses to history
         // together, validating the pair atomically so a mismatched exchange can
         // never enter history (the condition the tier recovery ladder cleans up
@@ -2438,18 +2491,25 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
           { role: "user", parts: functionResponses }
         );
 
-        if (attemptedMutatingToolsThisLoop > 0 && successfulMutatingToolsThisLoop === 0) {
-          const noProgressSignature = failedMutationSignatures.join("||").slice(0, 2000);
-          const signatureChanged = !!(lastNoProgressSignature && noProgressSignature && noProgressSignature !== lastNoProgressSignature);
-          consecutiveNoProgressToolLoops++;
-          lastNoProgressSignature = noProgressSignature;
+        const noProgressState = advanceMutationLoopGuard(
+          { consecutiveNoProgressToolLoops, lastNoProgressSignature },
+          {
+            attemptedMutatingTools: attemptedMutatingToolsThisLoop,
+            successfulMutatingTools: successfulMutatingToolsThisLoop,
+            signature: failedMutationSignatures.join("||").slice(0, 2000),
+            maxNoProgressToolLoops: DOCUMENT_LIMITS.MAX_NO_PROGRESS_TOOL_LOOPS
+          }
+        );
+        consecutiveNoProgressToolLoops = noProgressState.state.consecutiveNoProgressToolLoops;
+        lastNoProgressSignature = noProgressState.state.lastNoProgressSignature;
 
+        if (noProgressState.countedFailure) {
           console.warn(
             `[LoopGuard] No-progress mutation loop ${consecutiveNoProgressToolLoops}/${DOCUMENT_LIMITS.MAX_NO_PROGRESS_TOOL_LOOPS}`
-              + (signatureChanged ? " (signature changed)" : "")
+              + (noProgressState.signatureChanged ? " (signature changed)" : "")
           );
 
-          if (consecutiveNoProgressToolLoops >= DOCUMENT_LIMITS.MAX_NO_PROGRESS_TOOL_LOOPS) {
+          if (noProgressState.shouldStop) {
             const loopGuardMessage = "Stopped to prevent a retry loop: repeated document edit attempts are failing with no applied changes.";
             if (loadingMsg) {
               updateSystemMessage(loadingMsg, loopGuardMessage);
@@ -2462,9 +2522,8 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
             keepLooping = false;
             break;
           }
-        } else {
-          consecutiveNoProgressToolLoops = 0;
-          lastNoProgressSignature = "";
+        } else if (noProgressState.reset) {
+          console.log('[LoopGuard] Reset no-progress mutation counter after a confirmed document write.');
         }
 
       } else {
@@ -2485,6 +2544,16 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
         addMessageToChat("Gemini", aiResponse);
         keepLooping = false;
       }
+    }
+
+    const maxLoopStopMessage = getMaxLoopStopMessage({
+      keepLooping,
+      loopCount,
+      maxLoops: DOCUMENT_LIMITS.MAX_LOOPS,
+      confirmedWrites: toolsExecutedInCurrentRequest.some(tool => tool.written === true)
+    });
+    if (maxLoopStopMessage) {
+      updateSystemMessage(loadingMsg, maxLoopStopMessage);
     }
 
     // Maintain rolling window - but ensure we don't break function call/response pairs

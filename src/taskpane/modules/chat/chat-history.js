@@ -6,49 +6,90 @@ function maintainHistoryWindow(history, maxMessages) {
     return history;
   }
 
-  // Start from the end and work backwards, keeping complete pairs
-  let newHistory = [];
-  let i = history.length - 1;
+  const limit = Math.max(0, Math.floor(Number(maxMessages) || 0));
+  if (limit === 0) return [];
 
-  while (i >= 0 && newHistory.length < maxMessages) {
-    const msg = history[i];
+  // Canonicalize first so the window is selected from complete exchanges. In
+  // particular, do not select a suffix that starts with a function response
+  // and then rely on validation to discard the useful history after it.
+  const validHistory = validateHistoryPairs(history);
+  const isRequest = (msg) => {
+    if (!msg || msg.role !== "user") return false;
+    const parts = msg.parts || [];
+    if (parts.some((part) => part && part.functionResponse)) return false;
+    return parts.some((part) => typeof (part && part.text) === "string" && part.text.trim().length > 0);
+  };
 
-    // If this is a function response, we must include its preceding function call
-    const isFunctionResponse = msg.role === "user" && msg.parts && msg.parts.some(p => p.functionResponse);
-
-    if (isFunctionResponse && i > 0) {
-      const prevMsg = history[i - 1];
-      const hasFunctionCall = prevMsg.role === "model" && prevMsg.parts && prevMsg.parts.some(p => p.functionCall);
-
-      if (hasFunctionCall) {
-        // Add both the function call and response together
-        newHistory.unshift(msg);
-        newHistory.unshift(prevMsg);
-        i -= 2;
-        continue;
-      }
+  let latestRequestIndex = -1;
+  for (let i = validHistory.length - 1; i >= 0; i--) {
+    if (isRequest(validHistory[i])) {
+      latestRequestIndex = i;
+      break;
     }
-
-    // If this is a function call, check if its response is already included
-    const hasFunctionCall = msg.role === "model" && msg.parts && msg.parts.some(p => p.functionCall);
-
-    if (hasFunctionCall && i < history.length - 1) {
-      const nextMsg = history[i + 1];
-      const hasResponse = nextMsg.role === "user" && nextMsg.parts && nextMsg.parts.some(p => p.functionResponse);
-
-      if (hasResponse && !newHistory.includes(nextMsg)) {
-        // Skip this function call since its response isn't in our window
-        i--;
-        continue;
-      }
-    }
-
-    newHistory.unshift(msg);
-    i--;
   }
 
-  // Final validation: remove any orphaned function calls or responses at the boundaries
-  return validateHistoryPairs(newHistory);
+  // A text request is the useful conversational anchor. If none exists, an
+  // empty history is safer than returning a window that starts with a model
+  // turn or an orphaned function response.
+  if (latestRequestIndex < 0) return [];
+
+  if (validHistory.length <= limit) return validHistory;
+
+  const pairs = [];
+  for (let i = 0; i < validHistory.length - 1; i++) {
+    const msg = validHistory[i];
+    if (msg.role === "model" && (msg.parts || []).some((part) => part && part.functionCall)) {
+      let requestIndex = -1;
+      for (let j = i - 1; j >= 0; j--) {
+        if (isRequest(validHistory[j])) {
+          requestIndex = j;
+          break;
+        }
+      }
+      if (requestIndex >= 0) {
+        pairs.push({ callIndex: i, responseIndex: i + 1, requestIndex });
+      }
+      i++; // The validator guarantees that this next turn is its response.
+    }
+  }
+
+  // Keep the latest real user request even when it follows a long tool turn.
+  // Each retained exchange also keeps the most recent real user request before
+  // that exchange, so a later tool call does not lose the instruction that
+  // led to it. Never synthesize context.
+  const selectedPairs = [];
+  const selectedRequestIndices = new Set([latestRequestIndex]);
+  for (let i = pairs.length - 1; i >= 0; i--) {
+    const pair = pairs[i];
+    const proposedRequestIndices = new Set(selectedRequestIndices);
+    proposedRequestIndices.add(pair.requestIndex);
+    const proposedSize = (selectedPairs.length + 1) * 2 + proposedRequestIndices.size;
+    if (proposedSize <= limit) {
+      selectedPairs.push(pair);
+      selectedRequestIndices.add(pair.requestIndex);
+    }
+  }
+
+  const selectedIndices = new Set(selectedRequestIndices);
+  for (const pair of selectedPairs) {
+    selectedIndices.add(pair.callIndex);
+    selectedIndices.add(pair.responseIndex);
+  }
+
+  // Preserve trailing plain model output when there is spare capacity. It is
+  // optional, so it never crowds out the request or a complete tool exchange.
+  const lastSelectedIndex = Math.max(...selectedIndices);
+  for (let i = validHistory.length - 1; i > lastSelectedIndex; i--) {
+    const msg = validHistory[i];
+    const parts = msg.parts || [];
+    const hasToolSemantics = parts.some((part) => part && (part.functionCall || part.functionResponse));
+    if (hasToolSemantics || msg.role !== "model" || selectedIndices.size >= limit) break;
+    selectedIndices.add(i);
+  }
+
+  return [...selectedIndices]
+    .sort((a, b) => a - b)
+    .map((index) => validHistory[index]);
 }
 
 /**

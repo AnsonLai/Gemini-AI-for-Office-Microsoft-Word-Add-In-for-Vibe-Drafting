@@ -2,6 +2,17 @@
 
 > Role: **Session summary log** of what happened and what changed.
 
+## [2026-10-01] Table incident checkpoint
+
+The user reported a stalled underline-then-table request. Consumer fixes now
+refresh document context after confirmed writes, preserve real requests and
+complete tool pairs in bounded history, retain failed-mutation counts across
+read-only tools, and show a terminal status when the model-turn budget expires.
+Focused context/history/loop regressions pass. Compatible append mapping and
+the independently reproduced library formatting defect are tracked in the
+[incident plan](docs/plans/2026-09-30-table-creation-reliability.md); this checkpoint
+does not claim the full exercise is fixed or independently verified in Word.
+
 ## Current package status: v0.8.3
 
 The add-in, MCP server and browser demo use the public

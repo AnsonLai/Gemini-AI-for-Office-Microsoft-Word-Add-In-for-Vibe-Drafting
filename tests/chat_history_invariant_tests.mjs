@@ -1,6 +1,7 @@
 import assert from 'assert';
 import {
   appendFunctionExchange,
+  maintainHistoryWindow,
   validateHistoryPairs
 } from '../src/taskpane/modules/chat/chat-history.js';
 
@@ -88,6 +89,95 @@ function testValidateHistoryPairsLeavesBuiltHistoryUnchanged() {
   assert.deepStrictEqual(validated, history, 'validation should not drop any turns');
 }
 
+function buildLongToolHistory() {
+  const history = [{ role: 'user', parts: [{ text: 'Please make the requested edits.' }] }];
+  for (let i = 0; i < 7; i++) {
+    const name = `tool_${i}`;
+    appendFunctionExchange(history, modelTurn([name]), userTurn([name]));
+  }
+  return history;
+}
+
+function functionCallNames(history) {
+  return history.flatMap((turn) => (turn.parts || [])
+    .filter((part) => part.functionCall)
+    .map((part) => part.functionCall.name));
+}
+
+function testHistoryWindowKeepsRequestAndRecentPairsAfterLongToolTurn() {
+  const history = buildLongToolHistory();
+  const originalHistory = structuredClone(history);
+
+  const windowed = maintainHistoryWindow(history, 10);
+
+  assert.ok(windowed.length <= 10, 'window must remain within the configured message cap');
+  assert.deepStrictEqual(windowed[0], history[0], 'the first retained turn must be the actual user request');
+  assert.deepStrictEqual(functionCallNames(windowed), ['tool_3', 'tool_4', 'tool_5', 'tool_6']);
+  assert.deepStrictEqual(validateHistoryPairs(windowed), windowed, 'retained exchanges must remain valid');
+  assert.deepStrictEqual(history, originalHistory, 'windowing must not mutate the input history');
+}
+
+function testHistoryWindowKeepsNextRequestAndRecentPairs() {
+  const history = buildLongToolHistory();
+  const nextRequest = { role: 'user', parts: [{ text: 'Now summarize the changes.' }] };
+  history.push(nextRequest);
+  const originalHistory = structuredClone(history);
+
+  const windowed = maintainHistoryWindow(history, 10);
+
+  assert.ok(windowed.length <= 10, 'window must remain within the configured message cap');
+  assert.deepStrictEqual(windowed[0], history[0], 'tool exchanges need their original user context');
+  assert.deepStrictEqual(windowed[windowed.length - 1], nextRequest, 'the newest user request must survive');
+  assert.deepStrictEqual(functionCallNames(windowed), ['tool_3', 'tool_4', 'tool_5', 'tool_6']);
+  assert.deepStrictEqual(validateHistoryPairs(windowed), windowed, 'retained exchanges must remain valid');
+  assert.deepStrictEqual(history, originalHistory, 'windowing must not mutate the input history');
+}
+
+function testSmallHistoryWindowPrioritizesRequestAndWholePairs() {
+  const history = buildLongToolHistory();
+
+  const windowed = maintainHistoryWindow(history, 4);
+
+  assert.ok(windowed.length <= 4);
+  assert.deepStrictEqual(windowed[0], history[0], 'the actual request takes priority');
+  assert.deepStrictEqual(functionCallNames(windowed), ['tool_6'], 'only a complete recent pair should be retained');
+  assert.deepStrictEqual(validateHistoryPairs(windowed), windowed);
+}
+
+function testHistoryWindowKeepsEachSelectedPairWithItsUserContext() {
+  const history = [{ role: 'user', parts: [{ text: 'Request 1' }] }];
+  for (let i = 1; i <= 4; i++) {
+    const name = `context_tool_${i}`;
+    appendFunctionExchange(history, modelTurn([name]), userTurn([name]));
+    history.push({ role: 'user', parts: [{ text: `Request ${i + 1}` }] });
+  }
+  const originalHistory = structuredClone(history);
+
+  const windowed = maintainHistoryWindow(history, 10);
+  const contextByTool = {};
+  for (let i = 0; i < windowed.length; i++) {
+    const call = (windowed[i].parts || []).find((part) => part.functionCall);
+    if (!call) continue;
+    const context = windowed.slice(0, i).reverse().find((turn) =>
+      turn.role === 'user' &&
+      !(turn.parts || []).some((part) => part.functionResponse) &&
+      (turn.parts || []).some((part) => typeof part.text === 'string' && part.text.trim())
+    );
+    contextByTool[call.functionCall.name] = context.parts.find((part) => part.text).text;
+  }
+
+  assert.ok(windowed.length <= 10);
+  assert.deepStrictEqual(functionCallNames(windowed), ['context_tool_2', 'context_tool_3', 'context_tool_4']);
+  assert.deepStrictEqual(contextByTool, {
+    context_tool_2: 'Request 2',
+    context_tool_3: 'Request 3',
+    context_tool_4: 'Request 4'
+  }, 'each retained tool exchange must keep the real request that preceded it');
+  assert.deepStrictEqual(windowed[windowed.length - 1], history[history.length - 1], 'latest request must survive');
+  assert.deepStrictEqual(validateHistoryPairs(windowed), windowed);
+  assert.deepStrictEqual(history, originalHistory, 'windowing must not mutate the input history');
+}
+
 testValidPairAppendsBoth();
 testMixedModelPartsAllowed();
 testMultipleToolsMatched();
@@ -96,5 +186,9 @@ testCountMismatchThrows();
 testNoFunctionCallThrows();
 testBadShapesThrow();
 testValidateHistoryPairsLeavesBuiltHistoryUnchanged();
+testHistoryWindowKeepsRequestAndRecentPairsAfterLongToolTurn();
+testHistoryWindowKeepsNextRequestAndRecentPairs();
+testSmallHistoryWindowPrioritizesRequestAndWholePairs();
+testHistoryWindowKeepsEachSelectedPairWithItsUserContext();
 
 console.log('chat_history_invariant_tests passed');
