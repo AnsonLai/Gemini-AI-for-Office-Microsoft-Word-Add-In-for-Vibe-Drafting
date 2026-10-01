@@ -51,6 +51,12 @@ The separate library findings are recorded in the [tracked-formatting report](li
 and [Reject All paragraph report](library-issues/2026-10-01-word-reject-table-append-paragraph.md).
 No full live chat/model reproduction or live provider call was performed.
 
+The subsequent Undo/stale-context regression proves refusal before any write,
+refresh without batch replay, and a newly planned edit against the restored
+document. It also retains refusal on a paragraph-ID-only fingerprint mismatch
+and verifies safe mismatch reasons. These deterministic tests do not establish
+that Word changed paragraph IDs in the user's failure.
+
 Full canonical list migration is in the
 [active follow-up](plans/2026-09-30-canonical-list-migration-follow-up.md).
 Report engine defects to the library and retain consumer regressions. Provider

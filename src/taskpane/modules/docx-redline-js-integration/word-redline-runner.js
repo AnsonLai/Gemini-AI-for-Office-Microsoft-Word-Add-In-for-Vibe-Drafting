@@ -78,7 +78,8 @@ export async function applyRedlineChangesToWordContext(context, aiChanges, optio
         };
     } catch (error) {
         onWarn(`Redline batch failed: ${error?.message || error}`, {
-            code: error?.code || 'REDLINE_BATCH_FAILED', written: false, writeAttempted: false
+            code: error?.code || 'REDLINE_BATCH_FAILED', written: false, writeAttempted: false,
+            ...(error?.code === 'STALE_DOCUMENT_CONTEXT' && error.diagnostic ? { sourceMismatch: error.diagnostic } : {})
         });
         return {
             changesApplied: 0,

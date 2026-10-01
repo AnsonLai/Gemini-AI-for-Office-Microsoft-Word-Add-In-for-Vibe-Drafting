@@ -21,6 +21,21 @@ while Accept All loses underline in the formatting fixture. See the
 and [Reject All paragraph report](docs/library-issues/2026-10-01-word-reject-table-append-paragraph.md).
 No full live chat/model reproduction is claimed.
 
+### Undo/stale-context follow-up
+
+A later pasted log shows two P4 `STALE_DOCUMENT_CONTEXT` refusals with
+`written: false` and `writeAttempted: false`. The P4 missing-anchor warning only
+means anchor verification was skipped; the log does not identify whether the
+baseline was unavailable or whether text/fingerprint comparison failed. Since
+the fingerprint includes `w14:paraId`, Word ID churn is a plausible false-stale
+cause, but it is not confirmed and the fingerprint guard remains unchanged.
+
+A bounded recovery is being added for a proven no-write stale refusal: take one
+fresh snapshot and baseline, then replan with the model. The old change set must
+not be replayed and the failed-mutation budget must not reset. Safe reason-only
+diagnostics and a real Word Undo probe are still pending, so the plan remains
+open.
+
 ## Current package status: v0.8.3
 
 The add-in, MCP server and browser demo use the public

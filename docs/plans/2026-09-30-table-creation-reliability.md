@@ -1,7 +1,7 @@
 # Table creation and multi-step chat reliability
 
 **Date:** 2026-09-30  
-**Status:** Open — consumer fixes are complete; tracked Reject All and underline fidelity remain blocked by upstream behavior.
+**Status:** Open — tracked Word fidelity remains blocked; a bounded Undo/stale-context recovery is in progress.
 
 **Updated:** 2026-10-01. Consumer regressions and the production build pass.
 Compatible edit-plus-append mapping, append-anchor preservation, receipt mapping,
@@ -13,6 +13,23 @@ underline fidelity fail. See the
 [validation report](../validation-reports/2026-10-01-table-creation-reliability.md),
 [tracked-formatting report](../library-issues/2026-10-01-table-append-tracked-formatting.md),
 and [Reject All paragraph report](../library-issues/2026-10-01-word-reject-table-append-paragraph.md).
+
+**2026-10-01 follow-up:** A later pasted log shows two successive P4 proposals
+without `anchorText`, each refused as `STALE_DOCUMENT_CONTEXT` with
+`written: false` and `writeAttempted: false`. This proves two no-write refusals,
+not their specific cause. Missing `anchorText` skips the separate anchor check;
+the stale guard can also refuse an unavailable baseline or a text/fingerprint
+mismatch. The fingerprint includes `w14:paraId`, so an ID-only change is a
+plausible false-stale cause, but no host evidence confirms Word changed the ID.
+The fingerprint guard remains unchanged while a Word capture probe investigates.
+
+The consumer recovery is in progress: after a proven no-write stale refusal,
+take one bounded fresh document snapshot and baseline, then ask the model to
+replan from that context. Do not replay the refused change set, reset the
+failed-mutation budget, or refresh after any uncertain write. Add reason-only
+diagnostics so host logs distinguish unavailable baseline, text mismatch, and
+fingerprint-only mismatch without exposing document text. Keep this work and
+the plan open until the regression and host probe finish.
 
 ## Incident
 
@@ -83,6 +100,10 @@ formatting preservation; it is not repaired by the consumer changes.
 - [x] WP6: current contracts/state/summary and library-issue notes are updated.
   Source/history and consumer/harness changes are committed as `7012fed` and
   `d3e315f`; these documentation updates accompany the validation checkpoint.
+- [ ] WP7: implement and verify one bounded fresh-context replan after a
+  proven no-write `STALE_DOCUMENT_CONTEXT`; preserve the failed-mutation count,
+  never replay the old batch, and report safe refusal reasons. Confirm whether
+  an Undo changes Word's paragraph identity with the host probe.
 
 ## Acceptance
 
@@ -91,4 +112,5 @@ preserved source targeting, refreshed context, complete tool history, and a
 two-failure mutation budget that read-only calls cannot reset. Offline tests
 and the production build pass. Plain accepted table content passes in Word,
 but tracked Reject All paragraph structure and tracked underline fidelity do
-not. No full live chat/model reproduction or provider call is claimed here.
+not. The new stale-context recovery and its Word ID probe remain unverified.
+No full live chat/model reproduction or provider call is claimed here.

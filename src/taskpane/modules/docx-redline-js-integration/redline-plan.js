@@ -266,16 +266,17 @@ export function planRedlineBatchOperations(aiChanges, inspectedParagraphs, optio
     return planRedlineBatchOperationsWithMapping(aiChanges, inspectedParagraphs, options).operations;
 }
 
-function staleDocumentContext(message) {
+function staleDocumentContext(message, diagnostic = {}) {
     const error = new Error(message);
     error.code = 'STALE_DOCUMENT_CONTEXT';
+    error.diagnostic = diagnostic;
     return error;
 }
 
 /** Refuse edits whose canonical source paragraphs changed after context creation. */
 export function assertSourceBaseline(changes, liveParagraphs, sourceBaseline) {
     if (!Array.isArray(sourceBaseline) || sourceBaseline.length === 0) {
-        throw staleDocumentContext('The source baseline is unavailable; reread the document before editing.');
+        throw staleDocumentContext('The source baseline is unavailable; reread the document before editing.', { reason: 'BASELINE_UNAVAILABLE' });
     }
 
     const live = Array.isArray(liveParagraphs) ? liveParagraphs : [];
@@ -284,7 +285,7 @@ export function assertSourceBaseline(changes, liveParagraphs, sourceBaseline) {
         if (!paragraph || !Number.isInteger(paragraph.index) || paragraph.index < 1
             || typeof paragraph.exactText !== 'string' || typeof paragraph.fingerprint !== 'string'
             || paragraph.fingerprint.length === 0 || baseline.has(paragraph.index)) {
-            throw staleDocumentContext('The source baseline is incomplete or malformed; reread the document before editing.');
+            throw staleDocumentContext('The source baseline is incomplete or malformed; reread the document before editing.', { reason: 'BASELINE_INVALID' });
         }
         baseline.set(paragraph.index, paragraph);
     }
@@ -297,7 +298,17 @@ export function assertSourceBaseline(changes, liveParagraphs, sourceBaseline) {
             || typeof actual.fingerprint !== 'string'
             || actual.exactText !== expected.exactText
             || actual.fingerprint !== expected.fingerprint) {
-            throw staleDocumentContext(`Paragraph P${index} changed since the edit context was created; reread before applying this batch.`);
+            const reason = !expected || !actual ? 'TARGET_MISSING'
+                : actual.index !== index ? 'INDEX_MISMATCH'
+                : actual.exactText !== expected.exactText ? 'TEXT_MISMATCH'
+                : 'FINGERPRINT_MISMATCH';
+            throw staleDocumentContext(`Paragraph P${index} changed since the edit context was created; reread before applying this batch.`, {
+                reason, paragraphIndex: index,
+                ...(expected && actual ? {
+                    paragraphIdChanged: (actual.paragraphId ?? null) !== (expected.paragraphId ?? null),
+                    tableContextChanged: actual.inTable !== expected.inTable
+                } : {})
+            });
         }
     };
 
@@ -305,14 +316,16 @@ export function assertSourceBaseline(changes, liveParagraphs, sourceBaseline) {
         const operation = String(change?.operation || '').trim().toLowerCase();
         const startIndex = change?.paragraphIndex;
         if (!Number.isInteger(startIndex) || startIndex < 1) {
-            throw staleDocumentContext('The edit target could not be matched to its source baseline.');
+            throw staleDocumentContext('The edit target could not be matched to its source baseline.', { reason: 'TARGET_INVALID' });
         }
 
         const append = startIndex === sourceBaseline.length + 1
             && ['replace_paragraph', 'replace_range', 'edit_paragraph'].includes(operation);
         if (append) {
             if (live.length !== sourceBaseline.length || sourceBaseline.length === 0) {
-                throw staleDocumentContext('The document paragraph count changed since the append context was created; reread before applying this batch.');
+                throw staleDocumentContext('The document paragraph count changed since the append context was created; reread before applying this batch.', {
+                    reason: 'PARAGRAPH_COUNT_MISMATCH', baselineParagraphCount: sourceBaseline.length, liveParagraphCount: live.length
+                });
             }
             compareParagraph(sourceBaseline.length);
             continue;
@@ -326,7 +339,7 @@ export function assertSourceBaseline(changes, liveParagraphs, sourceBaseline) {
                 continue;
             }
             if (!Number.isInteger(endIndex) || endIndex < startIndex || endIndex > sourceBaseline.length) {
-                throw staleDocumentContext('The replacement range could not be matched to its source baseline.');
+                throw staleDocumentContext('The replacement range could not be matched to its source baseline.', { reason: 'RANGE_INVALID' });
             }
             for (let index = startIndex; index <= endIndex; index += 1) compareParagraph(index);
             continue;

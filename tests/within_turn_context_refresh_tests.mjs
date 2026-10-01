@@ -1,7 +1,7 @@
 import './setup-xml-provider.mjs';
 import assert from 'node:assert/strict';
 import { appendFunctionExchange, sanitizeHistory } from '../src/taskpane/modules/chat/chat-history.js';
-import { appendRefreshedDocumentContext } from '../src/taskpane/modules/chat/refreshed-document-context.js';
+import { appendRefreshedDocumentContext, isNoWriteStaleContextRefusal } from '../src/taskpane/modules/chat/refreshed-document-context.js';
 import { applyRedlineChangesToWordContext } from '../src/taskpane/modules/docx-redline-js-integration/word-redline-runner.js';
 import { captureWordSourceBaseline } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
 import { buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
@@ -72,6 +72,30 @@ try {
   const validated = sanitizeHistory(history);
   assert.equal(validated.length, 3, 'the refresher text must stay beside its matched function response');
   assert.match(validated[2].parts.at(-1).text, /Updated paragraph/);
+
+  // Simulate Undo after the original request captured its source snapshot.
+  currentOoxml = makePackage();
+  const refusedAfterUndo = await applyRedlineChangesToWordContext(context, nextChange, {
+    author: 'Editor', sourceBaseline: refreshedBaseline, onInfo() {}, onWarn() {}
+  });
+  assert.equal(isNoWriteStaleContextRefusal(refusedAfterUndo), true);
+  const writeCountBeforeRecovery = writes.length;
+  const freshAfterUndo = captureWordSourceBaseline(currentOoxml);
+  const recoveryResponses = [{ functionResponse: { name: 'apply_redlines', response: { text: 'Source stale; no write.' } } }];
+  appendRefreshedDocumentContext(recoveryResponses, '[P2] Final paragraph stays unchanged.', 'stale-refusal');
+  assert.equal(writes.length, writeCountBeforeRecovery, 'refreshing context does not replay or apply the refused batch');
+  assert.match(recoveryResponses.at(-1).text, /Replan.*do not reuse/s);
+  const replanned = await applyRedlineChangesToWordContext(context, [{
+    operation: 'edit_paragraph', paragraphIndex: 2,
+    replacements: [{ find: 'Final paragraph', replace: 'Replanned paragraph' }]
+  }], { author: 'Editor', sourceBaseline: freshAfterUndo, onInfo() {}, onWarn() {} });
+  assert.equal(replanned.written, true, 'a newly planned edit against the post-Undo source can commit');
+  for (const unsafe of [
+    { ...refusedAfterUndo, writeAttempted: true, mutationOutcome: 'indeterminate' },
+    { ...refusedAfterUndo, written: true, mutationOutcome: 'applied_with_host_error' },
+    { ...refusedAfterUndo, error: { code: 'UNSUPPORTED_TABLE_FORMATTING' } },
+    { error: { code: 'STALE_DOCUMENT_CONTEXT' } }
+  ]) assert.equal(isNoWriteStaleContextRefusal(unsafe), false, 'unknown or attempted writes cannot trigger stale-refusal recovery');
 } finally {
   globalThis.Word = oldWord;
 }

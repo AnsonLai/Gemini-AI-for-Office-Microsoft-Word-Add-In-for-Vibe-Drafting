@@ -30,7 +30,7 @@ import {
   appendFunctionExchange
 } from './modules/chat/chat-history.js';
 import { advanceMutationLoopGuard, getMaxLoopStopMessage } from './modules/chat/mutation-loop-guard.js';
-import { appendRefreshedDocumentContext } from './modules/chat/refreshed-document-context.js';
+import { appendRefreshedDocumentContext, isNoWriteStaleContextRefusal } from './modules/chat/refreshed-document-context.js';
 import { getModelProfile } from './modules/config/model-profiles.js';
 import {
   saveCheckpoint,
@@ -325,7 +325,7 @@ async function extractEnhancedDocumentContext(context) {
   };
 }
 
-/** Capture a fresh model view and canonical source baseline after a confirmed write. */
+/** Capture a fresh model view and canonical source baseline for the next model turn. */
 async function captureRefreshedDocumentContext(wordOperationSupportPromise) {
   let formattedText = '';
   let sourceBaseline = [];
@@ -1751,6 +1751,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
     let keepLooping = true;
     let consecutiveNoProgressToolLoops = 0;
     let lastNoProgressSignature = "";
+    let staleContextRefreshUsed = false;
 
     while (keepLooping && loopCount < DOCUMENT_LIMITS.MAX_LOOPS) {
       loopCount++;
@@ -2113,6 +2114,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
         let attemptedMutatingToolsThisLoop = 0;
         let successfulMutatingToolsThisLoop = 0;
         let confirmedMutationThisLoop = false;
+        let staleContextRefusedThisLoop = false;
         const failedMutationSignatures = [];
 
         for (const functionCallPart of functionCallParts) {
@@ -2404,6 +2406,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
           if (isMutatingTool) {
             if (toolMutation) {
               confirmedMutationThisLoop = confirmedMutationThisLoop || toolMutation.written === true;
+              staleContextRefusedThisLoop = staleContextRefusedThisLoop || isNoWriteStaleContextRefusal(toolMutation);
               const record = toolsExecutedInCurrentRequest[toolsExecutedInCurrentRequest.length - 1];
               Object.assign(record, {
                 status: toolMutation.status, error: toolMutation.error,
@@ -2465,17 +2468,22 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
         // context, so refresh once after the full exchange rather than between
         // queued calls. The next model turn receives both the new paragraph text
         // and the baseline used to guard its edits against outside changes.
-        if (confirmedMutationThisLoop) {
+        const refreshAfterStaleRefusal = staleContextRefusedThisLoop && !staleContextRefreshUsed;
+        if (confirmedMutationThisLoop || refreshAfterStaleRefusal) {
           try {
             const refreshedContext = await captureRefreshedDocumentContext(wordOperationSupportPromise);
             docText = refreshedContext.formattedText;
             docSourceBaseline = refreshedContext.sourceBaseline;
-            appendRefreshedDocumentContext(functionResponses, docText);
+            if (refreshAfterStaleRefusal) staleContextRefreshUsed = true;
+            appendRefreshedDocumentContext(functionResponses, docText,
+              refreshAfterStaleRefusal ? 'stale-refusal' : 'confirmed-write');
           } catch (error) {
-            console.error('Document context refresh failed after confirmed write:', error?.code || error?.name);
+            console.error('Document context refresh failed:', error?.code || error?.name);
             chatHistory = [];
             updateSystemMessage(loadingMsg,
-              'A document edit was confirmed, but I could not refresh the document context. Inspect the current document before retrying; I stopped before another model turn.');
+              confirmedMutationThisLoop
+                ? 'A document edit was confirmed, but I could not refresh the document context. Inspect the current document before retrying; I stopped before another model turn.'
+                : 'The edit was refused because its source context was stale, and I could not refresh the document context. I stopped before another model turn; restart the request after inspecting the document.');
             keepLooping = false;
             break;
           }

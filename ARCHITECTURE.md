@@ -87,9 +87,13 @@ unavailable supplied baselines refuse before native or canonical list writes.
 During a multi-turn tool exchange, the taskpane refreshes both prompt document
 text and the canonical baseline after the complete exchange reports a confirmed
 successful mutation, before requesting the next model turn. It does not refresh
-between calls already queued against one snapshot, or after refused/uncertain
-writes. A failed refresh stops further mutation attempts; the existing stale
-source guard against external edits remains active.
+between calls already queued against one snapshot. A proven no-write
+`STALE_DOCUMENT_CONTEXT` refusal also permits one fresh snapshot per request;
+the next model turn replans, without replaying the refused batch or resetting
+the failed-mutation budget. Other refusals and uncertain writes do not trigger
+this recovery. A failed refresh stops further mutation attempts; the existing
+stale source guard against external edits remains active. Safe mismatch
+diagnostics distinguish missing baseline, text, index and fingerprint failures.
 
 For `apply_redlines`, the append planner has one narrow coalescing case: a
 compatible edit of the final paragraph plus one Markdown table append. Both

@@ -23,6 +23,16 @@
   [tracked-formatting report](docs/library-issues/2026-10-01-table-append-tracked-formatting.md),
   and [Reject All paragraph report](docs/library-issues/2026-10-01-word-reject-table-append-paragraph.md).
 
+- **Undo/stale-context follow-up (2026-10-01):** a new log records two P4
+  `STALE_DOCUMENT_CONTEXT` refusals, both with no write attempted or confirmed.
+  The P4 missing-anchor warning means anchor validation was skipped; it does not
+  identify why the baseline guard refused. A changed `w14:paraId` could change
+  the fingerprint despite unchanged text, but Word ID churn is unconfirmed and
+  the fingerprint guard remains unchanged. A one-time refreshed snapshot and
+  model replan after proven no-write stale is in progress; it must not replay
+  the old batch or reset the failed-mutation budget. Reason-only diagnostics and
+  an actual Word Undo probe remain pending. The plan stays open.
+
 - **Library:** the Word add-in and MCP server pin exact
   `@ansonlai/docx-redline-js@0.8.3`. Browser editing uses the same package
   through its public document-session facade.
