@@ -113,7 +113,37 @@ function Check-Document($case, [string]$file, [string]$view, [bool]$render, [boo
         if ($view -eq 'rejected') { $document.RejectAllRevisions() }
         $actual = Normalize-WordText ([string]$document.Content.Text)
         $expected = if ($view -eq 'source' -and $case.expectedSourceText) { $case.expectedSourceText } elseif ($view -eq 'rejected') { $case.expectedRejectedText } elseif ($view -eq 'source') { $case.expectedRejectedText } else { $case.expectedAcceptedText }
-        if ($view -ne 'tracked' -and $actual -cne $expected) {
+        if ($view -ne 'tracked' -and $case.expectedBodyStructure) {
+            $structure = $case.expectedBodyStructure.$view
+            if (-not $structure) { throw "Missing independent body structure expectations for $view." }
+            $actualParagraphs = @()
+            for ($paragraphIndex = 1; $paragraphIndex -le $document.Paragraphs.Count; $paragraphIndex++) {
+                $paragraphRange = $document.Paragraphs.Item($paragraphIndex).Range
+                $paragraphStart = $paragraphRange.Duplicate
+                $paragraphStart.Collapse(1) # wdCollapseStart; avoid the next block's boundary.
+                if (-not $paragraphStart.Information(12)) { # wdWithInTable
+                    $actualParagraphs += Normalize-WordText ([string]$paragraphRange.Text)
+                }
+            }
+            $expectedParagraphs = @($structure.paragraphs)
+            if ($actualParagraphs.Count -ne $expectedParagraphs.Count) { throw "Word $view direct paragraph count differs: $($actualParagraphs.Count) vs $($expectedParagraphs.Count). Actual fixture paragraphs: $($actualParagraphs | ConvertTo-Json -Compress)" }
+            for ($paragraphIndex = 0; $paragraphIndex -lt $expectedParagraphs.Count; $paragraphIndex++) {
+                if ($actualParagraphs[$paragraphIndex] -cne $expectedParagraphs[$paragraphIndex]) { throw "Word $view direct paragraph text differs at $paragraphIndex." }
+            }
+            $expectedTables = @($structure.tables)
+            if ($document.Tables.Count -ne $expectedTables.Count) { throw "Word $view table count differs." }
+            for ($tableIndex = 0; $tableIndex -lt $expectedTables.Count; $tableIndex++) {
+                $table = $document.Tables.Item($tableIndex + 1)
+                $expectedTable = $expectedTables[$tableIndex]
+                if ($table.Rows.Count -ne $expectedTable.rows -or $table.Columns.Count -ne $expectedTable.columns) { throw "Word $view table dimensions differ." }
+                for ($rowIndex = 0; $rowIndex -lt $expectedTable.rows; $rowIndex++) {
+                    for ($columnIndex = 0; $columnIndex -lt $expectedTable.columns; $columnIndex++) {
+                        $cellText = Normalize-WordText (([string]$table.Cell($rowIndex + 1, $columnIndex + 1).Range.Text).TrimEnd([char]7))
+                        if ($cellText -cne [string]$expectedTable.cells[$rowIndex][$columnIndex]) { throw "Word $view cell text differs at $rowIndex,$columnIndex." }
+                    }
+                }
+            }
+        } elseif ($view -ne 'tracked' -and $actual -cne $expected) {
             throw "Word $view text differs. Expected=$($expected | ConvertTo-Json -Compress); actual=$($actual | ConvertTo-Json -Compress)"
         }
         $comments = [int]$document.Comments.Count
@@ -200,6 +230,11 @@ function Check-Document($case, [string]$file, [string]$view, [bool]$render, [boo
                 $boldFlag = if ($format.bold) { -1 } else { 0 }
                 $italicFlag = if ($format.italic) { -1 } else { 0 }
                 if ($formatRange.Font.Bold -ne $boldFlag -or $formatRange.Font.Italic -ne $italicFlag -or ($format.font -and $formatRange.Font.Name -cne $format.font) -or ($format.size -and $formatRange.Font.Size -ne $format.size)) { throw "Word $view formatting differs for $formatText." }
+                $underlineExpected = if ($view -eq 'source' -or $view -eq 'rejected') { $format.underlineRejected } else { $format.underlineAccepted }
+                if ($null -ne $underlineExpected) {
+                    $underlineValue = if ($underlineExpected) { 1 } else { 0 } # wdUnderlineSingle / wdUnderlineNone
+                    if ($formatRange.Font.Underline -ne $underlineValue) { throw "Word $view underline differs for $formatText." }
+                }
             }
         }
         if ($view -ne 'tracked' -and $case.expectedHeaderFooterText) {
@@ -351,7 +386,7 @@ try {
         $checks.Add([pscustomobject]@{ case = $control.file; view = 'negative-control'; status = $status; opened = $opened })
         Write-Output "$($status.ToUpper()) $($control.file) (opened=$opened)"
     }
-    $transportEvidence = if ($FixtureManifest) { 'External collected packages verified; consult the collector report for transport provenance.' } else { 'not exercised; native Word InsertXML is a separate package parser check' }
+    $transportEvidence = if ($FixtureManifest) { 'External fixture packages verified; this oracle does not establish Office.js transport provenance.' } else { 'not exercised; native Word InsertXML is a separate package parser check' }
     $report = [ordered]@{ checkedAt = [DateTime]::UtcNow.ToString('o'); wordVersion = [string]$word.Version; wordBuild = [string]$word.Build; checks = @($checks.ToArray()); renders = @($renders.ToArray()); renderSkipped = [bool]$SkipRender; nativeInsertSkipped = [bool]$SkipNativeInsert; officeJsTransport = $transportEvidence; fixtureManifest = $FixtureManifest }
     $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $outputDir 'word-report.json') -Encoding UTF8
 }

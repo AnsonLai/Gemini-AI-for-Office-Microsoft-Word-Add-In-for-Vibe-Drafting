@@ -288,6 +288,39 @@ async function testMatchingBaselineCommitsAndStaleTargetsRefuseWithoutWrite() {
     assert.equal(missingBaseline.writes.length, 0, 'a provided empty baseline is unavailable and fails closed');
 }
 
+async function testDefaultWarningsIdentifyFailureWithoutDocumentContent() {
+    const warnings = [];
+    const originalWarn = console.warn;
+    console.warn = (...args) => warnings.push(args);
+    try {
+        const result = await applyRedlineChangesToWordContext({ document: { body: {} } }, [
+            { operation: 'replace_paragraph', paragraphIndex: 8, content: 'Private table text' }
+        ], {
+            batchRunner: async () => ({
+                status: 'error', written: false, writeAttempted: false, rolledBack: true,
+                mutationOutcome: 'rolled_back',
+                error: { code: 'BATCH_OPERATION_FAILED', message: 'Private source text' },
+                results: [{ status: 'error', error: { code: 'TARGET_NOT_FOUND', message: 'Private target text' } }]
+            })
+        });
+        assert.equal(result.error.code, 'BATCH_OPERATION_FAILED');
+        assert.equal(warnings.length, 1);
+        assert.deepEqual(warnings[0][1], {
+            code: 'BATCH_OPERATION_FAILED', mutationOutcome: 'rolled_back',
+            written: false, writeAttempted: false, rolledBack: true,
+            operationErrors: [{ operationIndex: 1, code: 'TARGET_NOT_FOUND' }]
+        });
+        assert.doesNotMatch(JSON.stringify(warnings), /Private/);
+        await applyRedlineChangesToWordContext({ document: { body: {} } }, [
+            { operation: 'replace_paragraph', paragraphIndex: 8, content: 'Private table text' }
+        ], { batchRunner: async () => { throw Object.assign(new Error('Private stale text'), { code: 'STALE_DOCUMENT_CONTEXT' }); } });
+        assert.equal(warnings[1][1].code, 'STALE_DOCUMENT_CONTEXT');
+        assert.doesNotMatch(JSON.stringify(warnings), /Private/);
+    } finally {
+        console.warn = originalWarn;
+    }
+}
+
 testPlanningUsesInitialParagraphDescriptors();
 testRangeAndInsertionPlanning();
 testInvalidChangeFailsBeforeBatch();
@@ -298,6 +331,7 @@ await testEndToEndSingleWordWrite();
 await testRangeAndAppendAgainstEngine();
 await testRepeatedFindOccurrenceAgainstEngine();
 await testMatchingBaselineCommitsAndStaleTargetsRefuseWithoutWrite();
+await testDefaultWarningsIdentifyFailureWithoutDocumentContent();
 // Engine receipts can be committed to prepared XML even when Word did not confirm insertion.
 const hostFailure = await applyRedlineChangesToWordContext({ document: { body: {} } }, [
     { operation: 'edit_paragraph', paragraphIndex: 1, newContent: 'Updated.' }

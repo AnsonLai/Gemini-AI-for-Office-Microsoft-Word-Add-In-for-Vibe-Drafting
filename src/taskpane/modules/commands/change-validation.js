@@ -125,6 +125,23 @@ export function verifyAnchor(change, paragraphTexts) {
     return normPara.startsWith(anchor) || normPara.includes(anchor);
   };
 
+  // P(n+1) is an append intent. Its anchor describes the current last
+  // paragraph, but a matching neighbor must never turn that append into an
+  // edit of P(n).
+  const appendAllowed =
+    change?.operation === "replace_paragraph" ||
+    change?.operation === "replace_range" ||
+    change?.operation === "edit_paragraph";
+  if (claimedIndex === texts.length + 1 && appendAllowed) {
+    if (matchesAt(texts.length)) return verifyFinds(claimedIndex);
+    const actual = texts.length > 0 ? texts[texts.length - 1] : undefined;
+    return {
+      ok: false,
+      reason: "anchor_mismatch",
+      actualTextSnippet: actual != null ? normalizeForAnchor(actual).slice(0, 60) : "",
+    };
+  }
+
   // 1. Exact claimed index.
   if (matchesAt(claimedIndex)) {
     return verifyFinds(claimedIndex);

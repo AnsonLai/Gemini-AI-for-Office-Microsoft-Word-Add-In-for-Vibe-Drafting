@@ -1,13 +1,16 @@
 import { executePureOoxmlBatch } from './word-operation-runner.js';
-import { planRedlineBatchOperations, assertSourceBaseline } from './redline-plan.js';
+import { planRedlineBatchOperationsWithMapping, assertSourceBaseline } from './redline-plan.js';
 export { planRedlineBatchOperations, assertSourceBaseline } from './redline-plan.js';
 export async function applyRedlineChangesToWordContext(context, aiChanges, options = {}) {
     const changes = Array.isArray(aiChanges) ? aiChanges : [];
     if (changes.length === 0) return { changesApplied: 0, skipped: [], written: false, writeAttempted: false, mutationOutcome: 'noop' };
     const logPrefix = options.logPrefix || 'Redline/Shared';
     const onInfo = options.onInfo || (() => {});
-    const onWarn = options.onWarn || (() => console.warn(`[${logPrefix}] Batch warning; consult the structured result.`));
+    const onWarn = options.onWarn || ((_message, diagnostic) => console.warn(
+        `[${logPrefix}] Batch warning`, diagnostic || { code: 'ENGINE_WARNING' }
+    ));
     const batchRunner = options.batchRunner || executePureOoxmlBatch;
+    let changeOperationIndexes = changes.map((_, index) => index + 1);
     try {
         const result = await batchRunner(
             context,
@@ -16,7 +19,12 @@ export async function applyRedlineChangesToWordContext(context, aiChanges, optio
                 if (Object.prototype.hasOwnProperty.call(options, 'sourceBaseline')) {
                     assertSourceBaseline(changes, source.paragraphs, options.sourceBaseline);
                 }
-                return planRedlineBatchOperations(changes, source.paragraphs, options);
+                const plan = planRedlineBatchOperationsWithMapping(changes, source.paragraphs, {
+                    ...options,
+                    sourceDocumentXml: source.documentXml
+                });
+                changeOperationIndexes = plan.changeOperationIndexes;
+                return plan.operations;
             },
             {
                 author: options.author,
@@ -30,12 +38,15 @@ export async function applyRedlineChangesToWordContext(context, aiChanges, optio
         );
         const receipts = Array.isArray(result?.receipts) ? result.receipts : [];
         const changesApplied = result?.written === true
-            ? receipts.filter(receipt => receipt.committed === true).length
+            ? changeOperationIndexes.filter(operationIndex => receipts.some(receipt => (
+                receipt.operationIndex === operationIndex && receipt.committed === true
+            ))).length
             : 0;
         const skipped = changes.flatMap((change, index) => {
-            const receipt = receipts.find(item => item.operationIndex === index + 1);
+            const operationIndex = changeOperationIndexes[index] ?? index + 1;
+            const receipt = receipts.find(item => item.operationIndex === operationIndex);
             if (result?.written === true && receipt?.committed) return [];
-            const item = result?.results?.[index];
+            const item = result?.results?.[operationIndex - 1];
             const error = item?.error || result?.error;
             return [{
                 paragraphIndex: change?.paragraphIndex,
@@ -46,7 +57,17 @@ export async function applyRedlineChangesToWordContext(context, aiChanges, optio
                 ...(result?.rolledBack !== undefined ? { rolledBack: result.rolledBack } : {})
             }];
         });
-        if (result?.status === 'error') onWarn(result.error?.message || 'Redline batch failed.');
+        if (result?.status === 'error') onWarn(result.error?.message || 'Redline batch failed.', {
+            code: result.error?.code || 'ENGINE_REFUSED',
+            mutationOutcome: result.mutationOutcome,
+            written: result.written === true,
+            writeAttempted: result.writeAttempted === true,
+            rolledBack: result.rolledBack === true,
+            operationErrors: (result.results || []).flatMap((item, index) => item?.error ? [{
+                operationIndex: index + 1,
+                code: item.error.code || 'OPERATION_ERROR'
+            }] : [])
+        });
         onInfo(`Total changes applied: ${changesApplied}`);
         return {
             changesApplied, skipped, batchResult: result,
@@ -56,7 +77,9 @@ export async function applyRedlineChangesToWordContext(context, aiChanges, optio
             mutationOutcome: result?.mutationOutcome || (result?.written ? 'applied' : result?.rolledBack ? 'rolled_back' : result?.hasChanges === false ? 'noop' : 'refused')
         };
     } catch (error) {
-        onWarn(`Redline batch failed: ${error?.message || error}`);
+        onWarn(`Redline batch failed: ${error?.message || error}`, {
+            code: error?.code || 'REDLINE_BATCH_FAILED', written: false, writeAttempted: false
+        });
         return {
             changesApplied: 0,
             skipped: changes.map(change => ({
@@ -68,7 +91,9 @@ export async function applyRedlineChangesToWordContext(context, aiChanges, optio
             error,
             written: false,
             writeAttempted: false,
-            mutationOutcome: error?.code === 'STALE_DOCUMENT_CONTEXT' ? 'refused' : 'failed'
+            mutationOutcome: ['STALE_DOCUMENT_CONTEXT', 'UNSUPPORTED_TABLE_FORMATTING'].includes(error?.code)
+                ? 'refused'
+                : 'failed'
         };
     }
 }
