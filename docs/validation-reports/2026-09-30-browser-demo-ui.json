@@ -1,0 +1,20 @@
+{
+  "status": "passed",
+  "checkedAt": "2026-10-01T03:16:07.765Z",
+  "surface": "Codex in-app Chromium browser",
+  "providerCalls": false,
+  "sourceParagraphs": 24,
+  "reopenedInspectionParagraphs": 44,
+  "reopenedPromptParagraphs": 42,
+  "downloadSha256": "45c7337b4c0611ecce8bebc1b9a980c48cb0075509a831e44eb0541716dff447",
+  "checks": [
+    "Actual source file upload and preview",
+    "Reference document ingestion (threaded-comments.docx)",
+    "Deterministic kitchen-sink text, formatting, bullet, table and comment batch",
+    "Kitchen-sink and Download button produce identical DOCX bytes",
+    "Downloaded package validation and exact source paragraph preservation in accepted/rejected views",
+    "Reupload downloaded DOCX through actual UI and refresh preview",
+    "Download XML matches reopened document part"
+  ],
+  "automationNote": "Download event waits timed out; saved files were verified on disk and reopened through the UI."
+}

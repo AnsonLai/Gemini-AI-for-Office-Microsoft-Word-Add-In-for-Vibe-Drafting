@@ -61,35 +61,30 @@ The chat supports multi-turn conversation — Gemini retains context from previo
 
 One-click demo that applies a fixed set of operations to marker paragraphs:
 
-1. Text rewrite on `DEMO_TEXT_TARGET` (Gemini-backed when key is present; deterministic fallback otherwise)
+1. Text rewrite on `DEMO TEXT TARGET` (Gemini-backed when key is present; deterministic fallback otherwise)
 2. Format-only change on `DEMO FORMAT TARGET` (markdown hints)
-3. List generation on `DEMO_LIST_TARGET` (with numbering artifact handling)
-4. Table transformation on `DEMO_TABLE_TARGET`
+3. List generation on `DEMO LIST TARGET` (with numbering artifact handling)
+4. Table transformation on `DEMO TABLE TARGET`
 5. Gemini surprise tool action (`comment`, `highlight`, or `redline`)
 
-## Files
+Missing markers are seeded as separate paragraphs through the public API,
+with every source paragraph checked for preservation. Existing underscore
+markers such as `DEMO_TEXT_TARGET` remain accepted aliases.
 
-- `browser-demo/demo.html`: static UI (chat layout + styles)
-  - includes right-side `docxjs` (`docx-preview`) live preview pane
-- `browser-demo/demo.js`: browser module pipeline (chat engine + OOXML operations)
-  - renders preview with `renderChanges` enabled so insertions/deletions are visible
-- `@ansonlai/docx-redline-js/services/standalone-docx-plumbing.js`: shared standalone OOXML/docx package plumbing
-  - output extraction (`pkg:package`/`w:document`/fragment)
-  - body/section normalization + nested table paragraph sanitization
-  - numbering/comments artifact wiring + package validation
-- `@ansonlai/docx-redline-js/services/standalone-operation-runner.js`: shared operation bridge for full-document OOXML mutation
-  - routes `redline` / `highlight` / `comment` operations
-  - owns table/list/single-paragraph targeting heuristics used by chat and kitchen-sink flows
+## Files and local startup
 
-- `http://localhost:8000/browser-demo/demo.html`
+- `demo.html`: static UI and import map to the library's published browser bundle.
+- `demo.js`: file selection, model prompts, preview and download UI.
+- `document-session.js`: public `openDocx` document lifecycle, immutable batch targets and atomic mutation.
+- JSZip remains a preview dependency of `docx-preview`; document editing and save use the library facade.
 
-Example:
+Serve the repository root, then open `http://localhost:8000/browser-demo/demo.html`:
 
-```bash
-python -m http.server 8000
+```powershell
+python -m http.server 8000 --bind 127.0.0.1
 ```
 
-Do not use `file://`.
+Do not use `file://`. Both root and MCP pin exact library version 0.8.2.
 
 ## Gemini API Key
 
@@ -101,98 +96,34 @@ Do not use `file://`.
 
 If Gemini is unavailable, the kitchen-sink demo continues with fallback behavior. Chat mode requires a valid API key.
 
-## Chat Pipeline
+## Document pipeline
 
-1. Upload `.docx` → read with JSZip
-2. Extract all paragraph text from `word/document.xml`
-3. Build Gemini system instruction with full document listing
-4. User types review instruction → sent as multi-turn chat
-5. Gemini responds with explanation + JSON array of operations (`redline`/`comment`/`highlight`)
-6. Operations applied paragraph-by-paragraph using shared standalone operation runner + reconciliation engine
-7. Numbering/comments package artifacts merged if emitted (shared standalone plumbing helper path)
-8. Output validated via shared standalone package validation; download button enabled
-9. Paragraph listing refreshed for next turn
+1. Upload DOCX bytes and open a document session with `openDocx`.
+2. Inspect paragraphs and build a read-only Markdown projection for formatting context.
+3. Send the user's instruction to Gemini using the shared request client.
+4. Pass the returned operation array to one atomic document-facade batch.
+5. On failure, retain the original working document and show the error. No partial batch is committed.
+6. Serialize with `toUint8Array`, refresh preview and enable download.
 
-### Chat Targeting
+`targetRef` uses the initial source of the batch; earlier structural operations do not shift later targets. Localized `replacements` can specify an occurrence. Full paragraph/range redlines remain supported. Targeting and structural capabilities belong to the installed library, including its documented refusals.
 
-- Chat operations support `targetRef` (for example `P12`) in addition to `target` text.
-- The demo resolves targets in this order:
-  1. `targetRef` paragraph index (when provided)
-  2. when `targetRef` drifts after earlier same-turn structural edits, strict text rematch using the turn-start paragraph snapshot (preferring the original table/body context)
-  3. strict text match
-  4. fuzzy text match fallback
-- Redline diffing uses the resolved paragraph's current text, which reduces failures when model-provided `target` text drifts slightly.
-- Target resolution is delegated to shared reconciliation core helpers (exported via `standalone.js`), including turn-snapshot drift correction (`buildTargetReferenceSnapshot`, `resolveTargetParagraphWithSnapshot`), so non-demo consumers can reuse the same behavior.
-- The operation bridge (`applyToParagraphByExactText`/`runOperation`) now lives in shared standalone support (`services/standalone-operation-runner.js`) and is called from `demo.js` as a thin host wrapper.
+Direct mode disables generation of new tracked changes. It does not accept existing revisions from other authors. Comments and highlights are annotations in either edit mode.
 
-### Table Structure Edits (Chat)
+Kitchen-sink mode also uses the document lifecycle for marker seeding and its operation batch. Its deterministic fallback needs no Gemini key. Gemini calls remain optional for that mode.
 
-- When a redline target paragraph is inside a table cell and `modified` is markdown table text, the demo applies reconciliation at **table scope** (the containing `w:tbl`) instead of single-paragraph scope.
-- This is required for structural updates like adding/removing/reordering rows.
-- For these edits, Gemini should return the **full target table** as markdown in `modified` and include accurate `targetRef`.
-- Table-scope detection uses shared reconciliation core helpers (exported via `standalone.js`) so other projects can reuse the same targeting behavior.
-- If Gemini returns multiline cell text (for example `Title:\nDate:`) instead of full markdown table, the demo now attempts a shared-core heuristic that synthesizes a full markdown table and applies reconciliation at table scope.
-- For symmetric two-column signature rows (same label in both columns, e.g. `Title:`), synthesized insertion rows are mirrored across both columns (e.g. `Date:` on both sides).
+## Verification and limits
 
-### List Structure Edits (Chat)
+The browser preview is not a Word fidelity oracle. List capability gaps and separately reproduced Reject All defects remain in the [agentic list plan](../docs/plans/2026-08-29-agentic-tools-and-list-reliability.md). This migration does not certify additional list shapes.
 
-- When a target paragraph is part of an OOXML numbered/bulleted list and a redline contains multiline list content, the demo can promote the edit to **contiguous list-block scope**.
-- This helps "insert item between N and N+1" requests by preserving surrounding list items in the same list block, instead of rewriting only one paragraph.
-- For supported middle-insert patterns, the demo now uses an **insertion-only** heuristic first, adding only new list paragraph(s) as redlines and leaving existing items untouched.
-- When a chat op provides an explicit paragraph range (`targetRef` + `targetEndRef`) and the `modified` list is an insertion-only superset of the existing range, the runner applies a surgical explicit-range insertion path (insert-only, no delete/rewrite of existing items) so list numbering/style stays bound to the original `numId`.
-- If explicit-range content is not insertion-only, reconciliation still falls back to range-scope rewrite behavior.
-- When a single-paragraph list redline returns concatenated text (`<new item><existing item>` with no newline), the runner applies a surgical adjacency insertion heuristic and inserts only the new list item before/after the targeted item instead of rewriting the target paragraph.
-- List heuristics use shared reconciliation core helpers exported via `standalone.js` (`planListInsertionOnlyEdit`, `synthesizeExpandedListScopeEdit`).
-- List numbering payloads are remapped to fresh `numId`/`abstractNumId` values and merged into existing `word/numbering.xml`, preventing accidental continuation or style collision with distant lists.
-- Composite list markers are normalized in list generation (for example `- A. Item` becomes `A. Item`) so ordered list style can be inferred correctly and marker text is not duplicated in content.
-- List conversion now bypasses text-only no-op short-circuits when loose list markers are present, so existing marker-prefixed plain text (`A.`, `B.`, `C.`) can still be converted into true Word list structure.
-- If a single-paragraph redline is a no-op but `modified` is a one-line list marker (for example `1. DEFINITION`), the demo now applies shared standalone fallback helpers (`buildSingleLineListStructuralFallbackPlan`, `executeSingleLineListStructuralFallback`) to force structural list conversion and strip manual marker text into true list numbering.
-- In chat mode, this fallback is intentionally limited to non-list paragraphs (`allowExistingList: false`) so it cannot accidentally rebind existing list items.
-- For header conversions, single-line fallback is intended for non-list header paragraphs to avoid disturbing existing list chains.
-- For explicit decimal header markers on non-list paragraphs (for example `1. TITLE`, `2. TITLE`), the demo now prefers a direct redline + deterministic `w:numPr` binding path (instead of list-generation fallback payload binding) and assigns a dedicated numbering sequence for Word-desktop stability.
-- For explicit numeric single-line markers (`1.`, `2.`, `3.`, ...), fallback now starts one dedicated multilevel decimal-outline sequence and reuses that same `numId` for subsequent consecutive markers in the turn (Word-like `startNewList` + `attachToList` behavior).
-- If explicit numeric markers are not consecutive (for example sequence break/restart), fallback starts a new dedicated sequence instead of forcing reuse.
-- Explicit composite ordered markers in multiline insertion edits (for example `2.2.1`) now map to deeper OOXML list levels during insertion-only planning, so requested sub-sub items are inserted at the intended depth instead of becoming same-level siblings.
-- When multiline insertion under a nested ordered item is ambiguous (for example model emits bullet marker text), insertion-only heuristics promote inserted lines one level deeper to preserve sub-item intent.
-- Redundant manual list prefixes in list-item text (for example `- Item`, `2.1. Item`, or `2.1. - Item`) are stripped during list-item reconciliation so marker text is not duplicated in visible content.
-- Browser demo fallback applies explicit starts with num-level `w:lvlOverride/w:startOverride` only (abstract-level start override disabled) to avoid renderer-wide renumber side effects across unrelated lists.
-- For repeated single-line conversions without explicit numeric starts, the demo reuses a shared generated `numId` per list style so numbering continues across non-contiguous targets.
+Offline tests cover session open/inspect, localized edits, direct edits, comment preservation, atomic failure and serialize/reopen. The local browser validation page at `http://localhost:8000/scripts/browser-document-validation.html` exercises the same session in a real browser without a model request. Cross-host parity compares semantic outcomes and preserved parts with MCP and Word preparation.
 
-## Kitchen-Sink Pipeline
-
-1. Read uploaded `.docx` using JSZip
-2. Parse `word/document.xml`
-3. Apply operations by exact target marker paragraph
-4. Extract replacement nodes from reconciliation output (`package`, `document`, or fragment) via shared standalone helper
-5. Merge numbering/comments package artifacts if emitted (shared standalone helper path)
-6. Validate resulting package via shared standalone helper
-7. Download mutated `.docx`
-
-## Important Behavior Notes
-
-- In `Redlines` mode, tracked insert/delete changes are generated via OOXML (not Word runtime state).
-- Chat mode sends the full document text to Gemini for analysis.
-- Multi-turn chat history is maintained in-memory (lost on page refresh).
-- List/table operations can emit package output and extra parts.
-- Numbering merge is additive when missing; existing numbering part is preserved.
-- Comments merge into `word/comments.xml` and related package metadata.
-- Browser demo docx plumbing is now delegated to standalone reconciliation exports, keeping behavior the same while avoiding demo-local duplication.
-- Browser demo operation routing heuristics are now delegated to standalone reconciliation service code, keeping behavior the same while reducing demo-local orchestration logic.
-
-## Known Limits
-
-- Chat mode now handles common format-only no-span cases via shared OOXML reconstruction fallback, but some operations can still no-op if the engine emits a native-only fallback signal without OOXML payload (most commonly format-removal edge cases).
-- Kitchen-sink mode targeting uses exact marker paragraph text, not semantic search.
-- Browser runtime constraints apply (memory/file size/network for Gemini).
-- Document text extraction is plain-text only (no formatting or style metadata sent to Gemini).
-- Multi-turn history is in-memory; refreshing the page resets the conversation.
+See [consumer package boundaries](../docs/package-boundaries.md) for host responsibilities. Whole-document Word binary transport remains deferred.
 
 ## Troubleshooting
 
-- "Target paragraph not found": Gemini may have slightly modified the paragraph text when referencing it. Check the engine log for details.
-- "Format-only fallback requires native Word API": this operation required native fallback and did not produce OOXML output. Common no-span format-only additions are now retried through reconstruction, so this message usually indicates a narrower formatting-removal/scope-localization edge case.
-- Demo version in log does not match expected (`v2026-02-15-chat-docx-preview-23`): force refresh the page (`Ctrl+F5`) to bypass cached module URLs.
-- Need Word-grounded list diagnostics: run `tests/word-desktop/list-inspector.ps1` against the generated `.docx` and compare `listId`/`listLevel`/`listValue` for the affected paragraphs.
-- Validation error about numbering/comments: check whether package relationships or content types were removed by prior tooling.
-- No Gemini output: verify API key and network access; kitchen-sink fallback path should still run.
-- Chat input disabled: upload a `.docx` file first to enable the chat.
+- Upload a DOCX before entering a chat instruction.
+- A target refusal leaves the batch unapplied; inspect the engine log for its error code.
+- Refresh after updating the demo or installed package. The import map must resolve the browser bundle.
+- Preview failure does not establish that the DOCX edit failed; download/reopen and independent Word checks are separate gates.
+- Chat requires a Gemini key. The deterministic kitchen-sink fallback and local validation page do not.
+- Conversation history is in memory and resets on refresh or context/mode changes.

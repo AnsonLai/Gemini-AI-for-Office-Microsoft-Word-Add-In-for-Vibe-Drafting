@@ -306,6 +306,19 @@ The last command opens a disposable Word validation document using existing loca
 
 The exporter also writes `known-defects-manifest.json`. That diagnostic manifest intentionally fails Reject All fidelity for the [plain insertion](docs/library-issues/2026-09-30-list-insertion-rejection.md) and [list range](docs/library-issues/2026-09-30-list-range-rejection.md) library issues until an upstream release fixes them. Current evidence and migration limits are in the [execution report](docs/validation-reports/2026-09-30-agentic-tools-and-list-reliability.md).
 
+### Portable preparation and browser document sessions
+
+Non-Word consumers import `src/taskpane/modules/docx-redline-js-integration/consumer-core.js` for immutable-source mapping, validation and OOXML preparation. The integration `index.js` retains Word exports for compatibility. Word I/O and tracking remain in the host adapters; [package responsibilities](docs/package-boundaries.md) describe the separation.
+
+The [browser demo](browser-demo/README.md) opens, edits and saves using the public document facade. Its preview retains JSZip. Serve the repository locally and open `scripts/browser-document-validation.html` for deterministic real-browser session checks without a model request.
+
+```powershell
+node tests/docx_consumer_core_tests.mjs
+node tests/browser_document_session_tests.mjs
+node tests/docx_cross_host_parity_tests.mjs
+python -m http.server 8000 --bind 127.0.0.1
+```
+
 ### AI Eval Harness (Manual — calls the paid Gemini API)
 
 Measures how reliably each model produces a valid, on-target redline change set. This is **not** part of the default test run; it requires a real API key and makes live model calls.

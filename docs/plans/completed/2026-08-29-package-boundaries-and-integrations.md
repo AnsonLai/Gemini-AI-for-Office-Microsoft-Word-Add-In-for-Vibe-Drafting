@@ -4,19 +4,19 @@
 
 **Last Updated:** 2026-09-30
 
-**Status:** In progress — WP1 portable consumer extraction complete; browser document-session migration and cross-host parity verification underway.
+**Status:** Complete (2026-09-30).
 
 **Recommended order:** 3 of 4 August plans.
 
 ## Baseline and dependencies
 
-Both consumers pin exact `@ansonlai/docx-redline-js@0.8.2`. The [September upgrade](completed/2026-09-09-docx-redline-js-v0.5.4-upgrade.md) is complete, including actual Office.js transport validation.
+Both consumers pin exact `@ansonlai/docx-redline-js@0.8.2`. The [September upgrade](2026-09-09-docx-redline-js-v0.5.4-upgrade.md) is complete, including actual Office.js transport validation.
 
-Outcome/recovery policies in [reliability](completed/2026-08-29-reliability-and-quality-gates.md) are complete. Preserve the verified mappings and explicit capability limits in [agentic tools](2026-08-29-agentic-tools-and-list-reliability.md) when consolidating interfaces. Its broader list migration remains open on separately recorded library dependencies; that does not prevent portable extraction or browser document-lifecycle migration. The browser demo already uses the shared Gemini request client.
+Outcome/recovery policies in [reliability](2026-08-29-reliability-and-quality-gates.md) are complete. Preserve the verified mappings and explicit capability limits in [agentic tools](../2026-08-29-agentic-tools-and-list-reliability.md) when consolidating interfaces. Its broader list migration remains open on separately recorded library dependencies; that does not prevent portable extraction or browser document-lifecycle migration. The browser demo already uses the shared Gemini request client.
 
-## Current architecture and completed work
+## Architecture before this extraction
 
-| Boundary | Actual current state |
+| Boundary | State before this extraction |
 | --- | --- |
 | Library | Public OOXML and `openDocx` / inspect / apply / serialize lifecycle |
 | MCP | Upgrade WP5 completed `DocxDocument` sessions/services, generic errors and atomic `docx_apply_operations` |
@@ -27,16 +27,16 @@ Outcome/recovery policies in [reliability](completed/2026-08-29-reliability-and-
 
 The previous plan incorrectly placed `executePureOoxmlBatch` in a zero-Office.js core and claimed complete web portability/removal of JSZip everywhere. Editing logic can be portable without promising reuse of every host-dependent tool or UI component.
 
-## Remaining work packages
+## Work packages and closure record
 
 ### Execution record (2026-09-30)
 
 - Completed upgrade/reliability plans moved to `completed/` in `3daf159`; links repaired.
-- WP1 extraction passes 45 offline suites and the development build. `consumer-core.js` separates preparation from Word I/O and preserves existing adapter exports; [validation record](../validation-reports/2026-09-30-package-boundaries-and-integrations.md).
+- WP1 extraction separates preparation from Word I/O in `consumer-core.js` and preserves existing adapter exports.
 - Browser baseline failed at startup on an unresolved XML dependency; the import map now targets the published browser bundle.
-- Browser editing is migrating from sequential ZIP/XML writes to one atomic document-facade batch. JSZip remains for preview only.
-- Cross-host semantic parity and real browser open/edit/download/reopen checks are the remaining verification gates. No paid provider calls are required for this migration.
-- Responsibilities and deferred host capabilities are recorded in [consumer package boundaries](../package-boundaries.md).
+- WP2 routes browser open, inspect, editing, and serialization through the document-session facade. JSZip remains for docx-preview only. Browser UI opened, edited, downloaded, and reopened a DOCX: reupload exposed 42 prompt paragraphs, inspection found 44 paragraphs including two empty revision-view paragraphs, and all 24 source texts were retained exactly. The downloaded packages had matching SHA-256 hashes; unchanged XML parts matched exactly, with lists, table, and comment content retained.
+- WP3 parity checks exercise shared fixtures through the portable core, Word batch adapter, MCP, and browser facade. Accepted and rejected text, comments, style/numbering/hyperlink relationships, and preserved foreign revisions matched semantically; atomic failures left the source unchanged. The tests compare package semantics and unchanged part bytes, not whole ZIP byte identity.
+- Final verification: 47 offline suites passed with 0 failures (4 excluded); development and production builds passed; provider calls were false. The actual Office.js adapter run passed 8 checks and the independent Word oracle passed 12; browser document validation passed 7 checks. See the [validation record](../../validation-reports/2026-09-30-package-boundaries-and-integrations.md) and [consumer package boundaries](../../package-boundaries.md).
 
 ### WP1 — Separate portable consumer logic from Word adapters
 
@@ -50,6 +50,8 @@ The previous plan incorrectly placed `executePureOoxmlBatch` in a zero-Office.js
 
 ### WP2 — Migrate browser-demo document editing
 
+**Status: Complete.** The browser demo uses the public document-session facade for DOCX lifecycle and atomic editing, while JSZip remains available to docx-preview. Real-browser UI validation confirmed open/edit/download/reopen behavior and package preservation.
+
 - Inventory `browser-demo/demo.js` ZIP/XML packaging, library subpath imports and preview dependencies.
 - Route DOCX open, inspect, mutation and save through the public document lifecycle where supported.
 - Preserve editing modes, comments, styles, numbering, relationships and download behavior.
@@ -58,6 +60,8 @@ The previous plan incorrectly placed `executePureOoxmlBatch` in a zero-Office.js
 - Verify file open/edit/download/reopen in a browser, including localized edits, comments and atomic failure.
 
 ### WP3 — Maintain MCP contracts and cross-host parity
+
+**Status: Complete.** MCP contracts and session semantics remain covered, and shared fixture operations pass through the portable core, Word adapter, MCP facade, and browser session with matching semantic outcomes and atomic rollback.
 
 MCP facade migration is already complete; do not recreate its session store/services.
 
@@ -75,7 +79,7 @@ Whole-document `getFileAsync(Compressed)` → `openDocx` → `insertFileFromBase
 - [x] MCP uses document sessions without direct JSZip/xmldom editing services.
 - [x] Portable consumer entry point executes without Word/UI globals.
 - [x] Word I/O stays in its adapter, with callers migrated safely.
-- [ ] Browser demo uses supported document APIs for editing and passes save/reopen checks.
-- [ ] Preview dependencies and cross-host capability differences documented.
+- [x] Browser demo uses supported document APIs for editing and passes save/reopen checks.
+- [x] Preview dependencies and cross-host capability differences documented.
 
-**Next:** [OOXML engine and performance](2026-08-29-oxml-engine-and-performance.md), profiling settled interfaces before selecting optimization work.
+**Next:** [OOXML engine and performance](../2026-08-29-oxml-engine-and-performance.md), profiling settled interfaces before selecting optimization work.

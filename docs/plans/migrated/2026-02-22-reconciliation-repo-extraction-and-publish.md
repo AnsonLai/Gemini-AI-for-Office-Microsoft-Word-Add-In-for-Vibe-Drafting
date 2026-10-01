@@ -1,7 +1,7 @@
 # Reconciliation Core: Repository Extraction & Publish Plan
 
 > **Migrated on 2026-08-29:** Remaining publication and repository-boundary
-> work was consolidated into [`2026-08-29-package-boundaries-and-integrations.md`](../2026-08-29-package-boundaries-and-integrations.md).
+> work was consolidated into [`2026-08-29-package-boundaries-and-integrations.md`](../completed/2026-08-29-package-boundaries-and-integrations.md).
 > This document is retained in `migrated/` as historical detail.
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

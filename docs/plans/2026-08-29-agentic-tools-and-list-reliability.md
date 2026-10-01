@@ -99,4 +99,4 @@ Separately reported library dependencies:
 
 Current resume order: fix the separately reported library fidelity defects/canonical header capability; upgrade the pinned package once released; rerun both supported and diagnostic manifests; expand deep-level/other-style/tracking-off coverage; then finish remaining list migrations and retire helpers only when unused.
 
-**Next:** [Package boundaries and integrations](2026-08-29-package-boundaries-and-integrations.md), using migrated command paths to define the portable consumer boundary.
+**Next:** [OOXML engine and performance](2026-08-29-oxml-engine-and-performance.md), now that [package boundaries and integrations](completed/2026-08-29-package-boundaries-and-integrations.md) are complete. Separately tracked library fidelity follow-ups remain open.

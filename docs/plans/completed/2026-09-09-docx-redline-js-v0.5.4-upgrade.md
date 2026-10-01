@@ -29,7 +29,7 @@ This check closed [reliability WP1](2026-08-29-reliability-and-quality-gates.md)
 
 1. [Reliability and quality gates](2026-08-29-reliability-and-quality-gates.md): complete; host gate, provider recovery and mutation outcomes verified.
 2. [Agentic tools and list reliability](../2026-08-29-agentic-tools-and-list-reliability.md): align remaining tool/list paths and expand independent Word coverage.
-3. [Package boundaries and integrations](../2026-08-29-package-boundaries-and-integrations.md): extract portable consumer logic and migrate browser-demo editing; MCP migration is already complete.
+3. [Package boundaries and integrations](2026-08-29-package-boundaries-and-integrations.md): extract portable consumer logic and migrate browser-demo editing; MCP migration is already complete.
 4. [OOXML engine and performance](../2026-08-29-oxml-engine-and-performance.md): profile settled paths, then optimize measured consumer costs; route library findings upstream.
 
 The August plans now distinguish inherited completed work from remaining work. They do not require repeating this upgrade.

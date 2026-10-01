@@ -12,7 +12,7 @@
 
 Both consumers use exact `@ansonlai/docx-redline-js@0.8.2`. The [September upgrade](completed/2026-09-09-docx-redline-js-v0.5.4-upgrade.md) and reliability plan are complete, including actual Office.js transport validation.
 
-Follow [reliability](completed/2026-08-29-reliability-and-quality-gates.md), [agentic tools](2026-08-29-agentic-tools-and-list-reliability.md) and [package boundaries](2026-08-29-package-boundaries-and-integrations.md). Correctness and portability take priority over throughput.
+Follow [reliability](completed/2026-08-29-reliability-and-quality-gates.md), [agentic tools](2026-08-29-agentic-tools-and-list-reliability.md) and [package boundaries](completed/2026-08-29-package-boundaries-and-integrations.md). Correctness and portability take priority over throughput.
 
 ## Completed / inherited work
 

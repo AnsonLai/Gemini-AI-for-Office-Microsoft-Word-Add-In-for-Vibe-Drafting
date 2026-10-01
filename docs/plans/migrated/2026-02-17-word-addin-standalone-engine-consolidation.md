@@ -1,7 +1,7 @@
 # Word Add-In Standalone Engine Consolidation Implementation Plan
 
 > **Migrated on 2026-08-29:** Remaining rollout verification was consolidated
-> into [`2026-08-29-package-boundaries-and-integrations.md`](../2026-08-29-package-boundaries-and-integrations.md).
+> into [`2026-08-29-package-boundaries-and-integrations.md`](../completed/2026-08-29-package-boundaries-and-integrations.md).
 > This document is retained in `migrated/` as historical detail.
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

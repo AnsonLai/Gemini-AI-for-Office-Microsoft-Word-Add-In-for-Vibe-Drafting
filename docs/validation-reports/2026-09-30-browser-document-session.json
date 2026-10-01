@@ -1,0 +1,21 @@
+{
+  "status": "passed",
+  "checks": [
+    "open and inspect Word-authored DOCX",
+    "localized tracked edit, serialize/reopen and untouched parts",
+    "exact Accept All and Reject All",
+    "mixed valid/invalid batch rolls back without mutation",
+    "direct edit produces no new tracked changes",
+    "direct mode preserves existing revisions by another author",
+    "comment insertion and existing thread preservation after reopen"
+  ],
+  "checkedAt": "2026-10-01T03:16:07.827Z",
+  "surface": "Codex in-app Chromium browser",
+  "page": "http://localhost:8000/scripts/browser-document-validation.html",
+  "providerCalls": false,
+  "additionalAssertions": [
+    "List labels and nesting retained in prompt context",
+    "New comment content and exact paragraph/substring anchor",
+    "Checks are isolated per run"
+  ]
+}

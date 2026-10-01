@@ -1,7 +1,7 @@
 # Local MCP Plan: Reconciliation Engine for `.docx` Editing
 
 > **Migrated on 2026-08-29:** The MCP V1 work was consolidated into
-> [`2026-08-29-package-boundaries-and-integrations.md`](../2026-08-29-package-boundaries-and-integrations.md).
+> [`2026-08-29-package-boundaries-and-integrations.md`](../completed/2026-08-29-package-boundaries-and-integrations.md).
 > This document is retained in `migrated/` as historical detail.
 
 ## Goal

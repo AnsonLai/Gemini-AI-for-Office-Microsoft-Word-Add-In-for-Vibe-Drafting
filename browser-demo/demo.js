@@ -2,27 +2,11 @@ import { requestGeminiJson, geminiEndpoint } from '../src/taskpane/modules/chat/
 import JSZip from 'https://esm.sh/jszip@3.10.1';
 import {
     configureLogger,
-    getParagraphText as getParagraphTextFromOxml,
-    ingestWordOoxmlToMarkdown,
-    buildTargetReferenceSnapshot,
-    findParagraphByBestTextMatch,
     parseParagraphReference as parseParagraphReferenceShared,
     stripLeadingParagraphMarker as stripLeadingParagraphMarkerShared,
-    splitLeadingParagraphMarker as splitLeadingParagraphMarkerShared,
-    createDynamicNumberingIdState,
-    mergeNumberingXmlBySchemaOrder,
-    parseXmlStrictStandalone,
-    getBodyElementFromDocument,
-    insertBodyElementBeforeSectPr,
-    normalizeBodySectionOrderStandalone,
-    sanitizeNestedParagraphsInTables,
-    sanitizeAiResponse,
-    acceptTrackedChangesInOoxml,
-    ensureNumberingArtifactsInZip,
-    ensureCommentsArtifactsInZip,
-    validateDocxPackage
+    splitLeadingParagraphMarker as splitLeadingParagraphMarkerShared
 } from '@ansonlai/docx-redline-js';
-import { applyOperationToDocumentXml } from '@ansonlai/docx-redline-js/services/standalone-operation-runner.js';
+import { createDocumentSession, seedParagraphMarkers } from './document-session.js';
 import {
     buildPromptParagraphSections,
     buildFormattingDiagnostics,
@@ -30,24 +14,32 @@ import {
     buildFormattingRemovalFallbackCandidate
 } from '@ansonlai/docx-redline-js/services/browser-demo-prompt-context.js';
 
-const DEMO_VERSION = '2026-02-22-chat-docx-preview-26';
+const DEMO_VERSION = '2026-09-30-document-session-01';
 const GEMINI_API_KEY_STORAGE_KEY = 'browserDemo.geminiApiKey';
 const EDIT_MODE_STORAGE_KEY = 'browserDemo.editMode';
 const LIBRARY_COLLAPSED_STORAGE_KEY = 'browserDemo.libraryCollapsed';
 const LIBRARY_MAX_DOC_CHARS = 12000;
 const LIBRARY_MAX_PROMPT_CHARS = 48000;
 const DEMO_MARKERS = [
-    'DEMO_TEXT_TARGET',
+    'DEMO TEXT TARGET',
     'DEMO FORMAT TARGET',
-    'DEMO_LIST_TARGET',
-    'DEMO_TABLE_TARGET'
+    'DEMO LIST TARGET',
+    'DEMO TABLE TARGET'
+];
+const DEMO_MARKER_ALIASES = {
+    'DEMO TEXT TARGET': ['DEMO_TEXT_TARGET'],
+    'DEMO LIST TARGET': ['DEMO_LIST_TARGET'],
+    'DEMO TABLE TARGET': ['DEMO_TABLE_TARGET']
+};
+const DEMO_ALLOWED_TARGETS = [
+    ...DEMO_MARKERS,
+    ...Object.values(DEMO_MARKER_ALIASES).flat()
 ];
 const EDIT_MODE = {
     REDLINE: 'redline',
     DIRECT: 'direct'
 };
 const ALLOWED_HIGHLIGHT_COLORS = ['yellow', 'green', 'cyan', 'magenta', 'blue', 'red'];
-const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
 // docx-preview browser build expects a global JSZip symbol.
 if (typeof window !== 'undefined' && !window.JSZip) {
@@ -81,7 +73,7 @@ const libraryColumnEl = document.querySelector('.library-column');
 const libraryToggleBtn = document.getElementById('libraryToggleBtn');
 
 // ── State ──────────────────────────────────────────────
-let currentZip = null;           // JSZip instance of the working document
+let currentSession = null;       // Public DocxDocument facade session
 let documentParagraphs = [];     // [{ index, text, formattedText? }] extracted from current docx
 let chatHistory = [];            // Gemini multi-turn history [{ role, parts }]
 let operationCount = 0;          // total operations applied across turns
@@ -207,17 +199,19 @@ async function resolvePreviewRenderer() {
     throw new Error('docxjs renderer unavailable');
 }
 
-async function renderPreviewFromZip(zip, sourceLabel = 'Document') {
+async function renderPreviewFromSession(session, sourceLabel = 'Document') {
     if (!docxPreviewEl) return;
     const renderToken = ++previewRenderToken;
     setPreviewStatus(`Rendering preview (${sourceLabel})...`);
     if (refreshPreviewBtn) refreshPreviewBtn.disabled = true;
-    logPreviewDiagnostics(`renderPreviewFromZip:start:${sourceLabel}`);
+    logPreviewDiagnostics(`renderPreviewFromSession:start:${sourceLabel}`);
 
     try {
-        if (!zip) throw new Error('No document loaded');
+        if (!session) throw new Error('No document loaded');
         const renderAsync = await resolvePreviewRenderer();
-        const blob = await zip.generateAsync({ type: 'blob' });
+        const blob = new Blob([session.toUint8Array()], {
+            type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        });
         const buffer = await blob.arrayBuffer();
 
         if (renderToken !== previewRenderToken) return;
@@ -241,10 +235,10 @@ async function renderPreviewFromZip(zip, sourceLabel = 'Document') {
             setPreviewStatus(`Preview failed: ${message}`, 'error');
         }
         log(`[WARN] Preview render failed: ${message}`);
-        logPreviewDiagnostics(`renderPreviewFromZip:failed:${sourceLabel}`, error);
+        logPreviewDiagnostics(`renderPreviewFromSession:failed:${sourceLabel}`, error);
     } finally {
         if (renderToken === previewRenderToken && refreshPreviewBtn) {
-            refreshPreviewBtn.disabled = !currentZip;
+            refreshPreviewBtn.disabled = !currentSession;
         }
     }
 }
@@ -451,44 +445,7 @@ function clearLibraryDocuments({ announce = true } = {}) {
     }
 }
 
-// ── XML Helpers (unchanged from original demo) ─────────
-function parseXmlStrict(xmlText, label) {
-    return parseXmlStrictStandalone(xmlText, label);
-}
-
-function getBodyElement(xmlDoc) {
-    return getBodyElementFromDocument(xmlDoc);
-}
-
-function normalizeBodySectionOrder(xmlDoc) {
-    normalizeBodySectionOrderStandalone(xmlDoc);
-}
-
-function sanitizeNestedParagraphs(xmlDoc) {
-    sanitizeNestedParagraphsInTables(xmlDoc, {
-        onInfo: message => log(message)
-    });
-}
-
-// ── Paragraph helpers ──────────────────────────────────
-function getParagraphText(paragraph) {
-    return getParagraphTextFromOxml(paragraph);
-}
-
-function getParagraphMarkdownText(paragraph) {
-    if (!paragraph) return '';
-    const serializer = new XMLSerializer();
-    const paragraphXml = serializer.serializeToString(paragraph);
-    const wrappedDoc = `<w:document xmlns:w="${NS_W}"><w:body>${paragraphXml}<w:sectPr/></w:body></w:document>`;
-    return String(ingestWordOoxmlToMarkdown(wrappedDoc) || '').trim();
-}
-
-function findParagraphByExactText(xmlDoc, targetText) {
-    return findParagraphByBestTextMatch(xmlDoc, targetText, {
-        onInfo: message => log(message)
-    });
-}
-
+// ── Paragraph references ───────────────────────────────
 function parseParagraphReference(rawValue) {
     return parseParagraphReferenceShared(rawValue);
 }
@@ -501,104 +458,6 @@ function splitLeadingParagraphMarker(text) {
     return splitLeadingParagraphMarkerShared(text);
 }
 
-function createSimpleParagraph(xmlDoc, text) {
-    const p = xmlDoc.createElementNS(NS_W, 'w:p');
-    const r = xmlDoc.createElementNS(NS_W, 'w:r');
-    const t = xmlDoc.createElementNS(NS_W, 'w:t');
-    t.textContent = text;
-    r.appendChild(t);
-    p.appendChild(r);
-    return p;
-}
-
-async function runOperation(documentXml, op, author, runtimeContext = null, options = {}) {
-    const sanitizedModified = options.sanitizeInput === true
-        && op?.type === 'redline'
-        && typeof op?.modified === 'string'
-        ? sanitizeAiResponse(op.modified)
-        : op?.modified;
-    const operation = sanitizedModified === op?.modified
-        ? op
-        : { ...op, modified: sanitizedModified };
-    const cleanRangeWorkaround = operation?.type === 'redline'
-        && !!operation?.targetEndRef
-        && options.generateRedlines === false;
-    let result = await applyOperationToDocumentXml(documentXml, operation, author, runtimeContext, {
-        ...options,
-        generateRedlines: cleanRangeWorkaround ? true : options.generateRedlines,
-        onInfo: message => log(message),
-        onWarn: message => log(message)
-    });
-    if (result?.status === 'error' || result?.error) {
-        const code = result?.error?.code || 'OPERATION_ERROR';
-        const error = new Error(`[${code}] ${result?.error?.message || 'Browser DOCX operation failed'}`);
-        error.code = code;
-        error.warnings = result?.warnings || [];
-        error.details = {
-            packageError: result?.error || null,
-            ...(result?.receipt ? { receipt: result.receipt } : {}),
-            ...(result?.receipts ? { receipts: result.receipts } : {}),
-            ...(result?.rolledBack !== undefined ? { rolledBack: result.rolledBack } : {}),
-            ...(result?.validation !== undefined ? { validation: result.validation } : {}),
-            ...(result?.validationSummary !== undefined ? { validationSummary: result.validationSummary } : {})
-        };
-        throw error;
-    }
-    if (cleanRangeWorkaround && result?.hasChanges) {
-        const accepted = acceptTrackedChangesInOoxml(result.documentXml, { author });
-        if (accepted?.status === 'error' || accepted?.error) {
-            const code = accepted?.error?.code || 'OPERATION_ERROR';
-            const error = new Error(`[${code}] ${accepted?.error?.message || 'Clean range normalization failed'}`);
-            error.code = code;
-            error.warnings = accepted?.warnings || [];
-            error.details = { packageError: accepted?.error || null };
-            throw error;
-        }
-        result = { ...result, documentXml: accepted.oxml };
-    }
-    if (sanitizedModified !== op?.modified) {
-        result = {
-            ...result,
-            warnings: [
-                ...(result?.warnings || []),
-                'Input was sanitized; pass sanitizeInput: false to disable.'
-            ]
-        };
-    }
-    return result;
-}
-
-// ── Package artifact helpers ───────────────────────────
-async function createNumberingIdState(zip) {
-    const existing = await zip.file('word/numbering.xml')?.async('string');
-    return createDynamicNumberingIdState(existing || '', {
-        minId: 1,
-        maxPreferred: 32767
-    });
-}
-
-function mergeNumberingXml(existingNumberingXml, incomingNumberingXml) {
-    return mergeNumberingXmlBySchemaOrder(existingNumberingXml, incomingNumberingXml);
-}
-
-async function ensureNumberingArtifacts(zip, numberingXmlList) {
-    await ensureNumberingArtifactsInZip(zip, numberingXmlList, {
-        mergeNumberingXml: (existingXml, incomingXml) => mergeNumberingXml(existingXml, incomingXml),
-        onInfo: message => log(message)
-    });
-}
-
-async function ensureCommentsArtifacts(zip, commentsXml) {
-    await ensureCommentsArtifactsInZip(zip, commentsXml, {
-        onInfo: message => log(message)
-    });
-}
-
-// ── Validation ─────────────────────────────────────────
-async function validateOutputDocx(zip) {
-    await validateDocxPackage(zip);
-}
-
 // ── Logger wiring ──────────────────────────────────────
 configureLogger({
     log: (...args) => log(args.map(String).join(' ')),
@@ -606,39 +465,13 @@ configureLogger({
     error: (...args) => log(`[ERROR] ${args.map(String).join(' ')}`)
 });
 
-// ══════════════════════════════════════════════════════
-// ── NEW: Document Ingestion ──────────────────────────
-// ══════════════════════════════════════════════════════
-
-async function extractParagraphsFromZip(zip, sourceLabel = 'word/document.xml') {
-    const documentXml = await zip.file('word/document.xml')?.async('string');
-    if (!documentXml) throw new Error('word/document.xml not found');
-    const xmlDoc = parseXmlStrict(documentXml, sourceLabel);
-    const body = getBodyElement(xmlDoc);
-    if (!body) throw new Error('No w:body in document');
-
-    const paragraphs = [];
-    const allP = body.getElementsByTagNameNS(NS_W, 'p');
-    for (let i = 0; i < allP.length; i++) {
-        const text = getParagraphText(allP[i]).trim();
-        if (!text) continue;
-        const formattedText = getParagraphMarkdownText(allP[i]) || text;
-        paragraphs.push({ index: i + 1, text, formattedText });
-    }
-    return paragraphs;
-}
-
-async function extractDocumentParagraphs(zip) {
-    return extractParagraphsFromZip(zip, 'word/document.xml');
-}
-
 async function extractLibraryDocumentFromFile(file) {
     if (!isLikelyDocxFile(file)) {
         throw new Error(`Unsupported file type for "${file?.name || 'file'}"`);
     }
 
-    const zip = await JSZip.loadAsync(await file.arrayBuffer());
-    const paragraphs = await extractParagraphsFromZip(zip, `${file.name}:word/document.xml`);
+    const session = createDocumentSession(await file.arrayBuffer());
+    const paragraphs = session.getPromptParagraphs();
     const fullText = paragraphs.map(p => p.text).join('\n');
     const truncated = truncatePlainText(fullText, LIBRARY_MAX_DOC_CHARS);
     return {
@@ -726,6 +559,7 @@ function buildSystemInstruction(paragraphs, editModeValue = EDIT_MODE.REDLINE, l
         '  { "type": "comment", "targetRef": "P12", "target": "<exact paragraph text>", "textToComment": "<substring to anchor on>", "commentContent": "<your comment>" }',
         '  { "type": "highlight", "targetRef": "P12", "target": "<exact paragraph text>", "textToHighlight": "<substring to highlight>", "color": "yellow|green|cyan|magenta|blue|red" }',
         '  { "type": "redline", "targetRef": "P12", "target": "<exact paragraph text>", "modified": "<replacement paragraph text>" }',
+        '  { "type": "redline", "targetRef": "P12", "target": "<exact paragraph text>", "replacements": [{ "find": "<exact text>", "replace": "<replacement text>", "occurrence": 1 }] }',
         '  { "type": "redline", "targetRef": "P12", "targetEndRef": "P15", "target": "<exact START paragraph text>", "modified": "<replacement text for P12..P15>" }',
         '',
         'CRITICAL TARGETING RULES:',
@@ -733,6 +567,7 @@ function buildSystemInstruction(paragraphs, editModeValue = EDIT_MODE.REDLINE, l
         '- Always include "targetRef" using the paragraph label (example: "P12").',
         '- "targetRef" must point to the same paragraph as "target".',
         '- "target" MUST be the EXACT text of ONE SINGLE [P#] paragraph. Copy it character-for-character.',
+        '- A redline may use either "modified" or "replacements", never both. For localized replacements, each "find" must be exact and case-sensitive; use an optional 1-based "occurrence" when the same text repeats. An empty "replace" deletes that exact occurrence.',
         '- NEVER include the [P#] prefix in ANY operation field. The [P#] prefix is only a reference label, NOT part of the actual text.',
         '- NEVER combine or concatenate text from multiple [P#] paragraphs into one target.',
         '- If you need to modify multiple paragraphs, create a SEPARATE operation for EACH paragraph.',
@@ -751,7 +586,7 @@ function buildSystemInstruction(paragraphs, editModeValue = EDIT_MODE.REDLINE, l
             : []),
         '',
         'FORMATTING IN REDLINES:',
-        '- The "modified" field in redline operations supports special formatting syntax:',
+        '- The "modified" field in whole-paragraph redlines supports special formatting syntax:',
         '  - **bold text** → wraps text in bold (use double asterisks)',
         '  - ++underline text++ → wraps text in underline (use double plus signs)',
         '  - Bullet lists: start each line with "- " for top-level bullets, "  - " for nested bullets',
@@ -827,7 +662,10 @@ function parseGeminiChatResponse(rawText) {
             const target = splitTarget.text;
 
             const normalizedOp = { ...op, type, target, targetRef, targetEndRef: explicitEndRef || null };
-            if (normalizedOp.modified != null) normalizedOp.modified = stripLeadingParagraphMarker(normalizedOp.modified);
+            if (normalizedOp.modified != null) {
+                if (typeof normalizedOp.modified !== 'string') return null;
+                normalizedOp.modified = stripLeadingParagraphMarker(normalizedOp.modified);
+            }
             if (normalizedOp.textToComment != null) normalizedOp.textToComment = stripLeadingParagraphMarker(normalizedOp.textToComment);
             if (normalizedOp.textToHighlight != null) normalizedOp.textToHighlight = stripLeadingParagraphMarker(normalizedOp.textToHighlight);
             if (normalizedOp.commentContent != null) normalizedOp.commentContent = String(normalizedOp.commentContent).trim();
@@ -837,6 +675,25 @@ function parseGeminiChatResponse(rawText) {
                 normalizedOp.color = ALLOWED_HIGHLIGHT_COLORS.includes(c) ? c : 'yellow';
             }
 
+            if (type === 'redline' && normalizedOp.replacements != null) {
+                if (!Array.isArray(normalizedOp.replacements) || normalizedOp.replacements.length === 0) return null;
+                const replacements = normalizedOp.replacements.map(replacement => {
+                    if (!replacement || typeof replacement !== 'object' || Array.isArray(replacement)
+                        || typeof replacement.find !== 'string' || !replacement.find.trim()
+                        || typeof replacement.replace !== 'string'
+                        || (replacement.occurrence != null && (!Number.isInteger(replacement.occurrence) || replacement.occurrence < 1))) {
+                        return null;
+                    }
+                    return {
+                        find: replacement.find,
+                        replace: replacement.replace,
+                        ...(replacement.occurrence != null ? { occurrence: replacement.occurrence } : {})
+                    };
+                });
+                if (replacements.some(replacement => !replacement)) return null;
+                normalizedOp.replacements = replacements;
+            }
+
             return normalizedOp;
         })
         .filter(op => {
@@ -844,7 +701,11 @@ function parseGeminiChatResponse(rawText) {
             if (!op.target && !op.targetRef) return false;
             if (op.type === 'comment' && (!op.textToComment || !op.commentContent)) return false;
             if (op.type === 'highlight' && !op.textToHighlight) return false;
-            if (op.type === 'redline' && !op.modified) return false;
+            if (op.type === 'redline') {
+                const hasModified = typeof op.modified === 'string' && !!op.modified.trim();
+                const hasReplacements = Array.isArray(op.replacements) && op.replacements.length > 0;
+                if (hasModified === hasReplacements || (op.modified != null && !hasModified)) return false;
+            }
             return op.type === 'comment' || op.type === 'highlight' || op.type === 'redline';
         });
 
@@ -920,73 +781,22 @@ async function sendGeminiChat(userMessage, paragraphs, apiKey, editModeValue = E
 // ── NEW: Apply Chat Operations to Document ──────────
 // ══════════════════════════════════════════════════════
 
-async function applyChatOperations(zip, operations, author, editModeValue = EDIT_MODE.REDLINE) {
-    const normalizedEditMode = normalizeEditMode(editModeValue);
-    const generateRedlines = shouldGenerateRedlines(normalizedEditMode);
-    let documentXml = await zip.file('word/document.xml')?.async('string');
-    if (!documentXml) throw new Error('word/document.xml not found');
-    parseXmlStrict(documentXml, 'word/document.xml');
-
-    const capturedNumberingXml = [];
-    const capturedCommentsXml = [];
-    const results = [];
-    const snapshotDoc = parseXmlStrict(documentXml, 'word/document.xml (target snapshot)');
-    const runtimeContext = {
-        numberingIdState: await createNumberingIdState(zip),
-        targetRefSnapshot: buildTargetReferenceSnapshot(snapshotDoc),
-        tableStructuralRedlineKeys: new Set(),
-        listFallbackSharedNumIdByKey: new Map(),
-        listFallbackSequenceState: {
-            explicitByNumberingKey: new Map()
-        }
-    };
-
-    for (const op of operations) {
-        const targetRefLabel = op.targetRef
-            ? (op.targetEndRef ? `[P${op.targetRef}-P${op.targetEndRef}] ` : `[P${op.targetRef}] `)
-            : '';
-        const label = `${op.type}: ${targetRefLabel}"${(op.target || '').slice(0, 50)}…"`;
-        log(`Applying: ${label}`);
-        try {
-            const step = await runOperation(documentXml, op, author, runtimeContext, {
-                generateRedlines,
-                sanitizeInput: true
-            });
-            documentXml = step.documentXml;
-            if (step.numberingXml) capturedNumberingXml.push(step.numberingXml);
-            if (step.commentsXml) capturedCommentsXml.push(step.commentsXml);
-            if (step.warnings?.length > 0) {
-                for (const warning of step.warnings) log(`  warning: ${warning}`);
-            }
-            results.push({ ...op, success: step.hasChanges, error: null });
-            log(`  → ${step.hasChanges ? 'applied' : 'no change'}`);
-        } catch (err) {
-            const errorMsg = err?.message || String(err);
-            log(`  → FAILED: ${errorMsg}`);
-            results.push({ ...op, success: false, error: errorMsg });
-        }
-    }
-
-    // Normalize, sanitize, and write back
-    const parser = new DOMParser();
-    const serializer = new XMLSerializer();
-    const finalDoc = parser.parseFromString(documentXml, 'application/xml');
-    normalizeBodySectionOrder(finalDoc);
-    sanitizeNestedParagraphs(finalDoc);
-    documentXml = serializer.serializeToString(finalDoc);
-    zip.file('word/document.xml', documentXml);
-
-    await ensureNumberingArtifacts(zip, capturedNumberingXml);
-    for (const cx of capturedCommentsXml) await ensureCommentsArtifacts(zip, cx);
-
-    try {
-        await validateOutputDocx(zip);
-    } catch (validationErr) {
-        log(`[WARN] Post-operation validation: ${validationErr.message}`);
-        // Non-fatal — document may still be usable
-    }
-
-    return results;
+async function applyChatOperations(session, operations, author, editModeValue = EDIT_MODE.REDLINE) {
+    const result = await session.applyOperations(operations, {
+        author,
+        generateRedlines: shouldGenerateRedlines(editModeValue),
+        sanitizeInput: true
+    });
+    const resultsByIndex = new Map((result.results || []).map(item => [item.index, item]));
+    const batchFailed = result.status === 'error' || result.status === 'partial' || result.rolledBack === true;
+    const operationResults = operations.map((operation, index) => {
+        const item = resultsByIndex.get(index + 1);
+        const success = !batchFailed && item?.status === 'applied';
+        const error = item?.error?.message || (batchFailed ? result.error?.message || 'Atomic operation batch refused.' : null);
+        log(`Applying ${operation.type} to P${operation.targetRef || '?'}: ${success ? 'applied' : error ? `failed: ${error}` : 'no change'}`);
+        return { ...operation, success, error };
+    });
+    return { result, operationResults };
 }
 
 // ── Operation summary HTML builder ─────────────────────
@@ -1102,8 +912,8 @@ fileInput.addEventListener('change', async () => {
 
     try {
         addMsg('system', `Loading <strong>${escapeHtml(file.name)}</strong>…`);
-        currentZip = await JSZip.loadAsync(await file.arrayBuffer());
-        documentParagraphs = await extractDocumentParagraphs(currentZip);
+        currentSession = createDocumentSession(await file.arrayBuffer());
+        documentParagraphs = currentSession.getPromptParagraphs();
         chatHistory = [];
         operationCount = 0;
         downloadBtn.style.display = 'none';
@@ -1115,7 +925,7 @@ fileInput.addEventListener('change', async () => {
 
         chatInput.disabled = false;
         sendBtn.disabled = false;
-        await renderPreviewFromZip(currentZip, 'Upload');
+        await renderPreviewFromSession(currentSession, 'Upload');
         chatInput.focus();
     } catch (err) {
         addMsg('system error', `Failed to load document: ${escapeHtml(err.message || String(err))}`);
@@ -1132,7 +942,7 @@ async function handleSend() {
         addMsg('system warn', 'Please enter and save your Gemini API key first.');
         return;
     }
-    if (!currentZip) {
+    if (!currentSession) {
         addMsg('system warn', 'Please upload a .docx file first.');
         return;
     }
@@ -1180,20 +990,20 @@ async function handleSend() {
         if (operationsToApply.length > 0) {
             addMsg('system', `Applying ${operationsToApply.length} operation(s) in <strong>${getEditModeLabel()}</strong> mode…`);
             const author = authorInput.value.trim() || 'Browser Demo AI';
-            const opResults = await applyChatOperations(currentZip, operationsToApply, author, editMode);
+            const { result: batchResult, operationResults: opResults } = await applyChatOperations(currentSession, operationsToApply, author, editMode);
             operationCount += opResults.filter(r => r.success).length;
 
-            // Re-extract paragraphs after modifications
-            documentParagraphs = await extractDocumentParagraphs(currentZip);
-            await renderPreviewFromZip(currentZip, 'Chat');
-
             assistantHtml += buildOpSummaryHtml(opResults);
-
-            // Show download button
-            downloadBtn.style.display = '';
-            downloadBtn.disabled = false;
-            downloadXmlBtn.style.display = '';
-            downloadXmlBtn.disabled = false;
+            if (batchResult.status === 'ok') {
+                documentParagraphs = currentSession.getPromptParagraphs();
+                await renderPreviewFromSession(currentSession, 'Chat');
+                downloadBtn.style.display = '';
+                downloadBtn.disabled = false;
+                downloadXmlBtn.style.display = '';
+                downloadXmlBtn.disabled = false;
+            } else {
+                assistantHtml += '<div class="op-summary" style="color:var(--warn)">The operation batch was refused atomically; the document was not changed.</div>';
+            }
         } else {
             assistantHtml += '<div class="op-summary" style="color:var(--muted)">No document operations returned.</div>';
         }
@@ -1207,8 +1017,8 @@ async function handleSend() {
         log(`[ERROR] ${err.message || String(err)}`);
         console.error(err);
     } finally {
-        sendBtn.disabled = !currentZip;
-        chatInput.disabled = !currentZip;
+        sendBtn.disabled = !currentSession;
+        chatInput.disabled = !currentSession;
         chatInput.focus();
     }
 }
@@ -1295,9 +1105,11 @@ if (libraryDropZone) {
 
 // Download button
 downloadBtn.addEventListener('click', async () => {
-    if (!currentZip) return;
+    if (!currentSession) return;
     try {
-        const blob = await currentZip.generateAsync({ type: 'blob' });
+        const blob = new Blob([currentSession.toUint8Array()], {
+            type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        });
         const originalName = fileInput.files?.[0]?.name || 'document.docx';
         const outputName = originalName.replace(/\.docx$/i, '') + '-reviewed.docx';
         downloadBlob(blob, outputName);
@@ -1309,10 +1121,9 @@ downloadBtn.addEventListener('click', async () => {
 
 // Debug XML download button (word/document.xml from current in-memory package)
 downloadXmlBtn.addEventListener('click', async () => {
-    if (!currentZip) return;
+    if (!currentSession) return;
     try {
-        const documentXml = await currentZip.file('word/document.xml')?.async('string');
-        if (!documentXml) throw new Error('word/document.xml not found in current package');
+        const documentXml = currentSession.getDocumentXml();
 
         const xmlBlob = new Blob([documentXml], { type: 'application/xml;charset=utf-8' });
         const originalName = fileInput.files?.[0]?.name || 'document.docx';
@@ -1333,11 +1144,11 @@ logToggle.addEventListener('click', () => {
 
 if (refreshPreviewBtn) {
     refreshPreviewBtn.addEventListener('click', async () => {
-        if (!currentZip) {
+        if (!currentSession) {
             setPreviewStatus('Upload a .docx file before refreshing preview.');
             return;
         }
-        await renderPreviewFromZip(currentZip, 'Manual Refresh');
+        await renderPreviewFromSession(currentSession, 'Manual Refresh');
     });
 }
 
@@ -1372,26 +1183,33 @@ for (const input of editModeInputs) {
 // ── LEGACY: Kitchen-Sink Demo (preserved) ────────────
 // ══════════════════════════════════════════════════════
 
-function ensureDemoTargets(documentXml) {
-    const parser = new DOMParser();
-    const serializer = new XMLSerializer();
-    const xmlDoc = parser.parseFromString(documentXml, 'application/xml');
-    const body = getBodyElement(xmlDoc);
-    if (!body) throw new Error('Could not find w:body');
+async function seedMissingDemoTargets(session, author) {
+    const before = session.inspect();
+    if (before.status !== 'ok') throw new Error(before.error?.message || 'Could not inspect kitchen-sink document.');
+    const sourceTexts = new Set(before.paragraphs.map(paragraph => paragraph.exactText));
+    const resolvedTargets = {};
+    const missing = [];
     for (const marker of DEMO_MARKERS) {
-        if (!findParagraphByExactText(xmlDoc, marker)) {
-            insertBodyElementBeforeSectPr(body, createSimpleParagraph(xmlDoc, marker));
-            log(`Inserted missing marker: ${marker}`);
+        const existing = [marker, ...(DEMO_MARKER_ALIASES[marker] || [])].find(value => sourceTexts.has(value));
+        if (existing) resolvedTargets[marker] = existing;
+        else {
+            resolvedTargets[marker] = marker;
+            missing.push(marker);
         }
     }
-    normalizeBodySectionOrder(xmlDoc);
-    return serializer.serializeToString(xmlDoc);
+    const seeded = await seedParagraphMarkers(session, missing, author);
+    for (const marker of seeded.added) log(`Seeded missing kitchen-sink target: ${marker}`);
+    for (const [marker, aliases] of Object.entries(DEMO_MARKER_ALIASES)) {
+        for (const alias of aliases) resolvedTargets[alias] = resolvedTargets[marker];
+    }
+    return resolvedTargets;
 }
 
 function defaultTokenForTarget(target) {
     if (target === 'DEMO FORMAT TARGET') return 'FORMAT';
+    if (target === 'DEMO TEXT TARGET') return 'DEMO';
     if (target === 'DEMO_TEXT_TARGET') return 'DEMO_TEXT_TARGET';
-    if (target === 'DEMO_LIST_TARGET') return 'Browser';
+    if (target === 'DEMO LIST TARGET') return 'Browser';
     return 'Status';
 }
 
@@ -1399,7 +1217,7 @@ function normalizeGeminiToolAction(rawAction) {
     const tool = String(rawAction?.tool || '').toLowerCase().trim();
     const args = rawAction?.args && typeof rawAction.args === 'object' ? rawAction.args : {};
     const rawTarget = String(args.target || '').trim();
-    const target = DEMO_MARKERS.includes(rawTarget) ? rawTarget : 'DEMO FORMAT TARGET';
+    const target = DEMO_ALLOWED_TARGETS.includes(rawTarget) ? rawTarget : 'DEMO FORMAT TARGET';
     if (tool === 'comment') {
         return { type: 'comment', label: 'Gemini Surprise Tool Action', target, textToComment: String(args.textToComment || defaultTokenForTarget(target)).trim() || defaultTokenForTarget(target), commentContent: (String(args.commentContent || 'Gemini surprise comment.').trim() || 'Gemini surprise comment.').slice(0, 220) };
     }
@@ -1442,40 +1260,19 @@ async function generateGeminiToolAction(apiKey) {
     return normalizeGeminiToolAction(extractJsonObject(rawText));
 }
 
-function buildSurpriseFallbackOperation(op) {
-    const safeTarget = 'DEMO FORMAT TARGET';
-    if (op.type === 'highlight') return { ...op, target: safeTarget, textToHighlight: 'FORMAT', color: ALLOWED_HIGHLIGHT_COLORS.includes(String(op.color || '').toLowerCase()) ? op.color : 'yellow' };
-    if (op.type === 'comment') return { ...op, target: safeTarget, textToComment: 'FORMAT' };
-    return { ...op, target: safeTarget, modified: 'DEMO FORMAT TARGET updated by Gemini surprise retry.' };
-}
-
 async function runKitchenSink(inputFile, author, geminiApiKey) {
-    const zip = await JSZip.loadAsync(await inputFile.arrayBuffer());
-    const documentFile = zip.file('word/document.xml');
-    if (!documentFile) throw new Error('word/document.xml not found');
-    let documentXml = await documentFile.async('string');
-    parseXmlStrict(documentXml, 'word/document.xml (input)');
-    documentXml = ensureDemoTargets(documentXml);
-
-    const capturedNumberingXml = [];
-    const capturedCommentsXml = [];
-    const runtimeContext = {
-        numberingIdState: await createNumberingIdState(zip),
-        listFallbackSharedNumIdByKey: new Map(),
-        listFallbackSequenceState: {
-            explicitByNumberingKey: new Map()
-        }
-    };
-    const fallbackRedlineText = 'DEMO_TEXT_TARGET rewritten with extra words from the browser demo.';
+    const session = createDocumentSession(await inputFile.arrayBuffer());
+    const resolvedTargets = await seedMissingDemoTargets(session, author);
+    const fallbackRedlineText = 'DEMO TEXT TARGET rewritten with extra words from the browser demo.';
     const fallbackToolOperation = { type: 'comment', label: 'AI Surprise Fallback', target: 'DEMO FORMAT TARGET', textToComment: 'FORMAT', commentContent: 'Fallback AI action: please review the formatting language here.' };
     let geminiRedlineText = fallbackRedlineText;
     let geminiToolOperation = fallbackToolOperation;
 
     if (geminiApiKey) {
-        log('Generating Gemini redline suggestion for DEMO_TEXT_TARGET...');
+        log('Generating Gemini redline suggestion for DEMO TEXT TARGET...');
         try {
-            const suggested = await generateGeminiRedlineSuggestion('DEMO_TEXT_TARGET', geminiApiKey);
-            if (suggested.trim() && suggested.trim() !== 'DEMO_TEXT_TARGET') { geminiRedlineText = suggested.trim(); log(`Gemini suggestion: ${geminiRedlineText}`); }
+            const suggested = await generateGeminiRedlineSuggestion('DEMO TEXT TARGET', geminiApiKey);
+            if (suggested.trim() && suggested.trim() !== 'DEMO TEXT TARGET') { geminiRedlineText = suggested.trim(); log(`Gemini suggestion: ${geminiRedlineText}`); }
             else log('[WARN] Gemini suggestion matched source; using fallback.');
         } catch (error) { log(`[WARN] Gemini suggestion failed; fallback. ${error.message || String(error)}`); }
 
@@ -1488,39 +1285,30 @@ async function runKitchenSink(inputFile, author, geminiApiKey) {
     } else { log('[WARN] No Gemini API key; using fallbacks.'); }
 
     const operations = [
-        { type: 'redline', label: 'Text Edit', target: 'DEMO_TEXT_TARGET', modified: geminiRedlineText },
-        { type: 'redline', label: 'Format-Only', target: 'DEMO FORMAT TARGET', modified: '**DEMO** ++FORMAT++ TARGET' },
-        { type: 'redline', label: 'Bullets', target: 'DEMO_LIST_TARGET', modified: ['- Browser demo top bullet', '  - Nested bullet A', '  - Nested bullet B', '- Browser demo second bullet'].join('\n') },
-        { type: 'redline', label: 'Table', target: 'DEMO_TABLE_TARGET', modified: ['| Item | Owner | Status |', '|---|---|---|', '| Engine refactor | Platform | Done |', '| Browser demo | UX | In Progress |', '| Documentation | QA | Planned |'].join('\n') },
-        { ...geminiToolOperation }
+        { type: 'redline', label: 'Text Edit', target: resolvedTargets['DEMO TEXT TARGET'], modified: geminiRedlineText },
+        { type: 'redline', label: 'Format-Only', target: resolvedTargets['DEMO FORMAT TARGET'], modified: '**DEMO** ++FORMAT++ TARGET' },
+        { type: 'redline', label: 'Bullets', target: resolvedTargets['DEMO LIST TARGET'], modified: ['- Browser demo top bullet', '  - Nested bullet A', '  - Nested bullet B', '- Browser demo second bullet'].join('\n') },
+        { type: 'redline', label: 'Table', target: resolvedTargets['DEMO TABLE TARGET'], modified: ['| Item | Owner | Status |', '|---|---|---|', '| Engine refactor | Platform | Done |', '| Browser demo | UX | In Progress |', '| Documentation | QA | Planned |'].join('\n') },
+        { ...geminiToolOperation, target: resolvedTargets[geminiToolOperation.target] || geminiToolOperation.target }
     ];
 
-    for (const op of operations) {
-        log(`Running: ${op.label}`);
-        let step;
-        try { step = await runOperation(documentXml, op, author, runtimeContext, { sanitizeInput: true }); }
-        catch (error) {
-            const isSurprise = op.label === 'Gemini Surprise Tool Action' || op.label === 'AI Surprise Fallback';
-            if (!isSurprise || error?.code !== 'TARGET_NOT_FOUND') throw error;
-            log(`[WARN] ${error?.message || String(error)}`);
-            log('[WARN] Retrying on safe target.');
-            step = await runOperation(documentXml, buildSurpriseFallbackOperation(op), author, runtimeContext, {
-                sanitizeInput: true
-            });
-        }
-        documentXml = step.documentXml;
-        if (step.numberingXml) capturedNumberingXml.push(step.numberingXml);
-        if (step.commentsXml) capturedCommentsXml.push(step.commentsXml);
-        if (step.warnings?.length > 0) for (const w of step.warnings) log(`  warning: ${w}`);
-        log(`  changed: ${step.hasChanges}`);
+    const inspection = session.inspect();
+    const targets = new Map(inspection.paragraphs.map(paragraph => [paragraph.exactText, paragraph]));
+    const targetedOperations = operations.map(operation => {
+        const paragraph = targets.get(operation.target);
+        if (!paragraph) throw new Error(`Kitchen-sink target was not created: ${operation.target}`);
+        return { ...operation, target: paragraph.exactText, targetRef: paragraph.index };
+    });
+    const result = await session.applyOperations(targetedOperations, {
+        author,
+        generateRedlines: true,
+        sanitizeInput: true
+    });
+    if (result.status !== 'ok') {
+        const failed = result.results?.find(item => item.status === 'error');
+        throw new Error(failed?.error?.message || result.error?.message || 'Kitchen-sink operation batch was refused.');
     }
-
-    { const p = new DOMParser(), s = new XMLSerializer(), d = p.parseFromString(documentXml, 'application/xml'); normalizeBodySectionOrder(d); documentXml = s.serializeToString(d); }
-    zip.file('word/document.xml', documentXml);
-    await ensureNumberingArtifacts(zip, capturedNumberingXml);
-    for (const cx of capturedCommentsXml) await ensureCommentsArtifacts(zip, cx);
-    await validateOutputDocx(zip);
-    return zip;
+    return session;
 }
 
 // Kitchen-sink button
@@ -1535,12 +1323,14 @@ runBtn.addEventListener('click', async () => {
         const geminiApiKey = geminiApiKeyInput?.value.trim() || '';
         if (geminiApiKey) setStoredGeminiApiKey(geminiApiKey);
         log(`[Demo] Version: ${DEMO_VERSION}`);
-        const outputZip = await runKitchenSink(file, author, geminiApiKey);
-        const output = await outputZip.generateAsync({ type: 'blob' });
+        const outputSession = await runKitchenSink(file, author, geminiApiKey);
+        const output = new Blob([outputSession.toUint8Array()], {
+            type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        });
         const outputName = file.name.replace(/\.docx$/i, '') + '-kitchen-sink-demo.docx';
         downloadBlob(output, outputName);
-        currentZip = outputZip;
-        documentParagraphs = await extractDocumentParagraphs(currentZip);
+        currentSession = outputSession;
+        documentParagraphs = currentSession.getPromptParagraphs();
         chatHistory = [];
         operationCount = 0;
         sendBtn.disabled = false;
@@ -1549,7 +1339,7 @@ runBtn.addEventListener('click', async () => {
         downloadBtn.disabled = false;
         downloadXmlBtn.style.display = '';
         downloadXmlBtn.disabled = false;
-        await renderPreviewFromZip(currentZip, 'Kitchen Sink');
+        await renderPreviewFromSession(currentSession, 'Kitchen Sink');
         addMsg('system success', 'Kitchen-sink demo completed. Document downloaded.');
         log('Kitchen-sink demo completed successfully.');
     } catch (err) {
