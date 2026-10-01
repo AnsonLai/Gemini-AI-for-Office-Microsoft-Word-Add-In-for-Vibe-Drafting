@@ -319,6 +319,14 @@ node tests/docx_cross_host_parity_tests.mjs
 python -m http.server 8000 --bind 127.0.0.1
 ```
 
+### OOXML performance measurements
+
+`npm run benchmark:ooxml` profiles supported workloads on the pinned library,
+with raw samples and separate mapping/core/package timings. Actual Word
+transport and taskpane startup have dedicated local profiling lanes; see
+[measurement instructions](docs/ooxml-performance.md). These observations do
+not replace fidelity tests or impose a universal timing threshold.
+
 ### AI Eval Harness (Manual — calls the paid Gemini API)
 
 Measures how reliably each model produces a valid, on-target redline change set. This is **not** part of the default test run; it requires a real API key and makes live model calls.
@@ -362,6 +370,11 @@ npm run build -- --env urlProd=https://<your-app-name>.azurestaticapps.net/
 *(Ensure the URL has a trailing slash `/`)*
 
 This compiles all files and the production-ready `manifest.xml` into the `dist/` directory.
+
+Deploy the entire `dist/` output, including the content-hashed JavaScript chunks.
+Editing modules load on first use; publishing only `taskpane.js` leaves those
+modules unavailable. See [performance measurements](docs/ooxml-performance.md)
+for startup and first-use observations.
 
 ### 2. Deploy from VS Code (Right-Click)
 

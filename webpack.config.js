@@ -3,6 +3,7 @@
 const devCerts = require("office-addin-dev-certs");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
+const webpack = require("webpack");
 
 const urlDev = "https://localhost:3000/";
 const urlProdDefault = "https://stgeminiforword.z13.web.core.windows.net/";
@@ -14,6 +15,7 @@ async function getHttpsOptions() {
 
 module.exports = async (env, options) => {
   const dev = options.mode === "development";
+  const taskpaneStartupProfile = env.TASKPANE_STARTUP_PROFILE === "1";
   // Use env.urlProd if provided, otherwise use default prod URL
   const urlProd = env.urlProd || urlProdDefault;
   const config = {
@@ -28,6 +30,9 @@ module.exports = async (env, options) => {
     },
     output: {
       clean: true,
+      // Lazy chunks are fetched after the taskpane entry has loaded. Content hashes
+      // keep a cached entry from requesting a chunk from a different release.
+      chunkFilename: "[name].[contenthash:8].js",
     },
     resolve: {
       extensions: [".html", ".js"],
@@ -60,6 +65,9 @@ module.exports = async (env, options) => {
       ],
     },
     plugins: [
+      new webpack.DefinePlugin({
+        __TASKPANE_STARTUP_PROFILE__: JSON.stringify(taskpaneStartupProfile),
+      }),
       ...(env.WORD_HOST_VALIDATION ? [new HtmlWebpackPlugin({
         filename: 'officejs-validation.html',
         template: './scripts/officejs-validation.html',

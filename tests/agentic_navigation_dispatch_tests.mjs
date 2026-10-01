@@ -48,7 +48,7 @@ assert.ok(sendChatMessage, 'sendChatMessage must remain an inspectable function'
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const runNavigationBranch = new AsyncFunction(
-  'functionCall', 'instruction', 'loadingMsg', 'docText', 'executeNavigate',
+  'functionCall', 'instruction', 'loadingMsg', 'docText', 'agenticTools',
   'updateSystemMessage', 'toolsExecutedInCurrentRequest',
   `let toolResult = '';\nlet toolSucceeded = false;\n${source.slice(navigationBranch.start + 1, navigationBranch.end - 1)}\nreturn { toolResult, toolSucceeded, toolsExecutedInCurrentRequest };`
 );
@@ -66,7 +66,7 @@ async function verifyNavigationResponse(executeNavigate, expectedSuccess, expect
     'go to the requested section',
     {},
     '[P1] Section heading',
-    executeNavigate,
+    { executeNavigate },
     (_loading, message) => updates.push(message),
     toolRecords
   );
@@ -109,11 +109,15 @@ visit(sendChatMessage.body, node => {
     && node.left?.type === 'Identifier'
     && node.left.name === 'docSourceBaseline'
     && node.right?.type === 'CallExpression'
-    && node.right.callee?.name === 'captureWordSourceBaseline') {
+    && node.right.callee?.type === 'MemberExpression'
+    && node.right.callee.object?.name === 'wordOperationRunner'
+    && node.right.callee.property?.name === 'captureWordSourceBaseline') {
     baselineAssignment = node;
   }
   if (node.type === 'CallExpression'
-    && node.callee?.name === 'executeRedline'
+    && node.callee?.type === 'MemberExpression'
+    && node.callee.object?.name === 'agenticTools'
+    && node.callee.property?.name === 'executeRedline'
     && node.arguments[2]?.type === 'Identifier'
     && node.arguments[2].name === 'docSourceBaseline') {
     redlineDispatch = node;
@@ -133,23 +137,25 @@ assert.ok(
 
 const baselineSource = [{ index: 1, exactText: 'Source paragraph', fingerprint: 'fnv1a32:test' }];
 const captureAndStoreBaseline = new Function(
-  'captureWordSourceBaseline', 'sourceOoxml',
+  'wordOperationRunner', 'sourceOoxml',
   `let docSourceBaseline = [];\n${source.slice(baselineAssignment.start, baselineAssignment.end)};\nreturn docSourceBaseline;`
 );
 const capturedBaseline = captureAndStoreBaseline(
-  ooxml => {
-    assert.equal(ooxml, '<pkg:package/>');
-    return baselineSource;
+  {
+    captureWordSourceBaseline: ooxml => {
+      assert.equal(ooxml, '<pkg:package/>');
+      return baselineSource;
+    }
   },
   { value: '<pkg:package/>' }
 );
 let executeRedlineArguments = null;
 const invokeRedlineDispatch = new Function(
-  'executeRedline', 'instruction', 'docText', 'docSourceBaseline',
+  'agenticTools', 'instruction', 'docText', 'docSourceBaseline',
   `return ${source.slice(redlineDispatch.start, redlineDispatch.end)};`
 );
 await invokeRedlineDispatch(
-  async (...args) => { executeRedlineArguments = args; },
+  { executeRedline: async (...args) => { executeRedlineArguments = args; } },
   'revise the source paragraph',
   '[P1] Source paragraph',
   capturedBaseline

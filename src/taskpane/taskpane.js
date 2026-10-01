@@ -1,5 +1,6 @@
 import { requestGemini, requestGeminiJson, geminiEndpoint } from './modules/chat/gemini-client.js';
-import { captureWordSourceBaseline } from './modules/docx-redline-js-integration/word-operation-runner.js';
+import { createLazyModuleLoader } from './modules/utils/lazy-module-loader.js';
+import { postTaskpaneStartupProfile } from './modules/diagnostics/startup-profile-reporter.js';
 /*
  * Gemini AI for Office - Task Pane Implementation
  * Author: Anson Lai
@@ -7,10 +8,9 @@ import { captureWordSourceBaseline } from './modules/docx-redline-js-integration
  * Description: Word add-in integrating Google Gemini AI for document editing and analysis
  */
 
-/* global document, Office, Word, localStorage */
+/* global document, Office, Word, localStorage, __TASKPANE_STARTUP_PROFILE__ */
 
 import { marked } from 'marked';
-import { diff_match_patch } from 'diff-match-patch';
 import "./taskpane.css";
 
 import {
@@ -29,21 +29,6 @@ import {
   sanitizeHistory,
   appendFunctionExchange
 } from './modules/chat/chat-history.js';
-import {
-  initAgenticTools,
-  executeRedline,
-  executeComment,
-  executeHighlight,
-  executeNavigate,
-  executeResearch,
-  executeInsertListItem,
-  executeEditList,
-  executeConvertHeadersToList,
-  executeEditTable,
-  executeEditSection,
-  executeGetSelectionStats
-} from './modules/commands/agentic-tools.js';
-import { setPlatform } from '@ansonlai/docx-redline-js';
 import { getModelProfile } from './modules/config/model-profiles.js';
 import {
   saveCheckpoint,
@@ -52,6 +37,9 @@ import {
   formatAutoCheckpointLabel,
   migrateLegacyCheckpoints
 } from './modules/storage/checkpoint-store.js';
+
+const TASKPANE_STARTUP_PROFILE_ENABLED = __TASKPANE_STARTUP_PROFILE__ === true;
+const TASKPANE_MODULE_EVALUATED_MS = typeof performance !== 'undefined' ? performance.now() : null;
 
 // Configure marked for GFM (GitHub Flavored Markdown) with tables, breaks, etc.
 marked.setOptions({
@@ -66,6 +54,75 @@ const DEFAULT_AUTHOR = "Gemini AI";
 const GLANCE_COLLAPSED_STORAGE_KEY = "glanceCollapsed";
 
 globalThis.__GEMINI_TASKPANE_RELEASE__ = RELEASE_MARKER;
+
+function collectSameOriginScriptResources() {
+  const entries = performance.getEntriesByType?.('resource') || [];
+  return entries.flatMap(entry => {
+    try {
+      const resourceUrl = new URL(entry.name, window.location.href);
+      if (resourceUrl.origin !== window.location.origin || !/\.m?js$/i.test(resourceUrl.pathname)) return [];
+      return [{
+        name: resourceUrl.pathname,
+        initiatorType: entry.initiatorType,
+        durationMs: Number(entry.duration.toFixed(2)),
+        encodedBodySize: Number(entry.encodedBodySize) || 0,
+        transferSize: Number(entry.transferSize) || 0
+      }];
+    } catch {
+      return [];
+    }
+  });
+}
+
+async function reportTaskpaneStartupProfile(info, officeReadyMs, usableUiMs) {
+  if (!TASKPANE_STARTUP_PROFILE_ENABLED || typeof window === 'undefined' || typeof performance === 'undefined') return;
+
+  const navigation = performance.getEntriesByType?.('navigation')?.[0];
+  const scriptResources = collectSameOriginScriptResources();
+  const initialScriptNames = new Set(scriptResources.map(resource => resource.name));
+  const measuredBytes = property => scriptResources.reduce((total, resource) => total + resource[property], 0);
+  const navigationMs = value => Number.isFinite(value) ? Number(value.toFixed(2)) : null;
+  const record = {
+    status: 'pending',
+    scenario: 'automaticGlanceSuppressed',
+    providerCalls: false,
+    release: RELEASE_MARKER,
+    host: info?.host || null,
+    platform: Office?.context?.platform || null,
+    navigationStartEpochMs: Number.isFinite(performance.timeOrigin) ? Math.round(performance.timeOrigin) : null,
+    moduleEvaluatedMs: TASKPANE_MODULE_EVALUATED_MS,
+    officeReadyMs,
+    usableUiMs,
+    domInteractiveMs: navigationMs(navigation?.domInteractive),
+    domContentLoadedMs: navigationMs(navigation?.domContentLoadedEventEnd),
+    loadEventEndMs: navigationMs(navigation?.loadEventEnd),
+    initialScriptEncodedBytes: measuredBytes('encodedBodySize'),
+    initialScriptTransferBytes: measuredBytes('transferSize'),
+    scriptResources
+  };
+
+  try {
+    if (info?.host !== Office.HostType.Word) throw new Error('Taskpane startup profile requires Word host.');
+    const firstToolModuleLoadStart = performance.now();
+    await loadAgenticTools();
+    record.firstToolModuleLoadMs = Number((performance.now() - firstToolModuleLoadStart).toFixed(2));
+    record.toolModuleInitialized = agenticToolsInitialized;
+    record.lazyScriptResources = collectSameOriginScriptResources()
+      .filter(resource => !initialScriptNames.has(resource.name));
+    record.status = agenticToolsInitialized ? 'passed' : 'failed';
+  } catch {
+    record.status = 'failed';
+    record.toolModuleInitialized = false;
+    record.lazyScriptResources = collectSameOriginScriptResources()
+      .filter(resource => !initialScriptNames.has(resource.name));
+    record.toolModuleLoadFailed = true;
+  }
+
+  window.__TASKPANE_STARTUP_PROFILE__ = record;
+  console.info('[TaskpaneStartupProfile]', record);
+
+  void postTaskpaneStartupProfile(record);
+}
 
 // Safety settings for Gemini API (disable all safety blocks)
 const SAFETY_SETTINGS_BLOCK_NONE = [
@@ -270,8 +327,10 @@ let chatHistory = [];
 let toolsExecutedInCurrentRequest = [];  // Track successful tool executions for recovery
 
 Office.onReady((info) => {
+  const officeReadyMs = TASKPANE_STARTUP_PROFILE_ENABLED && typeof performance !== 'undefined'
+    ? Number(performance.now().toFixed(2))
+    : null;
   if (info.host === Office.HostType.Word) {
-    setPlatform(Office?.context?.platform);
     document.getElementById("sideload-msg").style.display = "none";
     // Show main view by default
     showMainView();
@@ -333,6 +392,9 @@ Office.onReady((info) => {
     // Check for API key on load
     if (!loadApiKey()) {
       showWelcomeScreen();
+    } else if (TASKPANE_STARTUP_PROFILE_ENABLED) {
+      // Keep the normal Glance view visible while the local startup profile avoids provider calls.
+      renderGlanceMain();
     } else {
       // Run Glance checks if key exists
       renderGlanceMain();
@@ -366,6 +428,9 @@ Office.onReady((info) => {
 
     // Update checkpoint status on load (internal only now)
     // updateCheckpointStatus(); // UI removed, but we can keep tracking internally if needed, or just remove this call.
+  }
+  if (TASKPANE_STARTUP_PROFILE_ENABLED && typeof performance !== 'undefined') {
+    void reportTaskpaneStartupProfile(info, officeReadyMs, Number(performance.now().toFixed(2)));
   }
 });
 
@@ -666,7 +731,7 @@ async function restoreChangeTracking(context, trackingState, sourceLabel = "AI")
   }
 }
 
-initAgenticTools({
+const agenticToolDependencies = {
   getRequestSignal: () => currentRequestController?.signal,
   loadApiKey,
   loadModel,
@@ -678,7 +743,30 @@ initAgenticTools({
   SEARCH_LIMITS,
   SAFETY_SETTINGS_BLOCK_NONE,
   API_LIMITS
-});
+};
+let agenticToolsInitialized = false;
+const loadWordOperationSupport = createLazyModuleLoader(
+  () => Promise.all([
+    import('./modules/docx-redline-js-integration/word-operation-runner.js'),
+    import('@ansonlai/docx-redline-js')
+  ]),
+  ([, docxLibrary]) => {
+    docxLibrary.setPlatform(Office?.context?.platform);
+  }
+);
+const loadAgenticTools = createLazyModuleLoader(
+  async () => {
+    const [module] = await Promise.all([
+      import('./modules/commands/agentic-tools.js'),
+      loadWordOperationSupport()
+    ]);
+    return module;
+  },
+  module => {
+    module.initAgenticTools(agenticToolDependencies);
+    agenticToolsInitialized = true;
+  }
+);
 
 /**
  * Fetches the document's author from Word properties.
@@ -1188,6 +1276,8 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
 
   try {
     // --- Get Document Context ---
+    const wordOperationSupportPromise = loadWordOperationSupport();
+    wordOperationSupportPromise.catch(() => {});
     let docText = "";
     let docSourceBaseline = [];
     let docComments = [];
@@ -1220,7 +1310,8 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
       try {
         const sourceOoxml = body.getOoxml();
         await context.sync();
-        docSourceBaseline = captureWordSourceBaseline(sourceOoxml.value);
+        const [wordOperationRunner] = await wordOperationSupportPromise;
+        docSourceBaseline = wordOperationRunner.captureWordSourceBaseline(sourceOoxml.value);
       } catch (error) {
         console.warn('Canonical document targeting context unavailable', error?.code || error?.name);
       }
@@ -1971,6 +2062,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
       const functionCallParts = parts.filter((part) => part.functionCall);
 
       if (functionCallParts.length > 0) {
+        const agenticTools = await loadAgenticTools();
         // If this is the first loop, remove the "Thinking..." message so we can show tool status
         // Keep loading message visible during tool execution
 
@@ -2017,7 +2109,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
 
           if (functionCall.name === "apply_redlines") {
             const checkpointIndex = await createCheckpoint(true, functionCall.name);
-            const result = await executeRedline(instruction, docText, docSourceBaseline);
+            const result = await agenticTools.executeRedline(instruction, docText, docSourceBaseline);
             toolMutation = result;
             toolResult = result.message;
             toolSucceeded = result.written === true && result.status !== 'error';
@@ -2050,7 +2142,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
 
           } else if (functionCall.name === "insert_comment") {
             const checkpointIndex = await createCheckpoint(true, functionCall.name);
-            const result = await executeComment(instruction, docText);
+            const result = await agenticTools.executeComment(instruction, docText);
             toolMutation = result;
             toolResult = result.message;
             toolSucceeded = result.status !== 'error' && result.written === true;
@@ -2072,7 +2164,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
           } else if (functionCall.name === "highlight_text") {
             const checkpointIndex = await createCheckpoint(true, functionCall.name);
             const highlightColor = args.color || "yellow";
-            const result = await executeHighlight(instruction, docText, highlightColor);
+            const result = await agenticTools.executeHighlight(instruction, docText, highlightColor);
             toolMutation = result;
             toolResult = result.message;
             toolSucceeded = result.status !== 'error' && result.written === true;
@@ -2093,7 +2185,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
 
           } else if (functionCall.name === "perform_research") {
             updateSystemMessage(loadingMsg, `Researching: "${instruction}"...`);
-            toolResult = await executeResearch(instruction);
+            toolResult = await agenticTools.executeResearch(instruction);
             toolSucceeded = true;
 
             // Track successful tool execution for recovery
@@ -2107,7 +2199,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
             updateSystemMessage(loadingMsg, `Found search results for: "${instruction}"`);
           } else if (functionCall.name === "navigate_to_section") {
             updateSystemMessage(loadingMsg, `Navigating to: "${instruction}"...`);
-            const result = await executeNavigate(instruction, docText);
+            const result = await agenticTools.executeNavigate(instruction, docText);
             toolResult = result.message;
             toolSucceeded = result.success === true;
 
@@ -2126,7 +2218,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
             const checkpointIndex = await createCheckpoint(true, functionCall.name);
             updateSystemMessage(loadingMsg, `Editing list from P${args.startParagraphIndex} to P${args.endParagraphIndex}...`);
 
-            const result = await executeEditList(
+            const result = await agenticTools.executeEditList(
               args.startParagraphIndex,
               args.endParagraphIndex,
               args.newItems,
@@ -2154,7 +2246,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
             const checkpointIndex = await createCheckpoint(true, functionCall.name);
             updateSystemMessage(loadingMsg, `Inserting list item after P${args.afterParagraphIndex}...`);
 
-            const result = await executeInsertListItem(
+            const result = await agenticTools.executeInsertListItem(
               args.afterParagraphIndex,
               args.text,
               args.indentLevel,
@@ -2181,7 +2273,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
             const checkpointIndex = await createCheckpoint(true, functionCall.name);
             updateSystemMessage(loadingMsg, `Editing table (${args.action})...`);
 
-            const result = await executeEditTable(
+            const result = await agenticTools.executeEditTable(
               args.paragraphIndex,
               args.action,
               args.content,
@@ -2209,7 +2301,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
             const checkpointIndex = await createCheckpoint(true, functionCall.name);
             updateSystemMessage(loadingMsg, `Editing section at P${args.sectionHeaderIndex}...`);
 
-            const result = await executeEditSection(
+            const result = await agenticTools.executeEditSection(
               args.sectionHeaderIndex,
               args.newHeaderText,
               args.newBodyParagraphs,
@@ -2236,7 +2328,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
             const checkpointIndex = await createCheckpoint(true, functionCall.name);
             updateSystemMessage(loadingMsg, `Converting ${args.paragraphIndices?.length || 0} headers to numbered list...`);
 
-            const result = await executeConvertHeadersToList(
+            const result = await agenticTools.executeConvertHeadersToList(
               args.paragraphIndices,
               args.newHeaderTexts,
               args.numberingFormat
@@ -2260,7 +2352,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
             }
           } else if (functionCall.name === "get_selection_stats") {
             updateSystemMessage(loadingMsg, "Analyzing word & character count...");
-            const result = await executeGetSelectionStats(args, docText);
+            const result = await agenticTools.executeGetSelectionStats(args, docText);
             toolMutation = result;
             toolResult = result.message;
             toolSucceeded = !!result.success;

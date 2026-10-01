@@ -82,4 +82,4 @@ Whole-document `getFileAsync(Compressed)` → `openDocx` → `insertFileFromBase
 - [x] Browser demo uses supported document APIs for editing and passes save/reopen checks.
 - [x] Preview dependencies and cross-host capability differences documented.
 
-**Next:** [OOXML engine and performance](../2026-08-29-oxml-engine-and-performance.md), profiling settled interfaces before selecting optimization work.
+**Next:** [OOXML engine and performance](2026-08-29-oxml-engine-and-performance.md), profiling settled interfaces before selecting optimization work.

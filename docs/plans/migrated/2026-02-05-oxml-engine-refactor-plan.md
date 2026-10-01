@@ -1,7 +1,7 @@
 # OXML-Engine Refactoring Plan
 
 > **Migrated on 2026-08-29:** Remaining work was consolidated into
-> [`2026-08-29-oxml-engine-and-performance.md`](../2026-08-29-oxml-engine-and-performance.md).
+> [`2026-08-29-oxml-engine-and-performance.md`](../completed/2026-08-29-oxml-engine-and-performance.md).
 > This document is retained in `migrated/` as historical detail.
 
 ## Goals

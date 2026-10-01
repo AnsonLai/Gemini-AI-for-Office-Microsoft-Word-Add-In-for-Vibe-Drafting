@@ -1,0 +1,60 @@
+{
+  "status": "passed",
+  "scenario": "automaticGlanceSuppressed",
+  "providerCalls": false,
+  "release": "v2.1.0.3",
+  "host": "Word",
+  "platform": "PC",
+  "navigationStartEpochMs": 1790826492986,
+  "moduleEvaluatedMs": 130,
+  "officeReadyMs": 171.8,
+  "usableUiMs": 172.2,
+  "domInteractiveMs": 102.5,
+  "domContentLoadedMs": 130.2,
+  "loadEventEndMs": 0,
+  "initialScriptEncodedBytes": 430950,
+  "initialScriptTransferBytes": 431550,
+  "scriptResources": [
+    {
+      "name": "/taskpane.js",
+      "initiatorType": "script",
+      "durationMs": 21.7,
+      "encodedBodySize": 206987,
+      "transferSize": 207287
+    },
+    {
+      "name": "/polyfill.js",
+      "initiatorType": "script",
+      "durationMs": 21,
+      "encodedBodySize": 223963,
+      "transferSize": 224263
+    }
+  ],
+  "firstToolModuleLoadMs": 46.1,
+  "toolModuleInitialized": true,
+  "lazyScriptResources": [
+    {
+      "name": "/271.0c348d8e.js",
+      "initiatorType": "script",
+      "durationMs": 5.5,
+      "encodedBodySize": 535267,
+      "transferSize": 535567
+    },
+    {
+      "name": "/716.1e40bb1f.js",
+      "initiatorType": "script",
+      "durationMs": 6.2,
+      "encodedBodySize": 62326,
+      "transferSize": 62626
+    },
+    {
+      "name": "/575.1e5bce29.js",
+      "initiatorType": "script",
+      "durationMs": 7.8,
+      "encodedBodySize": 120668,
+      "transferSize": 120968
+    }
+  ],
+  "startedAt": "2026-10-01T03:48:09.638Z",
+  "checkedAt": "2026-10-01T03:48:13.215Z"
+}

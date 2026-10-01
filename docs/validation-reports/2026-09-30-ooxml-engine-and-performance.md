@@ -86,7 +86,42 @@ encoded bytes. This is one local observation, not a cold-start percentile or a
 network-wide guarantee. The first launch returned no evidence; a relaunch
 completed the measurement. [Baseline report](2026-09-30-taskpane-startup-baseline.json).
 
-The lazy-tool optimization and its after measurements are still in progress.
+The consumer now defers agentic tools, Word preparation and the DOCX engine
+until needed. Platform setup precedes baseline parsing; tool dependencies
+initialize once. Concurrent first requests share one import, and failed loads
+can be retried. Tool import failure occurs before the mutation loop. Navigation
+response assertions still pass with the module namespace.
+
+The final profiled initial scripts are 430,950 bytes, **58.6% below the baseline**.
+The ordinary production entry is smaller because profiling code is excluded.
+The final local Word observation reaches usable UI at 172.2 ms and loads the
+deferred tool module in 46.1 ms after that milestone. All three content-hashed
+chunks were fetched and initialization succeeded.
+[Final Word startup report](2026-09-30-taskpane-startup-optimized.json).
+These samples establish working paths and initial payload reduction; they do
+not establish a startup percentile or promise a particular network latency.
+
+The full set of JavaScript is about 10% larger once all deferred modules load.
+The selected benefit is reduced initial loading; first use pays the deferred
+load. Deploy the entire `dist/` output, including content-hashed chunks. The
+stable entry filenames preserve the existing HTML/manifest paths.
+
+Ordinary production initial scripts: **1,038,203 → 425,270 bytes (59.04% lower)**.
+All emitted JavaScript including commands: **1,038,570 → 1,143,898 bytes
+(10.15% larger)**. Raw build/Word comparisons and asset sizes are retained in
+the [bundle report](2026-09-30-taskpane-startup-bundle.json).
+
+Startup POST handling is isolated in a local-only diagnostic helper, preserving
+the taskpane's no-direct-provider-fetch guard. Ordinary builds do not post
+startup evidence or suppress automatic Glance. The profiling build performs
+no model request or mutation. Resource/JavaScript errors are reported by the
+local collector's startup diagnostic hook.
+
+Final validation: **49 offline suites passed, zero failed, four excluded
+entrypoints**; existing historical skips and known list defects remain explicit.
+Development and production builds pass. Eight real Office.js and twelve
+independent Word fidelity checks pass. All temporary collectors were stopped
+and registrations removed.
 
 ## WP3 library ownership
 
@@ -96,3 +131,6 @@ No library internals or consumer fidelity workaround were changed. No diff
 cache, alternate document index or arbitrary timing budget was introduced.
 
 Reproduction and profiling instructions: [OOXML performance](../ooxml-performance.md).
+
+The plan is complete and archived in `docs/plans/completed/`. The workload/host
+checkpoint is `6b44f51`; startup optimization and plan closure follow it.

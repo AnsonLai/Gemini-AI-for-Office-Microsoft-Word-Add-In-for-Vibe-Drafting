@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-01T03:49:57.960Z",
+  "baselineRevision": "6b44f51",
+  "measurementNotes": [
+    "Normal production sizes use the startup-profile flag off; the baseline taskpane byte count is the uninstrumented build measurement.",
+    "Profiled startup samples are single actual-Word observations and are descriptive, not a percentile or repeatable timing guarantee.",
+    "The post-lazy all-JavaScript total grows because deferred tool modules are still downloaded on first tool use; startup improvement is a smaller initial payload."
+  ],
+  "normalProduction": {
+    "baseline": {
+      "taskpaneBytes": 814240,
+      "polyfillBytes": 223963,
+      "commandsBytes": 367,
+      "initialTaskpaneAndPolyfillBytes": 1038203,
+      "allInitialJavascriptBytes": 1038570
+    },
+    "optimized": {
+      "taskpaneBytes": 201307,
+      "polyfillBytes": 223963,
+      "commandsBytes": 367,
+      "initialTaskpaneAndPolyfillBytes": 425270,
+      "lazyChunks": [
+        {
+          "name": "271.0c348d8e.js",
+          "encodedBytes": 535267
+        },
+        {
+          "name": "575.1e5bce29.js",
+          "encodedBytes": 120668
+        },
+        {
+          "name": "716.1e40bb1f.js",
+          "encodedBytes": 62326
+        }
+      ],
+      "lazyChunkBytes": 718261,
+      "allJavascriptIncludingLazyChunksAndCommandsBytes": 1143898
+    },
+    "initialBytesSaved": 612933,
+    "initialBytesSavedPercent": 59.04,
+    "allJavascriptGrowthBytes": 105328,
+    "allJavascriptGrowthPercent": 10.14
+  },
+  "profileProduction": {
+    "baseline": {
+      "taskpaneBytes": 817701,
+      "polyfillBytes": 223963,
+      "initialScriptEncodedBytes": 1041664,
+      "initialScriptTransferBytes": 1042264
+    },
+    "optimized": {
+      "taskpaneBytes": 206987,
+      "polyfillBytes": 223963,
+      "initialScriptEncodedBytes": 430950,
+      "firstToolModuleLoadMs": 46.1,
+      "toolModuleInitialized": true,
+      "lazyChunks": [
+        {
+          "name": "271.0c348d8e.js",
+          "encodedBytes": 535267
+        },
+        {
+          "name": "575.1e5bce29.js",
+          "encodedBytes": 120668
+        },
+        {
+          "name": "716.1e40bb1f.js",
+          "encodedBytes": 62326
+        }
+      ],
+      "lazyChunkEncodedBytes": 718261
+    },
+    "initialBytesSaved": 610714,
+    "initialBytesSavedPercent": 58.63,
+    "allJavaScriptAfterLazyLoadBytes": 1149211,
+    "allJavaScriptGrowthAfterLazyLoadBytes": 107547,
+    "allJavaScriptGrowthAfterLazyLoadPercent": 10.32
+  },
+  "startupWord": {
+    "baseline": {
+      "status": "passed",
+      "scenario": "automaticGlanceSuppressed",
+      "providerCalls": false,
+      "release": "v2.1.0.3",
+      "host": "Word",
+      "platform": "PC",
+      "navigationStartEpochMs": 1790825679909,
+      "moduleEvaluatedMs": 183.20000000298023,
+      "officeReadyMs": 216.8,
+      "usableUiMs": 217.4,
+      "domInteractiveMs": 148.3,
+      "domContentLoadedMs": 183.3,
+      "loadEventEndMs": 0,
+      "initialScriptEncodedBytes": 1041664,
+      "initialScriptTransferBytes": 1042264,
+      "scriptResources": [
+        {
+          "name": "/polyfill.js",
+          "initiatorType": "script",
+          "durationMs": 16,
+          "encodedBodySize": 223963,
+          "transferSize": 224263
+        },
+        {
+          "name": "/taskpane.js",
+          "initiatorType": "script",
+          "durationMs": 23.5,
+          "encodedBodySize": 817701,
+          "transferSize": 818001
+        }
+      ],
+      "startedAt": "2026-10-01T03:34:36.549Z",
+      "checkedAt": "2026-10-01T03:34:40.134Z"
+    },
+    "optimized": {
+      "status": "passed",
+      "scenario": "automaticGlanceSuppressed",
+      "providerCalls": false,
+      "release": "v2.1.0.3",
+      "host": "Word",
+      "platform": "PC",
+      "navigationStartEpochMs": 1790826492986,
+      "moduleEvaluatedMs": 130,
+      "officeReadyMs": 171.8,
+      "usableUiMs": 172.2,
+      "domInteractiveMs": 102.5,
+      "domContentLoadedMs": 130.2,
+      "loadEventEndMs": 0,
+      "initialScriptEncodedBytes": 430950,
+      "initialScriptTransferBytes": 431550,
+      "scriptResources": [
+        {
+          "name": "/taskpane.js",
+          "initiatorType": "script",
+          "durationMs": 21.7,
+          "encodedBodySize": 206987,
+          "transferSize": 207287
+        },
+        {
+          "name": "/polyfill.js",
+          "initiatorType": "script",
+          "durationMs": 21,
+          "encodedBodySize": 223963,
+          "transferSize": 224263
+        }
+      ],
+      "firstToolModuleLoadMs": 46.1,
+      "toolModuleInitialized": true,
+      "lazyScriptResources": [
+        {
+          "name": "/271.0c348d8e.js",
+          "initiatorType": "script",
+          "durationMs": 5.5,
+          "encodedBodySize": 535267,
+          "transferSize": 535567
+        },
+        {
+          "name": "/716.1e40bb1f.js",
+          "initiatorType": "script",
+          "durationMs": 6.2,
+          "encodedBodySize": 62326,
+          "transferSize": 62626
+        },
+        {
+          "name": "/575.1e5bce29.js",
+          "initiatorType": "script",
+          "durationMs": 7.8,
+          "encodedBodySize": 120668,
+          "transferSize": 120968
+        }
+      ],
+      "startedAt": "2026-10-01T03:48:09.638Z",
+      "checkedAt": "2026-10-01T03:48:13.215Z"
+    }
+  },
+  "verification": {
+    "normalProductionBuild": "passed",
+    "developmentBuild": "passed",
+    "loaderContractTests": "passed",
+    "localOnlyReporterTests": "passed",
+    "geminiTransportBoundaryTest": "passed",
+    "aggregateSuite": "49 passed, 0 failed, 4 excluded"
+  }
+}
