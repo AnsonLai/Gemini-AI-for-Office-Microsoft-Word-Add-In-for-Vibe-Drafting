@@ -8,7 +8,7 @@ Word-only adapter.
 
 ```mermaid
 graph TD
-    Package[@ansonlai/docx-redline-js 0.8.2] --> Portable[Portable consumer core]
+    Package[@ansonlai/docx-redline-js 0.8.3] --> Portable[Portable consumer core]
     Portable --> WordAdapter[Word adapter / Office.js]
     WordAdapter --> Addin[Word taskpane]
     Package --> Browser[Browser document session]
@@ -19,7 +19,7 @@ graph TD
 
 | Component | Responsibility |
 | --- | --- |
-| `@ansonlai/docx-redline-js` | Public DOCX facade, OOXML operations, package inspection and reconciliation. Both package manifests pin exact version `0.8.2`. |
+| `@ansonlai/docx-redline-js` | Public DOCX facade, OOXML operations, package inspection and reconciliation. Both package manifests pin exact version `0.8.3`. |
 | `src/taskpane/modules/docx-redline-js-integration/consumer-core.js` | Portable source inspection, canonical operation preparation, result handling and Flat OPC package construction. It has no Word, UI or filesystem globals. |
 | `word-operation-runner.js`, `word-redline-runner.js`, `word-ooxml.js` | Word proxy reads/inserts, synchronization, native tracking management and the add-in's compatibility bridge. |
 | `browser-demo/document-session.js` | Browser open/inspect/atomic edit/serialize lifecycle through the package facade. JSZip is retained for preview. |
@@ -105,31 +105,43 @@ write.
 Canonical `insert_list_item` migration is intentionally limited to the tested
 active bullet/decimal subset and its required anchors, levels and tracking mode.
 Other levels or numbering formats, tracking-off requests and unsupported
-anchors stay on native Word paths. Five native fallback cases pass actual
-Office.js (20 checks) and independent desktop Word (20 checks) on Word
-16.0.20430.20092: deep `+1` insertion, source-level-2 outdent, UpperRoman
-insertion, lowerRoman insertion, and insertion with redlining disabled while
-restoring prior `TrackAll`. This is evidence for those five cases on that host;
-the 20 independent checks cover source, tracked, accepted and rejected views.
-Five engine-reference views are marked not applicable for these native routes,
-not counted as passes. This does not migrate them to canonical OOXML or cover
-every list shape. The active migration plan remains open until the remaining
-canonical paths are enabled by library capability and fidelity fixes. See the
-[Office.js report](docs/validation-reports/2026-09-30-agentic-native-list-officejs.json)
-and [independent Word report](docs/validation-reports/2026-09-30-agentic-native-list-word.json).
+anchors stay on native Word paths. The earlier 2026-09-30 v0.8.2 baseline recorded
+five native fallback cases with 20 actual Office.js checks and 20 independent
+Word checks on Word 16.0.20430.20092. The five cases were deep `+1` insertion,
+source-level-2 outdent, UpperRoman insertion, lowerRoman insertion, and
+insertion with redlining disabled while restoring prior `TrackAll`; the five
+engine-reference views were marked not applicable, not counted as passes.
 
-The pinned 0.8.2 reports document these open constraints:
+Current v0.8.3 verification covers 12 supported list cases with 48 actual
+Office.js checks, plus those five native routes with 20 more checks (68 total).
+The independent Word oracle checked 17 exports: 92 applicable checks passed,
+none failed, and five were not applicable. The two original public-facade
+Reject All cases also pass 12 Word checks. `npm test` passes 51 suites with
+zero failures and four exclusions; validation and production builds pass. See
+the [v0.8.3 report](docs/validation-reports/2026-09-30-docx-redline-v083.md),
+[Office.js list reports](docs/validation-reports/2026-09-30-v083-list-officejs.json),
+[native Office.js report](docs/validation-reports/2026-09-30-v083-native-officejs.json),
+[Word report](docs/validation-reports/2026-09-30-v083-officejs-word.json), and
+[public-facade Word report](docs/validation-reports/2026-09-30-v083-facade-word.json).
+These results verify the reported cases; they do not cover every list shape or
+complete canonical migration.
 
-- Reject All after plain-anchor insertion can leave an extra empty paragraph.
-- Reject All after list-range replacement can merge original paragraphs.
-- Some unmarked/text-changing header or list-format conversions lack a
-  verified canonical mapping.
-- Historical `numPr` in revision history can be mistaken for active numbering;
-  the observed route refuses before writing.
+The v0.8.2 reports recorded Reject All paragraph-boundary failures after plain
+insertion and list-range replacement, plus inspection of historical paragraph
+properties as current. The v0.8.3 package passes 12 independent Word checks on
+the two former public-facade Reject All failures; the current list matrix also
+passes its reported Office.js and Word checks. The release notes describe the
+fixes, including all-empty source ranges, historical properties, `openDocx`
+list-numbering reuse, and explicit list-start parsing. The dated v0.8.2
+reports retain their earlier results.
 
-These are tracked in [`docs/library-issues/`](docs/library-issues/README.md) and
-the [active list reliability plan](docs/plans/2026-08-29-agentic-tools-and-list-reliability.md).
-Do not treat successful native fallbacks as completion of canonical migration.
+The current canonical limitations are narrower but still block full migration:
+plain or text-changing header-to-list conversion and list-format changes do
+not yet have supported canonical operations. On bare `document.xml`, a
+marker-prefixed `1. Header` to `1. Header` operation can fail with
+`RECEIPT_RECONCILIATION_FAILED`. These capabilities and the migration status are
+tracked in the [canonical list migration follow-up](docs/plans/2026-09-30-canonical-list-migration-follow-up.md).
+Successful native fallbacks do not complete canonical migration.
 
 ## Validation and evidence
 

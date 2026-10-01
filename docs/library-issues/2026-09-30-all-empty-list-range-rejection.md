@@ -1,5 +1,7 @@
 # All-empty list ranges lose their source paragraphs on Reject All
 
+**Resolution:** Fixed in installed 0.8.3. The reproduction below describes the earlier defect; see [0.8.3 validation](../validation-reports/2026-09-30-docx-redline-v083.md).
+
 **Checked:** 2026-09-30, unpublished library working tree at
 `C:/Users/Phara/Desktop/Projects/Docx Redline JS`, still versioned 0.8.2.
 **Evidence:** independently reproduced offline; no live Word claim for this case.

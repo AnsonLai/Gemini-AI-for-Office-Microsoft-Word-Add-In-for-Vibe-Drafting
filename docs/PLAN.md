@@ -9,11 +9,13 @@
 > instructions below are a historical 2026-07 draft, not the live task queue.
 > The September package upgrade, reliability, package boundaries, and OOXML
 > performance plans are complete. The [agentic tools and list reliability
-> plan](plans/2026-08-29-agentic-tools-and-list-reliability.md) remains open:
-> the supported insertion subset is verified, but full canonical list
-> migration still depends on separately tracked upstream capabilities and
-> fidelity fixes. Current consumers pin exact
-> `@ansonlai/docx-redline-js@0.8.2`; see [ROADMAP.md](../ROADMAP.md) and
+> plan](plans/completed/2026-08-29-agentic-tools-and-list-reliability.md) is now
+> closed with deferred scope at the user's request. Full canonical list
+> migration transfers to the fresh [follow-up](plans/2026-09-30-canonical-list-migration-follow-up.md),
+> which depends on separately tracked upstream capabilities.
+> The reported fidelity defects are fixed and validated in installed 0.8.3.
+> Current consumers pin exact
+> `@ansonlai/docx-redline-js@0.8.3`; see [ROADMAP.md](../ROADMAP.md) and
 > [STATE.md](../STATE.md) for the current posture.
 
 > **Audience note:** this plan is written to be executed by a smaller/cheaper model,

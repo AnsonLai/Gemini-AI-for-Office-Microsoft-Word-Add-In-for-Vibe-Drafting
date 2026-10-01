@@ -1,5 +1,11 @@
 # 0.8.2 standalone list operation gaps
 
+**0.8.3 status:** Plain-to-list conversion and list-format changes remain
+unsupported, as the release's Known Limitations explicitly records. The
+fragment-parser/start-value defect described below is fixed. The original
+0.8.2 observations remain historical evidence; see the
+[release validation](../validation-reports/2026-09-30-docx-redline-v083.md).
+
 **Package:** `@ansonlai/docx-redline-js@0.8.2`  
 **Checked:** 2026-09-30  
 **Scope:** public standalone document operations used by the add-in

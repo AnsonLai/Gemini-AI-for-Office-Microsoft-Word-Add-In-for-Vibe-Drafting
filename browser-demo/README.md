@@ -1,6 +1,6 @@
 # Browser Demo
 
-No-build browser demo using the repository's pinned `@ansonlai/docx-redline-js@0.8.2`
+No-build browser demo using the repository's pinned `@ansonlai/docx-redline-js@0.8.3`
 package and public DOCX facade.
 
 It demonstrates end-to-end `.docx` mutation in the browser, including text redlines, formatting, list/table transforms, comments, and highlights.
@@ -87,7 +87,7 @@ npm install
 python -m http.server 8000 --bind 127.0.0.1
 ```
 
-Do not use `file://`. Both root and MCP pin exact library version 0.8.2.
+Do not use `file://`. Both root and MCP pin exact library version 0.8.3.
 
 ## Gemini API Key
 
@@ -116,7 +116,7 @@ Kitchen-sink mode also uses the document lifecycle for marker seeding and its op
 
 ## Verification and limits
 
-The browser preview is not a Word fidelity oracle. List capability gaps and separately reproduced Reject All defects remain in the [agentic list plan](../docs/plans/2026-08-29-agentic-tools-and-list-reliability.md). This migration does not certify additional list shapes.
+The browser preview is not a Word fidelity oracle. The v0.8.2 reports record Reject All failures; the v0.8.3 package passes 12 independent Word checks on the two former public-facade cases, including paragraph-boundary restoration. Remaining canonical limits are plain or text-changing header-to-list conversion and list-format changes. A marker-prefixed `1. Header` no-op on bare `document.xml` can fail with `RECEIPT_RECONCILIATION_FAILED`. The [canonical migration follow-up](../docs/plans/2026-09-30-canonical-list-migration-follow-up.md) remains open; this browser workflow does not certify additional list shapes. See the [v0.8.3 validation report](../docs/validation-reports/2026-09-30-docx-redline-v083.md).
 
 Offline tests cover session open/inspect, localized edits, direct edits, comment preservation, atomic failure and serialize/reopen. The local browser validation page at `http://localhost:8000/scripts/browser-document-validation.html` exercises the same session in a real Chromium browser without a model request. Its seven grouped checks cover Word-authored source inspection, tracked edit and serialize/reopen, preserved package parts, Accept All/Reject All, mixed-batch rollback, direct mode preserving another author's revisions, and comment insertion with an existing thread.
 

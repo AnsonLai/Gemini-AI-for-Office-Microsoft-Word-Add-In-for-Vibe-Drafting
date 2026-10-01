@@ -19,12 +19,17 @@ and Office.js integration. The UI is implemented in HTML, CSS and JavaScript.
 - `modules/storage/checkpoint-store.js` stores pre-mutation snapshots in
   IndexedDB.
 
-The add-in pins `@ansonlai/docx-redline-js@0.8.2` for OOXML reconciliation.
+The add-in pins `@ansonlai/docx-redline-js@0.8.3` for OOXML reconciliation.
 Portable preparation is separated from Word I/O, but not every tool has moved
-to the canonical atomic batch path. List insertion still uses tested native
-fallbacks outside its verified canonical subset. See the root
+to the canonical atomic batch path. List insertion still uses native
+fallbacks outside its verified canonical subset. Current v0.8.3 checks cover
+12 supported list cases (48 Office.js checks) and five native routes (20
+Office.js checks); the independent Word oracle reports 92 applicable checks
+passed across 17 exports, zero failed, and five not applicable. `npm test`
+passes 51 suites with zero failures and four exclusions. See the [v0.8.3
+report](../../docs/validation-reports/2026-09-30-docx-redline-v083.md). See the root
 [architecture](../../ARCHITECTURE.md), [tool contracts](../../docs/agentic-tool-contracts.md)
-and [active list plan](../../docs/plans/2026-08-29-agentic-tools-and-list-reliability.md)
+and [canonical migration follow-up](../../docs/plans/2026-09-30-canonical-list-migration-follow-up.md)
 for boundaries and remaining limits.
 
 ## Local verification

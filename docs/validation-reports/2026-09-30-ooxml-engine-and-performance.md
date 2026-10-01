@@ -126,7 +126,7 @@ and registrations removed.
 ## WP3 library ownership
 
 No new library performance regression was established. Existing list fidelity
-defects stay in the separate [agentic list plan](../plans/2026-08-29-agentic-tools-and-list-reliability.md).
+defects stay in the separate [agentic list plan](../plans/completed/2026-08-29-agentic-tools-and-list-reliability.md).
 No library internals or consumer fidelity workaround were changed. No diff
 cache, alternate document index or arbitrary timing budget was introduced.
 

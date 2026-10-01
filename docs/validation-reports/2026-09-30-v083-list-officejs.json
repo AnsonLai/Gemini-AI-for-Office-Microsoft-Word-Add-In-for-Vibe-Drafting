@@ -1,0 +1,1033 @@
+{
+  "status": "passed",
+  "host": {
+    "host": "Word",
+    "platform": "PC",
+    "addin": null
+  },
+  "diagnostics": {
+    "host": "Word",
+    "version": "16.0.20430.20092",
+    "platform": "PC"
+  },
+  "checks": [
+    {
+      "case": "list-insert-bullet-same-level",
+      "view": "actual-officejs-insertion",
+      "status": "ok",
+      "written": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 1,
+      "route": "canonical",
+      "nativeParagraphInserts": [],
+      "nativeListLevelWrites": [],
+      "trackingModeBefore": "off",
+      "trackingModeAfter": "off",
+      "trackingTransitions": [
+        {
+          "phase": "set",
+          "redlineEnabled": true,
+          "from": "off",
+          "to": "trackAll",
+          "changed": true
+        },
+        {
+          "phase": "restore",
+          "to": "off"
+        }
+      ],
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 27.5,
+        "portablePreparation": 33.5,
+        "insertSync": 55,
+        "adapterTotal": 116,
+        "agenticToolTotal": 202.1000000089407
+      }
+    },
+    {
+      "case": "list-insert-bullet-same-level",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 21,
+        "portablePreparation": 4.799999997019768,
+        "adapterTotal": 26
+      }
+    },
+    {
+      "case": "list-insert-bullet-same-level",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 17.299999997019768,
+        "portablePreparation": 5.799999997019768,
+        "adapterTotal": 23.200000002980232
+      }
+    },
+    {
+      "case": "list-insert-bullet-same-level",
+      "view": "mixed-batch-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 16.400000005960464,
+        "portablePreparation": 10.099999994039536,
+        "adapterTotal": 26.5
+      }
+    },
+    {
+      "case": "list-insert-numbered-continuation",
+      "view": "actual-officejs-insertion",
+      "status": "ok",
+      "written": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 1,
+      "route": "canonical",
+      "nativeParagraphInserts": [],
+      "nativeListLevelWrites": [],
+      "trackingModeBefore": "off",
+      "trackingModeAfter": "off",
+      "trackingTransitions": [
+        {
+          "phase": "set",
+          "redlineEnabled": true,
+          "from": "off",
+          "to": "trackAll",
+          "changed": true
+        },
+        {
+          "phase": "restore",
+          "to": "off"
+        }
+      ],
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 20.5,
+        "portablePreparation": 26.200000002980232,
+        "insertSync": 47.79999999701977,
+        "adapterTotal": 94.5,
+        "agenticToolTotal": 189.20000000298023
+      }
+    },
+    {
+      "case": "list-insert-numbered-continuation",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 23.899999991059303,
+        "portablePreparation": 4.9000000059604645,
+        "adapterTotal": 28.799999997019768
+      }
+    },
+    {
+      "case": "list-insert-numbered-continuation",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 19.099999994039536,
+        "portablePreparation": 5.700000002980232,
+        "adapterTotal": 24.799999997019768
+      }
+    },
+    {
+      "case": "list-insert-numbered-continuation",
+      "view": "mixed-batch-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 18.899999991059303,
+        "portablePreparation": 7.200000002980232,
+        "adapterTotal": 26.200000002980232
+      }
+    },
+    {
+      "case": "list-insert-numbered-restart",
+      "view": "actual-officejs-insertion",
+      "status": "ok",
+      "written": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 1,
+      "route": "canonical",
+      "nativeParagraphInserts": [],
+      "nativeListLevelWrites": [],
+      "trackingModeBefore": "off",
+      "trackingModeAfter": "off",
+      "trackingTransitions": [
+        {
+          "phase": "set",
+          "redlineEnabled": true,
+          "from": "off",
+          "to": "trackAll",
+          "changed": true
+        },
+        {
+          "phase": "restore",
+          "to": "off"
+        }
+      ],
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 25.700000002980232,
+        "portablePreparation": 30.600000008940697,
+        "insertSync": 47.69999998807907,
+        "adapterTotal": 104,
+        "agenticToolTotal": 199.79999999701977
+      }
+    },
+    {
+      "case": "list-insert-numbered-restart",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 24.100000008940697,
+        "portablePreparation": 5.0999999940395355,
+        "adapterTotal": 29.200000002980232
+      }
+    },
+    {
+      "case": "list-insert-numbered-restart",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 17.200000002980232,
+        "portablePreparation": 5.299999997019768,
+        "adapterTotal": 22.5
+      }
+    },
+    {
+      "case": "list-insert-numbered-restart",
+      "view": "mixed-batch-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 16.299999997019768,
+        "portablePreparation": 6.5999999940395355,
+        "adapterTotal": 23
+      }
+    },
+    {
+      "case": "list-insert-bullet-outdent",
+      "view": "actual-officejs-insertion",
+      "status": "ok",
+      "written": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 1,
+      "route": "canonical",
+      "nativeParagraphInserts": [],
+      "nativeListLevelWrites": [],
+      "trackingModeBefore": "off",
+      "trackingModeAfter": "off",
+      "trackingTransitions": [
+        {
+          "phase": "set",
+          "redlineEnabled": true,
+          "from": "off",
+          "to": "trackAll",
+          "changed": true
+        },
+        {
+          "phase": "restore",
+          "to": "off"
+        }
+      ],
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 23.099999994039536,
+        "portablePreparation": 26,
+        "insertSync": 47.599999994039536,
+        "adapterTotal": 96.69999998807907,
+        "agenticToolTotal": 173.6000000089407
+      }
+    },
+    {
+      "case": "list-insert-bullet-outdent",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 15,
+        "portablePreparation": 4.700000002980232,
+        "adapterTotal": 19.700000002980232
+      }
+    },
+    {
+      "case": "list-insert-bullet-outdent",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 14.699999988079071,
+        "portablePreparation": 5,
+        "adapterTotal": 19.69999998807907
+      }
+    },
+    {
+      "case": "list-insert-bullet-outdent",
+      "view": "mixed-batch-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 14.400000005960464,
+        "portablePreparation": 6.399999991059303,
+        "adapterTotal": 20.799999997019768
+      }
+    },
+    {
+      "case": "list-insert-bullet-deeper",
+      "view": "actual-officejs-insertion",
+      "status": "ok",
+      "written": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 1,
+      "route": "canonical",
+      "nativeParagraphInserts": [],
+      "nativeListLevelWrites": [],
+      "trackingModeBefore": "off",
+      "trackingModeAfter": "off",
+      "trackingTransitions": [
+        {
+          "phase": "set",
+          "redlineEnabled": true,
+          "from": "off",
+          "to": "trackAll",
+          "changed": true
+        },
+        {
+          "phase": "restore",
+          "to": "off"
+        }
+      ],
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 22.299999997019768,
+        "portablePreparation": 23.799999997019768,
+        "insertSync": 47.400000005960464,
+        "adapterTotal": 93.5,
+        "agenticToolTotal": 180.90000000596046
+      }
+    },
+    {
+      "case": "list-insert-bullet-deeper",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 20.400000005960464,
+        "portablePreparation": 4.5999999940395355,
+        "adapterTotal": 25
+      }
+    },
+    {
+      "case": "list-insert-bullet-deeper",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 16.5,
+        "portablePreparation": 5.299999997019768,
+        "adapterTotal": 21.799999997019768
+      }
+    },
+    {
+      "case": "list-insert-bullet-deeper",
+      "view": "mixed-batch-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 15,
+        "portablePreparation": 6.399999991059303,
+        "adapterTotal": 21.399999991059303
+      }
+    },
+    {
+      "case": "list-insert-numbered-same-level",
+      "view": "actual-officejs-insertion",
+      "status": "ok",
+      "written": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 1,
+      "route": "canonical",
+      "nativeParagraphInserts": [],
+      "nativeListLevelWrites": [],
+      "trackingModeBefore": "off",
+      "trackingModeAfter": "off",
+      "trackingTransitions": [
+        {
+          "phase": "set",
+          "redlineEnabled": true,
+          "from": "off",
+          "to": "trackAll",
+          "changed": true
+        },
+        {
+          "phase": "restore",
+          "to": "off"
+        }
+      ],
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 21.5,
+        "portablePreparation": 24.299999997019768,
+        "insertSync": 47.20000000298023,
+        "adapterTotal": 93,
+        "agenticToolTotal": 174.20000000298023
+      }
+    },
+    {
+      "case": "list-insert-numbered-same-level",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 24.100000008940697,
+        "portablePreparation": 4.799999997019768,
+        "adapterTotal": 28.900000005960464
+      }
+    },
+    {
+      "case": "list-insert-numbered-same-level",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 16.299999997019768,
+        "portablePreparation": 5.0999999940395355,
+        "adapterTotal": 21.399999991059303
+      }
+    },
+    {
+      "case": "list-insert-numbered-same-level",
+      "view": "mixed-batch-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 16.799999997019768,
+        "portablePreparation": 6.600000008940697,
+        "adapterTotal": 23.400000005960464
+      }
+    },
+    {
+      "case": "list-insert-numbered-outdent",
+      "view": "actual-officejs-insertion",
+      "status": "ok",
+      "written": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 1,
+      "route": "canonical",
+      "nativeParagraphInserts": [],
+      "nativeListLevelWrites": [],
+      "trackingModeBefore": "off",
+      "trackingModeAfter": "off",
+      "trackingTransitions": [
+        {
+          "phase": "set",
+          "redlineEnabled": true,
+          "from": "off",
+          "to": "trackAll",
+          "changed": true
+        },
+        {
+          "phase": "restore",
+          "to": "off"
+        }
+      ],
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 25.299999997019768,
+        "portablePreparation": 25.5,
+        "insertSync": 45,
+        "adapterTotal": 95.79999999701977,
+        "agenticToolTotal": 173.40000000596046
+      }
+    },
+    {
+      "case": "list-insert-numbered-outdent",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 20.600000008940697,
+        "portablePreparation": 4.699999988079071,
+        "adapterTotal": 25.299999997019768
+      }
+    },
+    {
+      "case": "list-insert-numbered-outdent",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 15.700000002980232,
+        "portablePreparation": 4.9000000059604645,
+        "adapterTotal": 20.700000002980232
+      }
+    },
+    {
+      "case": "list-insert-numbered-outdent",
+      "view": "mixed-batch-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 15,
+        "portablePreparation": 6.4000000059604645,
+        "adapterTotal": 21.400000005960464
+      }
+    },
+    {
+      "case": "list-insert-numbered-deeper",
+      "view": "actual-officejs-insertion",
+      "status": "ok",
+      "written": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 1,
+      "route": "canonical",
+      "nativeParagraphInserts": [],
+      "nativeListLevelWrites": [],
+      "trackingModeBefore": "off",
+      "trackingModeAfter": "off",
+      "trackingTransitions": [
+        {
+          "phase": "set",
+          "redlineEnabled": true,
+          "from": "off",
+          "to": "trackAll",
+          "changed": true
+        },
+        {
+          "phase": "restore",
+          "to": "off"
+        }
+      ],
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 21.200000002980232,
+        "portablePreparation": 23,
+        "insertSync": 42.6000000089407,
+        "adapterTotal": 86.80000001192093,
+        "agenticToolTotal": 161.79999999701977
+      }
+    },
+    {
+      "case": "list-insert-numbered-deeper",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 15,
+        "portablePreparation": 4.700000002980232,
+        "adapterTotal": 19.700000002980232
+      }
+    },
+    {
+      "case": "list-insert-numbered-deeper",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 16.200000002980232,
+        "portablePreparation": 5,
+        "adapterTotal": 21.200000002980232
+      }
+    },
+    {
+      "case": "list-insert-numbered-deeper",
+      "view": "mixed-batch-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 14.600000008940697,
+        "portablePreparation": 6.199999988079071,
+        "adapterTotal": 20.799999997019768
+      }
+    },
+    {
+      "case": "list-insert-after-plain-paragraph",
+      "view": "actual-officejs-native-insertion",
+      "status": "ok",
+      "written": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 0,
+      "route": "native",
+      "nativeParagraphInserts": [
+        {
+          "text": "Planner plain insertion after paragraph",
+          "location": "After"
+        }
+      ],
+      "nativeListLevelWrites": [],
+      "trackingModeBefore": "off",
+      "trackingModeAfter": "off",
+      "trackingTransitions": [
+        {
+          "phase": "set",
+          "redlineEnabled": true,
+          "from": "off",
+          "to": "trackAll",
+          "changed": true
+        },
+        {
+          "phase": "restore",
+          "to": "off"
+        }
+      ],
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 22.299999997019768,
+        "agenticToolTotal": 76
+      }
+    },
+    {
+      "case": "list-insert-after-plain-paragraph",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 16.799999997019768,
+        "portablePreparation": 4.700000002980232,
+        "adapterTotal": 21.5
+      }
+    },
+    {
+      "case": "list-insert-after-plain-paragraph",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 15.799999997019768,
+        "portablePreparation": 5,
+        "adapterTotal": 20.799999997019768
+      }
+    },
+    {
+      "case": "list-insert-after-plain-paragraph",
+      "view": "mixed-batch-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 16.200000002980232,
+        "portablePreparation": 6.199999988079071,
+        "adapterTotal": 22.5
+      }
+    },
+    {
+      "case": "list-edit-bullet-range",
+      "view": "actual-officejs-insertion",
+      "status": "ok",
+      "written": true,
+      "hasChanges": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 1,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 55.1000000089407,
+        "portablePreparation": 15.399999991059303,
+        "insertSync": 40.900000005960464,
+        "adapterTotal": 111.40000000596046
+      }
+    },
+    {
+      "case": "list-edit-bullet-range",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 59.5,
+        "portablePreparation": 4.799999997019768,
+        "adapterTotal": 64.29999999701977
+      }
+    },
+    {
+      "case": "list-edit-bullet-range",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 16.400000005960464,
+        "portablePreparation": 4.899999991059303,
+        "adapterTotal": 21.299999997019768
+      }
+    },
+    {
+      "case": "list-edit-bullet-range",
+      "view": "mixed-batch-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 15.200000002980232,
+        "portablePreparation": 6.0999999940395355,
+        "adapterTotal": 21.299999997019768
+      }
+    },
+    {
+      "case": "list-insert-before-via-edit-list",
+      "view": "actual-officejs-insertion",
+      "status": "ok",
+      "written": true,
+      "hasChanges": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 1,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 41.599999994039536,
+        "portablePreparation": 9.700000002980232,
+        "insertSync": 33,
+        "adapterTotal": 84.40000000596046
+      }
+    },
+    {
+      "case": "list-insert-before-via-edit-list",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 40.20000000298023,
+        "portablePreparation": 4.5999999940395355,
+        "adapterTotal": 44.79999999701977
+      }
+    },
+    {
+      "case": "list-insert-before-via-edit-list",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 17.799999997019768,
+        "portablePreparation": 4.899999991059303,
+        "adapterTotal": 22.799999997019768
+      }
+    },
+    {
+      "case": "list-insert-before-via-edit-list",
+      "view": "mixed-batch-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 15.200000002980232,
+        "portablePreparation": 5.799999997019768,
+        "adapterTotal": 21.100000008940697
+      }
+    },
+    {
+      "case": "list-convert-noncontiguous-manual-headers",
+      "view": "actual-officejs-insertion",
+      "status": "ok",
+      "written": true,
+      "hasChanges": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 1,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 38.599999994039536,
+        "portablePreparation": 14.900000005960464,
+        "insertSync": 33.70000000298023,
+        "adapterTotal": 87.20000000298023
+      }
+    },
+    {
+      "case": "list-convert-noncontiguous-manual-headers",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 47.70000000298023,
+        "portablePreparation": 4.899999991059303,
+        "adapterTotal": 52.599999994039536
+      }
+    },
+    {
+      "case": "list-convert-noncontiguous-manual-headers",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 16,
+        "portablePreparation": 5.5,
+        "adapterTotal": 21.5
+      }
+    },
+    {
+      "case": "list-convert-noncontiguous-manual-headers",
+      "view": "mixed-batch-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 17.099999994039536,
+        "portablePreparation": 6.299999997019768,
+        "adapterTotal": 23.399999991059303
+      }
+    }
+  ],
+  "startedAt": "2026-10-01T05:26:03.016Z",
+  "checkedAt": "2026-10-01T05:26:11.539Z"
+}

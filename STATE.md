@@ -7,7 +7,7 @@
 ## Current Posture
 
 - **Library:** the Word add-in and MCP server pin exact
-  `@ansonlai/docx-redline-js@0.8.2`. Browser editing uses the same package
+  `@ansonlai/docx-redline-js@0.8.3`. Browser editing uses the same package
   through its public document-session facade.
 - **Host boundaries:** portable mapping and OOXML preparation are separated
   from Word transport. The Word adapter owns `getOoxml`, `insertOoxml`,
@@ -20,51 +20,64 @@
 - **Reliability:** Gemini request transport/retry behavior and structured
   mutation outcomes are centralized. Retries are bounded and never repeat a
   document mutation.
-- **Performance:** current v0.8.2 mapping, core, package, browser-projection,
+- **Performance:** the dated v0.8.2 mapping, core, package, browser-projection,
   Word-host, and startup measurements are recorded. The measured 1,000-
   paragraph workload is accepted; there is no universal latency gate.
 
 ## Completed Milestones
 
-Four dated plans are complete:
+Five original plans are complete:
 
 1. [September v0.8.2 upgrade](docs/plans/completed/2026-09-09-docx-redline-js-v0.5.4-upgrade.md)
 2. [Reliability and quality gates](docs/plans/completed/2026-08-29-reliability-and-quality-gates.md)
 3. [Package boundaries and integrations](docs/plans/completed/2026-08-29-package-boundaries-and-integrations.md)
 4. [OOXML performance](docs/plans/completed/2026-08-29-oxml-engine-and-performance.md)
+5. [Original agentic tools and list reliability plan](docs/plans/completed/2026-08-29-agentic-tools-and-list-reliability.md), closed with its remaining canonical migration transferred to the [new follow-up](docs/plans/2026-09-30-canonical-list-migration-follow-up.md).
 
 Their closure reports record actual Office.js and independent Word checks,
 browser open/edit/download/reopen validation, cross-host semantic parity,
 current-version performance samples, and taskpane startup measurements. These
-closures are scoped; they do not certify the unimplemented list operations
-below.
+closures are scoped. The original list plan's remaining capability work and
+full canonical migration were transferred to the new follow-up and are not
+marked complete.
 
 ## Active Work and Upstream Dependencies
 
-The [agentic tools and list reliability plan](docs/plans/2026-08-29-agentic-tools-and-list-reliability.md)
-remains open. Contract inventory and stale-source checks are complete. A
+The [canonical list migration follow-up](docs/plans/2026-09-30-canonical-list-migration-follow-up.md)
+remains open. The original list plan is closed with deferred scope transferred
+here. Contract inventory and stale-source checks are complete. A
 supported bullet/decimal insertion subset is verified, but full canonical list
-migration is pending upstream library capabilities/fidelity fixes and later
+migration still requires canonical-operation capability work and later
 consumer/Word validation. Existing native paths remain for unsupported
 formats, levels, tracking modes, general list edits, and header conversion.
-The current live-validation state is recorded in the
-[agentic validation report](docs/validation-reports/2026-09-30-agentic-tools-and-list-reliability.md);
-passing those live gates alone will not close the full migration.
+Current v0.8.3 validation is recorded in the
+[release report](docs/validation-reports/2026-09-30-docx-redline-v083.md);
+passing these gates alone will not close the full migration.
 
-The latest native matrix passes five cases: 20 actual Office.js checks and 20
-independent Word source/tracked/Accept All/Reject All checks. The offline
-aggregate passes 50 suites, zero failures, with four excluded entrypoints.
+The current list matrix covers 12 supported cases with 48 Office.js checks and
+five native routes with 20 additional checks (68 total). The independent Word
+oracle reports 92 applicable checks passed, zero failed, and five not
+applicable across 17 exports. The two original public-facade Reject All cases
+pass 12 Word checks. `npm test` passes 51 suites with zero failures and four
+exclusions; validation and production builds pass. See the [v0.8.3 report](docs/validation-reports/2026-09-30-docx-redline-v083.md)
+and its linked JSON artifacts for the current evidence.
 
-Four separately reported library follow-ups remain:
+The dated 2026-09-30 v0.8.2 consumer baseline records five native cases, 20 actual
+Office.js checks, 20 independent Word source/tracked/Accept All/Reject All
+checks, and an offline aggregate of 50 suites with zero failures and four
+excluded entrypoints. These are historical results, not new v0.8.3 validation
+counts.
 
-- [Reject All after plain insertion leaves an empty paragraph](docs/library-issues/2026-09-30-list-insertion-rejection.md) — independently confirmed in Word.
-- [Reject All after a list-range edit merges source paragraphs](docs/library-issues/2026-09-30-list-range-rejection.md) — independently confirmed in Word.
-- [Unmarked/text-changing header conversion has no verified canonical mapping](docs/library-issues/2026-09-30-canonical-list-operations.md).
-- [Historical list properties are treated as active numbering](docs/library-issues/2026-09-30-historical-list-inspection.md) — reproduced offline; the current operation refuses without a write.
-
-These are upstream-owned defects or capability gaps. No unreleased fix or
-consumer workaround is assumed. Keep the package pin at 0.8.2 until a released
-version passes the relevant contract, fidelity, and host checks.
+The v0.8.2 library reports documented Reject All paragraph-boundary failures
+and historical paragraph-property inspection. The v0.8.3 release notes report
+fixes for those behaviors, including all-empty list ranges, and for
+`openDocx` list numbering and explicit list starts; current validation confirms
+the original two public-facade Reject All cases. The dated reports retain
+their original evidence. Current known limits are canonical conversion of
+plain or text-changing headers to lists, canonical list-format changes, and possible
+`RECEIPT_RECONCILIATION_FAILED` for a marker-prefixed `1. Header` no-op on bare
+`document.xml`. The active plan remains open until canonical migration and its
+downstream validation are complete.
 
 ## Operating Decisions
 

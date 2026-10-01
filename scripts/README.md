@@ -13,7 +13,7 @@ Failures, timeouts and known printed failure markers fail the command. Use
 `DOCX_TEST_TIMEOUT` sets each suite timeout in milliseconds (default 180000).
 Excluded entrypoints and suite-internal skips are reported. The historical
 v0.5.4 suite runs its consumer guards but skips version-specific behavior on
-the current 0.8.2 package.
+the current 0.8.3 package.
 
 The offline lane excludes live provider/model evaluation, desktop Word fixture
 generation, XML provider setup and observational performance scripts. Passing
@@ -40,9 +40,11 @@ The runner has a bounded timeout and records stalled calls and partial results.
 It stops only a Word process newly created by its worker with a matching
 creation time. Useful options include `-SkipNativeInsert`, `-CaseName`,
 `-VisibleWord`, `-ArtifactsDir` and `-TimeoutSeconds`; see the script help or
-the active validation report for a reproducible invocation. The known list
-Reject All defects have separate diagnostic cases and reports; they must not be
-counted as passing fidelity cases.
+the active validation report for a reproducible invocation. The current
+v0.8.3 Word run includes the two former Reject All findings as passing
+public-facade cases: 12 independent Word checks passed. The dated v0.8.2
+failures remain historical evidence. See the [v0.8.3 report](../docs/validation-reports/2026-09-30-docx-redline-v083.md)
+for the complete current matrix and its artifacts.
 
 Golden XML may be exported for review:
 

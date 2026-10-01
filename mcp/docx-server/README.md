@@ -1,7 +1,7 @@
 # Local DOCX MCP server
 
 This stdio MCP server creates and edits `.docx` files through the public
-`@ansonlai/docx-redline-js@0.8.2` facade. It runs in Node and does not use Word
+`@ansonlai/docx-redline-js@0.8.3` facade. It runs in Node and does not use Word
 JS APIs, a Word selection or a live Office document.
 
 ## Tools

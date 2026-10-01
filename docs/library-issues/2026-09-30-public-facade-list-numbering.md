@@ -1,5 +1,7 @@
 # Public DOCX facade changes unrelated list numbering during range replacement
 
+**Resolution:** Fixed in installed 0.8.3. The reproduction below describes the earlier defect; see [0.8.3 validation](../validation-reports/2026-09-30-docx-redline-v083.md).
+
 **Checked:** 2026-09-30, published 0.8.2 and the unpublished library working tree.
 **Scope:** public `openDocx(...).applyOperations` facade, used by browser/MCP;
 the add-in's existing standalone runner and numbering merge path passes the same

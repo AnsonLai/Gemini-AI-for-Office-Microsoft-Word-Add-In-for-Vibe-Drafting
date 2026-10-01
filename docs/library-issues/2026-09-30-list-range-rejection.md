@@ -1,5 +1,7 @@
 # Reject All merges the original paragraphs of a replaced list range
 
+**Resolution:** Fixed in installed 0.8.3. The reproduction below describes the earlier defect; see [0.8.3 validation](../validation-reports/2026-09-30-docx-redline-v083.md).
+
 **Package:** `@ansonlai/docx-redline-js@0.8.2`  
 **Host:** Microsoft Word 16.0, build 16.0.20430  
 **Observed:** 2026-10-01  

@@ -1,6 +1,6 @@
 # Consumer package boundaries
 
-The consumers pin `@ansonlai/docx-redline-js@0.8.2`. The library owns document
+The consumers pin `@ansonlai/docx-redline-js@0.8.3`. The library owns document
 inspection, OOXML edits, revision resolution and package serialization.
 
 | Surface | Responsibility | Host dependencies |
@@ -31,7 +31,12 @@ does not use JSZip to rebuild packages. The no-build page uses the library's
 published browser bundle; loading its unbundled entry without dependency maps
 previously failed on bare XML/ZIP dependency specifiers.
 
-List capability limits and the separately reported library defects remain in
-the [agentic list plan](plans/2026-08-29-agentic-tools-and-list-reliability.md).
+The v0.8.2 reports preserve earlier Reject All and historical-property
+findings; v0.8.3 validation passes 12 independent Word checks on the two
+former public-facade Reject All cases. The release notes describe those fixes.
+Remaining canonical limits are plain or text-changing header-to-list
+conversion and list-format changes. A marker-prefixed `1. Header` no-op on bare
+`document.xml` can fail with `RECEIPT_RECONCILIATION_FAILED`. The migration
+status is in the [canonical migration follow-up](plans/2026-09-30-canonical-list-migration-follow-up.md).
 Portable extraction does not certify unsupported list mutations or native
 fallback fidelity. Preview output is not an independent Word oracle.

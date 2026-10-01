@@ -2,6 +2,25 @@
 
 > Role: **Session summary log** of what happened and what changed.
 
+## Current package status: v0.8.3
+
+The add-in, MCP server and browser demo use the public
+`@ansonlai/docx-redline-js@0.8.3` package. Its release notes describe fixes for
+tracked paragraph-boundary behavior, historical paragraph-property
+inspection, list-range numbering through `openDocx`, and explicit list-start
+parsing. Current consumer and Word validation is recorded in the [v0.8.3
+report](docs/validation-reports/2026-09-30-docx-redline-v083.md); the dated
+v0.8.2 reports below remain historical evidence.
+
+Canonical list migration remains open. Plain or text-changing header-to-list
+conversion and list-format changes still lack supported canonical operations.
+A marker-prefixed `1. Header` to `1. Header` operation on bare `document.xml`
+can fail with `RECEIPT_RECONCILIATION_FAILED`. The original list plan is closed
+with these remaining capabilities transferred to the [canonical migration
+follow-up](docs/plans/2026-09-30-canonical-list-migration-follow-up.md), which
+remains open. All five original plans are closed; this follow-up carries the
+uncompleted canonical migration work forward without marking it complete.
+
 ## [2026-09-30] v0.8.2 Consumer Boundaries, Reliability, and Performance
 
 ### What Changed
@@ -27,15 +46,15 @@
   Office.js checks and 20 independent Word checks pass. The final offline
   aggregate passes 50 suites, zero failures, with four exclusions.
 
-### Current Open Work
+### Open Work at This v0.8.2 Checkpoint
 
-The [agentic tools and list reliability plan](docs/plans/2026-08-29-agentic-tools-and-list-reliability.md)
-remains open. The supported insertion subset and its validation evidence do
-not close the full canonical list migration. Four upstream reports cover
+The [original agentic tools and list reliability plan](docs/plans/completed/2026-08-29-agentic-tools-and-list-reliability.md)
+remained open. The supported insertion subset and its validation evidence did
+not close the full canonical list migration. Four upstream reports covered
 insertion Reject All leaving an empty paragraph, list-range Reject All merging
 paragraphs, missing canonical header-conversion mapping, and historical list
-properties treated as active numbering. No library patch or unreleased fix is
-claimed; complete migration remains pending release and downstream validation.
+properties treated as active numbering. At that dated checkpoint, no library
+fix release was available; see the current v0.8.3 status above.
 
 Current posture and verification records are summarized in
 [STATE.md](STATE.md), [ROADMAP.md](ROADMAP.md), and the linked dated plans.

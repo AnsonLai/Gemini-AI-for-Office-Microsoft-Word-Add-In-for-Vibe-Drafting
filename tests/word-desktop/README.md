@@ -11,11 +11,16 @@ separately by `scripts/run-officejs-validation.mjs`; its exported packages
 then pass through the independent Word worker. PDF rendering is optional.
 
 See the [agentic execution report](../../docs/validation-reports/2026-09-30-agentic-tools-and-list-reliability.md)
-for commands and durable evidence, and the [active plan](../../docs/plans/2026-08-29-agentic-tools-and-list-reliability.md)
+for commands and durable evidence, and the [new follow-up](../../docs/plans/2026-09-30-canonical-list-migration-follow-up.md)
 for outstanding library dependencies. The older inspector and regression
 scripts below remain useful diagnostics; they do not replace these acceptance
 gates. Use the bounded worker for automated runs so cleanup targets only its
 own Word process.
+
+The latest [0.8.3 matrix](../../docs/validation-reports/2026-09-30-docx-redline-v083.md)
+passes 92 independent Word checks on collected list/native exports and 12
+additional facade checks. The original rejection defects are resolved; remaining
+canonical conversion/list-format capability work is transferred to that follow-up.
 
 `docxjs` preview is useful for quick feedback, but Microsoft Word desktop is the source of truth for list interpretation.
 

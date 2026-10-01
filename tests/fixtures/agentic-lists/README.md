@@ -25,16 +25,23 @@ during tests.
 `node tests/agentic_list_fidelity_tests.mjs` runs the offline fidelity matrix.
 Add `--export-host-dir .cache/reliability/agentic-list-fixtures` to export
 tracked, accepted, and rejected packages plus `manifest.json` for the Office.js
-collector and independent Word validation. `known-defects-manifest.json`
-contains separately classified library Reject All defects and is intentionally
-not part of the passing host manifest.
+collector and independent Word validation. With 0.8.3 the two former Reject All
+diagnostics are passing cases in that manifest; the exporter no longer writes
+a known-defects manifest. Earlier 0.8.2 diagnostic evidence remains historical.
 
-The offline matrix includes ten cases: root/nested bullet insertion, decimal
+The offline matrix includes twelve cases: plain insertion and list-range
+replacement (fixed by 0.8.3), root/nested bullet insertion, decimal
 indentation, insertion at a continuation anchor, insertion within an
 independent restarted list, insertion before an existing root through the
 candidate range mapper, and noncontiguous marked-header conversion. Continuation
 and restart expectations are specified from the source and requested edit, not
 copied from engine output.
+
+The [0.8.3 release validation](../../../docs/validation-reports/2026-09-30-docx-redline-v083.md)
+records 48 Office.js checks for this matrix, 20 additional native checks, and
+92 independent Word checks across their exports. Remaining canonical conversion
+and list-format capabilities are tracked in the
+[fresh follow-up](../../../docs/plans/2026-09-30-canonical-list-migration-follow-up.md).
 
 Production `insert_list_item` native-fallback coverage is generated with
 the following command:

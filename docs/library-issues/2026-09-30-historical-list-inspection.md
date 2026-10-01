@@ -1,5 +1,7 @@
 # 0.8.2 historical list properties reported as active
 
+**Resolution:** Fixed in installed 0.8.3. The reproduction below describes the earlier defect; see [0.8.3 validation](../validation-reports/2026-09-30-docx-redline-v083.md).
+
 **Package:** `@ansonlai/docx-redline-js@0.8.2`  
 **Checked:** 2026-09-30  
 **Evidence:** Offline reproduction using the installed package and the frozen Word-authored list fixture; no live Word verification is claimed.
