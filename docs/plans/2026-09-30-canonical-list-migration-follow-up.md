@@ -92,6 +92,10 @@ not an existing API to code against yet.
   establishes equivalent behavior.
 - Update tool contracts, architecture, README, state and roadmap with actual
   supported behavior, remaining native paths and final evidence.
+- Once all recorded library issues are resolved, retain needed validation
+  evidence in `docs/validation-reports/`, delete the entire `docs/library-issues/`
+  folder, and remove or update every link to it. This is completion cleanup;
+  keep the folder while issues remain open.
 - Archive this follow-up only when its acceptance criteria are satisfied.
 
 ## Acceptance
@@ -103,6 +107,8 @@ not an existing API to code against yet.
 - [ ] Offline, actual Office.js and independent Word accepted/rejected gates pass.
 - [ ] Browser/MCP facade fidelity and atomic batch behavior pass.
 - [ ] Retired helpers have no active callers; docs and durable reports are updated.
+- [ ] All recorded library issues are resolved, `docs/library-issues/` is deleted,
+      and its incoming links are removed or updated.
 
 **Next action:** implement and release the upstream capabilities, then start
 WP0 here. No consumer-side OOXML workaround is authorized by this plan.
