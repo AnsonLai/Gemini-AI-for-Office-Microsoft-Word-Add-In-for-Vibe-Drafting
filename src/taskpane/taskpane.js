@@ -1,4 +1,5 @@
 import { requestGemini, requestGeminiJson, geminiEndpoint } from './modules/chat/gemini-client.js';
+import { captureWordSourceBaseline } from './modules/docx-redline-js-integration/word-operation-runner.js';
 /*
  * Gemini AI for Office - Task Pane Implementation
  * Author: Anson Lai
@@ -925,6 +926,7 @@ async function runGlanceChecks() {
 
   try {
     let docText = "";
+    let docSourceBaseline = [];
     await Word.run(async (context) => {
       const body = context.document.body;
       body.load("text");
@@ -1213,6 +1215,15 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
         docText = body.text;
       }
 
+      // Keep an opaque canonical snapshot alongside the model's human-readable context.
+      // Execution compares this baseline before preparing any proposed redline batch.
+      try {
+        const sourceOoxml = body.getOoxml();
+        await context.sync();
+        docSourceBaseline = captureWordSourceBaseline(sourceOoxml.value);
+      } catch (error) {
+        console.warn('Canonical document targeting context unavailable', error?.code || error?.name);
+      }
       docSelection = selection.text;
 
       // Sync to ensure we captured text/selection before trying risky features
@@ -2006,7 +2017,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
 
           if (functionCall.name === "apply_redlines") {
             const checkpointIndex = await createCheckpoint(true, functionCall.name);
-            const result = await executeRedline(instruction, docText);
+            const result = await executeRedline(instruction, docText, docSourceBaseline);
             toolMutation = result;
             toolResult = result.message;
             toolSucceeded = result.written === true && result.status !== 'error';

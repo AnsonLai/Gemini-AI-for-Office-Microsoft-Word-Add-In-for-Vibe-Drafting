@@ -1,5 +1,6 @@
 import { requestGemini } from '../chat/gemini-client.js';
 import { createMutationObserver } from './mutation-outcome.js';
+import { validateListRequest } from './agentic-request-validation.js';
 /* global Word */
 
 import {
@@ -66,7 +67,7 @@ function initAgenticTools(deps) {
   } = deps);
 }
 
-async function applyRedlineChangeSet(aiChanges, paragraphTexts = null) {
+async function applyRedlineChangeSet(aiChanges, paragraphTexts = null, sourceBaseline) {
   if (getRequestSignal?.()?.aborted) {
     throw Object.assign(new Error('The request was cancelled before document editing.'), { name: 'AbortError' });
   }
@@ -123,6 +124,7 @@ async function applyRedlineChangeSet(aiChanges, paragraphTexts = null) {
         throw Object.assign(new Error('The request was cancelled before document editing.'), { name: 'AbortError' });
       }
       const result = await applyRedlineChangesToWordContext(context, changesToApply, {
+        ...(sourceBaseline !== undefined ? { sourceBaseline } : {}),
         author: redlineAuthor,
         generateRedlines: redlineEnabled,
         sanitizeInput: true,
@@ -157,7 +159,7 @@ async function applyRedlineChangeSet(aiChanges, paragraphTexts = null) {
 /**
  * Agentic Tool: Applies redlines based on an instruction using Structural Anchoring.
  */
-async function executeRedline(instruction, fullDocumentText) {
+async function executeRedline(instruction, fullDocumentText, sourceBaseline) {
   // Check for API key
   const geminiApiKey = loadApiKey();
   if (!geminiApiKey) {
@@ -217,7 +219,7 @@ async function executeRedline(instruction, fullDocumentText) {
         sanitizeChangeSet(aiChanges, paragraphTexts.length, paragraphTexts);
 
       const { changesApplied, redlineEnabled, rejectedChanges: anchorRejected, engineSkipped, mutation } =
-        await applyRedlineChangeSet(sanitizedChanges, paragraphTexts);
+        await applyRedlineChangeSet(sanitizedChanges, paragraphTexts, sourceBaseline);
 
       if (mutation?.writeAttempted || mutation?.written || mutation?.mutationOutcome === 'failed' || mutation?.mutationOutcome === 'prepared') {
         if (mutation.status === 'error' || mutation.error || mutation.mutationOutcome === 'indeterminate') {
@@ -800,6 +802,12 @@ async function executeResearch(query) {
  */
 async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0) {
   const mutation = createMutationObserver(getRequestSignal);
+  const request = { afterParagraphIndex, text, indentLevel };
+  const validation = validateListRequest(request);
+  if (!validation.valid) {
+    return { ...mutation.result(validation.error), success: false,
+      message: `TOOL_FAILURE insert_list_item: ${validation.error.message}` };
+  }
   console.log(`[executeInsertListItem] Insert after P${afterParagraphIndex} (indent: ${indentLevel})`);
 
   try {
@@ -812,6 +820,10 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
         paragraphs.load("items/text");
         await mutation.sync(context);
 
+        const liveValidation = validateListRequest(request, paragraphs.items.length);
+        if (!liveValidation.valid) {
+          throw Object.assign(new Error(liveValidation.error.message), { code: liveValidation.error.code });
+        }
         const paraIdx = afterParagraphIndex - 1; // Convert to 0-based
         if (paraIdx < 0 || paraIdx >= paragraphs.items.length) {
           throw new Error(`Paragraph index ${afterParagraphIndex} out of range (1-${paragraphs.items.length})`);
@@ -982,11 +994,14 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
 
 async function executeEditList(startIndex, endIndex, newItems, listType, numberingStyle) {
   const mutation = createMutationObserver(getRequestSignal);
-  if (!newItems || newItems.length === 0) {
+  const request = { startParagraphIndex: startIndex, endParagraphIndex: endIndex, newItems, listType,
+    ...(numberingStyle !== undefined ? { numberingStyle } : {}) };
+  const validation = validateListRequest(request);
+  if (!validation.valid) {
     return {
-      ...mutation.result(typeof error === 'undefined' ? new Error('The operation was refused.') : error),
+      ...mutation.result(validation.error),
       success: false,
-      message: `TOOL_FAILURE edit_list: No list items were provided for P${startIndex}-P${endIndex}. Supply the "newItems" array with the list content.`
+      message: `TOOL_FAILURE edit_list: ${validation.error.message}`
     };
   }
 
@@ -1013,42 +1028,12 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
         paragraphs.load("items/text");
         await mutation.sync(context);
 
-        let startIdx = startIndex - 1; // Convert to 0-based
-        let endIdx = endIndex - 1;
-
-        // Handle out-of-range paragraph indices gracefully
-        // The AI may reference paragraphs that don't exist (e.g., after list expansion)
-        const paragraphCount = paragraphs.items.length;
-
-        if (paragraphCount === 0) {
-          throw new Error("Document has no paragraphs");
+        const liveValidation = validateListRequest(request, paragraphs.items.length);
+        if (!liveValidation.valid) {
+          throw Object.assign(new Error(liveValidation.error.message), { code: liveValidation.error.code });
         }
-
-        // If start is beyond document, append at end
-        if (startIdx >= paragraphCount) {
-          console.log(`Start index ${startIndex} exceeds document (${paragraphCount} paragraphs), treating as append`);
-          startIdx = paragraphCount - 1;
-          endIdx = paragraphCount - 1;
-        }
-
-        // Clamp start to valid range
-        if (startIdx < 0) {
-          startIdx = 0;
-        }
-
-        // Clamp end to valid range
-        if (endIdx >= paragraphCount) {
-          console.log(`End index ${endIndex} exceeds document (${paragraphCount} paragraphs), clamping to ${paragraphCount}`);
-          endIdx = paragraphCount - 1;
-        }
-
-        // Ensure start <= end
-        if (startIdx > endIdx) {
-          startIdx = endIdx;
-        }
-
-        console.log(`Adjusted range: P${startIdx + 1} to P${endIdx + 1} (original: ${startIndex} to ${endIndex})`);
-
+        const startIdx = startIndex - 1;
+        const endIdx = endIndex - 1;
         // Get the range covering all paragraphs to replace
         const firstPara = paragraphs.items[startIdx];
         const lastPara = paragraphs.items[endIdx];
@@ -1146,20 +1131,17 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
 
 async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, numberingFormat) {
   const mutation = createMutationObserver(getRequestSignal);
-  if (!paragraphIndices || paragraphIndices.length === 0) {
-    return { ...mutation.result(new Error('No paragraph indices provided.')), success: false, message: "No paragraph indices provided." };
+  const request = { paragraphIndices,
+    ...(newHeaderTexts !== undefined ? { newHeaderTexts } : {}),
+    ...(numberingFormat !== undefined ? { numberingFormat } : {}) };
+  const validation = validateListRequest(request);
+  if (!validation.valid) {
+    return { ...mutation.result(validation.error), success: false,
+      message: `TOOL_FAILURE convert_headers_to_list: ${validation.error.message}` };
   }
-
-  // Deduplicate paragraph indices to prevent multiple processing
-  const distinctIndices = [...new Set(paragraphIndices)];
-  if (distinctIndices.length !== paragraphIndices.length) {
-    console.log(`Deduplicated indices: ${paragraphIndices.length} -> ${distinctIndices.length}`);
-  }
-
-  // Default to arabic if not specified
-  const format = numberingFormat || "arabic";
-  console.log(`executeConvertHeadersToList: Converting ${distinctIndices.length} headers to ${format} numbered list`);
-
+  const distinctIndices = validation.request.paragraphIndices;
+  newHeaderTexts = validation.request.newHeaderTexts;
+  const format = validation.request.numberingFormat;
   try {
     await Word.run(async (context) => {
       const redlineEnabled = loadRedlineSetting();
@@ -1170,17 +1152,11 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
         paragraphs.load("items/text");
         await mutation.sync(context);
 
-        // Sort indices to process in order
-        const sortedIndices = distinctIndices.sort((a, b) => a - b);
-
-        // Validate all indices
-        for (const idx of sortedIndices) {
-          const pIdx = idx - 1;
-          if (pIdx < 0 || pIdx >= paragraphs.items.length) {
-            throw new Error(`Invalid paragraph index: ${idx}`);
-          }
+        const liveValidation = validateListRequest(request, paragraphs.items.length);
+        if (!liveValidation.valid) {
+          throw Object.assign(new Error(liveValidation.error.message), { code: liveValidation.error.code });
         }
-
+        const sortedIndices = distinctIndices;
         // Get the first header paragraph and start a new list
         const firstIdx = sortedIndices[0] - 1;
         const firstPara = paragraphs.items[firstIdx];
@@ -1251,14 +1227,6 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
           // Strip manual numbering
           let paraText = para.text || "";
           paraText = paraText.replace(numberPattern, "").trim();
-
-          // Use new text if provided (note: using original index mapping could be complex if sorted differently,
-          // but assuming 1:1 mapping for sorted newHeaderTexts if they were provided in order of appearance)
-          // Ideally newHeaderTexts aligns with the SORTED order if provided by the AI for specific paragraphs.
-          // However, usually newHeaderTexts corresponds to input order.
-          // For safety, if newHeaderTexts is used, we should map it carefully.
-          // IF newHeaderTexts is just a flat list matching the input indices, we might have a mismatch if we sort.
-          // But usually this tool is called with indices in document order anyway.
 
           if (newHeaderTexts && newHeaderTexts.length > i) {
             paraText = newHeaderTexts[i];

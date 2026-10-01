@@ -93,6 +93,76 @@ export function planRedlineBatchOperations(aiChanges, inspectedParagraphs, optio
     return operations;
 }
 
+function staleDocumentContext(message) {
+    const error = new Error(message);
+    error.code = 'STALE_DOCUMENT_CONTEXT';
+    return error;
+}
+
+/** Refuse edits whose canonical source paragraphs changed after context creation. */
+function assertSourceBaseline(changes, liveParagraphs, sourceBaseline) {
+    if (!Array.isArray(sourceBaseline) || sourceBaseline.length === 0) {
+        throw staleDocumentContext('The source baseline is unavailable; reread the document before editing.');
+    }
+
+    const live = Array.isArray(liveParagraphs) ? liveParagraphs : [];
+    const baseline = new Map();
+    for (const paragraph of sourceBaseline) {
+        if (!paragraph || !Number.isInteger(paragraph.index) || paragraph.index < 1
+            || typeof paragraph.exactText !== 'string' || typeof paragraph.fingerprint !== 'string'
+            || paragraph.fingerprint.length === 0 || baseline.has(paragraph.index)) {
+            throw staleDocumentContext('The source baseline is incomplete or malformed; reread the document before editing.');
+        }
+        baseline.set(paragraph.index, paragraph);
+    }
+
+    const compareParagraph = index => {
+        const expected = baseline.get(index);
+        const actual = live[index - 1];
+        if (!expected || !actual || actual.index !== index
+            || typeof actual.exactText !== 'string'
+            || typeof actual.fingerprint !== 'string'
+            || actual.exactText !== expected.exactText
+            || actual.fingerprint !== expected.fingerprint) {
+            throw staleDocumentContext(`Paragraph P${index} changed since the edit context was created; reread before applying this batch.`);
+        }
+    };
+
+    for (const change of changes) {
+        const operation = String(change?.operation || '').trim().toLowerCase();
+        const startIndex = change?.paragraphIndex;
+        if (!Number.isInteger(startIndex) || startIndex < 1) {
+            throw staleDocumentContext('The edit target could not be matched to its source baseline.');
+        }
+
+        const append = startIndex === sourceBaseline.length + 1
+            && ['replace_paragraph', 'replace_range', 'edit_paragraph'].includes(operation);
+        if (append) {
+            if (live.length !== sourceBaseline.length || sourceBaseline.length === 0) {
+                throw staleDocumentContext('The document paragraph count changed since the append context was created; reread before applying this batch.');
+            }
+            compareParagraph(sourceBaseline.length);
+            continue;
+        }
+
+        if (operation === 'replace_range') {
+            const endIndex = change?.endParagraphIndex;
+            if (endIndex === startIndex - 1) {
+                // This schema form inserts before the original start paragraph.
+                compareParagraph(startIndex);
+                continue;
+            }
+            if (!Number.isInteger(endIndex) || endIndex < startIndex || endIndex > sourceBaseline.length) {
+                throw staleDocumentContext('The replacement range could not be matched to its source baseline.');
+            }
+            for (let index = startIndex; index <= endIndex; index += 1) compareParagraph(index);
+            continue;
+        }
+
+        compareParagraph(startIndex);
+    }
+}
+
 /** Apply every proposed edit against one immutable OOXML snapshot and write once. */
 export async function applyRedlineChangesToWordContext(context, aiChanges, options = {}) {
     const changes = Array.isArray(aiChanges) ? aiChanges : [];
@@ -105,7 +175,12 @@ export async function applyRedlineChangesToWordContext(context, aiChanges, optio
         const result = await batchRunner(
             context,
             context.document.body,
-            source => planRedlineBatchOperations(changes, source.paragraphs, options),
+            source => {
+                if (Object.prototype.hasOwnProperty.call(options, 'sourceBaseline')) {
+                    assertSourceBaseline(changes, source.paragraphs, options.sourceBaseline);
+                }
+                return planRedlineBatchOperations(changes, source.paragraphs, options);
+            },
             {
                 author: options.author,
                 generateRedlines: options.generateRedlines,
@@ -154,7 +229,9 @@ export async function applyRedlineChangesToWordContext(context, aiChanges, optio
                 ...(error?.code ? { code: error.code } : {})
             })),
             error,
-            written: false, writeAttempted: false, mutationOutcome: 'failed'
+            written: false,
+            writeAttempted: false,
+            mutationOutcome: error?.code === 'STALE_DOCUMENT_CONTEXT' ? 'refused' : 'failed'
         };
     }
 }

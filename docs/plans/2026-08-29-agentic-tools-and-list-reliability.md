@@ -4,7 +4,7 @@
 
 **Last Updated:** 2026-09-30
 
-**Status:** Partially implemented by upgrade WP2–WP4; remaining tool/list migration and host coverage pending.
+**Status:** In progress — contract inventory complete; exact request validation, canonical list capability checks and expanded Word fixtures underway.
 
 **Recommended order:** 2 of 4 August plans.
 
@@ -31,6 +31,17 @@ Accuracy comes first: target against an immutable source, fail closed on ambigui
 Evidence: `tests/agentic_list_generation_tests.mjs`, `tests/insert_list_item_level_tests.mjs`, `tests/word_list_binding_regression_tests.mjs`, `tests/change_validation_tests.mjs` and redline batch suites.
 
 ## Remaining work packages
+
+### Execution record (2026-09-30)
+
+- Reliability milestone committed as `e6a5df7` before starting this plan.
+- WP1 inventory: [actual tool contracts](../agentic-tool-contracts.md) now trace all eight content-mutating tools, argument/index conventions, library operations and host paths. Validation gaps are recorded explicitly; inventory does not certify unimplemented paths.
+- WP1 request validation: all three list commands validate before entering Word and recheck indexes against the live paragraph count. Invalid requests refuse without content writes. `edit_list` no longer clamps stale indexes, and header conversion pairs supplied text with its original index before sorting. Deterministic production-invocation and pure-validator suites pass.
+- WP1 targeting: a canonical prompt-time baseline is captured using the same accepted-view inspector as execution. A pre-write stale-context guard and mixed-batch no-write regressions pass; the unrelated Word-text projection is not used for comparison. Whole-paragraph, range, insertion anchor, append and unavailable-baseline cases are covered.
+- WP2 investigation: v0.8.2 has no dedicated semantic list mutation API. Structured redline operations and public list helpers are being tested for numbering identity, indentation and restart/continuation. A declared operation name alone does not establish that the standalone runner supports its intended semantics.
+- WP3 preparation: the Word oracle now accepts per-state list/plain expectations, levels, labels/values and logical continuation/restart identity groups. Word-authored fixtures and live verification remain pending.
+- WP3 host harness: the Office.js collector can consume an external fixture manifest and a separate artifact directory. The validation entry maps `agenticRequest` through the candidate planner; ordinary builds still omit the validation entry. New list host evidence is pending.
+- Next checkpoint: commit the inventory and validated request/mapper work with test results. Preserve working native paths until a replacement has equivalent fidelity evidence; report any library limitation separately.
 
 ### WP1 — Inventory and align actual tool contracts
 

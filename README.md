@@ -281,12 +281,15 @@ node tests/redline_prompt_tests.mjs           # shared redline prompt/schema int
 **Engine / integration suites:**
 
 ```bash
-node tests/word_redline_runner_table_normalization_tests.mjs
+node tests/word_redline_batch_plan_tests.mjs
 node tests/insert_list_item_level_tests.mjs
 node tests/word_list_binding_regression_tests.mjs
-node tests/agentic_tools_table_intent_tests.mjs
+node tests/agentic_request_validation_tests.mjs
+node tests/agentic_list_tool_validation_tests.mjs
 node tests/include_numbering_behavior.mjs
 ```
+
+The [agentic tool contract inventory](docs/agentic-tool-contracts.md) records actual argument shapes, index conventions and remaining native paths. List tools reject invalid arguments and live out-of-range targets before content writes. Header conversion preserves the original index/text pairing when sorting targets.
 
 ### AI Eval Harness (Manual — calls the paid Gemini API)
 

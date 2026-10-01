@@ -8,6 +8,7 @@ import {
     applyRedlineChangesToWordContext,
     planRedlineBatchOperations
 } from '../src/taskpane/modules/docx-redline-js-integration/word-redline-runner.js';
+import { captureWordSourceBaseline } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
 
 const paragraphs = [
     { index: 1, ref: 'P1', text: 'First clause.', exactText: 'First clause.', paragraphId: 'AAAABBBB' },
@@ -183,14 +184,120 @@ async function testRepeatedFindOccurrenceAgainstEngine() {
     assert.match(result.documentXml, /phrase/);
 }
 
+function makeFlatOpcParagraph(text, paragraphId) {
+    const escaped = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<w:p xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" w14:paraId="${paragraphId}"><w:r><w:t>${escaped}</w:t></w:r></w:p>`;
+}
+
+function makeFlatOpc(paragraphTexts) {
+    return buildDocumentFragmentPackage(paragraphTexts.map((text, index) => (
+        makeFlatOpcParagraph(text, `AAAAB${String(index + 1).padStart(3, '0')}`)
+    )).join(''), { appendTrailingParagraph: false });
+}
+
+function testCaptureWordSourceBaselineUsesCanonicalAcceptedText() {
+    const trackedParagraph = '<w:p xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" w14:paraId="1234ABCD">'
+        + '<w:r><w:t>Keep </w:t></w:r>'
+        + '<w:del w:id="1" w:author="Editor" w:date="2026-01-01T00:00:00Z"><w:r><w:delText>old</w:delText></w:r></w:del>'
+        + '<w:ins w:id="2" w:author="Editor" w:date="2026-01-01T00:00:00Z"><w:r><w:t>new</w:t></w:r></w:ins>'
+        + '</w:p>';
+    const packageXml = buildDocumentFragmentPackage(trackedParagraph, { appendTrailingParagraph: false });
+    const baseline = captureWordSourceBaseline(packageXml);
+
+    assert.equal(baseline.length, 1);
+    assert.equal(baseline[0].index, 1);
+    assert.equal(baseline[0].exactText, 'Keep new', 'baseline uses the canonical accepted revision view');
+    assert.equal(baseline[0].paragraphId, '1234ABCD');
+    assert.match(baseline[0].fingerprint, /^fnv1a32:/);
+    assert.deepEqual(captureWordSourceBaseline(packageXml), baseline, 'canonical baseline identities should be stable for the same Flat OPC source');
+}
+
+async function runGuardedLiveBatch(changes, livePackage, sourceBaseline) {
+    const writes = [];
+    const oldWord = globalThis.Word;
+    globalThis.Word = { InsertLocation: { replace: 'Replace' } };
+    try {
+        const body = {
+            getOoxml() { return { value: livePackage }; },
+            insertOoxml(xml) { writes.push(xml); }
+        };
+        const context = { document: { body }, async sync() {} };
+        const result = await applyRedlineChangesToWordContext(context, changes, {
+            author: 'Editor', sourceBaseline, onInfo: () => {}, onWarn: () => {}
+        });
+        return { result, writes };
+    } finally {
+        globalThis.Word = oldWord;
+    }
+}
+
+async function testMatchingBaselineCommitsAndStaleTargetsRefuseWithoutWrite() {
+    const initialPackage = makeFlatOpc(['First clause.', 'Second clause.', 'Third clause.']);
+    const baseline = captureWordSourceBaseline(initialPackage);
+
+    const matching = await runGuardedLiveBatch([
+        { operation: 'replace_paragraph', paragraphIndex: 1, content: 'Revised first clause.' }
+    ], initialPackage, baseline);
+    assert.equal(matching.result.mutationOutcome, 'applied');
+    assert.equal(matching.result.written, true);
+    assert.equal(matching.writes.length, 1);
+    assert.equal(captureWordSourceBaseline(matching.writes[0])[0].exactText, 'Revised first clause.');
+
+    const changedFirst = makeFlatOpc(['Concurrent first clause.', 'Second clause.', 'Third clause.']);
+    const staleWholeParagraph = await runGuardedLiveBatch([
+        { operation: 'replace_paragraph', paragraphIndex: 1, content: 'AI rewrite.' }
+    ], changedFirst, baseline);
+    assert.equal(staleWholeParagraph.result.error.code, 'STALE_DOCUMENT_CONTEXT');
+    assert.equal(staleWholeParagraph.result.mutationOutcome, 'refused');
+    assert.equal(staleWholeParagraph.result.writeAttempted, false);
+    assert.equal(staleWholeParagraph.writes.length, 0);
+
+    const changedRangeEnd = makeFlatOpc(['First clause.', 'Concurrent second clause.', 'Third clause.']);
+    const staleRange = await runGuardedLiveBatch([
+        { operation: 'replace_range', paragraphIndex: 1, endParagraphIndex: 2, content: 'Combined clauses.' }
+    ], changedRangeEnd, baseline);
+    assert.equal(staleRange.result.error.code, 'STALE_DOCUMENT_CONTEXT');
+    assert.equal(staleRange.result.writeAttempted, false);
+    assert.equal(staleRange.writes.length, 0, 'every paragraph in the inclusive range is guarded');
+
+    const staleInsertBefore = await runGuardedLiveBatch([
+        { operation: 'replace_range', paragraphIndex: 2, endParagraphIndex: 1, content: 'Inserted heading.' }
+    ], changedRangeEnd, baseline);
+    assert.equal(staleInsertBefore.result.error.code, 'STALE_DOCUMENT_CONTEXT');
+    assert.equal(staleInsertBefore.writes.length, 0, 'insert-before checks its original anchor paragraph');
+
+    const appendedParagraph = makeFlatOpc(['First clause.', 'Second clause.', 'Third clause.', 'Concurrent addition.']);
+    const staleAppend = await runGuardedLiveBatch([
+        { operation: 'replace_paragraph', paragraphIndex: 4, content: 'AI appendix.' }
+    ], appendedParagraph, baseline);
+    assert.equal(staleAppend.result.error.code, 'STALE_DOCUMENT_CONTEXT');
+    assert.equal(staleAppend.writes.length, 0, 'append checks the original paragraph count and final paragraph');
+
+    const mixedBatch = await runGuardedLiveBatch([
+        { operation: 'replace_paragraph', paragraphIndex: 1, content: 'Valid target.' },
+        { operation: 'replace_paragraph', paragraphIndex: 2, content: 'Stale target.' }
+    ], changedRangeEnd, baseline);
+    assert.equal(mixedBatch.result.error.code, 'STALE_DOCUMENT_CONTEXT');
+    assert.equal(mixedBatch.result.writeAttempted, false);
+    assert.equal(mixedBatch.writes.length, 0, 'a stale target refuses the entire mixed batch before planning or write');
+
+    const missingBaseline = await runGuardedLiveBatch([
+        { operation: 'replace_paragraph', paragraphIndex: 1, content: 'No baseline.' }
+    ], initialPackage, []);
+    assert.equal(missingBaseline.result.error.code, 'STALE_DOCUMENT_CONTEXT');
+    assert.equal(missingBaseline.writes.length, 0, 'a provided empty baseline is unavailable and fails closed');
+}
+
 testPlanningUsesInitialParagraphDescriptors();
 testRangeAndInsertionPlanning();
 testInvalidChangeFailsBeforeBatch();
+testCaptureWordSourceBaselineUsesCanonicalAcceptedText();
 await testCallerSubmitsOneBatchAndReportsRollback();
 await testEmptyParagraphIsHandledByEngine();
 await testEndToEndSingleWordWrite();
 await testRangeAndAppendAgainstEngine();
 await testRepeatedFindOccurrenceAgainstEngine();
+await testMatchingBaselineCommitsAndStaleTargetsRefuseWithoutWrite();
 // Engine receipts can be committed to prepared XML even when Word did not confirm insertion.
 const hostFailure = await applyRedlineChangesToWordContext({ document: { body: {} } }, [
     { operation: 'edit_paragraph', paragraphIndex: 1, newContent: 'Updated.' }

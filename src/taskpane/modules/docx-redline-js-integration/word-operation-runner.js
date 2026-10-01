@@ -228,6 +228,15 @@ function readBatchSource(scopeOoxml) {
     return { ...parts, paragraphs: inspection.paragraphs, packageDoc: null };
 }
 
+/** Capture targeting identities with the same accepted-view inspector used at execution. */
+export function captureWordSourceBaseline(scopeOoxml) {
+    return readBatchSource(scopeOoxml).paragraphs.map(paragraph => ({
+        index: paragraph.index, exactText: paragraph.exactText,
+        fingerprint: paragraph.fingerprint, paragraphId: paragraph.paragraphId,
+        inTable: paragraph.inTable
+    }));
+}
+
 function buildBatchInsertionPackage(source, result) {
     const serializer = createSerializer();
     const outputDoc = parseXmlStrict(result.documentXml, 'batch output');
