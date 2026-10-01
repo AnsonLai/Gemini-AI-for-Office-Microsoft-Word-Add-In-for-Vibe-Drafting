@@ -28,3 +28,12 @@ tracked, accepted, and rejected packages plus `manifest.json` for the Office.js
 collector and independent Word validation. `known-defects-manifest.json`
 contains separately classified library Reject All defects and is intentionally
 not part of the passing host manifest.
+
+The supported matrix now includes ten cases: root/nested bullet insertion,
+decimal indentation, insertion at a continuation anchor, insertion within an
+independent restarted list, insertion before an existing root through the
+candidate range mapper, and noncontiguous marked-header conversion. Continuation
+and restart expectations are specified from the source and requested edit, not
+copied from engine output. The production insertion selector's deeper-level,
+Roman-style and tracking-off cases are covered separately by mocked invocation
+tests; their live Word fidelity gates remain open.

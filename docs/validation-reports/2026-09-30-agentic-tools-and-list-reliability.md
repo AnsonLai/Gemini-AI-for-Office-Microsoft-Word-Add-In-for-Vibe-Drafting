@@ -41,6 +41,35 @@ Final ordinary development/production builds pass; the development-only validati
 
 ## Resume points
 
+### WP3 follow-up checkpoint
+
+The expanded supported matrix now contains **ten cases**. Three new cases exercise same-level bullet insertion, decimal insertion at a continuation anchor after a plain transition, and decimal insertion within an independent restarted list. Expected labels, values and logical numbering identities remain independently specified from the frozen Word source and requested edits. Word exposed one incorrect new expectation: inserting a root sibling before the restarted child changes that child's label from `1.1.` to `2.1.`. Correcting that expectation required no production or library change.
+
+| Lane | Result | Durable evidence |
+| --- | --- | --- |
+| Static packages, independent Word | 60 checks passed | [Word report](2026-09-30-agentic-wp3-list-word.json) |
+| Actual Office.js: eight production insertions and two candidate routes | 40 checks passed | [Collector report](2026-09-30-agentic-wp3-list-officejs.json) |
+| Office.js exports, independent Word | 60 checks passed | [Export Word report](2026-09-30-agentic-wp3-list-officejs-word.json) |
+| Offline aggregate | 44 suites passed, zero failed; four exclusions | `npm test` |
+
+Host remains Word `16.0.20430.20092` (PC). Canonical insertions have one execution source read and one confirmed body insertion; prompt-baseline capture is separate. Checks cover exact accepted/rejected text, numbering identity/labels/levels, untouched bold formatting, no-op, invalid-target refusal and mixed-batch zero-write behavior. These results supersede the earlier seven-case counts for the supported matrix. The existing separately confirmed library defects remain open; their diagnostic failures were not reclassified or counted as passing cases.
+
+The production invocation suite additionally covers deeper source/resolved levels, Roman numbering fallback and tracking-off insertion/restoration through mocked Word proxies. Those tests pass but do not establish live fidelity for those native paths. No production implementation or library patch changed during this follow-up. Ordinary development and validation-entry builds pass; the prior production build remains applicable. No paid provider calls were made. The collector stopped and temporary registration was removed.
+
+Reproduction commands:
+
+```powershell
+node tests/agentic_list_fidelity_tests.mjs --export-host-dir .cache/reliability/agentic-list-wp3
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-wp6-word.ps1 -FixtureManifest .cache/reliability/agentic-list-wp3/manifest.json -ArtifactsDir .cache/reliability/agentic-list-wp3-word -SkipNativeInsert
+npx webpack --mode development --env WORD_HOST_VALIDATION=1
+node scripts/run-officejs-validation.mjs --fixture-manifest .cache/reliability/agentic-list-wp3/manifest.json --artifacts-dir .cache/reliability/agentic-list-wp3-officejs --launch
+# After collecting success, stop the collector and remove its registration:
+node scripts/run-officejs-validation.mjs --artifacts-dir .cache/reliability/agentic-list-wp3-officejs --cleanup
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-wp6-word.ps1 -FixtureManifest .cache/reliability/agentic-list-wp3-officejs/officejs-fixtures.json -ArtifactsDir .cache/reliability/agentic-list-wp3-officejs-word -SkipNativeInsert
+```
+
+### Remaining work
+
 1. Consumer validation and stale-context guard committed as `7e44b5d`; actual Office.js and independent Word evidence now pass.
 2. Supported source/engine/Office.js Word validation and aggregate tests/builds pass; this checkpoint preserves the verified production insertion subset and evidence.
 3. Resolve the separately recorded library defects/capability gaps, then rerun the diagnostic manifest expecting full source restoration.

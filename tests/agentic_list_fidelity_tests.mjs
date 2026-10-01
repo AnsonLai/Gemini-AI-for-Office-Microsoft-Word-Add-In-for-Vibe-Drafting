@@ -110,6 +110,56 @@ const sourceNumbering = [
 
 const allCases = [
   {
+    name: 'list-insert-bullet-same-level',
+    request: { tool: 'insert_list_item', afterParagraphIndex: 3, text: 'Planner bullet root sibling', indentLevel: 0 },
+    expected: sourceExactTexts.toSpliced(3, 0, 'Planner bullet root sibling'),
+    newLists: [sourceListEntry('Planner bullet root sibling', 1, 'bullet', '\uF076', 2)],
+    acceptedNumbering: {
+      'Bullet Untouched Tail': { listValue: 3 },
+      'Bullet Root B': { listValue: 4 }
+    },
+    assertions: ({ paragraphs }) => {
+      const anchor = paragraphs.find(paragraph => paragraph.exactText === 'Bullet Root A');
+      const inserted = paragraphs.find(paragraph => paragraph.exactText === 'Planner bullet root sibling');
+      assert.equal(inserted.list.level, 0);
+      assert.equal(inserted.list.numId, anchor.list.numId);
+      assert.equal(inserted.list.label, '\uF076');
+    }
+  },
+  {
+    name: 'list-insert-numbered-continuation',
+    request: { tool: 'insert_list_item', afterParagraphIndex: 12, text: 'Planner continued root sibling', indentLevel: 0 },
+    expected: sourceExactTexts.toSpliced(12, 0, 'Planner continued root sibling'),
+    newLists: [sourceListEntry('Planner continued root sibling', 1, 'number-continuation', '4.', 4)],
+    assertions: ({ paragraphs }) => {
+      const inserted = paragraphs.find(paragraph => paragraph.exactText === 'Planner continued root sibling');
+      const origin = paragraphs.find(paragraph => paragraph.exactText === 'Number Root A');
+      const restarted = paragraphs.find(paragraph => paragraph.exactText === 'Number Restart Root');
+      assert.equal(inserted.list.numId, origin.list.numId);
+      assert.equal(inserted.list.label, '4.');
+      assert.notEqual(inserted.list.numId, restarted.list.numId);
+      assert.equal(restarted.list.label, '1.');
+    }
+  },
+  {
+    name: 'list-insert-numbered-restart',
+    request: { tool: 'insert_list_item', afterParagraphIndex: 14, text: 'Planner restarted root sibling', indentLevel: 0 },
+    expected: sourceExactTexts.toSpliced(14, 0, 'Planner restarted root sibling'),
+    newLists: [sourceListEntry('Planner restarted root sibling', 1, 'number-restart', '2.', 2)],
+    acceptedNumbering: {
+      'Number Restart Nested': { listString: '2.1.', listValue: 1 }
+    },
+    assertions: ({ paragraphs }) => {
+      const inserted = paragraphs.find(paragraph => paragraph.exactText === 'Planner restarted root sibling');
+      const restarted = paragraphs.find(paragraph => paragraph.exactText === 'Number Restart Root');
+      const continued = paragraphs.find(paragraph => paragraph.exactText === 'Number Continued Item');
+      assert.equal(inserted.list.numId, restarted.list.numId);
+      assert.equal(inserted.list.label, '2.');
+      assert.notEqual(inserted.list.numId, continued.list.numId);
+      assert.equal(continued.list.label, '3.');
+    }
+  },
+  {
     name: 'list-insert-bullet-outdent',
     request: { tool: 'insert_list_item', afterParagraphIndex: 4, text: 'Planner bullet insertion before untouched tail', indentLevel: -1 },
     expected: sourceExactTexts.toSpliced(4, 0, 'Planner bullet insertion before untouched tail'),

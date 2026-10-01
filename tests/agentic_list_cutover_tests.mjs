@@ -29,7 +29,7 @@ const fixtureDocumentXml = decodePart('word/document.xml');
 const fixtureNumberingXml = decodePart('word/numbering.xml');
 const fixtureStylesXml = decodePart('word/styles.xml');
 
-function flatOpcFromFixture(documentXml = fixtureDocumentXml) {
+function flatOpcFromFixture(documentXml = fixtureDocumentXml, numberingXml = fixtureNumberingXml) {
   const part = (name, contentType, xml) => `
     <pkg:part pkg:name="${name}" pkg:contentType="${contentType}">
       <pkg:xmlData>${xml}</pkg:xmlData>
@@ -37,9 +37,44 @@ function flatOpcFromFixture(documentXml = fixtureDocumentXml) {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <pkg:package xmlns:pkg="${NS_PKG}">
       ${part('/word/document.xml', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml', documentXml)}
-      ${part('/word/numbering.xml', 'application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml', fixtureNumberingXml)}
+      ${part('/word/numbering.xml', 'application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml', numberingXml)}
       ${part('/word/styles.xml', 'application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml', fixtureStylesXml)}
     </pkg:package>`;
+}
+
+function setParagraphListLevel(documentXml, paragraphText, level) {
+  const parsed = new DOMParser().parseFromString(documentXml, 'text/xml');
+  const paragraphs = Array.from(parsed.getElementsByTagNameNS(NS_W, 'p'));
+  const paragraph = paragraphs.find(node => Array.from(node.getElementsByTagNameNS(NS_W, 't'))
+    .map(text => text.textContent).join('') === paragraphText);
+  assert.ok(paragraph, `Could not find paragraph to change list level: ${paragraphText}`);
+  const pPr = Array.from(paragraph.childNodes).find(node => node.nodeType === 1 && node.namespaceURI === NS_W && node.localName === 'pPr');
+  assert.ok(pPr, `Paragraph has no pPr: ${paragraphText}`);
+  const numPr = Array.from(pPr.childNodes).find(node => node.nodeType === 1 && node.namespaceURI === NS_W && node.localName === 'numPr');
+  assert.ok(numPr, `Paragraph has no numPr: ${paragraphText}`);
+  const ilvl = Array.from(numPr.childNodes).find(node => node.nodeType === 1 && node.namespaceURI === NS_W && node.localName === 'ilvl');
+  assert.ok(ilvl, `Paragraph has no ilvl: ${paragraphText}`);
+  ilvl.setAttributeNS(NS_W, 'w:val', String(level));
+  return new XMLSerializer().serializeToString(parsed.documentElement);
+}
+
+function setListNumberFormat(numberingXml, numId, level, format) {
+  const parsed = new DOMParser().parseFromString(numberingXml, 'text/xml');
+  const num = Array.from(parsed.getElementsByTagNameNS(NS_W, 'num'))
+    .find(node => node.getAttributeNS(NS_W, 'numId') === String(numId));
+  assert.ok(num, `Could not find numbering instance ${numId}`);
+  const abstractNumId = Array.from(num.getElementsByTagNameNS(NS_W, 'abstractNumId'))[0]?.getAttributeNS(NS_W, 'val');
+  assert.ok(abstractNumId, `Numbering instance ${numId} has no abstractNumId`);
+  const abstractNum = Array.from(parsed.getElementsByTagNameNS(NS_W, 'abstractNum'))
+    .find(node => node.getAttributeNS(NS_W, 'abstractNumId') === abstractNumId);
+  assert.ok(abstractNum, `Could not find abstract numbering definition ${abstractNumId}`);
+  const lvl = Array.from(abstractNum.getElementsByTagNameNS(NS_W, 'lvl'))
+    .find(node => node.getAttributeNS(NS_W, 'ilvl') === String(level));
+  assert.ok(lvl, `Could not find level ${level} in abstract numbering definition ${abstractNumId}`);
+  const numFmt = Array.from(lvl.getElementsByTagNameNS(NS_W, 'numFmt'))[0];
+  assert.ok(numFmt, `Numbering level ${level} has no numFmt`);
+  numFmt.setAttributeNS(NS_W, 'w:val', format);
+  return new XMLSerializer().serializeToString(parsed.documentElement);
 }
 
 function bodyParagraphXml(documentXml) {
@@ -86,10 +121,10 @@ function sourceParagraphsFromFlatOpc(flatOpc) {
   return captureWordSourceBaseline(flatOpc);
 }
 
-function createWordHarness(flatOpc, { writeError = null } = {}) {
+function createWordHarness(flatOpc, { writeError = null, directDocumentXml = fixtureDocumentXml } = {}) {
   const events = [];
   const sourceParagraphs = fixtureDoc.inspect().paragraphs;
-  const directParagraphs = bodyParagraphXml(fixtureDocumentXml);
+  const directParagraphs = bodyParagraphXml(directDocumentXml);
   const paragraphMocks = sourceParagraphs.map((source, index) => ({
     text: source.exactText,
     load(properties) { events.push({ type: 'paragraph.load', index: index + 1, properties }); },
@@ -145,10 +180,10 @@ function createWordHarness(flatOpc, { writeError = null } = {}) {
       return callback({ document, async sync() { events.push({ type: 'sync' }); } });
     }
   };
-  return { events, get runCount() { return runCount; } };
+  return { events, get runCount() { return runCount; }, get trackingMode() { return trackingMode; } };
 }
 
-function initTools(redlineEnabled = true) {
+function initTools(redlineEnabled = true, trackingEvents = []) {
   initAgenticTools({
     getRequestSignal: () => null,
     loadApiKey: () => 'list-cutover-test-key',
@@ -156,8 +191,24 @@ function initTools(redlineEnabled = true) {
     loadSystemMessage: () => '',
     loadRedlineSetting: () => redlineEnabled,
     loadRedlineAuthor: () => 'Cutover Test Editor',
-    setChangeTrackingForAi: async () => ({}),
-    restoreChangeTracking: async () => {},
+    setChangeTrackingForAi: async (context, enabled, sourceLabel) => {
+      const originalMode = context.document.changeTrackingMode;
+      const desiredMode = enabled ? 'TrackAll' : 'Off';
+      const changed = originalMode !== desiredMode;
+      trackingEvents.push({ type: 'tracking.request', enabled, sourceLabel, originalMode, desiredMode });
+      if (changed) {
+        context.document.changeTrackingMode = desiredMode;
+        await context.sync();
+      }
+      return { available: true, originalMode, changed };
+    },
+    restoreChangeTracking: async (context, trackingState, sourceLabel) => {
+      trackingEvents.push({ type: 'tracking.restore', sourceLabel, trackingState });
+      if (trackingState?.available && trackingState.changed && trackingState.originalMode !== null) {
+        context.document.changeTrackingMode = trackingState.originalMode;
+        await context.sync();
+      }
+    },
     SAFETY_SETTINGS_BLOCK_NONE: [],
     API_LIMITS: {}
   });
@@ -333,6 +384,94 @@ async function testUnsupportedOutdentUsesEstablishedNativePath() {
     'unsupported outdent mapping retains the previously supported native path');
 }
 
+async function testDeeperListLevelsRetainNativeFallback() {
+  const deepSourceDocumentXml = setParagraphListLevel(fixtureDocumentXml, 'Bullet Insertion Anchor', 2);
+  const cases = [
+    {
+      label: 'existing source level 2 outdented to supported level 1',
+      documentXml: deepSourceDocumentXml,
+      targetText: 'Bullet Insertion Anchor',
+      indentLevel: -1,
+      expectedNativeLevel: 1
+    },
+    {
+      label: 'level 1 request resolving to level 2',
+      documentXml: fixtureDocumentXml,
+      targetText: 'Bullet Insertion Anchor',
+      indentLevel: 1,
+      expectedNativeLevel: 2
+    }
+  ];
+
+  for (const testCase of cases) {
+    initTools(true);
+    const flatOpc = flatOpcFromFixture(testCase.documentXml);
+    const harness = createWordHarness(flatOpc, { directDocumentXml: testCase.documentXml });
+    const result = await executeInsertListItem(
+      paragraphIndex(testCase.targetText, flatOpc),
+      `Native fallback: ${testCase.label}`,
+      testCase.indentLevel
+    );
+
+    assert.equal(result.success, true, `${testCase.label}: ${result.message}`);
+    assert.equal(result.written, true);
+    assert.equal(harness.events.filter(event => event.type === 'body.getOoxml').length, 1,
+      'the source level is inspected before selecting the established path');
+    assert.equal(harness.events.filter(event => event.type === 'body.insertOoxml').length, 0,
+      'deep-level requests stay outside the canonical library route');
+    assert.equal(harness.events.filter(event => event.type === 'native.insertParagraph').length, 1,
+      'deep-level requests retain native insertion');
+    assert.deepEqual(harness.events.filter(event => event.type === 'native.listLevel').map(event => event.level), [testCase.expectedNativeLevel],
+      'the native fallback applies the requested relative level');
+  }
+}
+
+async function testUnsupportedNumberStyleRetainsNativeFallback() {
+  initTools(true);
+  const numberingXml = setListNumberFormat(fixtureNumberingXml, 2, 0, 'upperRoman');
+  const flatOpc = flatOpcFromFixture(fixtureDocumentXml, numberingXml);
+  const source = sourceParagraphsFromFlatOpc(flatOpc);
+  const romanTarget = source.find(paragraph => paragraph.exactText === 'Number Root A');
+  assert.ok(romanTarget, 'the Roman-style target must remain present in the source snapshot');
+  assert.ok(!['bullet', 'decimal'].includes(romanTarget.list?.format),
+    'the modified Word numbering definition must be outside the production canonical format allowlist');
+  assert.match(bodyParagraphXml(fixtureDocumentXml)[7], /numId w:val="2"/,
+    'the target remains explicitly attached to a Word numbering instance');
+  const harness = createWordHarness(flatOpc);
+  const result = await executeInsertListItem(paragraphIndex('Number Root A', flatOpc), 'Native Roman-style fallback', 0);
+
+  assert.equal(result.success, true, result.message);
+  assert.equal(result.written, true);
+  assert.equal(harness.events.filter(event => event.type === 'body.getOoxml').length, 1);
+  assert.equal(harness.events.filter(event => event.type === 'body.insertOoxml').length, 0,
+    'non-bullet/decimal numbering must not enter the canonical library route');
+  assert.equal(harness.events.filter(event => event.type === 'native.insertParagraph').length, 1,
+    'unsupported numbering styles retain the established native insertion');
+}
+
+async function testTrackingOffUsesNativePathAndRestoresPriorMode() {
+  const flatOpc = flatOpcFromFixture();
+  const harness = createWordHarness(flatOpc);
+  initTools(false, harness.events);
+  const result = await executeInsertListItem(paragraphIndex('Bullet Root A', flatOpc), 'Tracking-off native insertion', 0);
+
+  assert.equal(result.success, true, result.message);
+  assert.equal(result.written, true);
+  assert.equal(harness.events.some(event => event.type === 'tracking.request'
+    && event.enabled === false && event.sourceLabel === 'executeInsertListItem'), true,
+  'tracking-off mode must request Word change tracking off for this tool');
+  assert.equal(harness.events.filter(event => event.type === 'body.getOoxml').length, 0,
+    'tracking-off mode uses the established native path without the canonical redline snapshot');
+  assert.equal(harness.events.filter(event => event.type === 'body.insertOoxml').length, 0);
+  assert.equal(harness.events.filter(event => event.type === 'native.insertParagraph').length, 1);
+  const disabledAt = harness.events.findIndex(event => event.type === 'trackingMode' && event.value === 'Off');
+  const insertedAt = harness.events.findIndex(event => event.type === 'native.insertParagraph');
+  const restoredAt = harness.events.findIndex(event => event.type === 'trackingMode' && event.value === 'TrackAll');
+  assert.ok(disabledAt >= 0 && disabledAt < insertedAt, 'Word tracking must be off before the native mutation');
+  assert.ok(restoredAt > insertedAt, 'the original tracking mode must be restored after insertion');
+  assert.equal(harness.trackingMode, 'TrackAll');
+}
+
 async function testCanonicalHostFailureDoesNotFallBackToNativeWrites() {
   initTools(true);
   const flatOpc = flatOpcFromFixture();
@@ -377,6 +516,9 @@ try {
   await testOrdinaryPlainParagraphRetainsNativeFallback();
   await testHistoricalPPrChangeListBindingRefusesWithoutWrites();
   await testUnsupportedOutdentUsesEstablishedNativePath();
+  await testDeeperListLevelsRetainNativeFallback();
+  await testUnsupportedNumberStyleRetainsNativeFallback();
+  await testTrackingOffUsesNativePathAndRestoresPriorMode();
   await testCanonicalHostFailureDoesNotFallBackToNativeWrites();
   await testLibrarySourceRefusalDoesNotFallBackToNativeWrites();
   console.log('PASS: agentic insert-list-item production cutover tests');

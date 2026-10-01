@@ -46,6 +46,8 @@ Evidence: `tests/agentic_list_generation_tests.mjs`, `tests/insert_list_item_lev
 - WP1 actual Word evidence: Office.js context validation passes 8 checks, including zero-write stale-context refusal after an intervening edit; independent Word reopening passes 12 checks.
 - Library capability gap: unmarked/text-changing header conversion has no verified canonical mapping in 0.8.2. [Separate library report](../library-issues/2026-09-30-canonical-list-operations.md); native header conversion remains active.
 - Final checkpoint includes the verified insertion migration, 44 passing offline suites, successful builds and durable Word evidence. Remaining work is recorded below for resumption.
+- WP3 follow-up: expanded the frozen-source matrix to ten cases, adding bullet root insertion and decimal insertion at continuation/restart anchors. Static packages pass 60 independent Word checks; actual Office.js passes 40 checks across eight production insertion routes and two candidate routes. Export verification is recorded in the execution report.
+- The September upgrade closure was clarified in `1680349`; all of its acceptance criteria remain complete. Current agentic work does not reopen that plan.
 
 ### WP1 — Inventory and align actual tool contracts
 
@@ -79,7 +81,7 @@ Separately reported library dependencies:
 
 ### WP3 — Expand independent list and tool validation
 
-**Status: Supported matrix passes; broader acceptance remains open.** Seven supported cases pass 42 independent Word checks. Actual Office.js passes 28 checks, including five production `insert_list_item` routes, no-op/refusal and mixed-batch zero-write behavior; its exported packages pass 42 independent Word checks. Two rejected-view defects have a separate diagnostic manifest and failed Word evidence; they are not counted as passing fidelity cases. Tests report these known defects explicitly through `npm test`.
+**Status: Expanded supported matrix passes; broader acceptance remains open.** Ten supported cases pass 60 independent Word checks. Actual Office.js passes 40 checks, including eight production `insert_list_item` routes, no-op/refusal and mixed-batch zero-write behavior; its exports pass 60 independent Word checks. Two rejected-view defects have a separate diagnostic manifest and failed Word evidence; they are not counted as passing fidelity cases. Tests report these known defects explicitly through `npm test`. Deeper source/resolved levels, Roman-style fallback and tracking-off mode now have deterministic production invocation coverage, including tracking restoration; these additional tests use mocked Word proxies and do not close their live fidelity gates.
 
 - Add Word-authored fixtures for nested bullets/numbering, insertion before/after, continuation/restart and list/plain-paragraph transitions.
 - Assert exact accepted/rejected text, numbering relationships and untargeted formatting offline.
