@@ -1,0 +1,143 @@
+﻿{
+    "checkedAt":  "2026-10-01T07:20:59.1491328Z",
+    "wordVersion":  "16.0",
+    "wordBuild":  "16.0.20430",
+    "checks":  [
+                   {
+                       "case":  "table-append-coalesced-plain-edit",
+                       "view":  "source",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "table-append-coalesced-plain-edit",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  10
+                   },
+                   {
+                       "case":  "table-append-coalesced-plain-edit",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "table-append-coalesced-plain-edit",
+                       "view":  "rejected",
+                       "status":  "failed",
+                       "error":  "Word rejected direct paragraph count differs: 8 vs 7. Actual fixture paragraphs: [\"Opening paragraph 1.\",\"Opening paragraph 2.\",\"Opening paragraph 3.\",\"Opening paragraph 4.\",\"Opening paragraph 5.\",\"Opening paragraph 6.\",\"Final paragraph stays unchanged.\",\"\"]"
+                   },
+                   {
+                       "case":  "table-append-coalesced-plain-edit",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "table-append-coalesced-plain-edit",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "table-append-coalesced-plain-edit",
+                       "view":  "native-insert",
+                       "status":  "passed"
+                   },
+                   {
+                       "case":  "table-append-coalesced-plain-edit",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  10
+                   },
+                   {
+                       "case":  "table-append-coalesced-plain-edit",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "table-append-coalesced-plain-edit",
+                       "view":  "rejected",
+                       "status":  "failed",
+                       "error":  "Word rejected direct paragraph count differs: 8 vs 7. Actual fixture paragraphs: [\"Opening paragraph 1.\",\"Opening paragraph 2.\",\"Opening paragraph 3.\",\"Opening paragraph 4.\",\"Opening paragraph 5.\",\"Opening paragraph 6.\",\"Final paragraph stays unchanged.\",\"\"]"
+                   },
+                   {
+                       "case":  "table-append-inline-format-known-library-defect",
+                       "view":  "source",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "table-append-inline-format-known-library-defect",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  10
+                   },
+                   {
+                       "case":  "table-append-inline-format-known-library-defect",
+                       "view":  "accepted",
+                       "status":  "failed",
+                       "error":  "Word accepted underline differs for Final paragraph stays unchanged.."
+                   },
+                   {
+                       "case":  "table-append-inline-format-known-library-defect",
+                       "view":  "rejected",
+                       "status":  "failed",
+                       "error":  "Word rejected direct paragraph count differs: 8 vs 7. Actual fixture paragraphs: [\"Opening paragraph 1.\",\"Opening paragraph 2.\",\"Opening paragraph 3.\",\"Opening paragraph 4.\",\"Opening paragraph 5.\",\"Opening paragraph 6.\",\"Final paragraph stays unchanged.\",\"\"]"
+                   },
+                   {
+                       "case":  "table-append-inline-format-known-library-defect",
+                       "view":  "accepted",
+                       "status":  "failed",
+                       "error":  "Word accepted underline differs for Final paragraph stays unchanged.."
+                   },
+                   {
+                       "case":  "table-append-inline-format-known-library-defect",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "table-append-inline-format-known-library-defect",
+                       "view":  "native-insert",
+                       "status":  "passed"
+                   },
+                   {
+                       "case":  "table-append-inline-format-known-library-defect",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  10
+                   },
+                   {
+                       "case":  "table-append-inline-format-known-library-defect",
+                       "view":  "accepted",
+                       "status":  "failed",
+                       "error":  "Word accepted underline differs for Final paragraph stays unchanged.."
+                   },
+                   {
+                       "case":  "table-append-inline-format-known-library-defect",
+                       "view":  "rejected",
+                       "status":  "failed",
+                       "error":  "Word rejected direct paragraph count differs: 8 vs 7. Actual fixture paragraphs: [\"Opening paragraph 1.\",\"Opening paragraph 2.\",\"Opening paragraph 3.\",\"Opening paragraph 4.\",\"Opening paragraph 5.\",\"Opening paragraph 6.\",\"Final paragraph stays unchanged.\",\"\"]"
+                   }
+               ],
+    "renders":  [
+
+                ],
+    "renderSkipped":  true,
+    "nativeInsertSkipped":  false,
+    "officeJsTransport":  "External fixture packages verified; this oracle does not establish Office.js transport provenance.",
+    "fixtureManifest":  ".cache/table-append-host/manifest.json"
+}

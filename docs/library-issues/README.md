@@ -17,6 +17,21 @@ The August agentic plan is closed with deferred scope at the user's request.
 Remaining canonical work is tracked in the fresh
 [Canonical List Migration Follow-up](../plans/2026-09-30-canonical-list-migration-follow-up.md).
 
+### Table append tracked-formatting issue (2026-10-01)
+
+The installed 0.8.3 package can lose existing or newly requested underline
+formatting when a tracked table append is accepted. The add-in refuses the
+reproduced combinations before writing with `UNSUPPORTED_TABLE_FORMATTING`;
+this is an upstream library limitation tracked separately in the
+[table-append formatting report](2026-10-01-table-append-tracked-formatting.md).
+The final desktop Word run also found an extra empty paragraph after tracked
+Reject All; this separate issue is tracked in the
+[table-append rejection report](2026-10-01-word-reject-table-append-paragraph.md).
+The [consumer incident plan](../plans/2026-09-30-table-creation-reliability.md)
+and [host report](../validation-reports/2026-10-01-table-creation-reliability.md)
+record the complete 20-check scope and results. No full live chat/model
+reproduction is claimed.
+
 ## Historical 0.8.2 investigation and unpublished review
 
 These are separate upstream work items for `@ansonlai/docx-redline-js`.

@@ -84,6 +84,27 @@ paragraphs and asserts the immutable source baseline before preparation. The
 Word host separately captures that baseline for prompt context. Stale or
 unavailable supplied baselines refuse before native or canonical list writes.
 
+During a multi-turn tool exchange, the taskpane refreshes both prompt document
+text and the canonical baseline after the complete exchange reports a confirmed
+successful mutation, before requesting the next model turn. It does not refresh
+between calls already queued against one snapshot, or after refused/uncertain
+writes. A failed refresh stops further mutation attempts; the existing stale
+source guard against external edits remains active.
+
+For `apply_redlines`, the append planner has one narrow coalescing case: a
+compatible edit of the final paragraph plus one Markdown table append. Both
+original changes map to the combined library operation receipt, and the
+paragraph-count-plus-one append anchor is preserved and validated. Unsupported
+tracked inline formatting around that combination is refused before the Word
+write as `UNSUPPORTED_TABLE_FORMATTING`. The final 2026-10-01 Word run passed
+13 of 20 checks: plain accepted table content and both native insertions pass,
+while tracked Reject All leaves an extra paragraph and the formatting fixture's
+Accept All loses underline. See the
+[incident plan](docs/plans/2026-09-30-table-creation-reliability.md),
+[Word report](docs/validation-reports/2026-10-01-table-creation-reliability.md),
+[tracked-formatting report](docs/library-issues/2026-10-01-table-append-tracked-formatting.md),
+and [Reject All paragraph report](docs/library-issues/2026-10-01-word-reject-table-append-paragraph.md).
+
 ## Taskpane startup and tool dispatch
 
 `taskpane.js` uses `createLazyModuleLoader` for editing support. The Word

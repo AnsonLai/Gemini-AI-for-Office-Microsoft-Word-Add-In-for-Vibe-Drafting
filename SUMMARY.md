@@ -5,13 +5,21 @@
 ## [2026-10-01] Table incident checkpoint
 
 The user reported a stalled underline-then-table request. Consumer fixes now
-refresh document context after confirmed writes, preserve real requests and
-complete tool pairs in bounded history, retain failed-mutation counts across
-read-only tools, and show a terminal status when the model-turn budget expires.
-Focused context/history/loop regressions pass. Compatible append mapping and
-the independently reproduced library formatting defect are tracked in the
-[incident plan](docs/plans/2026-09-30-table-creation-reliability.md); this checkpoint
-does not claim the full exercise is fixed or independently verified in Word.
+refresh document context after confirmed mutation exchanges, preserve real
+requests and complete tool pairs in bounded history, retain failed-mutation
+counts across read-only tools, and show a terminal status when the model-turn
+budget expires. Redline planning narrowly coalesces a compatible last-paragraph
+edit and one table append, keeps the append anchor literal, maps both source
+changes to one receipt, and refuses tracked inline-formatting combinations
+before writing. The 54-suite offline aggregate and production build pass. The
+final desktop Word run passed 13 of 20 checks: plain accepted table content and
+both native insertions pass; tracked Reject All leaves an extra paragraph,
+while Accept All loses underline in the formatting fixture. See the
+[incident plan](docs/plans/2026-09-30-table-creation-reliability.md),
+[host report](docs/validation-reports/2026-10-01-table-creation-reliability.md),
+[tracked-formatting report](docs/library-issues/2026-10-01-table-append-tracked-formatting.md),
+and [Reject All paragraph report](docs/library-issues/2026-10-01-word-reject-table-append-paragraph.md).
+No full live chat/model reproduction is claimed.
 
 ## Current package status: v0.8.3
 

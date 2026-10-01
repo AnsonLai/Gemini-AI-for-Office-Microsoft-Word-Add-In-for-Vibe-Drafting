@@ -6,12 +6,22 @@
 
 ## Current Posture
 
-- **Table incident (2026-10-01):** confirmed writes now refresh the next chat
-  iteration's prompt text and canonical baseline. Bounded history retains real
-  requests and complete tool exchanges; read-only calls do not reset failed
-  mutation budgets, and loop exhaustion reports a terminal status. Table append
-  mapping and a separately reproduced library formatting limitation are still
-  being verified in the [incident plan](docs/plans/2026-09-30-table-creation-reliability.md).
+- **Table incident (2026-10-01):** consumer changes coalesce only a compatible
+  final-paragraph edit plus one appended Markdown table, preserve the append
+  anchor, map both source changes to the operation receipt, and refuse tracked
+  inline-formatting combinations with `UNSUPPORTED_TABLE_FORMATTING`. After a
+  confirmed mutation exchange, the next model turn receives refreshed document
+  text and baseline. History retains complete tool exchanges; read-only calls
+  do not reset the failed-mutation budget; loop exhaustion reports a terminal
+  status. The 54-suite offline aggregate and production build pass. The final
+  Word run passed 13 of 20 checks: plain accepted table content and native
+  insertion pass; tracked Reject All leaves an extra paragraph, and Accept All
+  loses underline in the formatting fixture. These fidelity gates remain open;
+  see the
+  [incident plan](docs/plans/2026-09-30-table-creation-reliability.md),
+  [host report](docs/validation-reports/2026-10-01-table-creation-reliability.md),
+  [tracked-formatting report](docs/library-issues/2026-10-01-table-append-tracked-formatting.md),
+  and [Reject All paragraph report](docs/library-issues/2026-10-01-word-reject-table-append-paragraph.md).
 
 - **Library:** the Word add-in and MCP server pin exact
   `@ansonlai/docx-redline-js@0.8.3`. Browser editing uses the same package

@@ -26,6 +26,31 @@ records 51 passing offline suites, four exclusions, 68 actual Office.js checks,
 checks. Five inapplicable engine-reference checks are excluded from passes.
 These are existing dated results; the documentation review did not rerun them.
 
+## 2026-10-01 table-append incident
+
+The current incident's focused regressions and offline aggregate pass 54 suites;
+the production build passes with the existing asset-size warning. These are
+separate, newer results and do not revise the dated 51-suite v0.8.3 record
+above. A deterministic installed-package reproduction confirms that the
+coalesced operation can construct a table with nine cells. The consumer refuses
+the two reproduced tracked inline-formatting combinations before writing with
+`UNSUPPORTED_TABLE_FORMATTING`; see the separate
+[library report](library-issues/2026-10-01-table-append-tracked-formatting.md).
+
+Desktop Word validation on Word 16.0 build 16.0.20430 completed 20 checks: 13
+passed and 7 failed. Plain accepted DOCX and COM native insertion preserve the
+three-by-three table, nine nouns, paragraph text, and required trailing blank.
+Tracked Reject All leaves an eighth empty paragraph after the seven source
+paragraphs. The formatting fixture's Accept All loses underline in both
+engine-accepted and native Word views, and its Reject All also leaves an extra
+empty paragraph. Both native COM `InsertXML` insertion checks pass. Office.js
+`insertOoxml` transport and the actual Office.js collector were not exercised.
+Full results and evidence links are in the
+[table incident validation report](validation-reports/2026-10-01-table-creation-reliability.md).
+The separate library findings are recorded in the [tracked-formatting report](library-issues/2026-10-01-table-append-tracked-formatting.md)
+and [Reject All paragraph report](library-issues/2026-10-01-word-reject-table-append-paragraph.md).
+No full live chat/model reproduction or live provider call was performed.
+
 Full canonical list migration is in the
 [active follow-up](plans/2026-09-30-canonical-list-migration-follow-up.md).
 Report engine defects to the library and retain consumer regressions. Provider
