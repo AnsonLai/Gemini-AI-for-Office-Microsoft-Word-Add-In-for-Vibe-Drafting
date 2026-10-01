@@ -53,6 +53,15 @@ Evidence: `tests/agentic_list_generation_tests.mjs`, `tests/insert_list_item_lev
 - Package boundaries and performance are complete (`b8f23b9`, `42a62df`). The aggregate now has 49 passing offline suites; that does not certify the remaining native list fidelity gates.
 - Final consumer follow-up passes five native Word cases: deeper insertion, outdent from a deeper source, upper/lower Roman numbering and tracking disabled with prior-mode restoration. Actual Office.js passes 20 checks; independent Word source/tracked/Accept All/Reject All passes 20 checks. Five engine-reference entries are explicitly not applicable and are not counted as passes. Documentation consolidation is complete; full canonical migration remains gated on the [separate upstream reports](../library-issues/README.md). The offline aggregate passes 50 suites, zero failures, with four exclusions.
 
+**Unpublished library review (2026-09-30):** the local tree fixes historical
+inspection and both original paragraph-boundary cases; the existing consumer
+standalone/merge output passes 12 independent Word checks. Focused regression
+tests pass. Full canonical conversion/remapping remains a proposed library
+plan, and review found an all-empty-range rejection defect plus pre-existing
+public-facade numbering corruption. See the [review and resume gates](../validation-reports/2026-09-30-unpublished-library-list-review.md).
+No package pin or production route changed. This plan remains open pending
+released fixes, capability implementation and downstream host verification.
+
 ### WP1 — Inventory and align actual tool contracts
 
 **Status: Complete.** Inventory and strict list/table argument validation are covered by production invocation tests. Table schema now declares its canonical nested-array shape; compatibility inputs are normalized without truncation. Missing-key failures and navigation results have explicit success/error fields. Canonical prompt-time redline baselines refuse stale targets atomically; actual Office.js refusal and independent Word reopening pass. Remaining structural-tool freshness/atomicity limits are recorded for WP2 and future library capabilities.

@@ -1,0 +1,94 @@
+﻿{
+    "checkedAt":  "2026-10-01T04:48:41.4328664Z",
+    "wordVersion":  "16.0",
+    "wordBuild":  "16.0.20430",
+    "checks":  [
+                   {
+                       "case":  "list-insert-after-plain-paragraph",
+                       "view":  "source",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-after-plain-paragraph",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  1
+                   },
+                   {
+                       "case":  "list-insert-after-plain-paragraph",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-after-plain-paragraph",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-after-plain-paragraph",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-after-plain-paragraph",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-edit-bullet-range",
+                       "view":  "source",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-edit-bullet-range",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  2
+                   },
+                   {
+                       "case":  "list-edit-bullet-range",
+                       "view":  "accepted",
+                       "status":  "failed",
+                       "error":  "Word accepted listValue differs for Bullet Untouched Tail: expected=2, actual=1"
+                   },
+                   {
+                       "case":  "list-edit-bullet-range",
+                       "view":  "rejected",
+                       "status":  "failed",
+                       "error":  "Word rejected listType differs for Bullet Root A: expected=4, actual=2"
+                   },
+                   {
+                       "case":  "list-edit-bullet-range",
+                       "view":  "accepted",
+                       "status":  "failed",
+                       "error":  "Word accepted listValue differs for Bullet Untouched Tail: expected=2, actual=1"
+                   },
+                   {
+                       "case":  "list-edit-bullet-range",
+                       "view":  "rejected",
+                       "status":  "failed",
+                       "error":  "Word rejected listType differs for Bullet Root A: expected=4, actual=2"
+                   }
+               ],
+    "renders":  [
+
+                ],
+    "renderSkipped":  true,
+    "nativeInsertSkipped":  true,
+    "officeJsTransport":  "External collected packages verified; consult the collector report for transport provenance.",
+    "fixtureManifest":  ".cache/library-review/manifest.json"
+}

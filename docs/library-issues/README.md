@@ -35,3 +35,22 @@ pass. Keep active helper modules until every caller has migrated.
 The fixed boundary cases remain in the consumer compatibility/fidelity gates.
 No library-side patch or consumer reconstruction workaround is part of this
 wrap-up.
+
+## Unpublished source review (2026-09-30)
+
+The local library now contains uncommitted fixes for historical inspection and
+the two original paragraph-boundary defects. The original add-in diagnostic
+cases pass 12 independent Word checks through the consumer's standalone/merge
+path. These are local fixes awaiting release, not fixes in installed 0.8.2.
+The [review report](../validation-reports/2026-09-30-unpublished-library-list-review.md)
+records focused tests, header receipts and index conventions.
+
+Additional upstream concerns found during that review:
+
+- [All-empty list ranges lose source paragraphs on Reject All](2026-09-30-all-empty-list-range-rejection.md): reproduced offline in the local tree.
+- [Public DOCX facade changes unrelated list numbering](2026-09-30-public-facade-list-numbering.md): independent Word failures; identical numbering output in published 0.8.2 proves this predates the new fixes.
+
+The library's proposed `docs/plans/2026-09-30-canonical-list-operations.md`
+addresses the remaining conversion/remapping feature work, but it is not
+implemented. The agentic plan remains open until released fixes and verified
+capabilities enable full canonical migration.
