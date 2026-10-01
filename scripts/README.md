@@ -61,7 +61,9 @@ localized edits, full-paragraph rewrite, localized text in a Word-authored
 nested list, localized text in an existing table, and a comment in a
 Word-authored threaded-comment document. Paragraph fixture size defaults to
 100; operation count defaults to 10. The multi-edit fixture has at least as
-many paragraphs as requested operations and caps its size at 1,000.
+many paragraphs as requested operations. The paragraph setting is capped at
+1,000 before this minimum is applied, so a deliberately larger operation count
+can create a larger multi-edit fixture.
 
 The benchmark uses two warmups and ten measured samples per phase by default.
 It reports raw samples, median and nearest-rank p95 with machine, runtime,
@@ -74,14 +76,13 @@ not peak-memory measurements. There is no default pass/fail timing threshold.
 
 Override workloads with `DOCX_BENCH_PARAGRAPHS`,
 `DOCX_BENCH_OPERATIONS`, `DOCX_BENCH_WARMUPS` (zero allowed) and
-`DOCX_BENCH_ITERATIONS` (positive integers). Save a full report to an existing
-directory:
+`DOCX_BENCH_ITERATIONS` (positive integers). Save a full report:
 
 ```powershell
 npm run benchmark:ooxml -- --output=.cache/ooxml-performance/report.json
 ```
 
-Create the directory first. Compare runs only when workload and environment
+The runner creates the parent directory. Compare runs only when workload and environment
 match. The measurements do not establish Word round-trip latency or a universal
 performance guarantee.
 

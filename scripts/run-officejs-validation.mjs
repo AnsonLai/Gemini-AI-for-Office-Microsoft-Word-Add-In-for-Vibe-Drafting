@@ -65,20 +65,25 @@ const server = createServer({ cert, key }, async (request, response) => {
         if (path.startsWith('/source/') && testCase) {
             response.end(readFileSync(resolve(sourceDirectory, testCase.source)).toString('base64')); return;
         }
-        if ((path.startsWith('/artifact/') && testCase || path === '/result') && request.method === 'POST') {
+        if (((path.startsWith('/artifact/') || path.startsWith('/prepared-source/')) && testCase || path === '/result') && request.method === 'POST') {
             const parts = []; let size = 0;
             for await (const part of request) { size += part.length; if (size > 20 * 1024 * 1024) throw new Error('Artifact too large'); parts.push(part); }
             const payload = Buffer.concat(parts);
             if (path === '/result') {
                 const result = JSON.parse(payload.toString('utf8'));
+                if (result.status === 'passed' && cases.some(c => c.usesPreparedSource && !existsSync(join(directory, `${c.name}-prepared-source.docx`)))) {
+                    throw new Error('Passing host result is missing a prepared source package');
+                }
                 writeFileSync(join(directory, 'officejs-report.json'), JSON.stringify({ ...result, startedAt, checkedAt: new Date().toISOString() }, null, 2));
                 if (result.status === 'passed') {
                     writeFileSync(join(directory, 'officejs-fixtures.json'), JSON.stringify({ cases: cases.map(c => ({ ...c,
-                        source: resolve(sourceDirectory, c.source), accepted: resolve(sourceDirectory, c.accepted),
-                        rejected: resolve(sourceDirectory, c.rejected), tracked: `${c.name}-officejs.docx` })), controls: [] }, null, 2));
+                        source: c.usesPreparedSource ? join(directory, `${c.name}-prepared-source.docx`) : resolve(sourceDirectory, c.source),
+                        ...(c.accepted ? { accepted: resolve(sourceDirectory, c.accepted) } : {}),
+                        ...(c.rejected ? { rejected: resolve(sourceDirectory, c.rejected) } : {}),
+                        tracked: `${c.name}-officejs.docx` })), controls: [] }, null, 2));
                 }
                 console.log(`Office.js result: ${result.status}`);
-            } else writeFileSync(join(directory, `${testCase.name}-officejs.docx`), payload);
+            } else writeFileSync(join(directory, `${testCase.name}-${path.startsWith('/prepared-source/') ? 'prepared-source' : 'officejs'}.docx`), payload);
             response.end('ok'); return;
         }
         const file = resolve(distDirectory, '.' + path);

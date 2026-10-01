@@ -55,24 +55,127 @@ async function runBatch(operations) {
             errorCode: result.error?.code, reads, writes, timing: timing.snapshot() };
     });
 }
-async function runProductionListInsertion(request) {
+function getChangeTrackingMode(name) {
+    if (name === 'off') return Word.ChangeTrackingMode.off;
+    if (name === 'trackAll') return Word.ChangeTrackingMode.trackAll;
+    throw new Error(`Unsupported test change-tracking mode: ${name}`);
+}
+function describeChangeTrackingMode(mode) {
+    if (mode === Word.ChangeTrackingMode.off) return 'off';
+    if (mode === Word.ChangeTrackingMode.trackAll) return 'trackAll';
+    return String(mode);
+}
+async function prepareProductionSource(testCase) {
+    const preparation = testCase.sourcePreparation || [];
+    if (!preparation.length) return [];
+    return Word.run(async context => {
+        const paragraphs = context.document.body.paragraphs;
+        paragraphs.load('items/text');
+        await context.sync();
+        const applied = [];
+        for (const step of preparation) {
+            const matches = paragraphs.items.filter(paragraph => String(paragraph.text || '').replace(/[\r\n]+$/, '') === step.paragraphText);
+            assert(matches.length === 1, `Source preparation target must be unique: ${step.paragraphText}`);
+            const paragraph = matches[0];
+            if (step.type === 'list-level') {
+                paragraph.load('listItem');
+                await context.sync();
+                assert(paragraph.listItem && !paragraph.listItem.isNullObject, `Expected list item for ${step.paragraphText}`);
+                paragraph.listItem.level = step.level;
+                await context.sync();
+            } else if (step.type === 'list-numbering') {
+                paragraph.load('list');
+                await context.sync();
+                const numbering = Word.ListNumbering[step.numbering];
+                assert(numbering, `Unknown Word list numbering style: ${step.numbering}`);
+                paragraph.list.setLevelNumbering(step.level, numbering);
+                await context.sync();
+            } else {
+                throw new Error(`Unsupported production fixture preparation: ${step.type}`);
+            }
+            applied.push({ type: step.type, paragraphText: step.paragraphText, level: step.level, numbering: step.numbering });
+        }
+        return applied;
+    });
+}
+async function runProductionListInsertion(request, productionOptions = {}) {
     let reads = 0, writes = 0;
+    const nativeParagraphInserts = [];
+    const nativeListLevelWrites = [];
     const timing = createTimingSamples();
     const nativeRun = Word.run;
+    if (productionOptions.priorTrackingMode) {
+        const desired = getChangeTrackingMode(productionOptions.priorTrackingMode);
+        await nativeRun.call(Word, async context => {
+            context.document.changeTrackingMode = desired;
+            await context.sync();
+        });
+    }
+    const trackingModeBefore = await nativeRun.call(Word, async context => {
+        context.document.load('changeTrackingMode');
+        await context.sync();
+        return describeChangeTrackingMode(context.document.changeTrackingMode);
+    });
+    const trackingTransitions = [];
+    const instrumentParagraph = paragraph => new Proxy(paragraph, {
+        get(target, property) {
+            if (property === 'insertParagraph') {
+                return (...args) => {
+                    nativeParagraphInserts.push({ text: args[0], location: args[1] });
+                    return instrumentParagraph(target.insertParagraph(...args));
+                };
+            }
+            if (property === 'listItem') {
+                const listItem = Reflect.get(target, property, target);
+                return new Proxy(listItem, {
+                    set(item, key, value) {
+                        if (key === 'level') nativeListLevelWrites.push(value);
+                        return Reflect.set(item, key, value, item);
+                    }
+                });
+            }
+            const value = Reflect.get(target, property, target);
+            return typeof value === 'function' ? value.bind(target) : value;
+        },
+        set(target, property, value) { return Reflect.set(target, property, value, target); }
+    });
+    const instrumentParagraphCollection = paragraphs => new Proxy(paragraphs, {
+        get(target, property) {
+            if (property === 'items') {
+                const items = Reflect.get(target, property, target);
+                return new Proxy(items, {
+                    get(collection, index) {
+                        const item = Reflect.get(collection, index, collection);
+                        return typeof index === 'string' && /^\d+$/.test(index) ? instrumentParagraph(item) : item;
+                    }
+                });
+            }
+            const value = Reflect.get(target, property, target);
+            return typeof value === 'function' ? value.bind(target) : value;
+        }
+    });
     initAgenticTools({
-        getRequestSignal: () => null, loadRedlineSetting: () => true,
+        getRequestSignal: () => null, loadRedlineSetting: () => productionOptions.redlineEnabled !== false,
         loadRedlineAuthor: () => 'WP6 reviewer',
-        setChangeTrackingForAi: async context => {
-            context.document.load('changeTrackingMode');
+        setChangeTrackingForAi: async (context, redlineEnabled) => {
+            const document = context.document;
+            document.load('changeTrackingMode');
             await context.sync();
-            const mode = context.document.changeTrackingMode;
-            context.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
-            await context.sync();
-            return { mode };
+            const originalMode = document.changeTrackingMode;
+            const desiredMode = redlineEnabled ? Word.ChangeTrackingMode.trackAll : Word.ChangeTrackingMode.off;
+            const changed = originalMode !== desiredMode;
+            if (changed) {
+                document.changeTrackingMode = desiredMode;
+                await context.sync();
+            }
+            trackingTransitions.push({ phase: 'set', redlineEnabled, from: describeChangeTrackingMode(originalMode), to: describeChangeTrackingMode(desiredMode), changed });
+            return { available: true, originalMode, changed };
         },
         restoreChangeTracking: async (context, state) => {
-            context.document.changeTrackingMode = state.mode;
+            if (!state?.available || !state.changed || state.originalMode === null) return;
+            context.document.changeTrackingMode = state.originalMode;
             await context.sync();
+            trackingTransitions.push({ phase: 'restore', to: describeChangeTrackingMode(state.originalMode) });
         }
     });
     try {
@@ -113,7 +216,7 @@ async function runProductionListInsertion(request) {
                 load: properties => documentProxy.load(properties),
                 get changeTrackingMode() { return documentProxy.changeTrackingMode; },
                 set changeTrackingMode(value) { documentProxy.changeTrackingMode = value; },
-                body: { paragraphs: body.paragraphs,
+                body: { paragraphs: instrumentParagraphCollection(body.paragraphs),
                     getOoxml() {
                         reads++;
                         adapterStartedAt = now();
@@ -136,8 +239,25 @@ async function runProductionListInsertion(request) {
         const toolStartedAt = performance.now();
         const result = await executeInsertListItem(request.afterParagraphIndex, request.text, request.indentLevel, sourceBaseline);
         timing.record({ phase: 'agenticToolTotal', durationMs: performance.now() - toolStartedAt });
+        const trackingModeAfter = await nativeRun.call(Word, async context => {
+            context.document.load('changeTrackingMode');
+            await context.sync();
+            return describeChangeTrackingMode(context.document.changeTrackingMode);
+        });
+        const route = nativeParagraphInserts.length ? 'native' : writes ? 'canonical' : 'none';
+        if (productionOptions.expectedRoute) assert(route === productionOptions.expectedRoute,
+            `Expected ${productionOptions.expectedRoute} insertion route, observed ${route}`);
+        if (productionOptions.expectedParagraphInsertCalls != null) assert(nativeParagraphInserts.length === productionOptions.expectedParagraphInsertCalls,
+            `Expected ${productionOptions.expectedParagraphInsertCalls} native paragraph inserts, got ${nativeParagraphInserts.length}`);
+        if (productionOptions.expectedBodyInsertCalls != null) assert(writes === productionOptions.expectedBodyInsertCalls,
+            `Expected ${productionOptions.expectedBodyInsertCalls} OOXML body inserts, got ${writes}`);
+        if (productionOptions.expectedListLevel != null) assert(nativeListLevelWrites.at(-1) === productionOptions.expectedListLevel,
+            `Expected native list level ${productionOptions.expectedListLevel}, got ${nativeListLevelWrites.at(-1)}`);
+        if (productionOptions.expectedTrackingModeAfter) assert(trackingModeAfter === productionOptions.expectedTrackingModeAfter,
+            `Expected restored change-tracking mode ${productionOptions.expectedTrackingModeAfter}, got ${trackingModeAfter}`);
         return { status: result.status, written: result.written, writeAttempted: result.writeAttempted,
             mutationOutcome: result.mutationOutcome, errorCode: result.error?.code, reads, writes,
+            route, nativeParagraphInserts, nativeListLevelWrites, trackingModeBefore, trackingModeAfter, trackingTransitions,
             timing: timing.snapshot() };
     } finally { Word.run = nativeRun; }
 }
@@ -158,6 +278,11 @@ Office.onReady(async info => {
                 context.document.body.insertFileFromBase64(fixture, Word.InsertLocation.replace);
                 await context.sync();
             });
+            const sourcePreparation = await prepareProductionSource(testCase);
+            if (testCase.usesPreparedSource) {
+                assert(sourcePreparation.length > 0, `${testCase.name}: prepared source was declared but no preparation ran`);
+                await post(`/prepared-source/${testCase.name}`, await exportDocx(), 'application/octet-stream');
+            }
             if (testCase.name === 'word-addin-plain-replacement') {
                 const stale = await Word.run(async context => {
                     const body = context.document.body;
@@ -189,13 +314,21 @@ Office.onReady(async info => {
                 checks.push({ case: testCase.name, view: 'unchanged-paragraph', ...unchanged });
             }
             const applied = testCase.agenticRequest?.tool === 'insert_list_item'
-                ? await runProductionListInsertion(testCase.agenticRequest)
+                ? await runProductionListInsertion(testCase.agenticRequest, testCase.productionInsert)
                 : await runBatch(testCase.agenticRequest
                     ? source => planAgenticListOperations(source, testCase.agenticRequest)
                     : testCase.nativeOperations);
-            assert(applied.status === 'ok' && applied.written && applied.reads === 1 && applied.writes === 1,
-                `${testCase.name}: expected one successful read/write`);
-            checks.push({ case: testCase.name, view: 'actual-officejs-insertion', ...applied });
+            if (testCase.productionInsert?.expectedRoute === 'native') {
+                assert(applied.status === 'ok' && applied.written && applied.reads === 1,
+                    `${testCase.name}: expected one successful source read and native mutation: ${JSON.stringify(applied)}`);
+                assert(applied.route === 'native' && applied.writes === 0 && applied.nativeParagraphInserts.length === 1,
+                    `${testCase.name}: expected one native paragraph insert and no OOXML body write`);
+                checks.push({ case: testCase.name, view: 'actual-officejs-native-insertion', ...applied });
+            } else {
+                assert(applied.status === 'ok' && applied.written && applied.reads === 1 && applied.writes === 1,
+                    `${testCase.name}: expected one successful read/write: ${JSON.stringify(applied)}`);
+                checks.push({ case: testCase.name, view: 'actual-officejs-insertion', ...applied });
+            }
             const noOp = await runBatch([]);
             assert(!noOp.written && noOp.reads === 1 && noOp.writes === 0, 'No-op inserted into Word');
             checks.push({ case: testCase.name, view: 'no-op', ...noOp });

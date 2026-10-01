@@ -105,10 +105,18 @@ write.
 Canonical `insert_list_item` migration is intentionally limited to the tested
 active bullet/decimal subset and its required anchors, levels and tracking mode.
 Other levels or numbering formats, tracking-off requests and unsupported
-anchors stay on native Word paths. Passing production invocation tests for
-those paths is not itself live Word fidelity evidence. The active migration
-plan remains open until the remaining canonical paths are enabled by library
-capability and fidelity fixes.
+anchors stay on native Word paths. Five native fallback cases pass actual
+Office.js (20 checks) and independent desktop Word (20 checks) on Word
+16.0.20430.20092: deep `+1` insertion, source-level-2 outdent, UpperRoman
+insertion, lowerRoman insertion, and insertion with redlining disabled while
+restoring prior `TrackAll`. This is evidence for those five cases on that host;
+the 20 independent checks cover source, tracked, accepted and rejected views.
+Five engine-reference views are marked not applicable for these native routes,
+not counted as passes. This does not migrate them to canonical OOXML or cover
+every list shape. The active migration plan remains open until the remaining
+canonical paths are enabled by library capability and fidelity fixes. See the
+[Office.js report](docs/validation-reports/2026-09-30-agentic-native-list-officejs.json)
+and [independent Word report](docs/validation-reports/2026-09-30-agentic-native-list-word.json).
 
 The pinned 0.8.2 reports document these open constraints:
 

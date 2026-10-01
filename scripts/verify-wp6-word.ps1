@@ -106,10 +106,13 @@ function Check-Document($case, [string]$file, [string]$view, [bool]$render, [boo
             }
         }
         if ($view -eq 'tracked' -and $case.expectedMinimumBodyRevisions -and $document.Revisions.Count -lt [int]$case.expectedMinimumBodyRevisions) { throw 'Word did not recognize the expected body revision markup.' }
+        if ($view -eq 'tracked' -and $null -ne $case.expectedExactBodyRevisions -and $document.Revisions.Count -ne [int]$case.expectedExactBodyRevisions) {
+            throw "Expected exactly $($case.expectedExactBodyRevisions) body revisions, Word sees $($document.Revisions.Count)."
+        }
         if ($view -eq 'accepted') { $document.AcceptAllRevisions() }
         if ($view -eq 'rejected') { $document.RejectAllRevisions() }
         $actual = Normalize-WordText ([string]$document.Content.Text)
-        $expected = if ($view -eq 'rejected' -or $view -eq 'source') { $case.expectedRejectedText } else { $case.expectedAcceptedText }
+        $expected = if ($view -eq 'source' -and $case.expectedSourceText) { $case.expectedSourceText } elseif ($view -eq 'rejected') { $case.expectedRejectedText } elseif ($view -eq 'source') { $case.expectedRejectedText } else { $case.expectedAcceptedText }
         if ($view -ne 'tracked' -and $actual -cne $expected) {
             throw "Word $view text differs. Expected=$($expected | ConvertTo-Json -Compress); actual=$($actual | ConvertTo-Json -Compress)"
         }
@@ -284,9 +287,19 @@ try {
         foreach ($view in @('tracked', 'accepted', 'rejected')) {
             Check-Document $case (Resolve-FixturePath $case.tracked) $view $true
         }
-        # Also open the engine-resolved package independently of Word's own resolution.
-        Check-Document $case (Resolve-FixturePath $case.accepted) 'accepted' $false $true
-        Check-Document $case (Resolve-FixturePath $case.rejected) 'rejected' $false $true
+        # Canonical engine fixtures include separately resolved packages. Native
+        # production-operation manifests instead use Word's independent Accept/
+        # Reject views above and explicitly omit those engine reference packages.
+        if ($case.expectedEngineReferencePackages -eq $false) {
+            $checks.Add([pscustomobject]@{ case = $case.name; view = 'engine-reference-packages'; status = 'not-applicable'; reason = 'Native Word operation is independently resolved from its tracked export.' })
+        } elseif ($case.accepted -and $case.rejected -and
+            (Test-Path -LiteralPath (Resolve-FixturePath $case.accepted)) -and
+            (Test-Path -LiteralPath (Resolve-FixturePath $case.rejected))) {
+            Check-Document $case (Resolve-FixturePath $case.accepted) 'accepted' $false $true
+            Check-Document $case (Resolve-FixturePath $case.rejected) 'rejected' $false $true
+        } else {
+            throw "Case $($case.name) must provide engine accepted/rejected references or explicitly set expectedEngineReferencePackages=false."
+        }
         if ($case.insertionXml -and -not $SkipNativeInsert) {
             $document = $null
             $nativePath = $null

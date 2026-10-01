@@ -1,6 +1,7 @@
 # Browser Demo
 
-No-build browser demo for the standalone OOXML reconciliation engine.
+No-build browser demo using the repository's pinned `@ansonlai/docx-redline-js@0.8.2`
+package and public DOCX facade.
 
 It demonstrates end-to-end `.docx` mutation in the browser, including text redlines, formatting, list/table transforms, comments, and highlights.
 It also renders a live side-by-side preview using `docxjs` so tracked changes can be reviewed immediately.
@@ -76,11 +77,13 @@ markers such as `DEMO_TEXT_TARGET` remain accepted aliases.
 - `demo.html`: static UI and import map to the library's published browser bundle.
 - `demo.js`: file selection, model prompts, preview and download UI.
 - `document-session.js`: public `openDocx` document lifecycle, immutable batch targets and atomic mutation.
-- JSZip remains a preview dependency of `docx-preview`; document editing and save use the library facade.
+- JSZip remains a preview dependency of `docx-preview`; document editing and save use the library facade. The import map resolves the package from the root `node_modules` directory, while `docx-preview` is loaded from its pinned CDN URL.
 
-Serve the repository root, then open `http://localhost:8000/browser-demo/demo.html`:
+Install root dependencies, serve the repository root, then open
+`http://localhost:8000/browser-demo/demo.html`:
 
 ```powershell
+npm install
 python -m http.server 8000 --bind 127.0.0.1
 ```
 
@@ -115,7 +118,9 @@ Kitchen-sink mode also uses the document lifecycle for marker seeding and its op
 
 The browser preview is not a Word fidelity oracle. List capability gaps and separately reproduced Reject All defects remain in the [agentic list plan](../docs/plans/2026-08-29-agentic-tools-and-list-reliability.md). This migration does not certify additional list shapes.
 
-Offline tests cover session open/inspect, localized edits, direct edits, comment preservation, atomic failure and serialize/reopen. The local browser validation page at `http://localhost:8000/scripts/browser-document-validation.html` exercises the same session in a real browser without a model request. Cross-host parity compares semantic outcomes and preserved parts with MCP and Word preparation.
+Offline tests cover session open/inspect, localized edits, direct edits, comment preservation, atomic failure and serialize/reopen. The local browser validation page at `http://localhost:8000/scripts/browser-document-validation.html` exercises the same session in a real Chromium browser without a model request. Its seven grouped checks cover Word-authored source inspection, tracked edit and serialize/reopen, preserved package parts, Accept All/Reject All, mixed-batch rollback, direct mode preserving another author's revisions, and comment insertion with an existing thread.
+
+Cross-host parity compares semantic outcomes and preserved parts through browser, MCP and the production Word adapter with mocked Word transport. It does not substitute for the actual Office.js collector or independent desktop Word oracle. The browser preview and browser pass report are not evidence of Word rendering, native list behavior or whole-document Office.js transport.
 
 See [consumer package boundaries](../docs/package-boundaries.md) for host responsibilities. Whole-document Word binary transport remains deferred.
 

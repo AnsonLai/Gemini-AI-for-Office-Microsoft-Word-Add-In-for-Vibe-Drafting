@@ -51,6 +51,10 @@ The current live-validation state is recorded in the
 [agentic validation report](docs/validation-reports/2026-09-30-agentic-tools-and-list-reliability.md);
 passing those live gates alone will not close the full migration.
 
+The latest native matrix passes five cases: 20 actual Office.js checks and 20
+independent Word source/tracked/Accept All/Reject All checks. The offline
+aggregate passes 50 suites, zero failures, with four excluded entrypoints.
+
 Four separately reported library follow-ups remain:
 
 - [Reject All after plain insertion leaves an empty paragraph](docs/library-issues/2026-09-30-list-insertion-rejection.md) — independently confirmed in Word.

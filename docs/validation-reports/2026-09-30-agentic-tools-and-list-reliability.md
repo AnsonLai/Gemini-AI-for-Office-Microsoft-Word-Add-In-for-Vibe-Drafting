@@ -68,9 +68,54 @@ node scripts/run-officejs-validation.mjs --artifacts-dir .cache/reliability/agen
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-wp6-word.ps1 -FixtureManifest .cache/reliability/agentic-list-wp3-officejs/officejs-fixtures.json -ArtifactsDir .cache/reliability/agentic-list-wp3-officejs-word -SkipNativeInsert
 ```
 
+### Native production follow-up and documentation consolidation
+
+Five additional production `insert_list_item` cases pass **20 actual Office.js
+checks** and **20 independent Word checks**: a deeper resolved bullet level,
+outdent from a deeper source, upper Roman numbering, lower Roman numbering,
+and tracking disabled with the prior TrackAll mode restored. Host is Word
+`16.0.20430.20092` (PC). [Office.js report](2026-09-30-agentic-native-list-officejs.json),
+[independent Word report](2026-09-30-agentic-native-list-word.json).
+
+The collector forwards calls to genuine Word proxies and records exactly one
+native paragraph insertion and zero body OOXML insertions for each case.
+Deep/Roman source preparation runs in Word with tracking off, and the resulting
+source package is exported before mutation. Independent Word checks the frozen
+source, tracked output, Accept All and Reject All against explicit text/list
+expectations and the untouched bold sentinel. The direct insertion has exactly
+zero body revisions and remains after Reject All. Five engine-reference-package
+entries are explicitly not applicable; these native operations have no engine
+reference output and those entries are not counted as passes.
+
+The first oracle run exposed incorrect fixture expectations for Roman labels:
+`setLevelNumbering` uses labels without a trailing period. The corrected
+expectations were applied to the manifest while preserving the frozen source
+and output packages. That first run reached the default timeout; the completed
+rerun used a bounded 360 seconds. No production or library code changed.
+
+```powershell
+node tests/agentic_list_native_fallback_manifest_tests.mjs --export-dir .cache/reliability/agentic-list-native-final
+npx webpack --mode development --env WORD_HOST_VALIDATION=1
+node scripts/run-officejs-validation.mjs --fixture-manifest .cache/reliability/agentic-list-native-final/manifest.json --artifacts-dir .cache/reliability/agentic-list-native-final-officejs --launch
+# After collecting success, stop the collector and remove its registration:
+node scripts/run-officejs-validation.mjs --artifacts-dir .cache/reliability/agentic-list-native-final-officejs --cleanup
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-wp6-word.ps1 -FixtureManifest .cache/reliability/agentic-list-native-final-officejs/officejs-fixtures.json -ArtifactsDir .cache/reliability/agentic-list-native-final-word -SkipNativeInsert -TimeoutSeconds 360
+```
+
+The final offline aggregate passes **50 suites, zero failures, four excluded
+entrypoints**, with historical version skips and known library defects reported
+separately. The validation build passes. The collector stopped and its temporary
+registration was removed; no paid provider requests or PDF exports ran.
+
+Luna agents refreshed the README, plan indexes, roadmap, specification, state,
+summary, architecture and runtime guides. The independent documentation audit
+found no broken local links across 13 reviewed files. Checkpoints `4320a66` and
+`e304f90` preserve the upstream closure requirements and documentation refresh.
+The plan stays open until library fixes enable full canonical migration.
+
 ### Remaining work
 
 1. Consumer validation and stale-context guard committed as `7e44b5d`; actual Office.js and independent Word evidence now pass.
 2. Supported source/engine/Office.js Word validation and aggregate tests/builds pass; this checkpoint preserves the verified production insertion subset and evidence.
 3. Resolve the separately recorded library defects/capability gaps, then rerun the diagnostic manifest expecting full source restoration.
-4. Expand deep-level/other-style/tracking-off Word coverage before routing those paths, and finish the remaining list migrations.
+4. Finish the remaining canonical list migrations after the upstream release; add live cases for newly enabled shapes before expanding routing. The five native cases above now have live evidence.

@@ -19,7 +19,9 @@ Gemini AI for Office is the ultimate writing companion, designed to help you dra
 ## Key Features
 
 ### Bring Your Own Key (BYOK)
-Connect your personal Google AI Studio key directly. This ensures complete privacy and allows you to pay Google directly for usage (or utilize their free tier) without the massive middleman markups.
+Connect your Google AI Studio key and pay Google directly for API usage. The
+key is stored in browser `localStorage`, and document context sent with a
+request is processed by Google's API; see [Security Notes](#security-notes).
 
 ### AI Chat Assistant
 Chat naturally with your document. Ask for summaries, clarifications, or rewrites using the latest Gemini models from Google.
@@ -308,7 +310,7 @@ node scripts/run-officejs-validation.mjs --fixture-manifest .cache/reliability/a
 
 The last command opens a disposable Word validation document using existing local development certificates. After the collector reports success, independently verify its exports using `-FixtureManifest .cache/agentic-tools/list-officejs/officejs-fixtures.json`; stop the collector and remove its temporary registration with `node scripts/run-officejs-validation.mjs --artifacts-dir .cache/agentic-tools/list-officejs --cleanup`.
 
-The exporter also writes `known-defects-manifest.json`. Its Reject All failures for [plain-anchor insertion](docs/library-issues/2026-09-30-list-insertion-rejection.md) and [list-range replacement](docs/library-issues/2026-09-30-list-range-rejection.md) are separate known-library diagnostics, not passing cases. Canonical list migration remains open while these defects and capability gaps are unresolved. Deeper-level, alternate numbering-style and tracking-off cases have production invocation coverage; their live Word fidelity is still being validated. See the [execution report](docs/validation-reports/2026-09-30-agentic-tools-and-list-reliability.md) and [active plan](docs/plans/2026-08-29-agentic-tools-and-list-reliability.md) for current evidence. Passing native fallback checks do not complete the canonical migration.
+The exporter also writes `known-defects-manifest.json`. Its Reject All failures for [plain-anchor insertion](docs/library-issues/2026-09-30-list-insertion-rejection.md) and [list-range replacement](docs/library-issues/2026-09-30-list-range-rejection.md) are separate known-library diagnostics, not passing cases. Canonical list migration remains open while these defects and capability gaps are unresolved. Five native fallback cases now pass both the actual Office.js lane (20 checks) and independent Word verification (20 applicable source/tracked/accepted/rejected checks) on Word 16.0.20430.20092: deep `+1` insertion, source-level-2 outdent, UpperRoman insertion, lowerRoman insertion, and insertion with redlining disabled while restoring prior `TrackAll`. The oracle marks the five engine-reference views not applicable for these native-only routes; they are not counted as passes. This verifies those cases on that host; it does not migrate them to canonical OOXML or establish every native list configuration. See the [Office.js report](docs/validation-reports/2026-09-30-agentic-native-list-officejs.json), [Word oracle report](docs/validation-reports/2026-09-30-agentic-native-list-word.json), [execution report](docs/validation-reports/2026-09-30-agentic-tools-and-list-reliability.md) and [active plan](docs/plans/2026-08-29-agentic-tools-and-list-reliability.md) for current evidence. Passing native fallback checks do not complete the canonical migration.
 
 ### Portable preparation and browser document sessions
 

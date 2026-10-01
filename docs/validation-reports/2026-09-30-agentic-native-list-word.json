@@ -1,0 +1,184 @@
+﻿{
+    "checkedAt":  "2026-10-01T04:25:15.3897284Z",
+    "wordVersion":  "16.0",
+    "wordBuild":  "16.0.20430",
+    "checks":  [
+                   {
+                       "case":  "native-insert-deeper-resolved-level",
+                       "view":  "source",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "native-insert-deeper-resolved-level",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  2
+                   },
+                   {
+                       "case":  "native-insert-deeper-resolved-level",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "native-insert-deeper-resolved-level",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "native-insert-deeper-resolved-level",
+                       "view":  "engine-reference-packages",
+                       "status":  "not-applicable",
+                       "reason":  "Native Word operation is independently resolved from its tracked export."
+                   },
+                   {
+                       "case":  "native-insert-outdent-from-deep-source",
+                       "view":  "source",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "native-insert-outdent-from-deep-source",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  2
+                   },
+                   {
+                       "case":  "native-insert-outdent-from-deep-source",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "native-insert-outdent-from-deep-source",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "native-insert-outdent-from-deep-source",
+                       "view":  "engine-reference-packages",
+                       "status":  "not-applicable",
+                       "reason":  "Native Word operation is independently resolved from its tracked export."
+                   },
+                   {
+                       "case":  "native-insert-upper-roman-numbering",
+                       "view":  "source",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "native-insert-upper-roman-numbering",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  1
+                   },
+                   {
+                       "case":  "native-insert-upper-roman-numbering",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "native-insert-upper-roman-numbering",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "native-insert-upper-roman-numbering",
+                       "view":  "engine-reference-packages",
+                       "status":  "not-applicable",
+                       "reason":  "Native Word operation is independently resolved from its tracked export."
+                   },
+                   {
+                       "case":  "native-insert-lower-roman-numbering",
+                       "view":  "source",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "native-insert-lower-roman-numbering",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  1
+                   },
+                   {
+                       "case":  "native-insert-lower-roman-numbering",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "native-insert-lower-roman-numbering",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "native-insert-lower-roman-numbering",
+                       "view":  "engine-reference-packages",
+                       "status":  "not-applicable",
+                       "reason":  "Native Word operation is independently resolved from its tracked export."
+                   },
+                   {
+                       "case":  "native-insert-tracking-disabled-restores-mode",
+                       "view":  "source",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "native-insert-tracking-disabled-restores-mode",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "native-insert-tracking-disabled-restores-mode",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "native-insert-tracking-disabled-restores-mode",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "native-insert-tracking-disabled-restores-mode",
+                       "view":  "engine-reference-packages",
+                       "status":  "not-applicable",
+                       "reason":  "Native Word operation is independently resolved from its tracked export."
+                   }
+               ],
+    "renders":  [
+
+                ],
+    "renderSkipped":  true,
+    "nativeInsertSkipped":  true,
+    "officeJsTransport":  "External collected packages verified; consult the collector report for transport provenance.",
+    "fixtureManifest":  ".cache/reliability/agentic-list-native-final-officejs/officejs-fixtures.json"
+}

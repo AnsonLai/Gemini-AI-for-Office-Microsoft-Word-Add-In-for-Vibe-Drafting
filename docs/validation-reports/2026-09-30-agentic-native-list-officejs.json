@@ -1,0 +1,482 @@
+{
+  "status": "passed",
+  "host": {
+    "host": "Word",
+    "platform": "PC",
+    "addin": null
+  },
+  "diagnostics": {
+    "host": "Word",
+    "version": "16.0.20430.20092",
+    "platform": "PC"
+  },
+  "checks": [
+    {
+      "case": "native-insert-deeper-resolved-level",
+      "view": "actual-officejs-native-insertion",
+      "status": "ok",
+      "written": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 0,
+      "route": "native",
+      "nativeParagraphInserts": [
+        {
+          "text": "Native insertion at requested deep bullet level",
+          "location": "After"
+        }
+      ],
+      "nativeListLevelWrites": [
+        2
+      ],
+      "trackingModeBefore": "off",
+      "trackingModeAfter": "off",
+      "trackingTransitions": [
+        {
+          "phase": "set",
+          "redlineEnabled": true,
+          "from": "off",
+          "to": "trackAll",
+          "changed": true
+        },
+        {
+          "phase": "restore",
+          "to": "off"
+        }
+      ],
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 32.70000000298023,
+        "agenticToolTotal": 254
+      }
+    },
+    {
+      "case": "native-insert-deeper-resolved-level",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 20.099999994039536,
+        "portablePreparation": 5.299999997019768,
+        "adapterTotal": 25.599999994039536
+      }
+    },
+    {
+      "case": "native-insert-deeper-resolved-level",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 17,
+        "portablePreparation": 7.700000002980232,
+        "adapterTotal": 24.700000002980232
+      }
+    },
+    {
+      "case": "native-insert-deeper-resolved-level",
+      "view": "mixed-batch-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 18.799999997019768,
+        "portablePreparation": 14.200000002980232,
+        "adapterTotal": 33
+      }
+    },
+    {
+      "case": "native-insert-outdent-from-deep-source",
+      "view": "actual-officejs-native-insertion",
+      "status": "ok",
+      "written": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 0,
+      "route": "native",
+      "nativeParagraphInserts": [
+        {
+          "text": "Native insertion outdented from deep bullet source",
+          "location": "After"
+        }
+      ],
+      "nativeListLevelWrites": [
+        1
+      ],
+      "trackingModeBefore": "off",
+      "trackingModeAfter": "off",
+      "trackingTransitions": [
+        {
+          "phase": "set",
+          "redlineEnabled": true,
+          "from": "off",
+          "to": "trackAll",
+          "changed": true
+        },
+        {
+          "phase": "restore",
+          "to": "off"
+        }
+      ],
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 31.69999998807907,
+        "agenticToolTotal": 467.6000000089407
+      }
+    },
+    {
+      "case": "native-insert-outdent-from-deep-source",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 53.20000000298023,
+        "portablePreparation": 7.0999999940395355,
+        "adapterTotal": 60.29999999701977
+      }
+    },
+    {
+      "case": "native-insert-outdent-from-deep-source",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 39.900000005960464,
+        "portablePreparation": 8.799999997019768,
+        "adapterTotal": 48.79999999701977
+      }
+    },
+    {
+      "case": "native-insert-outdent-from-deep-source",
+      "view": "mixed-batch-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 80.5,
+        "portablePreparation": 10.100000008940697,
+        "adapterTotal": 90.70000000298023
+      }
+    },
+    {
+      "case": "native-insert-upper-roman-numbering",
+      "view": "actual-officejs-native-insertion",
+      "status": "ok",
+      "written": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 0,
+      "route": "native",
+      "nativeParagraphInserts": [
+        {
+          "text": "Native insertion into upper Roman list",
+          "location": "After"
+        }
+      ],
+      "nativeListLevelWrites": [
+        0
+      ],
+      "trackingModeBefore": "off",
+      "trackingModeAfter": "off",
+      "trackingTransitions": [
+        {
+          "phase": "set",
+          "redlineEnabled": true,
+          "from": "off",
+          "to": "trackAll",
+          "changed": true
+        },
+        {
+          "phase": "restore",
+          "to": "off"
+        }
+      ],
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 228.40000000596046,
+        "agenticToolTotal": 1150.7000000029802
+      }
+    },
+    {
+      "case": "native-insert-upper-roman-numbering",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 69.40000000596046,
+        "portablePreparation": 6.899999991059303,
+        "adapterTotal": 76.29999999701977
+      }
+    },
+    {
+      "case": "native-insert-upper-roman-numbering",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 140.70000000298023,
+        "portablePreparation": 7.9000000059604645,
+        "adapterTotal": 148.70000000298023
+      }
+    },
+    {
+      "case": "native-insert-upper-roman-numbering",
+      "view": "mixed-batch-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 195.5,
+        "portablePreparation": 9.700000002980232,
+        "adapterTotal": 205.20000000298023
+      }
+    },
+    {
+      "case": "native-insert-lower-roman-numbering",
+      "view": "actual-officejs-native-insertion",
+      "status": "ok",
+      "written": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 0,
+      "route": "native",
+      "nativeParagraphInserts": [
+        {
+          "text": "Native insertion into lower Roman list",
+          "location": "After"
+        }
+      ],
+      "nativeListLevelWrites": [
+        0
+      ],
+      "trackingModeBefore": "off",
+      "trackingModeAfter": "off",
+      "trackingTransitions": [
+        {
+          "phase": "set",
+          "redlineEnabled": true,
+          "from": "off",
+          "to": "trackAll",
+          "changed": true
+        },
+        {
+          "phase": "restore",
+          "to": "off"
+        }
+      ],
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 244.20000000298023,
+        "agenticToolTotal": 797.2999999970198
+      }
+    },
+    {
+      "case": "native-insert-lower-roman-numbering",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 179.59999999403954,
+        "portablePreparation": 7,
+        "adapterTotal": 186.59999999403954
+      }
+    },
+    {
+      "case": "native-insert-lower-roman-numbering",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 77.20000000298023,
+        "portablePreparation": 7.4000000059604645,
+        "adapterTotal": 84.6000000089407
+      }
+    },
+    {
+      "case": "native-insert-lower-roman-numbering",
+      "view": "mixed-batch-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 223.8999999910593,
+        "portablePreparation": 10.300000011920929,
+        "adapterTotal": 234.20000000298023
+      }
+    },
+    {
+      "case": "native-insert-tracking-disabled-restores-mode",
+      "view": "actual-officejs-native-insertion",
+      "status": "ok",
+      "written": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 0,
+      "route": "native",
+      "nativeParagraphInserts": [
+        {
+          "text": "Native insertion while redlining is disabled",
+          "location": "After"
+        }
+      ],
+      "nativeListLevelWrites": [
+        0
+      ],
+      "trackingModeBefore": "trackAll",
+      "trackingModeAfter": "trackAll",
+      "trackingTransitions": [
+        {
+          "phase": "set",
+          "redlineEnabled": false,
+          "from": "trackAll",
+          "to": "off",
+          "changed": true
+        },
+        {
+          "phase": "restore",
+          "to": "trackAll"
+        }
+      ],
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 454.20000000298023,
+        "agenticToolTotal": 1345
+      }
+    },
+    {
+      "case": "native-insert-tracking-disabled-restores-mode",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 219.5,
+        "portablePreparation": 6.799999997019768,
+        "adapterTotal": 226.29999999701977
+      }
+    },
+    {
+      "case": "native-insert-tracking-disabled-restores-mode",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 78.1000000089407,
+        "portablePreparation": 8,
+        "adapterTotal": 86.1000000089407
+      }
+    },
+    {
+      "case": "native-insert-tracking-disabled-restores-mode",
+      "view": "mixed-batch-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 207.29999999701977,
+        "portablePreparation": 9.900000005960464,
+        "adapterTotal": 217.20000000298023
+      }
+    }
+  ],
+  "startedAt": "2026-10-01T04:15:51.660Z",
+  "checkedAt": "2026-10-01T04:16:59.060Z"
+}

@@ -22,6 +22,10 @@
 - Taskpane optional module loading reduced the measured initial JavaScript
   payload; actual Word validation and the full-size/first-use tradeoff are
   recorded in the performance report.
+- Native list validation now covers deeper insertion/outdent, upper/lower Roman
+  numbering and tracking-off insertion with prior-mode restoration: 20 actual
+  Office.js checks and 20 independent Word checks pass. The final offline
+  aggregate passes 50 suites, zero failures, with four exclusions.
 
 ### Current Open Work
 

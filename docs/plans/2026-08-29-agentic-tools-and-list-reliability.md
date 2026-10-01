@@ -51,7 +51,7 @@ Evidence: `tests/agentic_list_generation_tests.mjs`, `tests/insert_list_item_lev
 - WP3 follow-up: expanded the frozen-source matrix to ten cases, adding bullet root insertion and decimal insertion at continuation/restart anchors. Static packages pass 60 independent Word checks; actual Office.js passes 40 checks across eight production insertion routes and two candidate routes. Export verification is recorded in the execution report.
 - The September upgrade closure was clarified in `1680349`; all of its acceptance criteria remain complete. Current agentic work does not reopen that plan.
 - Package boundaries and performance are complete (`b8f23b9`, `42a62df`). The aggregate now has 49 passing offline suites; that does not certify the remaining native list fidelity gates.
-- Final consumer follow-up is expanding real Word deep-level, alternate-numbering and tracking-off coverage. Documentation consolidation is underway; full canonical migration remains gated on the [separate upstream reports](../library-issues/README.md).
+- Final consumer follow-up passes five native Word cases: deeper insertion, outdent from a deeper source, upper/lower Roman numbering and tracking disabled with prior-mode restoration. Actual Office.js passes 20 checks; independent Word source/tracked/Accept All/Reject All passes 20 checks. Five engine-reference entries are explicitly not applicable and are not counted as passes. Documentation consolidation is complete; full canonical migration remains gated on the [separate upstream reports](../library-issues/README.md). The offline aggregate passes 50 suites, zero failures, with four exclusions.
 
 ### WP1 — Inventory and align actual tool contracts
 
@@ -85,7 +85,7 @@ Separately reported library dependencies:
 
 ### WP3 — Expand independent list and tool validation
 
-**Status: Expanded supported matrix passes; broader acceptance remains open.** Ten supported cases pass 60 independent Word checks. Actual Office.js passes 40 checks, including eight production `insert_list_item` routes, no-op/refusal and mixed-batch zero-write behavior; its exports pass 60 independent Word checks. Two rejected-view defects have a separate diagnostic manifest and failed Word evidence; they are not counted as passing fidelity cases. Tests report these known defects explicitly through `npm test`. Deeper source/resolved levels, Roman-style fallback and tracking-off mode now have deterministic production invocation coverage, including tracking restoration; these additional tests use mocked Word proxies and do not close their live fidelity gates.
+**Status: Expanded supported and native matrices pass; broader acceptance remains open.** Ten supported cases pass 60 independent Word checks. Actual Office.js passes 40 checks, including eight production `insert_list_item` routes, no-op/refusal and mixed-batch zero-write behavior; its exports pass 60 independent Word checks. Two rejected-view defects have a separate diagnostic manifest and failed Word evidence; they are not counted as passing fidelity cases. Tests report these known defects explicitly through `npm test`. Five additional native production cases cover deeper source/resolved levels, upper/lower Roman numbering and tracking-off insertion/restoration: 20 actual Office.js checks and 20 independent Word checks pass. Prepared sources are frozen before mutation; accepted/rejected text, labels, levels, logical list identity and untouched bold formatting are checked independently. These results certify this native subset, not full canonical migration.
 
 - Add Word-authored fixtures for nested bullets/numbering, insertion before/after, continuation/restart and list/plain-paragraph transitions.
 - Assert exact accepted/rejected text, numbering relationships and untargeted formatting offline.
@@ -101,6 +101,6 @@ Separately reported library dependencies:
 - [ ] Nested-list Accept All/Reject All and real Word roundtrips pass.
 - [x] No helper deleted while active callers rely on it.
 
-Current resume order: fix the separately reported library fidelity defects/canonical header capability; upgrade the pinned package once released; rerun both supported and diagnostic manifests; expand deep-level/other-style/tracking-off coverage; then finish remaining list migrations and retire helpers only when unused.
+Current resume order: fix the separately reported library fidelity defects/canonical header capability; upgrade the pinned package once released; rerun supported, diagnostic and native manifests; then finish remaining list migrations and retire helpers only when unused. Add live cases for any newly enabled levels/styles before routing them canonically.
 
-The [OOXML performance](completed/2026-08-29-oxml-engine-and-performance.md) and [package boundaries](completed/2026-08-29-package-boundaries-and-integrations.md) plans are complete. Resume this plan with its separately tracked library fidelity and capability follow-ups, then the remaining native coverage and list migrations.
+The [OOXML performance](completed/2026-08-29-oxml-engine-and-performance.md) and [package boundaries](completed/2026-08-29-package-boundaries-and-integrations.md) plans are complete. Keep this plan open until the separately tracked library fixes enable full canonical migration and its downstream validation passes.

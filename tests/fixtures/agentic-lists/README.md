@@ -29,11 +29,30 @@ collector and independent Word validation. `known-defects-manifest.json`
 contains separately classified library Reject All defects and is intentionally
 not part of the passing host manifest.
 
-The supported matrix now includes ten cases: root/nested bullet insertion,
-decimal indentation, insertion at a continuation anchor, insertion within an
+The offline matrix includes ten cases: root/nested bullet insertion, decimal
+indentation, insertion at a continuation anchor, insertion within an
 independent restarted list, insertion before an existing root through the
 candidate range mapper, and noncontiguous marked-header conversion. Continuation
 and restart expectations are specified from the source and requested edit, not
-copied from engine output. The production insertion selector's deeper-level,
-Roman-style and tracking-off cases are covered separately by mocked invocation
-tests; their live Word fidelity gates remain open.
+copied from engine output.
+
+Production `insert_list_item` native-fallback coverage is generated with
+the following command:
+
+```sh
+node tests/agentic_list_native_fallback_manifest_tests.mjs --export-dir .cache/reliability/agentic-list-native-final
+```
+
+Its five Word cases cover a requested deep level, outdent from a prepared deep
+source, upper and lower Roman numbering, and insertion with revision tracking
+disabled while restoring the prior tracking mode. Each prepared source package
+is frozen before the production call. `scripts/officejs-validation.js` verifies
+the actual route (one `Paragraph.insertParagraph`, zero `body.insertOoxml`) and
+tracking-mode transitions. The independent Word oracle checks source, tracked, Accept All,
+and Reject All views against labels and levels declared in the manifest; these
+native cases explicitly omit engine-resolved reference packages. All five cases
+passed 20 Office.js checks and 20 applicable independent Word checks on Word
+16.0.20430.20092. The Word report also records five engine-reference-package
+checks as not applicable; source, tracked, Accept All, and Reject All passed
+for every case. Reports: [Office.js](../../../docs/validation-reports/2026-09-30-agentic-native-list-officejs.json)
+and [Word oracle](../../../docs/validation-reports/2026-09-30-agentic-native-list-word.json).
