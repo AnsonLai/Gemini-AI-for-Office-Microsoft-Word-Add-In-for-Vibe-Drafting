@@ -43,7 +43,8 @@ if (process.argv.includes('--list')) {
         execFile(process.execPath, args, { cwd: root, timeout, maxBuffer: 4 * 1024 * 1024, windowsHide: true }, (error, stdout = '', stderr = '') => {
           const failureMarker = /(?:❌\s*(?:FAIL|FAILED|FAILURE)|\bTEST FAILED\b|\bINTEGRATION TEST FAILURE\b|^FAIL:)/im.test(`${stdout}\n${stderr}`);
           const skips = `${stdout}\n${stderr}`.split(/\r?\n/).filter(line => /\bSKIP(?:PED)?\b/.test(line));
-          done({ file, error, stdout, stderr, failureMarker, skips });
+          const knownDefects = stdout.split(/\r?\n/).filter(line => line.startsWith('KNOWN_LIBRARY_DEFECT:'));
+          done({ file, error, stdout, stderr, failureMarker, skips, knownDefects });
         });
       });
     }
@@ -55,6 +56,7 @@ if (process.argv.includes('--list')) {
     if (!pass) failed++;
     console.log(`${pass ? 'PASS' : 'FAIL'} ${result.file}${result.skips.length ? ' (contains reported skips)' : ''}`);
     for (const skip of result.skips) console.log(`  ${skip.trim()}`);
+    for (const defect of result.knownDefects) console.log(`  ${defect.trim()}`);
     if (!pass) console.error([result.stdout, result.stderr, result.error?.message].filter(Boolean).join('\n'));
   }
   for (const file of entries.filter(file => exclusions.has(file))) console.log(`SKIP ${file}: ${exclusions.get(file)}`);

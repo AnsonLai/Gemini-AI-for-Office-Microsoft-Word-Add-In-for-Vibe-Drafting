@@ -926,7 +926,6 @@ async function runGlanceChecks() {
 
   try {
     let docText = "";
-    let docSourceBaseline = [];
     await Word.run(async (context) => {
       const body = context.document.body;
       body.load("text");
@@ -1190,6 +1189,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
   try {
     // --- Get Document Context ---
     let docText = "";
+    let docSourceBaseline = [];
     let docComments = [];
     let docRedlines = [];
     let docSelection = "";
@@ -2107,20 +2107,21 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
             updateSystemMessage(loadingMsg, `Found search results for: "${instruction}"`);
           } else if (functionCall.name === "navigate_to_section") {
             updateSystemMessage(loadingMsg, `Navigating to: "${instruction}"...`);
-            toolResult = await executeNavigate(instruction, docText);
-            toolSucceeded = toolResult?.success === true;
+            const result = await executeNavigate(instruction, docText);
+            toolResult = result.message;
+            toolSucceeded = result.success === true;
 
             // Track successful tool execution for recovery
             toolsExecutedInCurrentRequest.push({
               name: functionCall.name,
               instruction: instruction,
-              result: toolResult,
+              result,
               success: toolSucceeded
             });
 
             updateSystemMessage(loadingMsg, toolSucceeded
               ? `Navigated to: "${instruction}"`
-              : `Navigation failed: ${toolResult?.message || 'No target selected.'}`);
+              : `Navigation failed: ${toolResult || 'No target selected.'}`);
           } else if (functionCall.name === "edit_list") {
             const checkpointIndex = await createCheckpoint(true, functionCall.name);
             updateSystemMessage(loadingMsg, `Editing list from P${args.startParagraphIndex} to P${args.endParagraphIndex}...`);
@@ -2156,7 +2157,8 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
             const result = await executeInsertListItem(
               args.afterParagraphIndex,
               args.text,
-              args.indentLevel || 0
+              args.indentLevel,
+              docSourceBaseline
             );
             toolMutation = result;
             toolResult = result.message;

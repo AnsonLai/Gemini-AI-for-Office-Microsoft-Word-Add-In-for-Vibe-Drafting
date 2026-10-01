@@ -1,0 +1,308 @@
+﻿{
+    "checkedAt":  "2026-10-01T01:07:20.0488638Z",
+    "wordVersion":  "16.0",
+    "wordBuild":  "16.0.20430",
+    "checks":  [
+                   {
+                       "case":  "list-insert-bullet-outdent",
+                       "view":  "source",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-bullet-outdent",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  1
+                   },
+                   {
+                       "case":  "list-insert-bullet-outdent",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-bullet-outdent",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-bullet-outdent",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-bullet-outdent",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-bullet-deeper",
+                       "view":  "source",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-bullet-deeper",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  1
+                   },
+                   {
+                       "case":  "list-insert-bullet-deeper",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-bullet-deeper",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-bullet-deeper",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-bullet-deeper",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-numbered-same-level",
+                       "view":  "source",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-numbered-same-level",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  1
+                   },
+                   {
+                       "case":  "list-insert-numbered-same-level",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-numbered-same-level",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-numbered-same-level",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-numbered-same-level",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-numbered-outdent",
+                       "view":  "source",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-numbered-outdent",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  1
+                   },
+                   {
+                       "case":  "list-insert-numbered-outdent",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-numbered-outdent",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-numbered-outdent",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-numbered-outdent",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-numbered-deeper",
+                       "view":  "source",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-numbered-deeper",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  1
+                   },
+                   {
+                       "case":  "list-insert-numbered-deeper",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-numbered-deeper",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-numbered-deeper",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-numbered-deeper",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-before-via-edit-list",
+                       "view":  "source",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-before-via-edit-list",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  1
+                   },
+                   {
+                       "case":  "list-insert-before-via-edit-list",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-before-via-edit-list",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-before-via-edit-list",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-insert-before-via-edit-list",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-convert-noncontiguous-manual-headers",
+                       "view":  "source",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-convert-noncontiguous-manual-headers",
+                       "view":  "tracked",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  4
+                   },
+                   {
+                       "case":  "list-convert-noncontiguous-manual-headers",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-convert-noncontiguous-manual-headers",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-convert-noncontiguous-manual-headers",
+                       "view":  "accepted",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   },
+                   {
+                       "case":  "list-convert-noncontiguous-manual-headers",
+                       "view":  "rejected",
+                       "status":  "passed",
+                       "comments":  0,
+                       "revisions":  0
+                   }
+               ],
+    "renders":  [
+
+                ],
+    "renderSkipped":  true,
+    "nativeInsertSkipped":  true,
+    "officeJsTransport":  "External collected packages verified; consult the collector report for transport provenance.",
+    "fixtureManifest":  ".cache/agentic-tools/list-officejs/officejs-fixtures.json"
+}

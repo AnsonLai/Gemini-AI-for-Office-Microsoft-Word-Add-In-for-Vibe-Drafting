@@ -220,7 +220,7 @@ async function testNavigationSuccessAndFailureAreStructured() {
   const invalid = await executeNavigate('go to missing paragraph', '[P1] Cell paragraph');
   assert.equal(invalid.status, 'error');
   assert.equal(invalid.success, false);
-  assert.equal(invalid.error.code, 'NAVIGATION_FAILED');
+  assert.equal(invalid.error.code, 'NAVIGATION_TARGET_NOT_FOUND');
   assert.equal(invalidHarness.events.some(event => event.type === 'selectParagraph'), false);
 }
 

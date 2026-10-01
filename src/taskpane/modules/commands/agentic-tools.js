@@ -2,6 +2,8 @@ import { requestGemini } from '../chat/gemini-client.js';
 import { createMutationObserver } from './mutation-outcome.js';
 import { validateListRequest } from './agentic-request-validation.js';
 import { validateTableRequest } from './table-request-validation.js';
+import { planAgenticListOperations } from './list-operation-plan.js';
+import { assertSourceBaseline } from '../docx-redline-js-integration/word-redline-runner.js';
 /* global Word */
 
 import {
@@ -824,7 +826,7 @@ async function executeResearch(query) {
  * @param {string} text - The text content (without numbering)
  * @param {number} indentLevel - Relative indent: 0=same, 1=deeper, -1=shallower
  */
-async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0) {
+async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0, sourceBaseline) {
   const mutation = createMutationObserver(getRequestSignal);
   const request = { afterParagraphIndex, text, indentLevel };
   const validation = validateListRequest(request);
@@ -839,6 +841,44 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
       const redlineEnabled = loadRedlineSetting();
       const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeInsertListItem");
       try {
+        let inspectedNativeTarget = null;
+
+        if (redlineEnabled || sourceBaseline !== undefined) {
+          let nativeRequired = false;
+          const batch = await executePureOoxmlBatch(context, context.document.body, source => {
+            if (sourceBaseline !== undefined) {
+              assertSourceBaseline([{ operation: 'edit_paragraph', paragraphIndex: afterParagraphIndex }], source.paragraphs, sourceBaseline);
+            }
+            const sourceValidation = validateListRequest(request, source.paragraphs.length);
+            if (!sourceValidation.valid) {
+              throw Object.assign(new Error(sourceValidation.error.message), { code: sourceValidation.error.code });
+            }
+            const target = source.paragraphs[afterParagraphIndex - 1];
+            const sourceLevel = target.list?.level;
+            const resolvedLevel = resolveInsertListItemLevel(sourceLevel, indentLevel).newIlvl;
+            // Only route the shapes covered by the independent Word insertion matrix.
+            // Other established shapes retain their native execution path.
+            if (!redlineEnabled || !target.list?.numId || !['bullet', 'decimal'].includes(target.list.format)
+                || !Number.isInteger(sourceLevel) || sourceLevel > 1 || resolvedLevel > 1
+                || !target.exactText?.trim()) {
+              nativeRequired = true;
+              return [];
+            }
+            try {
+              return planAgenticListOperations(source, { ...sourceValidation.request, tool: 'insert_list_item' });
+            } catch (error) {
+              if (error.code !== 'UNSUPPORTED_LIST_LEVEL_MAPPING') throw error;
+              nativeRequired = true;
+              return [];
+            }
+          }, { author: loadRedlineAuthor(), generateRedlines: true, disableNativeTracking: true });
+          if (!nativeRequired) {
+            mutation.observe(batch);
+            assertRedlineResult(batch, 'Agentic list insertion');
+            return;
+          }
+          inspectedNativeTarget = batch.source.paragraphs[afterParagraphIndex - 1];
+        }
 
         const paragraphs = context.document.body.paragraphs;
         paragraphs.load("items/text");
@@ -854,6 +894,13 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
         }
 
         const adjacentPara = paragraphs.items[paraIdx];
+
+        if (inspectedNativeTarget && !inspectedNativeTarget.list?.numId) {
+          mutation.attempt();
+          adjacentPara.insertParagraph(text, "After");
+          await mutation.sync(context);
+          return;
+        }
 
         // Read the adjacent paragraph's OOXML to get its numId and ilvl
         const adjacentOoxml = adjacentPara.getOoxml();

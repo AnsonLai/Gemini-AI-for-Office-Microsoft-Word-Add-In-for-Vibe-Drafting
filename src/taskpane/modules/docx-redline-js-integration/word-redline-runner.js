@@ -100,7 +100,7 @@ function staleDocumentContext(message) {
 }
 
 /** Refuse edits whose canonical source paragraphs changed after context creation. */
-function assertSourceBaseline(changes, liveParagraphs, sourceBaseline) {
+export function assertSourceBaseline(changes, liveParagraphs, sourceBaseline) {
     if (!Array.isArray(sourceBaseline) || sourceBaseline.length === 0) {
         throw staleDocumentContext('The source baseline is unavailable; reread the document before editing.');
     }

@@ -7,10 +7,12 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $fixtureDir = Join-Path $repoRoot 'tests\fixtures\agentic-lists'
+$generationDir = Join-Path $repoRoot '.cache\reliability\agentic-list-fixture-generation'
 New-Item -ItemType Directory -Force -Path $fixtureDir | Out-Null
-$progressPath = Join-Path $fixtureDir 'source-generation-progress.json'
-$stdoutPath = Join-Path $fixtureDir 'source-generation-stdout.log'
-$stderrPath = Join-Path $fixtureDir 'source-generation-stderr.log'
+New-Item -ItemType Directory -Force -Path $generationDir | Out-Null
+$progressPath = Join-Path $generationDir 'source-generation-progress.json'
+$stdoutPath = Join-Path $generationDir 'source-generation-stdout.log'
+$stderrPath = Join-Path $generationDir 'source-generation-stderr.log'
 $sourcePath = Join-Path $fixtureDir 'nested-lists-source.docx'
 
 if (-not $Worker) {
@@ -233,7 +235,7 @@ try {
     }
     $ownedWord = $createdWord[0]
     Save-Progress 'com-started' $ownedWord
-    $word.Visible = $true
+    $word.Visible = $false
     $word.DisplayAlerts = 0
     $galleryCatalog = Get-ListGalleryCatalog $word
 

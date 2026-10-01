@@ -3,6 +3,7 @@
 import { executePureOoxmlBatch, captureWordSourceBaseline } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
 import { applyRedlineChangesToWordContext } from '../src/taskpane/modules/docx-redline-js-integration/word-redline-runner.js';
 import { planAgenticListOperations } from '../src/taskpane/modules/commands/list-operation-plan.js';
+import { initAgenticTools, executeInsertListItem } from '../src/taskpane/modules/commands/agentic-tools.js';
 
 const status = message => { document.getElementById('status').textContent = message; };
 function assert(condition, message) { if (!condition) throw new Error(message); }
@@ -43,6 +44,50 @@ async function runBatch(operations) {
             writeAttempted: result.writeAttempted, mutationOutcome: result.mutationOutcome,
             errorCode: result.error?.code, reads, writes };
     });
+}
+async function runProductionListInsertion(request) {
+    let reads = 0, writes = 0;
+    const nativeRun = Word.run;
+    initAgenticTools({
+        getRequestSignal: () => null, loadRedlineSetting: () => true,
+        loadRedlineAuthor: () => 'WP6 reviewer',
+        setChangeTrackingForAi: async context => {
+            context.document.load('changeTrackingMode');
+            await context.sync();
+            const mode = context.document.changeTrackingMode;
+            context.document.changeTrackingMode = Word.ChangeTrackingMode.trackAll;
+            await context.sync();
+            return { mode };
+        },
+        restoreChangeTracking: async (context, state) => {
+            context.document.changeTrackingMode = state.mode;
+            await context.sync();
+        }
+    });
+    try {
+        const sourceBaseline = await nativeRun.call(Word, async context => {
+            const source = context.document.body.getOoxml();
+            await context.sync();
+            return captureWordSourceBaseline(source.value);
+        });
+        // Forward production tool execution to genuine Word proxies while counting transport.
+        Word.run = callback => nativeRun.call(Word, async context => {
+            const documentProxy = context.document;
+            const body = documentProxy.body;
+            return callback({ sync: () => context.sync(), document: {
+                load: properties => documentProxy.load(properties),
+                get changeTrackingMode() { return documentProxy.changeTrackingMode; },
+                set changeTrackingMode(value) { documentProxy.changeTrackingMode = value; },
+                body: { paragraphs: body.paragraphs,
+                    getOoxml() { reads++; return body.getOoxml(); },
+                    insertOoxml(...args) { writes++; return body.insertOoxml(...args); }
+                }
+            } });
+        });
+        const result = await executeInsertListItem(request.afterParagraphIndex, request.text, request.indentLevel, sourceBaseline);
+        return { status: result.status, written: result.written, writeAttempted: result.writeAttempted,
+            mutationOutcome: result.mutationOutcome, errorCode: result.error?.code, reads, writes };
+    } finally { Word.run = nativeRun; }
 }
 Office.onReady(async info => {
     if (info.host !== Office.HostType.Word) { status('This lane requires desktop Word.'); return; }
@@ -91,9 +136,11 @@ Office.onReady(async info => {
                     `Unchanged paragraph was not a successful no-op: ${JSON.stringify(unchanged)}`);
                 checks.push({ case: testCase.name, view: 'unchanged-paragraph', ...unchanged });
             }
-            const applied = await runBatch(testCase.agenticRequest
-                ? source => planAgenticListOperations(source, testCase.agenticRequest)
-                : testCase.nativeOperations);
+            const applied = testCase.agenticRequest?.tool === 'insert_list_item'
+                ? await runProductionListInsertion(testCase.agenticRequest)
+                : await runBatch(testCase.agenticRequest
+                    ? source => planAgenticListOperations(source, testCase.agenticRequest)
+                    : testCase.nativeOperations);
             assert(applied.status === 'ok' && applied.written && applied.reads === 1 && applied.writes === 1,
                 `${testCase.name}: expected one successful read/write`);
             checks.push({ case: testCase.name, view: 'actual-officejs-insertion', ...applied });
@@ -104,6 +151,15 @@ Office.onReady(async info => {
             assert(refused.status === 'error' && !refused.written && refused.reads === 1 && refused.writes === 0,
                 'Failed preparation inserted into Word');
             checks.push({ case: testCase.name, view: 'preparation-refusal', ...refused });
+            if (testCase.agenticRequest) {
+                const mixed = await runBatch(source => [
+                    { type: 'replace', target: { index: 1, exactText: source.paragraphs[0].exactText }, modified: 'Must roll back.' },
+                    { type: 'replace', target: { index: 999999 }, modified: 'Must not appear.' }
+                ]);
+                assert(mixed.status === 'error' && !mixed.written && !mixed.writeAttempted && mixed.writes === 0,
+                    'Mixed valid/invalid list-host batch inserted into Word');
+                checks.push({ case: testCase.name, view: 'mixed-batch-refusal', ...mixed });
+            }
             await post(`/artifact/${testCase.name}`, await exportDocx(), 'application/octet-stream');
         }
         await post('/result', JSON.stringify({ status: 'passed', host: info, diagnostics: Office.context.diagnostics, checks }));

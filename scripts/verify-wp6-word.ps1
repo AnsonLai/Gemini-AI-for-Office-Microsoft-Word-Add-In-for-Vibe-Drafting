@@ -59,11 +59,11 @@ if (-not $Worker) {
     exit $process.ExitCode
 }
 if ($FixtureManifest) {
-    $manifest = Get-Content -LiteralPath ([System.IO.Path]::GetFullPath((Join-Path $repoRoot $FixtureManifest))) -Raw | ConvertFrom-Json
+    $manifest = Get-Content -LiteralPath ([System.IO.Path]::GetFullPath((Join-Path $repoRoot $FixtureManifest))) -Raw -Encoding UTF8 | ConvertFrom-Json
 } else {
     & node (Join-Path $repoRoot 'tests/ooxml_formatting_visual_tests.mjs') --export-dir $fixtureDir
     if ($LASTEXITCODE -ne 0) { throw 'WP6 fixture generation failed.' }
-    $manifest = Get-Content -LiteralPath (Join-Path $fixtureDir 'manifest.json') -Raw | ConvertFrom-Json
+    $manifest = Get-Content -LiteralPath (Join-Path $fixtureDir 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 }
 $word = $null
 $checks = [System.Collections.Generic.List[object]]::new()

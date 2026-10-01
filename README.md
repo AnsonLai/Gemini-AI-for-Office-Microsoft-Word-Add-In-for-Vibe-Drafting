@@ -291,6 +291,21 @@ node tests/include_numbering_behavior.mjs
 
 The [agentic tool contract inventory](docs/agentic-tool-contracts.md) records actual argument shapes, index conventions and remaining native paths. List tools reject invalid arguments and live out-of-range targets before content writes. Header conversion preserves the original index/text pairing when sorting targets.
 
+### Agentic list fidelity and desktop Word
+
+The [Word-authored fixture](tests/fixtures/agentic-lists/README.md) includes nested lists, numbering continuation/restart, plain transitions and formatting sentinels. Offline tests compare exact accepted/rejected text and numbering definitions. Known library defects are reported separately and are excluded from the passing host matrix.
+
+```powershell
+node tests/agentic_list_fidelity_tests.mjs --export-host-dir .cache/reliability/agentic-list-fixtures
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-wp6-word.ps1 -FixtureManifest .cache/reliability/agentic-list-fixtures/manifest.json -ArtifactsDir .cache/agentic-tools/list-word-oracle -SkipNativeInsert
+npx webpack --mode development --env WORD_HOST_VALIDATION=1
+node scripts/run-officejs-validation.mjs --fixture-manifest .cache/reliability/agentic-list-fixtures/manifest.json --artifacts-dir .cache/agentic-tools/list-officejs --launch
+```
+
+The last command opens a disposable Word validation document using existing local development certificates. After the collector reports success, independently verify its exports using `-FixtureManifest .cache/agentic-tools/list-officejs/officejs-fixtures.json`; stop the collector and remove its temporary registration with `node scripts/run-officejs-validation.mjs --artifacts-dir .cache/agentic-tools/list-officejs --cleanup`.
+
+The exporter also writes `known-defects-manifest.json`. That diagnostic manifest intentionally fails Reject All fidelity for the [plain insertion](docs/library-issues/2026-09-30-list-insertion-rejection.md) and [list range](docs/library-issues/2026-09-30-list-range-rejection.md) library issues until an upstream release fixes them. Current evidence and migration limits are in the [execution report](docs/validation-reports/2026-09-30-agentic-tools-and-list-reliability.md).
+
 ### AI Eval Harness (Manual — calls the paid Gemini API)
 
 Measures how reliably each model produces a valid, on-target redline change set. This is **not** part of the default test run; it requires a real API key and makes live model calls.

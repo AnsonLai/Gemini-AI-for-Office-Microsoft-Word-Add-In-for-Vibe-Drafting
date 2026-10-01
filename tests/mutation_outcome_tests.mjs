@@ -42,7 +42,11 @@ try {
     }
   }));
   globalThis.Word = { run: async callback => callback({ async sync() {}, document: {
-    body: { paragraphs: { items: paragraphs, load() {} } }
+    body: {
+      getOoxml: () => ({ value: buildDocumentFragmentPackage('<w:p><w:r><w:t>Plain</w:t></w:r></w:p>', { appendTrailingParagraph: false }) }),
+      insertOoxml() { throw new Error('Plain-anchor routing must retain native insertion'); },
+      paragraphs: { items: paragraphs, load() {} }
+    }
   } }) };
   const result = await executeComment('Review clauses', '[P1] Test clause 1.');
   assert.equal(result.status, 'error');
