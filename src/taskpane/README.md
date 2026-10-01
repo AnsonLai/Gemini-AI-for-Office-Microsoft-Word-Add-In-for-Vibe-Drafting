@@ -10,19 +10,31 @@ and Office.js integration. The UI is implemented in HTML, CSS and JavaScript.
   retried.
 - `modules/commands/agentic-tools.js` validates tool requests and coordinates
   the document operations.
-- `modules/docx-redline-js-integration/consumer-core.js` contains portable
-  source inspection, canonical batch preparation and result/package helpers.
+- `modules/docx-redline-js-integration/consumer-core.js` contains add-in
+  mapping, source validation and the local Flat OPC preparation/assembly
+  bridge; supported DOCX operations and reconciliation run through the pinned
+  library.
 - `modules/docx-redline-js-integration/word-operation-runner.js` and
   `word-ooxml.js` own Word proxy reads, insertions, synchronization and tracking
-  management. The integration `index.js` preserves established exports.
+  management; `redline-plan.js` maps validated AI changes to source-bound
+  operations. The integration `index.js` preserves established exports.
 - `modules/chat/gemini-client.js` provides bounded shared HTTP transport.
 - `modules/storage/checkpoint-store.js` stores pre-mutation snapshots in
   IndexedDB.
 
 The add-in pins `@ansonlai/docx-redline-js@0.8.3` for OOXML reconciliation.
 Portable preparation is separated from Word I/O, but not every tool has moved
-to the canonical atomic batch path. List insertion still uses native
-fallbacks outside its verified canonical subset. Current v0.8.3 checks cover
+to the canonical atomic batch path. The old iterative Word redline loop,
+native insertion recovery and manual table synthesis were removed from the
+migrated redline route, which now prepares one atomic library batch before the
+Word adapter's single confirmed insertion. `insert_list_item` is canonical
+only for the verified tracking-on bullet/decimal subset at source/resolved
+levels 0–1. General `edit_list` and header conversion, deeper/other-style
+insertion, tracking-off requests and unsupported outdent contexts remain on
+native or established legacy paths. The local Flat OPC bridge and operation
+mapping are not library code. Shared Gemini transport/outcomes, test lanes and
+deferred startup are consumer reliability/packaging work. See the [library
+offload review](../../docs/library-offload-review.md). Current v0.8.3 checks cover
 12 supported list cases (48 Office.js checks) and five native routes (20
 Office.js checks); the independent Word oracle reports 92 applicable checks
 passed across 17 exports, zero failed, and five not applicable. `npm test`

@@ -1,8 +1,15 @@
 # OOXML performance measurements
 
 Performance observations are separate from fidelity gates. Both consumers pin
-exact `@ansonlai/docx-redline-js@0.8.2`. A slower large document does not justify
+exact `@ansonlai/docx-redline-js@0.8.3`. The dated performance reports below
+measured 0.8.2; they have not been rerun as 0.8.3 timing evidence. A slower large document does not justify
 changing its tracked-change semantics.
+
+The [library offload review](library-offload-review.md) separates delegated
+execution from local optimization. Atomic library batches replace iterative
+Word redline execution; extracting portable preparation remains local code.
+Loading editing modules on first use reduces initial transfer, while retaining
+those modules in the complete build. It is not an engine-code deletion.
 
 ## Offline workloads
 

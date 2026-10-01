@@ -1,5 +1,7 @@
 # OOXML Engine and Performance Plan
 
+> **Retrospective ownership review (2026-09-30):** See the [library offload review](../../library-offload-review.md) for measured code changes, responsibilities delegated to the library, and remaining consumer/native routes. Version pins and validation counts in this closure record describe their dated checkpoints; current consumers pin exact 0.8.3. All five original plans are closed; remaining canonical list work is in the [fresh follow-up](../2026-09-30-canonical-list-migration-follow-up.md).
+
 **Date:** 2026-08-29
 
 **Last Updated:** 2026-09-30
@@ -12,7 +14,7 @@
 
 Both consumers use exact `@ansonlai/docx-redline-js@0.8.2`. The [September upgrade](2026-09-09-docx-redline-js-v0.5.4-upgrade.md) and reliability plan are complete, including actual Office.js transport validation.
 
-Follow [reliability](2026-08-29-reliability-and-quality-gates.md), [agentic tools](../2026-08-29-agentic-tools-and-list-reliability.md) and [package boundaries](2026-08-29-package-boundaries-and-integrations.md). Correctness and portability take priority over throughput.
+Follow [reliability](2026-08-29-reliability-and-quality-gates.md), [agentic tools](2026-08-29-agentic-tools-and-list-reliability.md) and [package boundaries](2026-08-29-package-boundaries-and-integrations.md). Correctness and portability take priority over throughput.
 
 ## Completed / inherited work
 

@@ -77,7 +77,13 @@ markers such as `DEMO_TEXT_TARGET` remain accepted aliases.
 - `demo.html`: static UI and import map to the library's published browser bundle.
 - `demo.js`: file selection, model prompts, preview and download UI.
 - `document-session.js`: public `openDocx` document lifecycle, immutable batch targets and atomic mutation.
-- JSZip remains a preview dependency of `docx-preview`; document editing and save use the library facade. The import map resolves the package from the root `node_modules` directory, while `docx-preview` is loaded from its pinned CDN URL.
+- The package owns supported DOCX operations and package serialization; the
+  demo retains browser file/UI, Gemini prompt flow and session orchestration.
+  JSZip remains a preview dependency of `docx-preview`; document editing and
+  save use the library facade. The import map resolves the package from the
+  root `node_modules` directory, while `docx-preview` is loaded from its pinned
+  CDN URL. See the [library offload review](../docs/library-offload-review.md)
+  for the consumer/package boundary.
 
 Install root dependencies, serve the repository root, then open
 `http://localhost:8000/browser-demo/demo.html`:
@@ -116,7 +122,7 @@ Kitchen-sink mode also uses the document lifecycle for marker seeding and its op
 
 ## Verification and limits
 
-The browser preview is not a Word fidelity oracle. The v0.8.2 reports record Reject All failures; the v0.8.3 package passes 12 independent Word checks on the two former public-facade cases, including paragraph-boundary restoration. Remaining canonical limits are plain or text-changing header-to-list conversion and list-format changes. A marker-prefixed `1. Header` no-op on bare `document.xml` can fail with `RECEIPT_RECONCILIATION_FAILED`. The [canonical migration follow-up](../docs/plans/2026-09-30-canonical-list-migration-follow-up.md) remains open; this browser workflow does not certify additional list shapes. See the [v0.8.3 validation report](../docs/validation-reports/2026-09-30-docx-redline-v083.md).
+The browser preview is not a Word fidelity oracle. The v0.8.2 reports record Reject All failures; the v0.8.3 package passes 12 independent Word checks on the two former public-facade cases, including paragraph-boundary restoration. Remaining canonical limits are plain or text-changing header-to-list conversion and list-format changes. A marker-prefixed `1. Header` no-op on bare `document.xml` can fail with `RECEIPT_RECONCILIATION_FAILED`. The [canonical migration follow-up](../docs/plans/2026-09-30-canonical-list-migration-follow-up.md) remains open; the add-in's separately verified canonical insertion subset is tracking-on bullet/decimal at source/resolved levels 0–1, and its broader `edit_list`, header, deeper/other-style and tracking-off paths remain native or legacy. This browser workflow does not certify those Word routes or additional list shapes. See the [v0.8.3 validation report](../docs/validation-reports/2026-09-30-docx-redline-v083.md).
 
 Offline tests cover session open/inspect, localized edits, direct edits, comment preservation, atomic failure and serialize/reopen. The local browser validation page at `http://localhost:8000/scripts/browser-document-validation.html` exercises the same session in a real Chromium browser without a model request. Its seven grouped checks cover Word-authored source inspection, tracked edit and serialize/reopen, preserved package parts, Accept All/Reject All, mixed-batch rollback, direct mode preserving another author's revisions, and comment insertion with an existing thread.
 

@@ -20,6 +20,11 @@ evidence, not validation of the future capabilities below.
 
 ## Current consumer behavior
 
+The [library offload review](../library-offload-review.md) records the completed
+execution and packaging migration across the five original plans. The remaining
+native/legacy list routes below are the next offload opportunity, subject to the
+upstream prerequisites and independent host checks in this plan.
+
 - `insert_list_item` uses canonical body batches for the verified active
   bullet/decimal subset at source/resolved levels 0–1 with redlining enabled;
   root outdent needs a following same-list root sibling.

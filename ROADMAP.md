@@ -8,26 +8,34 @@
 
 The Word add-in and MCP server pin the exact
 `@ansonlai/docx-redline-js@0.8.3` release. The package owns supported OOXML
-document operations; consumer adapters own Word host I/O, browser session
-lifecycle, and MCP tool/session contracts. A package upgrade or a consumer
-feature migration is not complete until the corresponding compatibility and
-host evidence is recorded.
+document operations, reconciliation and DOCX package lifecycle; consumer code
+owns tool mapping, host I/O, browser UI/session flow, and MCP tool contracts.
+The add-in still has a local Flat OPC bridge/mapping layer, while the browser
+and MCP editing paths use the public package facade. See the [library offload
+review](docs/library-offload-review.md) for the file-level inventory. A package
+upgrade or consumer feature migration is not complete until corresponding
+compatibility and host evidence is recorded.
 
 ## Completed plan milestones
 
 - [September v0.8.2 upgrade](docs/plans/completed/2026-09-09-docx-redline-js-v0.5.4-upgrade.md):
-  the redline path uses one atomic batch and one confirmed insertion; actual
-  Office.js and independent Word checks are recorded.
+  the iterative Word redline loop, native insertion recovery and manual table
+  synthesis were replaced on the migrated redline path by one atomic library
+  batch and one confirmed insertion; actual Office.js and independent Word
+  checks are recorded. MCP now uses `DocxDocument` sessions; four redundant
+  services and its direct JSZip/xmldom dependencies were removed.
 - [Reliability and quality gates](docs/plans/completed/2026-08-29-reliability-and-quality-gates.md):
   Gemini transport/retry behavior and structured mutation outcomes are
   centralized; host writes are not replayed after uncertain outcomes.
 - [Package boundaries and integrations](docs/plans/completed/2026-08-29-package-boundaries-and-integrations.md):
   portable preparation, the browser document-session facade, MCP sessions,
-  and cross-host semantic parity are validated. JSZip remains for preview.
+  and cross-host semantic parity are validated. Browser editing and save use
+  the package facade; JSZip remains only for `docx-preview`.
 - [OOXML performance](docs/plans/completed/2026-08-29-oxml-engine-and-performance.md):
-  current v0.8.2 consumer, browser, package, Word, and startup measurements are
+  dated v0.8.2 consumer, browser, package, Word, and startup measurements are
   recorded. The observed 1,000-paragraph workload is accepted; no universal
-  timing threshold or speculative engine rewrite was selected.
+  timing threshold or speculative engine rewrite was selected. Deferred
+  startup and the measurement lanes remain local consumer work.
 - [Original agentic tools and list reliability plan](docs/plans/completed/2026-08-29-agentic-tools-and-list-reliability.md):
   its completed inventory, supported-route work, and v0.8.3 fidelity checks are
   recorded. Remaining canonical migration is deferred to the [new follow-up
@@ -42,11 +50,13 @@ agentic list command has a supported canonical operation.
 The [canonical list migration follow-up](docs/plans/2026-09-30-canonical-list-migration-follow-up.md)
 remains open. The original agentic list plan is closed with its remaining
 canonical work carried forward. Contract inventory and stale-source validation are complete, and
-a supported bullet/decimal insertion subset is verified. Remaining list
-commands and unsupported formats/levels still use existing native paths or
-refuse before mutation. The full canonical migration is pending capability
-work and validation of the remaining operations. This plan stays open even
-when the current live validation gates pass.
+a supported bullet/decimal insertion subset with tracking enabled at
+source/resolved levels 0–1 is verified. General `edit_list` and header
+conversion remain on native/legacy paths; deeper or other-style routes and
+tracking-off requests also remain native. Unsupported inputs refuse before
+mutation. The full canonical migration is pending capability work and
+validation of the remaining operations. This plan stays open even when current
+live validation gates pass.
 
 The v0.8.2 library follow-up reports recorded these earlier defects and gaps:
 

@@ -1,5 +1,7 @@
 # Package Boundaries, Integrations, and Web Portability Plan
 
+> **Retrospective ownership review (2026-09-30):** See the [library offload review](../../library-offload-review.md) for measured code changes, responsibilities delegated to the library, and remaining consumer/native routes. Version pins and validation counts in this closure record describe their dated checkpoints; current consumers pin exact 0.8.3. All five original plans are closed; remaining canonical list work is in the [fresh follow-up](../2026-09-30-canonical-list-migration-follow-up.md).
+
 **Date:** 2026-08-29
 
 **Last Updated:** 2026-09-30
@@ -12,7 +14,7 @@
 
 Both consumers pin exact `@ansonlai/docx-redline-js@0.8.2`. The [September upgrade](2026-09-09-docx-redline-js-v0.5.4-upgrade.md) is complete, including actual Office.js transport validation.
 
-Outcome/recovery policies in [reliability](2026-08-29-reliability-and-quality-gates.md) are complete. Preserve the verified mappings and explicit capability limits in [agentic tools](../2026-08-29-agentic-tools-and-list-reliability.md) when consolidating interfaces. Its broader list migration remains open on separately recorded library dependencies; that does not prevent portable extraction or browser document-lifecycle migration. The browser demo already uses the shared Gemini request client.
+Outcome/recovery policies in [reliability](2026-08-29-reliability-and-quality-gates.md) are complete. Preserve the verified mappings and explicit capability limits in [agentic tools](2026-08-29-agentic-tools-and-list-reliability.md) when consolidating interfaces. Its broader list migration remains open on separately recorded library dependencies; that does not prevent portable extraction or browser document-lifecycle migration. The browser demo already uses the shared Gemini request client.
 
 ## Architecture before this extraction
 

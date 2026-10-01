@@ -30,6 +30,33 @@ The add-in integration `index.js` reexports the package surface and existing
 Word-facing exports. `word-operation-runner.js` preserves its previous named
 exports while delegating pure preparation to `consumer-core.js`.
 
+## Delegation after the completed plans
+
+The reusable OOXML engine was extracted before the four August 29 plans. Those
+plans and the [September 9 package upgrade](docs/plans/completed/2026-09-09-docx-redline-js-v0.5.4-upgrade.md)
+record later responsibility changes: `apply_redlines` now plans one immutable
+source batch and delegates it atomically to the library, removing the old
+iterative Word paragraph loop and manual table recovery on that route. The MCP
+service uses the library document facade, replacing four local package,
+targeting, library-adapter, and XML services and its direct ZIP/XML
+dependencies. The browser session uses the same public facade for editing and
+package serialization; JSZip remains for preview. The four completed plans
+cover [package boundaries](docs/plans/completed/2026-08-29-package-boundaries-and-integrations.md),
+[reliability](docs/plans/completed/2026-08-29-reliability-and-quality-gates.md),
+[engine and performance](docs/plans/completed/2026-08-29-oxml-engine-and-performance.md),
+and [agentic tools and lists](docs/plans/completed/2026-08-29-agentic-tools-and-list-reliability.md).
+
+The library boundary is still partial for list tools: canonical
+`insert_list_item` covers only supported tracking-on insertion into active
+bullet/decimal lists at levels 0–1. `edit_list`, header conversion, deeper or
+other-style insertion, and tracking-off insertion retain local legacy or native
+Word paths.
+`consumer-core.js` also remains local for source mapping, validation, operation
+preparation, result handling, and Flat OPC construction. Provider retries,
+mutation outcome reporting, and taskpane lazy loading are consumer reliability
+and startup work, not library offloads. See the
+[library offload review](docs/library-offload-review.md).
+
 ## Word batch lifecycle
 
 `executePureOoxmlBatch` is the Word adapter for the migrated atomic operation

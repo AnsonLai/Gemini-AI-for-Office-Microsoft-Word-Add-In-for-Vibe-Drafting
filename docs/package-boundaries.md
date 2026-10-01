@@ -15,6 +15,32 @@ The add-in integration `index.js` remains a compatibility surface with Word
 exports. Non-Word consumers import the explicit portable entry point instead
 of that mixed index. Existing adapter export names remain available.
 
+## Delegated work and remaining local paths
+
+The OOXML engine was extracted before the four August 29 plans. The later
+completed plans and September upgrade moved specific workflows onto its public
+facade:
+
+- Redline edits are planned from one source snapshot and sent as one atomic
+  library batch. The migrated route no longer has the iterative Word paragraph
+  loop or manual table recovery.
+- MCP open, inspect, edit, and serialize use the library document session. The
+  four redundant package, paragraph-targeting, library-adapter, and XML services
+  plus direct `jszip` and `@xmldom/xmldom` dependencies were removed.
+- The browser session uses the facade for open, inspect, edit, and serialization.
+  JSZip remains in the demo for `docx-preview` only.
+- Canonical `insert_list_item` is limited to supported tracking-on insertion
+  into active bullet and decimal lists at levels 0–1. `edit_list` still uses
+  the legacy `applyRedlineToOxml` route; header conversion and unsupported
+  insertion shapes remain on native Word paths.
+
+The add-in's `consumer-core.js` remains responsible for portable source mapping,
+validation, operation preparation, result handling, and Flat OPC construction;
+the Word adapter owns Office.js reads/writes and tracking. Provider retry,
+mutation outcome reporting, and lazy taskpane loading are consumer-side
+reliability/startup improvements, not library offloads. See the
+[library offload review](library-offload-review.md).
+
 ## Transport and outcome differences
 
 Portable preparation can produce a ready insertion payload. It cannot confirm

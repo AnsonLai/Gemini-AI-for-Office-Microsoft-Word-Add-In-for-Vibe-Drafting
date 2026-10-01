@@ -1,5 +1,7 @@
 # `@ansonlai/docx-redline-js` v0.8.2 Direct Upgrade Plan
 
+> **Retrospective ownership review (2026-09-30):** See the [library offload review](../../library-offload-review.md) for measured code changes, responsibilities delegated to the library, and remaining consumer/native routes. Version pins and validation counts in this closure record describe their dated checkpoints; current consumers pin exact 0.8.3. All five original plans are closed; remaining canonical list work is in the [fresh follow-up](../2026-09-30-canonical-list-migration-follow-up.md).
+
 **Date:** 2026-09-23  
 **Updated:** 2026-09-30
 
@@ -28,7 +30,7 @@ This check closed [reliability WP1](2026-08-29-reliability-and-quality-gates.md)
 ### Follow-on plan order
 
 1. [Reliability and quality gates](2026-08-29-reliability-and-quality-gates.md): complete; host gate, provider recovery and mutation outcomes verified.
-2. [Agentic tools and list reliability](../2026-08-29-agentic-tools-and-list-reliability.md): align remaining tool/list paths and expand independent Word coverage.
+2. [Agentic tools and list reliability](2026-08-29-agentic-tools-and-list-reliability.md): align remaining tool/list paths and expand independent Word coverage.
 3. [Package boundaries and integrations](2026-08-29-package-boundaries-and-integrations.md): extract portable consumer logic and migrate browser-demo editing; MCP migration is already complete.
 4. [OOXML engine and performance](2026-08-29-oxml-engine-and-performance.md): profile settled paths, then optimize measured consumer costs; route library findings upstream.
 
@@ -181,7 +183,7 @@ Because the four 2026-08-29 optimization plans were never executed against v0.5.
 
 ### Current repository checkpoint (2026-09-30, `96b6d92`)
 
-The September upgrade remains closed at exact `@ansonlai/docx-redline-js@0.8.2`: both root and MCP manifests and lockfiles pin that version. The later agentic-tools/list-reliability checkpoint records **44 offline suites passed, zero failed**, with four excluded entrypoints and the historical v0.5.4 package-behavior skip reported separately; see its [validation report](../../validation-reports/2026-09-30-agentic-tools-and-list-reliability.md) and [follow-on plan](../2026-08-29-agentic-tools-and-list-reliability.md). That follow-on remains in progress: broader list migrations and deeper/other-style/tracking-off coverage are open, and separately reported library fidelity/capability findings remain tracked there. Those findings are outside this upgrade's acceptance criteria and do not reopen or block the v0.8.2 upgrade.
+The September upgrade remains closed at exact `@ansonlai/docx-redline-js@0.8.2`: both root and MCP manifests and lockfiles pin that version. The later agentic-tools/list-reliability checkpoint records **44 offline suites passed, zero failed**, with four excluded entrypoints and the historical v0.5.4 package-behavior skip reported separately; see its [validation report](../../validation-reports/2026-09-30-agentic-tools-and-list-reliability.md) and [follow-on plan](2026-08-29-agentic-tools-and-list-reliability.md). That follow-on remains in progress: broader list migrations and deeper/other-style/tracking-off coverage are open, and separately reported library fidelity/capability findings remain tracked there. Those findings are outside this upgrade's acceptance criteria and do not reopen or block the v0.8.2 upgrade.
 
 ---
 

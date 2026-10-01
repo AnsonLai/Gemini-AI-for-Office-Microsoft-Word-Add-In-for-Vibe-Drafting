@@ -1,5 +1,9 @@
 # WP6 regression fixtures
 
+These fixtures verify delegated library editing and the consumer's retained
+Flat OPC transport separately. See the [library offload review](../../../docs/library-offload-review.md)
+and [verification commands](../../../scripts/README.md) for that ownership split.
+
 The three DOCX files are copied byte for byte from the local `Docx Redline JS` reference project, `tests/fixtures/word-authored/`, on 2026-09-30. They were authored and saved in Microsoft Word Desktop through that project's COM generator scripts. These are source packages, not engine-generated expected outputs.
 
 | File | Source generator | SHA-256 |

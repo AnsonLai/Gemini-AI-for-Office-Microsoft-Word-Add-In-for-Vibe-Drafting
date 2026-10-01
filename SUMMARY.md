@@ -21,6 +21,16 @@ follow-up](docs/plans/2026-09-30-canonical-list-migration-follow-up.md), which
 remains open. All five original plans are closed; this follow-up carries the
 uncompleted canonical migration work forward without marking it complete.
 
+The current ownership split is documented in the [library offload
+review](docs/library-offload-review.md): the library owns supported DOCX
+operations, reconciliation and package lifecycle; consumers retain mapping,
+host transport, reliability and UI/session code. The add-in's redline route is
+now a single atomic library batch with a local Flat OPC/Office.js bridge. MCP
+uses `DocxDocument` sessions and no longer carries its four redundant package
+services or direct JSZip/xmldom dependencies. Browser editing uses the package
+facade; JSZip remains for preview. Canonical list insertion is verified only
+for tracking-on bullet/decimal levels 0–1; broader list paths remain local.
+
 ## [2026-09-30] v0.8.2 Consumer Boundaries, Reliability, and Performance
 
 ### What Changed

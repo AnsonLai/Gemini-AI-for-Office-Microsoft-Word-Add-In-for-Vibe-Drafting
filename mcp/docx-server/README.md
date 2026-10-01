@@ -31,6 +31,13 @@ manages ZIP, comments, numbering, relationships and content types. A failed
 atomic batch does not replace the session document; structured engine error
 codes are returned to the MCP client.
 
+This facade replaced four local package/targeting/XML services and removed the
+MCP server's direct JSZip and `@xmldom/xmldom` dependencies. Local ownership is
+now the MCP tool contract, filesystem access, session registry and blank
+template; supported document inspection, edits, package relationships and
+serialization are library behavior. See the [library offload
+review](../../docs/library-offload-review.md) for the file-level inventory.
+
 ## Install and run
 
 From the repository root:

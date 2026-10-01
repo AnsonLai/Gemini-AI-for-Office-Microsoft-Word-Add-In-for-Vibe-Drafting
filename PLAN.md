@@ -24,6 +24,10 @@
 
 This plan records the one-time transition to the GSD documentation structure, completed on 2026-02-13. It is not the current product roadmap. See [ROADMAP.md](ROADMAP.md), [STATE.md](STATE.md), and the [dated execution plans](docs/plans/) for current project status.
 
+For the current split between library-owned DOCX behavior and consumer-owned
+mapping, host bridges, reliability and UI/session code, see the
+[library offload review](docs/library-offload-review.md).
+
 ## Completed Planning Record: [2026-02-13]
 
 ### [DOCUMENTATION] [Cleaning up legacy documentation]

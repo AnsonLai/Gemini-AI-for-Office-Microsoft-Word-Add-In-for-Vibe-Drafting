@@ -22,6 +22,16 @@ This is a shared repository, not a claim that every consumer uses one identical
 host adapter. Keep host I/O in the consumer that owns it and reusable OOXML
 behavior in the package or the tested portable boundary.
 
+The engine extraction predates the four August 29 plans. Subsequent completed
+work delegated atomic redline execution and browser/MCP document-package
+lifecycle to the public library facade. List delegation remains limited to the
+tracking-on active bullet/decimal `insert_list_item` subset at levels 0–1;
+`edit_list`, header conversion, unsupported insertion shapes, source
+mapping/preparation, Word transport, provider recovery, and lazy startup remain
+consumer-side.
+See [package boundaries](docs/package-boundaries.md) and the
+[library offload review](docs/library-offload-review.md) for the current split.
+
 ## Editing and safety contracts
 
 - Resolve edits against inspected source text and stable paragraph identities

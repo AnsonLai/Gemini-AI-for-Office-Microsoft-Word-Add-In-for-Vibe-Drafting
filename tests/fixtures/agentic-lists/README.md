@@ -1,5 +1,10 @@
 # Agentic list fidelity source
 
+The [library offload review](../../../docs/library-offload-review.md) records
+which list routes use canonical library execution and which remain native.
+This shared source fixture supports both lanes; passing native cases does not
+certify the deferred canonical conversion or list-format capabilities.
+
 `nested-lists-source.docx` is authored and reopened with Microsoft Word desktop
 COM. It contains 24 direct body paragraphs, including a true nine-level bullet
 definition, nested decimal numbering, a continuation across plain paragraphs,

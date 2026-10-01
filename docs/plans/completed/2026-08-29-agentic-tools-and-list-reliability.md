@@ -1,5 +1,7 @@
 # Agentic Tools and List Reliability Plan
 
+> **Retrospective ownership review (2026-09-30):** See the [library offload review](../../library-offload-review.md) for measured code changes, responsibilities delegated to the library, and remaining consumer/native routes. Version pins and validation counts in this closure record describe their dated checkpoints; current consumers pin exact 0.8.3. All five original plans are closed; remaining canonical list work is in the [fresh follow-up](../2026-09-30-canonical-list-migration-follow-up.md).
+
 **Date:** 2026-08-29
 
 **Last Updated:** 2026-09-30

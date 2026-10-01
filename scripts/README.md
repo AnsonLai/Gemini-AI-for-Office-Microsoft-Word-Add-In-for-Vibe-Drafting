@@ -1,5 +1,21 @@
 # Verification and profiling commands
 
+## Testing the library boundary
+
+See the [testing overview](../docs/TESTING.md) for lane responsibilities and limits.
+
+The [library offload review](../docs/library-offload-review.md) records which
+execution and packaging responsibilities moved into the shared engine. Consumer
+tests still own operation mapping, exact source targets, failure propagation,
+and host outcomes. Package success alone cannot confirm a Word insertion.
+
+Use the offline compatibility, batch, MCP workflow and cross-host parity suites
+for library upgrades; use actual Office.js plus independent Word save/reopen and
+Accept All/Reject All checks for affected Word routes. Native list routes need
+their own expectations because they do not execute a canonical library batch.
+Keep unsupported canonical conversions in the active follow-up, and report
+library defects upstream rather than adding a second implementation here.
+
 ## Offline tests
 
 `npm test` runs each consumer JavaScript suite in its own Node process,

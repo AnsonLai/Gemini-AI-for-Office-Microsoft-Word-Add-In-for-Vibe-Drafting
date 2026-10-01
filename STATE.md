@@ -10,16 +10,20 @@
   `@ansonlai/docx-redline-js@0.8.3`. Browser editing uses the same package
   through its public document-session facade.
 - **Host boundaries:** portable mapping and OOXML preparation are separated
-  from Word transport. The Word adapter owns `getOoxml`, `insertOoxml`,
-  tracking-mode changes, and confirmed/indeterminate write outcomes. Browser
-  editing uses a document session; MCP uses package document sessions. JSZip
-  remains in the browser demo for preview.
+  from Word transport. The library owns supported document operations,
+  reconciliation and package lifecycle; add-in `consumer-core.js` retains
+  tool mapping and Flat OPC preparation/assembly. The Word adapter owns
+  `getOoxml`, `insertOoxml`, tracking-mode changes, and confirmed/indeterminate
+  write outcomes. Browser editing uses a package document session; MCP uses
+  `DocxDocument` sessions. JSZip remains in the browser demo for preview.
 - **Redline path:** targets are checked against a canonical source snapshot;
   supported batches execute atomically and are inserted once on confirmed
   success. A failed or uncertain host write is not replayed.
 - **Reliability:** Gemini request transport/retry behavior and structured
   mutation outcomes are centralized. Retries are bounded and never repeat a
-  document mutation.
+  document mutation. These, the regression/host test lanes, portable consumer
+  extraction and deferred taskpane startup remain local consumer concerns; they
+  are not new library offloads. See the [library offload review](docs/library-offload-review.md).
 - **Performance:** the dated v0.8.2 mapping, core, package, browser-projection,
   Word-host, and startup measurements are recorded. The measured 1,000-
   paragraph workload is accepted; there is no universal latency gate.
@@ -46,10 +50,12 @@ marked complete.
 The [canonical list migration follow-up](docs/plans/2026-09-30-canonical-list-migration-follow-up.md)
 remains open. The original list plan is closed with deferred scope transferred
 here. Contract inventory and stale-source checks are complete. A
-supported bullet/decimal insertion subset is verified, but full canonical list
-migration still requires canonical-operation capability work and later
-consumer/Word validation. Existing native paths remain for unsupported
-formats, levels, tracking modes, general list edits, and header conversion.
+bullet/decimal insertion subset with tracking enabled at source/resolved levels
+0–1 is verified, but full canonical list migration still requires
+canonical-operation capability work and later consumer/Word validation.
+Existing native or legacy paths remain for general `edit_list` and header
+conversion, deeper/other-style insertion, tracking-off requests and unsupported
+outdent contexts.
 Current v0.8.3 validation is recorded in the
 [release report](docs/validation-reports/2026-09-30-docx-redline-v083.md);
 passing these gates alone will not close the full migration.

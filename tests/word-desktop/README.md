@@ -1,5 +1,11 @@
 # Word Desktop List Inspector
 
+The [library offload review](../../docs/library-offload-review.md) distinguishes
+canonical library execution from native Word routes. Verify both through Word's
+own accepted/rejected views; a library receipt or XML-only check does not prove
+host insertion fidelity. Full canonical list migration remains a separate
+follow-up even though the original five plans are closed.
+
 ## Current acceptance harness
 
 The September upgrade and agentic list gates use the bounded worker in

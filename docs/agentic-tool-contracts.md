@@ -2,6 +2,18 @@
 
 This inventory records the tool declarations and execution paths currently wired in `src/taskpane/taskpane.js` and `src/taskpane/modules/commands/agentic-tools.js`. The library contract references are from the installed and locked `@ansonlai/docx-redline-js@0.8.3` package. This is a description of the current consumer; it does not imply that every tool already submits a canonical operation.
 
+The engine extraction predates the four August 29 plans. The later redline
+batch migration delegates `apply_redlines` to one atomic library batch, removing
+the former iterative Word loop and manual table recovery for that tool.
+Canonical list delegation remains limited to tracking-on insertion into active
+bullet/decimal lists through `insert_list_item` at levels 0–1. `edit_list`
+retains its legacy `applyRedlineToOxml` path; header conversion and unsupported
+insertion shapes remain native Word work. Provider retry, host outcome
+reporting, and lazy tool loading are consumer responsibilities, not library
+offloads. See
+[package boundaries](package-boundaries.md) and the
+[library offload review](library-offload-review.md).
+
 ## Source indexes and target conventions
 
 - The enhanced context enumerates `context.document.body.paragraphs` in document order and labels them `[P1]`, `[P2]`, and so on. These are 1-based indexes into Word's body paragraph collection, not visual line numbers. Paragraphs inside tables also receive a `P` index; their metadata includes `T:<row>,<cell>`.

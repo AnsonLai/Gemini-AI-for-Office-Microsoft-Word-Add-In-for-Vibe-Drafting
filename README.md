@@ -225,7 +225,7 @@ AIWordPlugin/
 └── README.md
 ```
 
-> The add-in and MCP pin [`@ansonlai/docx-redline-js@0.8.3`](https://www.npmjs.com/package/@ansonlai/docx-redline-js). The Word consumer has a portable preparation core and a separate Office.js adapter; the browser and MCP consumers use the public package facade. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the system map and contracts.
+> The add-in and MCP pin [`@ansonlai/docx-redline-js@0.8.3`](https://www.npmjs.com/package/@ansonlai/docx-redline-js). The library owns supported DOCX operations and package lifecycle; local consumers retain tool-to-operation mapping, host I/O, and their UI/session contracts. The Word consumer also retains its Flat OPC bridge and Office.js adapter; browser and MCP editing use the public package facade. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the system map and [the library offload review](docs/library-offload-review.md) for the file-by-file boundary.
 
 ## Development
 
@@ -316,7 +316,22 @@ The earlier v0.8.2 baseline recorded five native fallback cases with 20 actual O
 
 ### Portable preparation and browser document sessions
 
-Non-Word consumers import `src/taskpane/modules/docx-redline-js-integration/consumer-core.js` for immutable-source mapping, validation and OOXML preparation. The integration `index.js` retains Word exports for compatibility. Word I/O and tracking remain in the host adapters; [package responsibilities](docs/package-boundaries.md) describe the separation.
+The add-in's local `src/taskpane/modules/docx-redline-js-integration/consumer-core.js`
+handles tool mapping, validation and preparation of Word's Flat OPC payload;
+supported document operations, reconciliation and package behavior come from
+the library. The integration `index.js` retains Word exports for compatibility.
+The redline runner's iterative Word loop, native insertion recovery and manual
+table synthesis were replaced by one atomic library batch on the migrated path.
+Word I/O, Flat OPC extraction/reassembly and tracking remain local.
+
+Canonical `insert_list_item` routing is verified only for bullet/decimal lists
+with tracking enabled at source/resolved levels 0–1. General `edit_list`, header
+conversion, deeper/other styles and tracking-off requests retain native or
+established legacy paths. Shared Gemini transport/outcomes, test harnesses and
+deferred taskpane startup are local improvements. See
+[package responsibilities](docs/package-boundaries.md) and the
+[library offload review](docs/library-offload-review.md) for measured reductions
+and the remaining migration.
 
 The taskpane loads editing support on first use, shares concurrent first loads,
 and can retry after an import failure. Platform setup runs before baseline

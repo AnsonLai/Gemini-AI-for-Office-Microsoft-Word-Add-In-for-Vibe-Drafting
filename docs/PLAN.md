@@ -13,10 +13,15 @@
 > closed with deferred scope at the user's request. Full canonical list
 > migration transfers to the fresh [follow-up](plans/2026-09-30-canonical-list-migration-follow-up.md),
 > which depends on separately tracked upstream capabilities.
-> The reported fidelity defects are fixed and validated in installed 0.8.3.
+> The tracked-text fidelity defects and historical-property inspection findings
+> covered by 0.8.3 are fixed and validated; canonical header conversion and
+> list-format operations remain unsupported and are tracked by the follow-up.
 > Current consumers pin exact
 > `@ansonlai/docx-redline-js@0.8.3`; see [ROADMAP.md](../ROADMAP.md) and
 > [STATE.md](../STATE.md) for the current posture.
+> For the current file-level ownership split, including the local Flat OPC
+> bridge and consumer-owned reliability/startup work, see the
+> [library offload review](library-offload-review.md).
 
 > **Audience note:** this plan is written to be executed by a smaller/cheaper model,
 > one work package at a time. It is deliberately prescriptive: exact file paths,
