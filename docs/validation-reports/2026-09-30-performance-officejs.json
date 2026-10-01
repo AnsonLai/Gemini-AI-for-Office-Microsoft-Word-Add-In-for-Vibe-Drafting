@@ -1,0 +1,148 @@
+{
+  "status": "passed",
+  "host": {
+    "host": "Word",
+    "platform": "PC",
+    "addin": null
+  },
+  "diagnostics": {
+    "host": "Word",
+    "version": "16.0.20430.20092",
+    "platform": "PC"
+  },
+  "checks": [
+    {
+      "case": "word-addin-sibling-reply",
+      "view": "actual-officejs-insertion",
+      "status": "ok",
+      "written": true,
+      "hasChanges": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 1,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 95.29999999701977,
+        "portablePreparation": 13.799999997019768,
+        "insertSync": 49.70000000298023,
+        "adapterTotal": 159.40000000596046
+      }
+    },
+    {
+      "case": "word-addin-sibling-reply",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 167.79999999701977,
+        "portablePreparation": 4.299999997019768,
+        "adapterTotal": 172.09999999403954
+      }
+    },
+    {
+      "case": "word-addin-sibling-reply",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 36.400000005960464,
+        "portablePreparation": 5.5999999940395355,
+        "adapterTotal": 42.20000000298023
+      }
+    },
+    {
+      "case": "word-addin-plain-replacement",
+      "view": "stale-context-refusal",
+      "errorCode": "STALE_DOCUMENT_CONTEXT",
+      "writes": 0,
+      "written": false,
+      "writeAttempted": false
+    },
+    {
+      "case": "word-addin-plain-replacement",
+      "view": "unchanged-paragraph",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 25.900000005960464,
+        "portablePreparation": 7.9000000059604645,
+        "adapterTotal": 33.80000001192093
+      }
+    },
+    {
+      "case": "word-addin-plain-replacement",
+      "view": "actual-officejs-insertion",
+      "status": "ok",
+      "written": true,
+      "hasChanges": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 1,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 32.20000000298023,
+        "portablePreparation": 9.799999997019768,
+        "insertSync": 39.599999994039536,
+        "adapterTotal": 81.70000000298023
+      }
+    },
+    {
+      "case": "word-addin-plain-replacement",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 28.299999997019768,
+        "portablePreparation": 3.2999999970197678,
+        "adapterTotal": 31.700000002980232
+      }
+    },
+    {
+      "case": "word-addin-plain-replacement",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0,
+      "timing": {
+        "sampleCount": 1,
+        "sourceReadSync": 30.19999998807907,
+        "portablePreparation": 4.200000002980232,
+        "adapterTotal": 34.3999999910593
+      }
+    }
+  ],
+  "startedAt": "2026-10-01T03:38:04.611Z",
+  "checkedAt": "2026-10-01T03:38:09.800Z"
+}

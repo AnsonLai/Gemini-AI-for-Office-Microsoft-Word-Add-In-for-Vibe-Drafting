@@ -7,6 +7,13 @@ import { initAgenticTools, executeInsertListItem } from '../src/taskpane/modules
 
 const status = message => { document.getElementById('status').textContent = message; };
 function assert(condition, message) { if (!condition) throw new Error(message); }
+function createTimingSamples() {
+    const phases = {};
+    return {
+        record({ phase, durationMs }) { phases[phase] = durationMs; },
+        snapshot() { return { sampleCount: 1, ...phases }; }
+    };
+}
 function officeCall(action) {
     return new Promise((resolve, reject) => action(result => {
         if (result.status === Office.AsyncResultStatus.Succeeded) resolve(result.value);
@@ -34,19 +41,23 @@ async function runBatch(operations) {
     return Word.run(async context => {
         const body = context.document.body;
         let reads = 0, writes = 0;
+        const timing = createTimingSamples();
         // Count actual calls while forwarding to genuine Word proxies.
         const scope = {
             getOoxml() { reads++; return body.getOoxml(); },
             insertOoxml(...args) { writes++; return body.insertOoxml(...args); }
         };
-        const result = await executePureOoxmlBatch(context, scope, operations, { author: 'WP6 reviewer' });
+        const result = await executePureOoxmlBatch(context, scope, operations, {
+            author: 'WP6 reviewer', onTiming: timing.record
+        });
         return { status: result.status, written: result.written, hasChanges: result.hasChanges,
             writeAttempted: result.writeAttempted, mutationOutcome: result.mutationOutcome,
-            errorCode: result.error?.code, reads, writes };
+            errorCode: result.error?.code, reads, writes, timing: timing.snapshot() };
     });
 }
 async function runProductionListInsertion(request) {
     let reads = 0, writes = 0;
+    const timing = createTimingSamples();
     const nativeRun = Word.run;
     initAgenticTools({
         getRequestSignal: () => null, loadRedlineSetting: () => true,
@@ -74,19 +85,60 @@ async function runProductionListInsertion(request) {
         Word.run = callback => nativeRun.call(Word, async context => {
             const documentProxy = context.document;
             const body = documentProxy.body;
-            return callback({ sync: () => context.sync(), document: {
+            let adapterStartedAt = null;
+            let sourceSyncPending = false;
+            let preparationStartedAt = null;
+            let insertStartedAt = null;
+            let insertSyncPending = false;
+            const now = () => performance.now();
+            const recordAdapterSync = async () => {
+                try {
+                    return await context.sync();
+                } finally {
+                    const finishedAt = now();
+                    if (sourceSyncPending) {
+                        timing.record({ phase: 'sourceReadSync', durationMs: finishedAt - adapterStartedAt });
+                        preparationStartedAt = finishedAt;
+                        sourceSyncPending = false;
+                    }
+                    if (insertSyncPending) {
+                        timing.record({ phase: 'portablePreparation', durationMs: Math.max(0, insertStartedAt - preparationStartedAt) });
+                        timing.record({ phase: 'insertSync', durationMs: finishedAt - insertStartedAt });
+                        timing.record({ phase: 'adapterTotal', durationMs: finishedAt - adapterStartedAt });
+                        insertSyncPending = false;
+                    }
+                }
+            };
+            return callback({ sync: recordAdapterSync, document: {
                 load: properties => documentProxy.load(properties),
                 get changeTrackingMode() { return documentProxy.changeTrackingMode; },
                 set changeTrackingMode(value) { documentProxy.changeTrackingMode = value; },
                 body: { paragraphs: body.paragraphs,
-                    getOoxml() { reads++; return body.getOoxml(); },
-                    insertOoxml(...args) { writes++; return body.insertOoxml(...args); }
+                    getOoxml() {
+                        reads++;
+                        adapterStartedAt = now();
+                        sourceSyncPending = true;
+                        return body.getOoxml();
+                    },
+                    insertOoxml(...args) {
+                        writes++;
+                        const startedAt = adapterStartedAt !== null && preparationStartedAt !== null ? now() : null;
+                        const result = body.insertOoxml(...args);
+                        if (startedAt !== null) {
+                            insertStartedAt = startedAt;
+                            insertSyncPending = true;
+                        }
+                        return result;
+                    }
                 }
             } });
         });
+        const toolStartedAt = performance.now();
         const result = await executeInsertListItem(request.afterParagraphIndex, request.text, request.indentLevel, sourceBaseline);
+        timing.record({ phase: 'agenticToolTotal', durationMs: performance.now() - toolStartedAt });
         return { status: result.status, written: result.written, writeAttempted: result.writeAttempted,
-            mutationOutcome: result.mutationOutcome, errorCode: result.error?.code, reads, writes };
+            mutationOutcome: result.mutationOutcome, errorCode: result.error?.code, reads, writes,
+            timing: timing.snapshot() };
     } finally { Word.run = nativeRun; }
 }
 Office.onReady(async info => {

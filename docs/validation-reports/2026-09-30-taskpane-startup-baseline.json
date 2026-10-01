@@ -1,0 +1,35 @@
+{
+  "status": "passed",
+  "scenario": "automaticGlanceSuppressed",
+  "providerCalls": false,
+  "release": "v2.1.0.3",
+  "host": "Word",
+  "platform": "PC",
+  "navigationStartEpochMs": 1790825679909,
+  "moduleEvaluatedMs": 183.20000000298023,
+  "officeReadyMs": 216.8,
+  "usableUiMs": 217.4,
+  "domInteractiveMs": 148.3,
+  "domContentLoadedMs": 183.3,
+  "loadEventEndMs": 0,
+  "initialScriptEncodedBytes": 1041664,
+  "initialScriptTransferBytes": 1042264,
+  "scriptResources": [
+    {
+      "name": "/polyfill.js",
+      "initiatorType": "script",
+      "durationMs": 16,
+      "encodedBodySize": 223963,
+      "transferSize": 224263
+    },
+    {
+      "name": "/taskpane.js",
+      "initiatorType": "script",
+      "durationMs": 23.5,
+      "encodedBodySize": 817701,
+      "transferSize": 818001
+    }
+  ],
+  "startedAt": "2026-10-01T03:34:36.549Z",
+  "checkedAt": "2026-10-01T03:34:40.134Z"
+}

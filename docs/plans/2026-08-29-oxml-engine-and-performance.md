@@ -48,8 +48,12 @@ Production builds pass with bundle-size warnings (taskpane approximately 762 KiB
 - Profiling ownership is split across workload/core/package measurements, production bundle/startup analysis, and real Word transport instrumentation.
 - No new timing gate is imposed. Consumer changes require measured benefit and preserved fidelity; library internals and defects remain separate work items.
 - No model/provider calls are required for these measurements.
+- WP1 current-version profiles are recorded for six supported workloads with ten samples/two warmups, including 100/1,000 paragraph runs. Ten-edit core medians are 28.094/228.094 ms; raw reports and phase definitions are in the [execution record](../validation-reports/2026-09-30-ooxml-engine-and-performance.md).
+- Actual Word timing instrumentation passes 8 Office.js and 12 independent Word checks. Startup baseline profiling passed in Word; optional tool loading is being measured before final WP2 acceptance.
 
 ### WP1 — Profile current consumer workloads
+
+**Status: Complete.** Current-version mapping/core/package/browser projection and actual Word transport costs are separated, with metadata/raw samples. No new timing budget is justified by the accepted workload.
 
 - Reuse `npm run benchmark:ooxml`; record version, machine, workload, sample count, median/p95 and raw observations.
 - Cover representative no-op, localized multi-edit, full paragraph, nested list/table and commented-document workloads as their paths settle.
@@ -66,6 +70,8 @@ Production builds pass with bundle-size warnings (taskpane approximately 762 KiB
 - Stop when the measured problem is resolved; keep upstream internals out of consumer changes.
 
 ### WP3 — Route engine findings upstream
+
+**Status: Complete for this profiling pass.** No new library regression was established; existing list fidelity defects remain separate in the agentic plan. No library internals were modified.
 
 - Library parse/serialize churn, diff allocation, run reconstruction and numbering algorithms belong to `Docx Redline JS`.
 - Reproduce engine defects/performance regressions with a minimal source, exact operations, version and measurements.

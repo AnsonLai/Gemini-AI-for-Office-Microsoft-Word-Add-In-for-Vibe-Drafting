@@ -27,6 +27,33 @@ function failedBatchWrite(result, source, code, error, writeAttempted = false, w
         source
     };
 }
+
+function createBatchTiming(options) {
+    if (typeof options.onTiming !== 'function') return null;
+    const observer = options.onTiming;
+    const clock = typeof options.now === 'function'
+        ? options.now
+        : () => globalThis.performance?.now?.();
+    const now = () => {
+        try {
+            const value = clock();
+            return Number.isFinite(value) ? value : null;
+        } catch {
+            return null;
+        }
+    };
+    return {
+        now,
+        record(phase, startedAt) {
+            if (startedAt === undefined || startedAt === null) return;
+            const endedAt = now();
+            if (endedAt === null) return;
+            const durationMs = Math.max(0, endedAt - startedAt);
+            try { observer({ phase, durationMs }); } catch { /* Diagnostics must not affect Word edits. */ }
+        }
+    };
+}
+
 function resolveWordOperationScope(scope) {
     if (!scope) throw new Error('Missing scope for applyWordOperation');
     if (scope.paragraph) {
@@ -51,13 +78,38 @@ function resolveWordOperationScope(scope) {
  * The engine result and its receipts are returned unchanged, with `written` added.
  */
 export async function executePureOoxmlBatch(context, targetScope, operations, options = {}) {
+    const timing = createBatchTiming(options);
+    const startedAt = timing?.now();
+    try {
+        return await executePureOoxmlBatchInternal(context, targetScope, operations, options, timing);
+    } finally {
+        timing?.record('adapterTotal', startedAt);
+    }
+}
+
+async function executePureOoxmlBatchInternal(context, targetScope, operations, options, timing) {
     if (!context || typeof context.sync !== 'function') {
         throw new TypeError('A Word request context is required');
     }
     const resolved = resolveWordOperationScope(targetScope);
-    const ooxmlResult = resolved.target.getOoxml();
-    await context.sync();
-    const preparation = await prepareCanonicalBatch(ooxmlResult?.value || '', operations, options);
+    let ooxmlResult;
+    const sourceStartedAt = timing?.now();
+    try {
+        ooxmlResult = resolved.target.getOoxml();
+        await context.sync();
+    } finally {
+        timing?.record('sourceReadSync', sourceStartedAt);
+    }
+    let preparation;
+    const preparationStartedAt = timing?.now();
+    try {
+        const preparationOptions = { ...options };
+        delete preparationOptions.onTiming;
+        delete preparationOptions.now;
+        preparation = await prepareCanonicalBatch(ooxmlResult?.value || '', operations, preparationOptions);
+    } finally {
+        timing?.record('portablePreparation', preparationStartedAt);
+    }
     const publicSource = preparation.source;
     const result = preparation.result;
     if (preparation.status === 'noop') {
@@ -76,22 +128,27 @@ export async function executePureOoxmlBatch(context, targetScope, operations, op
     let writeAttempted = false;
     let written = false;
     const writeBatch = async () => {
-        writeAttempted = true;
-        if (resolved.kind === 'paragraph') {
-            await insertOoxmlWithRangeFallback(
-                resolved.target,
-                insertionPayload,
-                'Replace',
-                context,
-                options.logPrefix || 'WordOp/Batch'
-            );
-        } else {
-            const insertMode = (typeof Word !== 'undefined' && (Word.InsertLocation?.replace || Word.InsertLocation?.Replace))
-                || 'Replace';
-            resolved.target.insertOoxml(insertionPayload, insertMode);
-            await context.sync();
+        const insertionStartedAt = timing?.now();
+        try {
+            writeAttempted = true;
+            if (resolved.kind === 'paragraph') {
+                await insertOoxmlWithRangeFallback(
+                    resolved.target,
+                    insertionPayload,
+                    'Replace',
+                    context,
+                    options.logPrefix || 'WordOp/Batch'
+                );
+            } else {
+                const insertMode = (typeof Word !== 'undefined' && (Word.InsertLocation?.replace || Word.InsertLocation?.Replace))
+                    || 'Replace';
+                resolved.target.insertOoxml(insertionPayload, insertMode);
+                await context.sync();
+            }
+            written = true;
+        } finally {
+            timing?.record('insertSync', insertionStartedAt);
         }
-        written = true;
     };
     try {
         if (options.disableNativeTracking) {

@@ -48,6 +48,33 @@ assert.match(successful.writes[0].value, /Second /);
 assert.match(successful.writes[0].value, /updated /);
 assert.match(successful.writes[0].value, /<pkg:package/);
 
+const timed = fixture();
+const timingSamples = [];
+let clock = 0;
+const timedResult = await executePureOoxmlBatch(timed.context, timed.body, [
+    { type: 'replace', target: { exactText: 'Alpha beta gamma.' }, modified: 'Timed update.' }
+], {
+    now: () => (clock += 10),
+    onTiming: sample => timingSamples.push(sample)
+});
+assert.equal(timedResult.status, 'ok');
+assert.deepEqual(timingSamples.map(sample => sample.phase), [
+    'sourceReadSync', 'portablePreparation', 'insertSync', 'adapterTotal'
+]);
+assert.deepEqual(timingSamples.map(sample => sample.durationMs), [10, 10, 10, 70]);
+
+const failedClock = fixture();
+let failedClockObserverCalls = 0;
+const failedClockResult = await executePureOoxmlBatch(failedClock.context, failedClock.body, [
+    { type: 'replace', target: { exactText: 'Alpha beta gamma.' }, modified: 'Clock-independent update.' }
+], {
+    now() { throw new Error('Monotonic clock unavailable'); },
+    onTiming() { failedClockObserverCalls++; }
+});
+assert.equal(failedClockResult.status, 'ok', 'clock failures must not affect Word edit behavior');
+assert.equal(failedClockResult.written, true);
+assert.equal(failedClockObserverCalls, 0, 'invalid clock readings must suppress the affected measurements');
+
 const failed = fixture();
 const refusal = await executePureOoxmlBatch(failed.context, failed.body, [
     { type: 'replace', target: { exactText: 'Alpha beta gamma.' }, modified: 'This would change.' },
@@ -77,9 +104,13 @@ assert.match(styled.writes[0].value, /Please review/);
 
 const rejectedWrite = fixture();
 rejectedWrite.body.insertOoxml = () => { throw Object.assign(new Error('Word rejected package'), { code: 'FUTURE_WORD_ERROR' }); };
+let throwingObserverCalls = 0;
 const writeError = await executePureOoxmlBatch(rejectedWrite.context, rejectedWrite.body, [
     { type: 'replace', target: { exactText: 'Alpha beta gamma.' }, modified: 'Updated.' }
-], { author: 'Batch test' });
+], {
+    author: 'Batch test',
+    onTiming() { throwingObserverCalls++; throw new Error('Diagnostics are unavailable'); }
+});
 assert.equal(writeError.status, 'error');
 assert.equal(writeError.error.code, 'WORD_OOXML_WRITE_FAILED');
 assert.equal(writeError.written, false);
@@ -88,6 +119,7 @@ assert.equal(writeError.hostError.code, 'FUTURE_WORD_ERROR');
 assert.equal(writeError.mutationOutcome, 'indeterminate');
 assert.equal(writeError.receipts[0].committed, true, 'preserve engine commitment to prepared XML');
 assert.deepEqual(writeError.receipts, writeError.engineResult.receipts);
+assert.equal(throwingObserverCalls, 4, 'timing observer failures must not interrupt or alter the host write result');
 
 const syncFailure = fixture();
 let syncCalls = 0;

@@ -1,0 +1,1307 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-10-01T03:34:38.249Z",
+  "benchmark": {
+    "name": "OOXML consumer pipeline observational benchmark",
+    "harness": "scripts/benchmark-ooxml-pipeline.mjs",
+    "harnessSha256": "a3206224fdfd3ace9d6d95efd2e032afdc028f1035329fd84240f5978be49a81",
+    "gitCommit": "31f70e018dbfcffa136ffad69c4b94ff31efc5f5",
+    "workingTreeDirtyAtRun": true,
+    "applicationPackageVersion": "0.0.1",
+    "docxRedlinePackageVersion": "0.8.2",
+    "docxRedlinePackagePin": "0.8.2",
+    "nodeVersion": "v24.11.1",
+    "v8Version": "13.6.233.10-node.28",
+    "npmUserAgent": null
+  },
+  "machine": {
+    "hostname": "AnsonPC",
+    "platform": "win32",
+    "osRelease": "10.0.26300",
+    "architecture": "x64",
+    "cpuModel": "AMD Ryzen 7 9800X3D 8-Core Processor           ",
+    "logicalCpuCount": 16,
+    "totalMemoryBytes": 33489424384
+  },
+  "sampling": {
+    "warmupsPerMetric": 2,
+    "measuredIterationsPerMetric": 10,
+    "nearestRankP95": true,
+    "rawSamplesAreMilliseconds": true
+  },
+  "methodology": {
+    "mapping": "Consumer redline operation mapping uses the production planRedlineBatchOperations helper; the comment workload maps the anchored comment intent directly to the public document operation shape.",
+    "portableBaselineCapture": "Times captureSourceBaseline(documentXml) after package-open/source fixture preparation.",
+    "coreApplication": "Times applyOperationsToDocumentXml(documentXml, operations, ...) using pre-mapped operations; excludes package open/save and host transport.",
+    "packageOpen": "Times openDocx(sourceBytes) only.",
+    "packageInspection": "Times doc.inspect() on an already-open document.",
+    "browserSessionOpen": "Times createDocumentSession(sourceBytes).",
+    "browserPromptProjection": "Times session.getPromptParagraphs() on an already-open browser document session; includes its inspect, parse, and paragraph projection work.",
+    "packageApply": "Times DocxDocument.applyOperations on an already-open package; excludes source open and final serialization.",
+    "packageSerialize": "Times toUint8Array() on an already-edited package; source open and mutation are prepared outside the timer.",
+    "packageOpenApplySave": "Times openDocx + applyOperations + toUint8Array end to end.",
+    "exclusions": [
+      "Microsoft Word/Office.js read/write and context.sync latency",
+      "LLM/provider/network/tool latency",
+      "disk I/O",
+      "browser rendering and user interaction"
+    ],
+    "structuralFidelity": "Nested-list and table cases are localized text edits inside existing structures. The benchmark does not exercise or certify list/table structural mutation.",
+    "gates": "Observational only; no universal latency threshold or pass/fail budget."
+  },
+  "results": [
+    {
+      "name": "noop",
+      "source": {
+        "fixture": "synthetic independent legal-style paragraphs",
+        "sourceSha256": "b0031b669661c335e6dd328142fa3bec5eceb2c02da882b1577637ef7e7ea2a2",
+        "sourceDocxBytes": 6875,
+        "sourceDocumentXmlBytes": 192082,
+        "paragraphCount": 1000,
+        "tableParagraphCount": 0,
+        "listParagraphCount": 0,
+        "existingCommentCount": 0,
+        "workloadDescription": "Empty operation batch; no package mutation expected.",
+        "operationCount": 0,
+        "expectedChanges": false
+      },
+      "timing": {
+        "consumerOperationMapping": {
+          "sampleCount": 10,
+          "medianMs": 0,
+          "p95Ms": 0.001,
+          "minMs": 0,
+          "maxMs": 0.001,
+          "samplesMs": [
+            0.001,
+            0,
+            0,
+            0,
+            0.001,
+            0.001,
+            0.001,
+            0,
+            0,
+            0
+          ]
+        },
+        "portableSourceBaselineCapture": {
+          "sampleCount": 10,
+          "medianMs": 17.418,
+          "p95Ms": 22.339,
+          "minMs": 15.722,
+          "maxMs": 22.339,
+          "samplesMs": [
+            20.354,
+            17.674,
+            22.339,
+            16.797,
+            18.802,
+            16.967,
+            15.722,
+            15.842,
+            17.161,
+            20.385
+          ]
+        },
+        "packageOpen": {
+          "sampleCount": 10,
+          "medianMs": 0.474,
+          "p95Ms": 0.619,
+          "minMs": 0.434,
+          "maxMs": 0.619,
+          "samplesMs": [
+            0.619,
+            0.497,
+            0.478,
+            0.47,
+            0.458,
+            0.434,
+            0.437,
+            0.477,
+            0.459,
+            0.484
+          ]
+        },
+        "packageInspection": {
+          "sampleCount": 10,
+          "medianMs": 14.512,
+          "p95Ms": 20.296,
+          "minMs": 12.802,
+          "maxMs": 20.296,
+          "samplesMs": [
+            14.491,
+            14.533,
+            18.778,
+            14.818,
+            12.829,
+            20.296,
+            13.197,
+            12.802,
+            14.607,
+            13.74
+          ]
+        },
+        "browserSessionOpen": {
+          "sampleCount": 10,
+          "medianMs": 0.478,
+          "p95Ms": 0.51,
+          "minMs": 0.459,
+          "maxMs": 0.51,
+          "samplesMs": [
+            0.461,
+            0.495,
+            0.487,
+            0.483,
+            0.473,
+            0.459,
+            0.476,
+            0.481,
+            0.51,
+            0.466
+          ]
+        },
+        "browserPromptProjection": {
+          "sampleCount": 10,
+          "medianMs": 30.991,
+          "p95Ms": 35.475,
+          "minMs": 29.855,
+          "maxMs": 35.475,
+          "samplesMs": [
+            32.127,
+            30.437,
+            30.985,
+            34.511,
+            30.616,
+            30.174,
+            29.855,
+            30.997,
+            35.475,
+            31.682
+          ]
+        },
+        "coreApplication": {
+          "sampleCount": 10,
+          "medianMs": 9.81,
+          "p95Ms": 12.366,
+          "minMs": 9.006,
+          "maxMs": 12.366,
+          "samplesMs": [
+            9.236,
+            11.151,
+            9.358,
+            9.006,
+            11.513,
+            10.331,
+            9.11,
+            9.258,
+            12.366,
+            10.262
+          ]
+        },
+        "packageApply": {
+          "sampleCount": 10,
+          "medianMs": 21.808,
+          "p95Ms": 22.358,
+          "minMs": 20.598,
+          "maxMs": 22.358,
+          "samplesMs": [
+            22.335,
+            20.713,
+            22.358,
+            21.753,
+            21.884,
+            20.665,
+            21.863,
+            20.668,
+            22.103,
+            20.598
+          ]
+        },
+        "packageSerialize": {
+          "sampleCount": 10,
+          "medianMs": 1.441,
+          "p95Ms": 1.562,
+          "minMs": 1.358,
+          "maxMs": 1.562,
+          "samplesMs": [
+            1.397,
+            1.536,
+            1.562,
+            1.384,
+            1.423,
+            1.407,
+            1.358,
+            1.459,
+            1.484,
+            1.496
+          ]
+        },
+        "packageOpenApplySave": {
+          "sampleCount": 10,
+          "medianMs": 24.837,
+          "p95Ms": 30.678,
+          "minMs": 21.902,
+          "maxMs": 30.678,
+          "samplesMs": [
+            22.465,
+            21.902,
+            23.322,
+            23.34,
+            23.652,
+            26.023,
+            29.309,
+            26.929,
+            26.82,
+            30.678
+          ]
+        }
+      }
+    },
+    {
+      "name": "localized_multi_edit",
+      "source": {
+        "fixture": "synthetic independent legal-style paragraphs",
+        "sourceSha256": "b0031b669661c335e6dd328142fa3bec5eceb2c02da882b1577637ef7e7ea2a2",
+        "sourceDocxBytes": 6875,
+        "sourceDocumentXmlBytes": 192082,
+        "paragraphCount": 1000,
+        "tableParagraphCount": 0,
+        "listParagraphCount": 0,
+        "existingCommentCount": 0,
+        "workloadDescription": "10 distinct localized replacements across 1000 paragraphs.",
+        "operationCount": 10,
+        "expectedChanges": true,
+        "expectedText": "sixty"
+      },
+      "timing": {
+        "consumerOperationMapping": {
+          "sampleCount": 10,
+          "medianMs": 0.009,
+          "p95Ms": 0.01,
+          "minMs": 0.009,
+          "maxMs": 0.01,
+          "samplesMs": [
+            0.01,
+            0.01,
+            0.01,
+            0.009,
+            0.009,
+            0.009,
+            0.009,
+            0.01,
+            0.009,
+            0.009
+          ]
+        },
+        "portableSourceBaselineCapture": {
+          "sampleCount": 10,
+          "medianMs": 22.862,
+          "p95Ms": 25.375,
+          "minMs": 20.159,
+          "maxMs": 25.375,
+          "samplesMs": [
+            24.209,
+            21.754,
+            23.017,
+            25.375,
+            22.658,
+            22.706,
+            21.372,
+            20.159,
+            23.362,
+            23.284
+          ]
+        },
+        "packageOpen": {
+          "sampleCount": 10,
+          "medianMs": 0.322,
+          "p95Ms": 0.594,
+          "minMs": 0.271,
+          "maxMs": 0.594,
+          "samplesMs": [
+            0.299,
+            0.465,
+            0.594,
+            0.332,
+            0.312,
+            0.336,
+            0.312,
+            0.444,
+            0.279,
+            0.271
+          ]
+        },
+        "packageInspection": {
+          "sampleCount": 10,
+          "medianMs": 18.962,
+          "p95Ms": 23.063,
+          "minMs": 15.528,
+          "maxMs": 23.063,
+          "samplesMs": [
+            15.528,
+            15.56,
+            17.149,
+            19.121,
+            21.402,
+            17.29,
+            18.804,
+            21.495,
+            23.063,
+            21.766
+          ]
+        },
+        "browserSessionOpen": {
+          "sampleCount": 10,
+          "medianMs": 0.667,
+          "p95Ms": 0.833,
+          "minMs": 0.598,
+          "maxMs": 0.833,
+          "samplesMs": [
+            0.735,
+            0.816,
+            0.699,
+            0.598,
+            0.617,
+            0.648,
+            0.662,
+            0.652,
+            0.671,
+            0.833
+          ]
+        },
+        "browserPromptProjection": {
+          "sampleCount": 10,
+          "medianMs": 44.69,
+          "p95Ms": 50.513,
+          "minMs": 38.042,
+          "maxMs": 50.513,
+          "samplesMs": [
+            50.513,
+            45.599,
+            38.311,
+            46.829,
+            38.042,
+            41.132,
+            44.408,
+            49.78,
+            44.971,
+            42.192
+          ]
+        },
+        "coreApplication": {
+          "sampleCount": 10,
+          "medianMs": 228.094,
+          "p95Ms": 313.311,
+          "minMs": 214.489,
+          "maxMs": 313.311,
+          "samplesMs": [
+            241.154,
+            229.02,
+            227.168,
+            280.231,
+            225.153,
+            220.706,
+            215.012,
+            311.614,
+            214.489,
+            313.311
+          ]
+        },
+        "packageApply": {
+          "sampleCount": 10,
+          "medianMs": 266.937,
+          "p95Ms": 288.315,
+          "minMs": 254.793,
+          "maxMs": 288.315,
+          "samplesMs": [
+            272.034,
+            259.454,
+            277.305,
+            261.683,
+            262.153,
+            288.315,
+            275.989,
+            260.334,
+            254.793,
+            271.721
+          ]
+        },
+        "packageSerialize": {
+          "sampleCount": 10,
+          "medianMs": 1.442,
+          "p95Ms": 2.325,
+          "minMs": 1.329,
+          "maxMs": 2.325,
+          "samplesMs": [
+            1.971,
+            2.325,
+            1.486,
+            1.466,
+            1.329,
+            1.444,
+            1.357,
+            1.345,
+            1.356,
+            1.44
+          ]
+        },
+        "packageOpenApplySave": {
+          "sampleCount": 10,
+          "medianMs": 276.331,
+          "p95Ms": 292.532,
+          "minMs": 258.782,
+          "maxMs": 292.532,
+          "samplesMs": [
+            266.801,
+            258.782,
+            276.533,
+            281.502,
+            269.314,
+            276.129,
+            280.161,
+            277.681,
+            260.636,
+            292.532
+          ]
+        }
+      }
+    },
+    {
+      "name": "full_paragraph_rewrite",
+      "source": {
+        "fixture": "synthetic single long paragraph",
+        "sourceSha256": "632da254518062053a6ef66dc8c33dd517fc4aee559420f304f1263dfc333627",
+        "sourceDocxBytes": 1006,
+        "sourceDocumentXmlBytes": 3064,
+        "paragraphCount": 1,
+        "tableParagraphCount": 0,
+        "listParagraphCount": 0,
+        "existingCommentCount": 0,
+        "workloadDescription": "Replace one 2798-character paragraph in full.",
+        "operationCount": 1,
+        "expectedChanges": true,
+        "expectedText": "secured archive"
+      },
+      "timing": {
+        "consumerOperationMapping": {
+          "sampleCount": 10,
+          "medianMs": 0.002,
+          "p95Ms": 0.003,
+          "minMs": 0.001,
+          "maxMs": 0.003,
+          "samplesMs": [
+            0.003,
+            0.002,
+            0.002,
+            0.001,
+            0.003,
+            0.002,
+            0.002,
+            0.001,
+            0.002,
+            0.002
+          ]
+        },
+        "portableSourceBaselineCapture": {
+          "sampleCount": 10,
+          "medianMs": 0.056,
+          "p95Ms": 0.059,
+          "minMs": 0.055,
+          "maxMs": 0.059,
+          "samplesMs": [
+            0.058,
+            0.056,
+            0.056,
+            0.059,
+            0.058,
+            0.057,
+            0.056,
+            0.055,
+            0.056,
+            0.056
+          ]
+        },
+        "packageOpen": {
+          "sampleCount": 10,
+          "medianMs": 0.231,
+          "p95Ms": 0.382,
+          "minMs": 0.094,
+          "maxMs": 0.382,
+          "samplesMs": [
+            0.256,
+            0.241,
+            0.17,
+            0.24,
+            0.247,
+            0.222,
+            0.382,
+            0.152,
+            0.094,
+            0.17
+          ]
+        },
+        "packageInspection": {
+          "sampleCount": 10,
+          "medianMs": 0.058,
+          "p95Ms": 0.144,
+          "minMs": 0.047,
+          "maxMs": 0.144,
+          "samplesMs": [
+            0.056,
+            0.144,
+            0.071,
+            0.054,
+            0.048,
+            0.047,
+            0.112,
+            0.098,
+            0.06,
+            0.054
+          ]
+        },
+        "browserSessionOpen": {
+          "sampleCount": 10,
+          "medianMs": 0.243,
+          "p95Ms": 0.337,
+          "minMs": 0.183,
+          "maxMs": 0.337,
+          "samplesMs": [
+            0.337,
+            0.307,
+            0.224,
+            0.214,
+            0.262,
+            0.183,
+            0.219,
+            0.247,
+            0.244,
+            0.242
+          ]
+        },
+        "browserPromptProjection": {
+          "sampleCount": 10,
+          "medianMs": 0.16,
+          "p95Ms": 0.42,
+          "minMs": 0.082,
+          "maxMs": 0.42,
+          "samplesMs": [
+            0.174,
+            0.126,
+            0.145,
+            0.095,
+            0.087,
+            0.082,
+            0.42,
+            0.351,
+            0.274,
+            0.367
+          ]
+        },
+        "coreApplication": {
+          "sampleCount": 10,
+          "medianMs": 5.836,
+          "p95Ms": 6.54,
+          "minMs": 5.414,
+          "maxMs": 6.54,
+          "samplesMs": [
+            6.54,
+            5.886,
+            5.847,
+            5.889,
+            5.774,
+            5.825,
+            6.068,
+            5.52,
+            5.414,
+            5.683
+          ]
+        },
+        "packageApply": {
+          "sampleCount": 10,
+          "medianMs": 7.577,
+          "p95Ms": 9.522,
+          "minMs": 5.922,
+          "maxMs": 9.522,
+          "samplesMs": [
+            5.98,
+            5.922,
+            6.354,
+            9.522,
+            9.008,
+            8.884,
+            7.412,
+            7.054,
+            8.093,
+            7.741
+          ]
+        },
+        "packageSerialize": {
+          "sampleCount": 10,
+          "medianMs": 0.289,
+          "p95Ms": 0.377,
+          "minMs": 0.213,
+          "maxMs": 0.377,
+          "samplesMs": [
+            0.288,
+            0.264,
+            0.377,
+            0.334,
+            0.29,
+            0.213,
+            0.281,
+            0.284,
+            0.32,
+            0.293
+          ]
+        },
+        "packageOpenApplySave": {
+          "sampleCount": 10,
+          "medianMs": 8.392,
+          "p95Ms": 9.618,
+          "minMs": 6.427,
+          "maxMs": 9.618,
+          "samplesMs": [
+            8.223,
+            9.618,
+            7.75,
+            8.294,
+            8.49,
+            8.945,
+            8.564,
+            6.69,
+            8.558,
+            6.427
+          ]
+        }
+      }
+    },
+    {
+      "name": "nested_list_localized_edit",
+      "source": {
+        "fixture": "Word-authored Microsoft Word Desktop nested-list fixture; edit existing list paragraph text only",
+        "sourceSha256": "1cb528138518c8d25c3b23955c54bdb9f5f02d3a758d6de9b829b1af030638ba",
+        "sourceDocxBytes": 15248,
+        "sourceDocumentXmlBytes": 7776,
+        "paragraphCount": 24,
+        "tableParagraphCount": 0,
+        "listParagraphCount": 10,
+        "existingCommentCount": 0,
+        "workloadDescription": "Localized text change within an existing nested list paragraph; no list structure is created or reordered.",
+        "operationCount": 1,
+        "expectedChanges": true,
+        "expectedText": "Insertion Anchor Revised"
+      },
+      "timing": {
+        "consumerOperationMapping": {
+          "sampleCount": 10,
+          "medianMs": 0.001,
+          "p95Ms": 0.001,
+          "minMs": 0.001,
+          "maxMs": 0.001,
+          "samplesMs": [
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001
+          ]
+        },
+        "portableSourceBaselineCapture": {
+          "sampleCount": 10,
+          "medianMs": 1.382,
+          "p95Ms": 1.858,
+          "minMs": 0.749,
+          "maxMs": 1.858,
+          "samplesMs": [
+            1.688,
+            1.858,
+            1.458,
+            1.537,
+            0.962,
+            0.749,
+            1.493,
+            1.059,
+            0.813,
+            1.306
+          ]
+        },
+        "packageOpen": {
+          "sampleCount": 10,
+          "medianMs": 1.163,
+          "p95Ms": 1.496,
+          "minMs": 0.973,
+          "maxMs": 1.496,
+          "samplesMs": [
+            1.098,
+            1.334,
+            1.362,
+            1.496,
+            1.164,
+            1.128,
+            1.162,
+            1.234,
+            1.122,
+            0.973
+          ]
+        },
+        "packageInspection": {
+          "sampleCount": 10,
+          "medianMs": 1.892,
+          "p95Ms": 2.827,
+          "minMs": 1.658,
+          "maxMs": 2.827,
+          "samplesMs": [
+            2.225,
+            1.93,
+            1.658,
+            2.827,
+            2.738,
+            2.255,
+            1.854,
+            1.673,
+            1.68,
+            1.811
+          ]
+        },
+        "browserSessionOpen": {
+          "sampleCount": 10,
+          "medianMs": 0.929,
+          "p95Ms": 5.568,
+          "minMs": 0.896,
+          "maxMs": 5.568,
+          "samplesMs": [
+            1.154,
+            2.323,
+            5.568,
+            1.702,
+            0.914,
+            0.902,
+            0.945,
+            0.896,
+            0.908,
+            0.901
+          ]
+        },
+        "browserPromptProjection": {
+          "sampleCount": 10,
+          "medianMs": 2.766,
+          "p95Ms": 4.758,
+          "minMs": 2.376,
+          "maxMs": 4.758,
+          "samplesMs": [
+            2.833,
+            2.578,
+            2.589,
+            2.731,
+            4.758,
+            3.135,
+            2.802,
+            2.694,
+            2.376,
+            3.198
+          ]
+        },
+        "coreApplication": {
+          "sampleCount": 10,
+          "medianMs": 2.938,
+          "p95Ms": 2.988,
+          "minMs": 2.462,
+          "maxMs": 2.988,
+          "samplesMs": [
+            2.806,
+            2.655,
+            2.951,
+            2.969,
+            2.988,
+            2.938,
+            2.568,
+            2.938,
+            2.96,
+            2.462
+          ]
+        },
+        "packageApply": {
+          "sampleCount": 10,
+          "medianMs": 11.077,
+          "p95Ms": 14.384,
+          "minMs": 10.305,
+          "maxMs": 14.384,
+          "samplesMs": [
+            14.384,
+            11.245,
+            10.909,
+            10.73,
+            11.536,
+            10.358,
+            10.305,
+            10.633,
+            12.478,
+            14.321
+          ]
+        },
+        "packageSerialize": {
+          "sampleCount": 10,
+          "medianMs": 1.655,
+          "p95Ms": 2.071,
+          "minMs": 1.152,
+          "maxMs": 2.071,
+          "samplesMs": [
+            1.543,
+            1.809,
+            2.071,
+            1.972,
+            1.676,
+            1.584,
+            1.152,
+            1.81,
+            1.266,
+            1.634
+          ]
+        },
+        "packageOpenApplySave": {
+          "sampleCount": 10,
+          "medianMs": 11.998,
+          "p95Ms": 15.676,
+          "minMs": 10.661,
+          "maxMs": 15.676,
+          "samplesMs": [
+            10.661,
+            11.572,
+            11.27,
+            15.088,
+            10.902,
+            11.015,
+            12.425,
+            12.862,
+            15.676,
+            13.621
+          ]
+        }
+      }
+    },
+    {
+      "name": "table_cell_localized_edit",
+      "source": {
+        "fixture": "synthetic existing 2x2 Word table; localized cell-text edit only",
+        "sourceSha256": "b5fdef8066b6357a0ebdbfb9033e0727918f212666ddbc0ff59a040cb924c122",
+        "sourceDocxBytes": 1032,
+        "sourceDocumentXmlBytes": 1194,
+        "paragraphCount": 6,
+        "tableParagraphCount": 4,
+        "listParagraphCount": 0,
+        "existingCommentCount": 0,
+        "workloadDescription": "Localized text change within an existing table cell; no table structure is created or reordered.",
+        "operationCount": 1,
+        "expectedChanges": true,
+        "expectedText": "table cell phrase"
+      },
+      "timing": {
+        "consumerOperationMapping": {
+          "sampleCount": 10,
+          "medianMs": 0.001,
+          "p95Ms": 0.001,
+          "minMs": 0.001,
+          "maxMs": 0.001,
+          "samplesMs": [
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001,
+            0.001
+          ]
+        },
+        "portableSourceBaselineCapture": {
+          "sampleCount": 10,
+          "medianMs": 0.309,
+          "p95Ms": 0.349,
+          "minMs": 0.197,
+          "maxMs": 0.349,
+          "samplesMs": [
+            0.326,
+            0.294,
+            0.334,
+            0.339,
+            0.349,
+            0.229,
+            0.318,
+            0.301,
+            0.269,
+            0.197
+          ]
+        },
+        "packageOpen": {
+          "sampleCount": 10,
+          "medianMs": 0.08,
+          "p95Ms": 0.273,
+          "minMs": 0.063,
+          "maxMs": 0.273,
+          "samplesMs": [
+            0.065,
+            0.063,
+            0.089,
+            0.063,
+            0.07,
+            0.064,
+            0.24,
+            0.273,
+            0.202,
+            0.232
+          ]
+        },
+        "packageInspection": {
+          "sampleCount": 10,
+          "medianMs": 0.16,
+          "p95Ms": 0.292,
+          "minMs": 0.141,
+          "maxMs": 0.292,
+          "samplesMs": [
+            0.217,
+            0.168,
+            0.154,
+            0.166,
+            0.141,
+            0.143,
+            0.141,
+            0.146,
+            0.212,
+            0.292
+          ]
+        },
+        "browserSessionOpen": {
+          "sampleCount": 10,
+          "medianMs": 0.41,
+          "p95Ms": 0.865,
+          "minMs": 0.069,
+          "maxMs": 0.865,
+          "samplesMs": [
+            0.314,
+            0.357,
+            0.862,
+            0.498,
+            0.463,
+            0.526,
+            0.865,
+            0.077,
+            0.069,
+            0.069
+          ]
+        },
+        "browserPromptProjection": {
+          "sampleCount": 10,
+          "medianMs": 0.339,
+          "p95Ms": 0.592,
+          "minMs": 0.293,
+          "maxMs": 0.592,
+          "samplesMs": [
+            0.405,
+            0.304,
+            0.296,
+            0.592,
+            0.467,
+            0.317,
+            0.293,
+            0.304,
+            0.475,
+            0.361
+          ]
+        },
+        "coreApplication": {
+          "sampleCount": 10,
+          "medianMs": 0.781,
+          "p95Ms": 1.078,
+          "minMs": 0.69,
+          "maxMs": 1.078,
+          "samplesMs": [
+            1.078,
+            0.796,
+            0.8,
+            0.69,
+            0.811,
+            0.898,
+            0.765,
+            0.714,
+            0.714,
+            0.691
+          ]
+        },
+        "packageApply": {
+          "sampleCount": 10,
+          "medianMs": 1.739,
+          "p95Ms": 2.765,
+          "minMs": 1.488,
+          "maxMs": 2.765,
+          "samplesMs": [
+            1.488,
+            1.765,
+            1.611,
+            1.732,
+            2.765,
+            2.203,
+            1.788,
+            1.745,
+            1.59,
+            1.685
+          ]
+        },
+        "packageSerialize": {
+          "sampleCount": 10,
+          "medianMs": 0.151,
+          "p95Ms": 0.243,
+          "minMs": 0.093,
+          "maxMs": 0.243,
+          "samplesMs": [
+            0.171,
+            0.186,
+            0.19,
+            0.202,
+            0.243,
+            0.093,
+            0.126,
+            0.131,
+            0.121,
+            0.127
+          ]
+        },
+        "packageOpenApplySave": {
+          "sampleCount": 10,
+          "medianMs": 1.755,
+          "p95Ms": 2.557,
+          "minMs": 1.56,
+          "maxMs": 2.557,
+          "samplesMs": [
+            1.939,
+            1.903,
+            1.663,
+            1.68,
+            1.978,
+            1.608,
+            1.83,
+            1.679,
+            1.56,
+            2.557
+          ]
+        }
+      }
+    },
+    {
+      "name": "commented_document_comment",
+      "source": {
+        "fixture": "Word-authored Microsoft Word Desktop threaded-comments fixture; add one anchored comment",
+        "sourceSha256": "d8fa5d22e92f29c3b74fdf1fca71c928e93ae00d2680d8878e448dc3e46032b5",
+        "sourceDocxBytes": 17071,
+        "sourceDocumentXmlBytes": 3960,
+        "paragraphCount": 3,
+        "tableParagraphCount": 0,
+        "listParagraphCount": 0,
+        "existingCommentCount": 3,
+        "workloadDescription": "Add one comment to an existing Word-authored threaded-comments package.",
+        "operationCount": 1,
+        "expectedChanges": true,
+        "expectedText": "Performance benchmark comment."
+      },
+      "timing": {
+        "consumerOperationMapping": {
+          "sampleCount": 10,
+          "medianMs": 0.003,
+          "p95Ms": 0.012,
+          "minMs": 0.002,
+          "maxMs": 0.012,
+          "samplesMs": [
+            0.004,
+            0.002,
+            0.002,
+            0.003,
+            0.002,
+            0.002,
+            0.005,
+            0.012,
+            0.004,
+            0.002
+          ]
+        },
+        "portableSourceBaselineCapture": {
+          "sampleCount": 10,
+          "medianMs": 0.492,
+          "p95Ms": 0.682,
+          "minMs": 0.415,
+          "maxMs": 0.682,
+          "samplesMs": [
+            0.54,
+            0.682,
+            0.603,
+            0.489,
+            0.496,
+            0.477,
+            0.415,
+            0.45,
+            0.445,
+            0.495
+          ]
+        },
+        "packageOpen": {
+          "sampleCount": 10,
+          "medianMs": 1.194,
+          "p95Ms": 2.568,
+          "minMs": 1.125,
+          "maxMs": 2.568,
+          "samplesMs": [
+            1.212,
+            1.2,
+            1.167,
+            1.365,
+            1.189,
+            1.14,
+            1.125,
+            1.166,
+            1.693,
+            2.568
+          ]
+        },
+        "packageInspection": {
+          "sampleCount": 10,
+          "medianMs": 0.69,
+          "p95Ms": 1.677,
+          "minMs": 0.647,
+          "maxMs": 1.677,
+          "samplesMs": [
+            0.682,
+            0.871,
+            0.699,
+            0.651,
+            0.668,
+            0.651,
+            0.647,
+            1.238,
+            1.677,
+            0.843
+          ]
+        },
+        "browserSessionOpen": {
+          "sampleCount": 10,
+          "medianMs": 0.779,
+          "p95Ms": 2.727,
+          "minMs": 0.38,
+          "maxMs": 2.727,
+          "samplesMs": [
+            0.43,
+            0.38,
+            0.489,
+            0.594,
+            0.433,
+            0.963,
+            1.11,
+            1.191,
+            2.727,
+            1.275
+          ]
+        },
+        "browserPromptProjection": {
+          "sampleCount": 10,
+          "medianMs": 1.037,
+          "p95Ms": 1.512,
+          "minMs": 0.856,
+          "maxMs": 1.512,
+          "samplesMs": [
+            0.872,
+            1.1,
+            1.156,
+            0.893,
+            0.856,
+            1.279,
+            1.22,
+            0.974,
+            1.512,
+            0.937
+          ]
+        },
+        "coreApplication": {
+          "sampleCount": 10,
+          "medianMs": 1.125,
+          "p95Ms": 1.701,
+          "minMs": 0.737,
+          "maxMs": 1.701,
+          "samplesMs": [
+            1.204,
+            1.053,
+            1.289,
+            1.594,
+            1.701,
+            1.157,
+            0.814,
+            0.737,
+            1.092,
+            1.053
+          ]
+        },
+        "packageApply": {
+          "sampleCount": 10,
+          "medianMs": 5.453,
+          "p95Ms": 7.678,
+          "minMs": 4.711,
+          "maxMs": 7.678,
+          "samplesMs": [
+            5.101,
+            5.059,
+            5.441,
+            5.465,
+            7.678,
+            4.711,
+            4.788,
+            6.551,
+            6.239,
+            5.686
+          ]
+        },
+        "packageSerialize": {
+          "sampleCount": 10,
+          "medianMs": 1.609,
+          "p95Ms": 4.176,
+          "minMs": 1.265,
+          "maxMs": 4.176,
+          "samplesMs": [
+            1.299,
+            1.521,
+            1.397,
+            1.265,
+            4.176,
+            1.903,
+            1.697,
+            1.351,
+            1.819,
+            2.479
+          ]
+        },
+        "packageOpenApplySave": {
+          "sampleCount": 10,
+          "medianMs": 7.338,
+          "p95Ms": 11.235,
+          "minMs": 6.295,
+          "maxMs": 11.235,
+          "samplesMs": [
+            9.441,
+            8.771,
+            11.235,
+            6.82,
+            6.541,
+            7.106,
+            7.571,
+            6.549,
+            6.295,
+            8.193
+          ]
+        }
+      }
+    }
+  ]
+}
