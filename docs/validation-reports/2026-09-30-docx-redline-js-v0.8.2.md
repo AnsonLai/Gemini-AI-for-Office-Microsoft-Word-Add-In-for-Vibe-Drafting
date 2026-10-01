@@ -1,5 +1,7 @@
 # v0.8.2 upgrade validation
 
+**Host gate closed:** The later [reliability validation](2026-09-30-reliability-and-quality-gates.md) adds direct Office.js insertion and independent Word reopen/revision checks. The report below preserves the upgrade's earlier validation results.
+
 Date: 2026-09-30. Supersedes the open library-defect findings in the
 [v0.8.1 report](2026-09-30-docx-redline-js-v0.8.1-wp6.md).
 

@@ -1,0 +1,96 @@
+{
+  "status": "passed",
+  "host": {
+    "host": "Word",
+    "platform": "PC",
+    "addin": null
+  },
+  "diagnostics": {
+    "host": "Word",
+    "version": "16.0.20326.20158",
+    "platform": "PC"
+  },
+  "checks": [
+    {
+      "case": "word-addin-sibling-reply",
+      "view": "actual-officejs-insertion",
+      "status": "ok",
+      "written": true,
+      "hasChanges": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 1
+    },
+    {
+      "case": "word-addin-sibling-reply",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0
+    },
+    {
+      "case": "word-addin-sibling-reply",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0
+    },
+    {
+      "case": "word-addin-plain-replacement",
+      "view": "unchanged-paragraph",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0
+    },
+    {
+      "case": "word-addin-plain-replacement",
+      "view": "actual-officejs-insertion",
+      "status": "ok",
+      "written": true,
+      "hasChanges": true,
+      "writeAttempted": true,
+      "mutationOutcome": "applied",
+      "reads": 1,
+      "writes": 1
+    },
+    {
+      "case": "word-addin-plain-replacement",
+      "view": "no-op",
+      "status": "ok",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "noop",
+      "reads": 1,
+      "writes": 0
+    },
+    {
+      "case": "word-addin-plain-replacement",
+      "view": "preparation-refusal",
+      "status": "error",
+      "written": false,
+      "hasChanges": false,
+      "writeAttempted": false,
+      "mutationOutcome": "rolled_back",
+      "errorCode": "BATCH_OPERATION_FAILED",
+      "reads": 1,
+      "writes": 0
+    }
+  ],
+  "startedAt": "2026-09-30T23:31:59.707Z",
+  "checkedAt": "2026-09-30T23:32:03.831Z"
+}

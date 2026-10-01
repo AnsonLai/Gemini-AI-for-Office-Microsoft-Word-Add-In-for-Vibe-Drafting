@@ -1,3 +1,4 @@
+import { requestGemini } from '../../src/taskpane/modules/chat/gemini-client.js';
 /**
  * run-evals.mjs — model-in-the-loop eval harness for the redline diff generator.
  *
@@ -83,7 +84,6 @@ function loadCases(filterNames) {
 
 async function callGemini(model, apiKey, instruction, anchoredText) {
   const profile = getModelProfile(model);
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   const payload = {
     contents: [{ parts: [{ text: buildRedlineDiffPrompt(instruction, anchoredText) }] }],
     generationConfig: {
@@ -93,15 +93,7 @@ async function callGemini(model, apiKey, instruction, anchoredText) {
       responseSchema: REDLINE_DIFF_SCHEMA
     }
   };
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) {
-    throw new Error(`API ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  }
-  const json = await res.json();
+  const json = await requestGemini({ model, apiKey, payload });
   const text = json?.candidates?.[0]?.content?.parts?.find((p) => typeof p?.text === 'string')?.text;
   if (!text) throw new Error('No JSON text part in model response');
   return JSON.parse(text);

@@ -47,13 +47,15 @@ The chat supports multi-turn conversation — Gemini retains context from previo
 
 - Request payload construction is centralized in `buildGeminiRequestPayload(...)` in `browser-demo/demo.js`.
 - System prompt assembly is in `buildSystemInstruction(...)` in `browser-demo/demo.js`.
-- The latest built request is exposed in the browser console as:
+- Request transport uses `src/taskpane/modules/chat/gemini-client.js`, shared with the add-in and evaluations. It retries transient HTTP/network failures at most three times, with jitter, and bounds each attempt to 90 seconds. It does not execute or replay edits.
+- The latest request metadata is exposed in the browser console as:
   - `window.__BROWSER_DEMO_LAST_GEMINI_REQUEST__`
 - This debug object contains:
   - masked endpoint
-  - request headers/body
+  - request method and headers
   - selected vs total library source counts
-  - a truncated `systemInstructionPreview`
+  - formatting query and match counts
+- Document text, request bodies, system prompts and API keys are excluded from this diagnostic snapshot.
 
 ### Kitchen-Sink Mode (Legacy)
 

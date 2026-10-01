@@ -3,7 +3,7 @@
 **Date:** 2026-09-23  
 **Updated:** 2026-09-30
 
-**Status:** **Near complete.** WP0–WP5 are implemented and WP6 tooling, offline checks and native Word checks pass on exact v0.8.2. One acceptance gate remains: actual Office.js transport validation. PDF export is optional; measured large-document performance is accepted by the user. See the [v0.8.2 validation report](../validation-reports/2026-09-30-docx-redline-js-v0.8.2.md).
+**Status:** **Complete.** WP0–WP6 are implemented and verified on exact v0.8.2. Actual Office.js transport passed on 2026-09-30 during reliability WP1. PDF export is optional; measured large-document performance is accepted by the user. See the [v0.8.2 report](../validation-reports/2026-09-30-docx-redline-js-v0.8.2.md) and [host closure evidence](../validation-reports/2026-09-30-reliability-and-quality-gates.md).
 
 **Target:** Upgrade both root add-in and `mcp/docx-server` directly to exact version `0.8.2`.
 
@@ -17,17 +17,17 @@
 | WP3: atomic Word redline batch runner | Complete for range/body Flat-OPC transport |
 | WP4: localized prompt/schema validation | Complete |
 | WP5: MCP document facade | Complete |
-| WP6: verification | Near complete: 33 offline suites, 69 live Word checks and both builds pass; actual Office.js insertion pending |
+| WP6: verification | Complete: upgrade checks pass; reliability follow-up adds seven actual Office.js checks and 12 independent Word checks |
 
-### Final closure task
+### Final closure record
 
-Run the production add-in in real Word through `getOoxml` / `insertOoxml`, covering a localized body edit and threaded-comment package. Record successful insertion, save/reopen without repair, exact Accept All/Reject All outcomes, comment identities and no-write behavior on no-op/preparation failure. The COM native insertion checks already pass, but do not certify Office.js transport. Record the host/build and artifacts, then mark WP6 and this plan complete.
+Completed on Word `16.0.20326.20158`: a development-only validation entry invokes the production bridge with genuine `getOoxml` / `insertOoxml` calls for a localized body edit and threaded-comment reply. Seven transport checks verify confirmed insertion and no writes for empty batches, unchanged paragraph and invalid targets. Twelve independent Word reopen/no-repair/Accept All/Reject All checks pass on exported packages and reference files, preserving exact text and comment identities. See the reliability report for commands, snapshots and artifact hashes.
 
-This check is also tracked in [reliability WP1](2026-08-29-reliability-and-quality-gates.md); it is one shared task, not two implementations. The implementation/validation state above does not imply that all changes have been committed.
+This check closed [reliability WP1](2026-08-29-reliability-and-quality-gates.md) and upgrade WP6 together. Upgrade changes were committed as `68da8a4`; reliability follow-up changes form a separate change set.
 
 ### Follow-on plan order
 
-1. [Reliability and quality gates](2026-08-29-reliability-and-quality-gates.md): close the host gate, centralize provider recovery and clarify mutation outcomes.
+1. [Reliability and quality gates](2026-08-29-reliability-and-quality-gates.md): complete; host gate, provider recovery and mutation outcomes verified.
 2. [Agentic tools and list reliability](2026-08-29-agentic-tools-and-list-reliability.md): align remaining tool/list paths and expand independent Word coverage.
 3. [Package boundaries and integrations](2026-08-29-package-boundaries-and-integrations.md): extract portable consumer logic and migrate browser-demo editing; MCP migration is already complete.
 4. [OOXML engine and performance](2026-08-29-oxml-engine-and-performance.md): profile settled paths, then optimize measured consumer costs; route library findings upstream.
@@ -177,7 +177,7 @@ Because the four 2026-08-29 optimization plans were never executed against v0.5.
 
 **v0.8.2 follow-up (2026-09-30):** Both manifests, lockfiles and installed copies now resolve exact `0.8.2`. Library issues [#3](https://github.com/AnsonLai/docx-redline-js/issues/3) and [#4](https://github.com/AnsonLai/docx-redline-js/issues/4) are fixed upstream, with no consumer-side workaround. Their localized and full-paragraph forms are mandatory default regressions. All 33 offline suites, the portable reproducer, 69 live Word checks and both webpack builds pass. Word verifies exact accepted/rejected text, hyperlink boundaries and recognized revisions for all four fixed cases; native plain-edit and threaded-comment roundtrips still pass. Existing golden hashes are unchanged. Historical v0.8.1 evidence remains in its separate report.
 
-**Open WP6 gate:** Perform the actual Office.js transport closure task described above and tracked in reliability WP1. This is the only remaining upgrade acceptance task. PDF export is optional and accepted performance does not block the upgrade. The two library fidelity defects no longer block it.
+**WP6 closed (2026-09-30):** Actual Office.js transport and its exported Word package lifecycle pass in reliability WP1. No upgrade acceptance tasks remain. The earlier COM evidence and v0.8.2 report above are historical records; the closure report adds direct Office.js evidence. PDF export is optional and accepted performance does not block the upgrade.
 
 ---
 
@@ -191,7 +191,7 @@ Because the four 2026-08-29 optimization plans were never executed against v0.5.
 - [x] Localized replacements work in prompting, validation and execution.
 - [x] Offline consumer suites pass; exclusions/version-specific skips reported explicitly.
 - [x] Word-authored no-repair/revision and native COM insertion checks pass; both library defects fixed upstream without consumer workarounds.
-- [ ] Actual Office.js single-hop insertion verified and closure evidence recorded.
+- [x] Actual Office.js single-hop insertion verified and closure evidence recorded.
 - [x] Development/production builds pass without Node polyfill errors; existing production bundle warnings recorded.
 
 PDF export is optional diagnostic evidence. The measured 1,000-paragraph performance is accepted. Live model evaluation and broader list/browser/portability work belong to the August follow-on plans.

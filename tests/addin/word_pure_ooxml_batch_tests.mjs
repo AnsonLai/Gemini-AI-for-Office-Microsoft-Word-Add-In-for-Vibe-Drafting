@@ -3,6 +3,7 @@ import '../setup-xml-provider.mjs';
 import assert from 'node:assert/strict';
 import { buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
 import { executePureOoxmlBatch } from '../../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
+import { insertOoxmlWithRangeFallback } from '../../src/taskpane/modules/docx-redline-js-integration/word-ooxml.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const original = buildDocumentFragmentPackage(
@@ -75,13 +76,75 @@ assert.match(styled.writes[0].value, /relationships\/comments/);
 assert.match(styled.writes[0].value, /Please review/);
 
 const rejectedWrite = fixture();
-rejectedWrite.body.insertOoxml = () => { throw new Error('Word rejected package'); };
+rejectedWrite.body.insertOoxml = () => { throw Object.assign(new Error('Word rejected package'), { code: 'FUTURE_WORD_ERROR' }); };
 const writeError = await executePureOoxmlBatch(rejectedWrite.context, rejectedWrite.body, [
     { type: 'replace', target: { exactText: 'Alpha beta gamma.' }, modified: 'Updated.' }
 ], { author: 'Batch test' });
 assert.equal(writeError.status, 'error');
 assert.equal(writeError.error.code, 'WORD_OOXML_WRITE_FAILED');
 assert.equal(writeError.written, false);
-assert.equal(writeError.receipts[0].committed, false);
+assert.equal(writeError.writeAttempted, true);
+assert.equal(writeError.hostError.code, 'FUTURE_WORD_ERROR');
+assert.equal(writeError.mutationOutcome, 'indeterminate');
+assert.equal(writeError.receipts[0].committed, true, 'preserve engine commitment to prepared XML');
+assert.deepEqual(writeError.receipts, writeError.engineResult.receipts);
+
+const syncFailure = fixture();
+let syncCalls = 0;
+syncFailure.context.sync = async () => {
+    if (++syncCalls === 2) throw new Error('Connection lost after insertion queued');
+};
+const uncertain = await executePureOoxmlBatch(syncFailure.context, syncFailure.body, [
+    { type: 'replace', target: { exactText: 'Alpha beta gamma.' }, modified: 'Updated.' }
+]);
+assert.equal(syncFailure.writes.length, 1);
+assert.equal(uncertain.written, false);
+assert.equal(uncertain.writeAttempted, true);
+assert.equal(uncertain.mutationOutcome, 'indeterminate');
+
+const unknownError = { code: 'FUTURE_LIBRARY_ERROR', message: 'Future failure', details: { target: 42 } };
+const engineRefusal = { status: 'error', rolledBack: true, error: unknownError, receipts: [{ finalDisposition: 'future_disposition' }] };
+const unknownFixture = fixture();
+const unknown = await executePureOoxmlBatch(unknownFixture.context, unknownFixture.body, [{ type: 'replace' }], {
+    runner: async () => engineRefusal
+});
+assert.equal(unknown.error, unknownError);
+assert.equal(unknown.receipts, engineRefusal.receipts);
+assert.equal(unknown.writeAttempted, false);
+assert.equal(unknown.mutationOutcome, 'rolled_back');
+assert.equal(unknownFixture.writes.length, 0);
+
+const noChange = fixture();
+const noop = await executePureOoxmlBatch(noChange.context, noChange.body, [
+    { type: 'replace', target: { exactText: 'Alpha beta gamma.' }, modified: 'Alpha beta gamma.' }
+]);
+assert.equal(noop.mutationOutcome, 'noop');
+assert.equal(noop.writeAttempted, false);
+assert.equal(noChange.writes.length, 0);
+
+let insertions = 0;
+let rangeReads = 0;
+await assert.rejects(insertOoxmlWithRangeFallback({
+    insertOoxml() { insertions++; },
+    getRange() { rangeReads++; return { insertOoxml() { insertions++; } }; }
+}, original, 'Replace', { async sync() { throw Object.assign(new Error('Unconfirmed write'), { code: 'GeneralException' }); } }));
+assert.equal(insertions, 1, 'never replay after an unconfirmed host mutation');
+assert.equal(rangeReads, 0);
+
+let trackingSyncs = 0;
+const restoreFailure = fixture();
+restoreFailure.context.document = { changeTrackingMode: 'TrackAll', load() {} };
+restoreFailure.context.sync = async () => {
+    if (++trackingSyncs === 4) throw new Error('Cannot restore tracking');
+};
+globalThis.Word = { ChangeTrackingMode: { off: 'Off' } };
+const afterWriteFailure = await executePureOoxmlBatch(restoreFailure.context, restoreFailure.body, [
+    { type: 'replace', target: { exactText: 'Alpha beta gamma.' }, modified: 'Updated.' }
+], { disableNativeTracking: true, baseTrackingMode: 'TrackAll' });
+assert.equal(afterWriteFailure.written, true);
+assert.equal(afterWriteFailure.writeAttempted, true);
+assert.equal(afterWriteFailure.mutationOutcome, 'applied_with_host_error');
+assert.equal(restoreFailure.writes.length, 1);
+delete globalThis.Word;
 
 console.log('PASS: pure OOXML batch tests');

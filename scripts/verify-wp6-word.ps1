@@ -4,6 +4,7 @@ param(
     [switch]$SkipNativeInsert,
     [switch]$Render,
     [string]$CaseName,
+    [string]$FixtureManifest, # Optional independently collected Office.js packages.
     [switch]$IncludeKnownDefects, # Compatibility flag; v0.8.2 runs these regressions by default.
     [switch]$VisibleWord,
     [int]$TimeoutSeconds = 120,
@@ -17,6 +18,7 @@ $SkipRender = -not $Render
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $outputDir = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $ArtifactsDir))
 $fixtureDir = Join-Path $outputDir 'fixtures'
+if ($FixtureManifest) { $fixtureDir = Split-Path -Parent ([System.IO.Path]::GetFullPath((Join-Path $repoRoot $FixtureManifest))) }
 $renderDir = Join-Path $outputDir 'rendered'
 New-Item -ItemType Directory -Force -Path $fixtureDir, $renderDir | Out-Null
 $reportPath = Join-Path $outputDir 'word-report.json'
@@ -28,6 +30,7 @@ if (-not $Worker) {
     if ($SkipNativeInsert) { $arguments += '-SkipNativeInsert' }
     if ($Render) { $arguments += '-Render' }
     if ($CaseName) { $arguments += @('-CaseName', ('"' + $CaseName + '"')) }
+    if ($FixtureManifest) { $arguments += @('-FixtureManifest', ('"' + $FixtureManifest + '"')) }
     if ($IncludeKnownDefects) { $arguments += '-IncludeKnownDefects' }
     if ($VisibleWord) { $arguments += '-VisibleWord' }
     $started = [DateTime]::UtcNow
@@ -55,9 +58,13 @@ if (-not $Worker) {
     if (-not $completedReport -or ([DateTime]$completedReport.checkedAt).ToUniversalTime() -lt $started -or @($completedReport.checks | Where-Object status -eq 'failed').Count) { exit 1 }
     exit $process.ExitCode
 }
-& node (Join-Path $repoRoot 'tests/ooxml_formatting_visual_tests.mjs') --export-dir $fixtureDir
-if ($LASTEXITCODE -ne 0) { throw 'WP6 fixture generation failed.' }
-$manifest = Get-Content -LiteralPath (Join-Path $fixtureDir 'manifest.json') -Raw | ConvertFrom-Json
+if ($FixtureManifest) {
+    $manifest = Get-Content -LiteralPath ([System.IO.Path]::GetFullPath((Join-Path $repoRoot $FixtureManifest))) -Raw | ConvertFrom-Json
+} else {
+    & node (Join-Path $repoRoot 'tests/ooxml_formatting_visual_tests.mjs') --export-dir $fixtureDir
+    if ($LASTEXITCODE -ne 0) { throw 'WP6 fixture generation failed.' }
+    $manifest = Get-Content -LiteralPath (Join-Path $fixtureDir 'manifest.json') -Raw | ConvertFrom-Json
+}
 $word = $null
 $checks = [System.Collections.Generic.List[object]]::new()
 $renders = [System.Collections.Generic.List[object]]::new()
@@ -278,7 +285,8 @@ try {
         $checks.Add([pscustomobject]@{ case = $control.file; view = 'negative-control'; status = $status; opened = $opened })
         Write-Output "$($status.ToUpper()) $($control.file) (opened=$opened)"
     }
-    $report = [ordered]@{ checkedAt = [DateTime]::UtcNow.ToString('o'); wordVersion = [string]$word.Version; wordBuild = [string]$word.Build; checks = @($checks.ToArray()); renders = @($renders.ToArray()); renderSkipped = [bool]$SkipRender; nativeInsertSkipped = [bool]$SkipNativeInsert; officeJsTransport = 'not exercised; native Word InsertXML is a separate package parser check' }
+    $transportEvidence = if ($FixtureManifest) { 'External collected packages verified; consult the collector report for transport provenance.' } else { 'not exercised; native Word InsertXML is a separate package parser check' }
+    $report = [ordered]@{ checkedAt = [DateTime]::UtcNow.ToString('o'); wordVersion = [string]$word.Version; wordBuild = [string]$word.Build; checks = @($checks.ToArray()); renders = @($renders.ToArray()); renderSkipped = [bool]$SkipRender; nativeInsertSkipped = [bool]$SkipNativeInsert; officeJsTransport = $transportEvidence; fixtureManifest = $FixtureManifest }
     $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $outputDir 'word-report.json') -Encoding UTF8
 }
 finally { if ($word) { $word.Quit() | Out-Null; [Runtime.InteropServices.Marshal]::FinalReleaseComObject($word) | Out-Null } }

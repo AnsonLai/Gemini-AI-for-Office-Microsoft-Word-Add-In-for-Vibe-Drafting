@@ -10,7 +10,7 @@
 
 ## Baseline and dependencies
 
-Use exact `@ansonlai/docx-redline-js@0.8.2` in both consumers. The [September upgrade](2026-09-09-docx-redline-js-v0.5.4-upgrade.md) is near complete; actual Office.js transport remains its final gate. Establish recovery/outcome rules in [reliability and quality gates](2026-08-29-reliability-and-quality-gates.md) first.
+Use exact `@ansonlai/docx-redline-js@0.8.2` in both consumers. The [September upgrade](2026-09-09-docx-redline-js-v0.5.4-upgrade.md) and [reliability and quality gates](2026-08-29-reliability-and-quality-gates.md) are complete, including actual Office.js validation, bounded provider recovery and structured mutation outcomes. This is the next plan to execute.
 
 Accuracy comes first: target against an immutable source, fail closed on ambiguity, preserve formatting/package parts, and pass canonical operations to the library. Word proxies belong in transport adapters.
 
@@ -23,6 +23,7 @@ Accuracy comes first: target against an immutable source, fail closed on ambigui
 | Replace iterative redline application with one atomic batch | Done in upgrade WP3 |
 | Prefer localized replacements in prompt/schema | Done in upgrade WP4; full-paragraph edits remain supported |
 | Validate exact find text and repeated occurrences | Done, including index correction before replacement validation |
+| Structured mutation outcomes and safe recovery | Done in reliability WP3; remaining tool mapping/atomic list migration still pending |
 | Delete `normalizeListItemsWithLevels` / `buildListMarkdown` | Withdrawn: supported library imports with active callers |
 | Delete `list-level-utils.js` | Withdrawn: active relative-indent/clamping adapter covered by tests |
 | Delete all older Word operation helpers | Deferred until remaining callers migrate |

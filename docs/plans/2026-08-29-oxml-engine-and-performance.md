@@ -10,7 +10,7 @@
 
 ## Baseline and dependencies
 
-Both consumers use exact `@ansonlai/docx-redline-js@0.8.2`. The [September upgrade](2026-09-09-docx-redline-js-v0.5.4-upgrade.md) is near complete with actual Office.js transport pending.
+Both consumers use exact `@ansonlai/docx-redline-js@0.8.2`. The [September upgrade](2026-09-09-docx-redline-js-v0.5.4-upgrade.md) and reliability plan are complete, including actual Office.js transport validation.
 
 Follow [reliability](2026-08-29-reliability-and-quality-gates.md), [agentic tools](2026-08-29-agentic-tools-and-list-reliability.md) and [package boundaries](2026-08-29-package-boundaries-and-integrations.md). Correctness and portability take priority over throughput.
 
@@ -22,7 +22,7 @@ Follow [reliability](2026-08-29-reliability-and-quality-gates.md), [agentic tool
 | Remove iterative redline proxy loop and table recovery | Done |
 | Create formatting/structural fidelity suite | Done; mandatory v0.8.2 boundary regressions included |
 | Create benchmark harness | Done: `scripts/benchmark-ooxml-pipeline.mjs` |
-| Native Word insertion fidelity | Passing COM lane; actual Office.js pending |
+| Native Word insertion fidelity | COM lane and actual Office.js body/comment insertion pass |
 | Document-level binary transport | Proposed, not implemented; see package-boundaries plan |
 
 The redline path reads scope OOXML once, resolves operations against an immutable source, applies one atomic batch and inserts once on successful change. Tracking/transport synchronization may require additional calls. No-op/preparation failure perform no insertion.
@@ -38,7 +38,7 @@ The upgrade's **v0.8.1** benchmark measured ten localized edits:
 
 Raw samples: `scripts/ooxml-benchmark-latest.json`. Measurements exclude actual Office.js latency and have not been rerun on v0.8.2. The user accepts the slower 1,000-paragraph workload. No universal sub-100ms, sub-10ms diff, sub-5ms no-op or 30-second suite gate is imposed.
 
-Production builds pass with bundle-size warnings (taskpane approximately 747 KiB). Investigate startup impact before choosing a bundle target.
+Production builds pass with bundle-size warnings (taskpane approximately 762 KiB after reliability work; upgrade baseline was 747 KiB). Investigate startup impact before choosing a bundle target.
 
 ## Remaining work packages
 

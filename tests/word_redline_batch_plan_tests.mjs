@@ -191,4 +191,20 @@ await testEmptyParagraphIsHandledByEngine();
 await testEndToEndSingleWordWrite();
 await testRangeAndAppendAgainstEngine();
 await testRepeatedFindOccurrenceAgainstEngine();
+// Engine receipts can be committed to prepared XML even when Word did not confirm insertion.
+const hostFailure = await applyRedlineChangesToWordContext({ document: { body: {} } }, [
+    { operation: 'edit_paragraph', paragraphIndex: 1, newContent: 'Updated.' }
+], {
+    batchRunner: async () => ({ status: 'error', hasChanges: true, written: false,
+        writeAttempted: true, mutationOutcome: 'indeterminate',
+        receipts: [{ operationIndex: 1, committed: true, finalDisposition: 'applied' }],
+        error: { code: 'FUTURE_HOST_ERROR', message: 'Write unconfirmed' } }),
+    onInfo: () => {}, onWarn: () => {}
+});
+assert.equal(hostFailure.changesApplied, 0);
+assert.equal(hostFailure.skipped.length, 1);
+assert.equal(hostFailure.skipped[0].code, 'FUTURE_HOST_ERROR');
+assert.equal(hostFailure.receipts[0].committed, true);
+assert.equal(hostFailure.writeAttempted, true);
+assert.equal(hostFailure.mutationOutcome, 'indeterminate');
 console.log('word redline batch plan tests passed');

@@ -1,30 +1,16 @@
 import assert from 'assert';
 import fs from 'fs';
+import { parse } from 'acorn';
 
 const agenticToolsPath = 'src/taskpane/modules/commands/agentic-tools.js';
 const source = fs.readFileSync(agenticToolsPath, 'utf8');
+const program = parse(source, { ecmaVersion: 'latest', sourceType: 'module' });
 
 function extractFunctionBody(functionName) {
-    const marker = `async function ${functionName}(`;
-    const start = source.indexOf(marker);
-    assert.notStrictEqual(start, -1, `Missing function: ${functionName}`);
-
-    const openBrace = source.indexOf('{', start);
-    assert.notStrictEqual(openBrace, -1, `Missing opening brace for: ${functionName}`);
-
-    let depth = 0;
-    for (let i = openBrace; i < source.length; i += 1) {
-        const ch = source[i];
-        if (ch === '{') depth += 1;
-        if (ch === '}') {
-            depth -= 1;
-            if (depth === 0) {
-                return source.slice(openBrace + 1, i);
-            }
-        }
-    }
-
-    throw new Error(`Missing closing brace for: ${functionName}`);
+    const declaration = program.body.map(node => node.type === 'ExportNamedDeclaration' ? node.declaration : node)
+        .find(node => node?.type === 'FunctionDeclaration' && node.id?.name === functionName);
+    assert.ok(declaration, `Missing function: ${functionName}`);
+    return source.slice(declaration.body.start + 1, declaration.body.end - 1);
 }
 
 function assertContains(text, token, message) {
@@ -59,8 +45,8 @@ function testCommentCutover() {
     const body = extractFunctionBody('executeComment');
     assertContains(
         body,
-        'applySharedOperationToWordParagraph(',
-        'executeComment should route through shared word operation bridge'
+        'applyObservedParagraphOperation(',
+        'executeComment should route through the observed shared Word operation bridge'
     );
     assertNotContains(
         body,
@@ -73,8 +59,8 @@ function testHighlightCutover() {
     const body = extractFunctionBody('executeHighlight');
     assertContains(
         body,
-        'applySharedOperationToWordParagraph(',
-        'executeHighlight should route through shared word operation bridge'
+        'applyObservedParagraphOperation(',
+        'executeHighlight should route through the observed shared Word operation bridge'
     );
     assertNotContains(
         body,
@@ -84,6 +70,8 @@ function testHighlightCutover() {
 }
 
 function testNoLegacyBridgeImport() {
+    const observedBody = extractFunctionBody('applyObservedParagraphOperation');
+    assertContains(observedBody, 'executePureOoxmlBatch(', 'Observed operations should use the atomic production batch runner');
     assertNotContains(
         source,
         'shared-operation-bridge',

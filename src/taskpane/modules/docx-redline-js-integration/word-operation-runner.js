@@ -282,19 +282,20 @@ function buildBatchInsertionPackage(source, result) {
     return serializer.serializeToString(packageDoc);
 }
 
-function failedBatchWrite(result, source, code, error) {
-    const receipts = (result.receipts || []).map(receipt => ({
-        ...receipt,
-        committed: false,
-        finalDisposition: receipt.attemptedDisposition === 'applied' ? 'write_failed' : receipt.finalDisposition
-    }));
+function failedBatchWrite(result, source, code, error, writeAttempted = false, written = false) {
     return {
         ...result,
         status: 'error',
-        hasChanges: false,
-        written: false,
-        receipts,
+        written,
+        writeAttempted,
+        mutationOutcome: written ? 'applied_with_host_error' : writeAttempted ? 'indeterminate' : 'prepared',
+        // Library receipts describe the prepared XML, not the Office transport.
+        engineResult: result,
         error: { code, message: error?.message || String(error) },
+        hostError: {
+            ...(error?.code ? { code: error.code } : {}),
+            message: error?.message || String(error)
+        },
         source
     };
 }
@@ -598,7 +599,7 @@ export async function executePureOoxmlBatch(context, targetScope, operations, op
         : operations;
     if (!Array.isArray(batch)) throw new TypeError('Batch operations must be an array');
     if (batch.length === 0) {
-        return { status: 'ok', hasChanges: false, written: false, results: [], receipts: [], source: publicSource };
+        return { status: 'ok', hasChanges: false, written: false, writeAttempted: false, mutationOutcome: 'noop', results: [], receipts: [], source: publicSource };
     }
     const runner = typeof options.runner === 'function' ? options.runner : applyOperationsToDocumentXml;
     const runtimeContext = {
@@ -624,9 +625,9 @@ export async function executePureOoxmlBatch(context, targetScope, operations, op
         }
     );
     if (!result || result.status === 'error' || result.status === 'partial' || result.error || result.rolledBack) {
-        return { ...result, written: false, source: publicSource };
+        return { ...result, written: false, writeAttempted: false, mutationOutcome: result?.rolledBack ? 'rolled_back' : 'refused', source: publicSource };
     }
-    if (!result.hasChanges) return { ...result, written: false, source: publicSource };
+    if (!result.hasChanges) return { ...result, written: false, writeAttempted: false, mutationOutcome: 'noop', source: publicSource };
 
     let insertionPayload;
     try {
@@ -634,7 +635,10 @@ export async function executePureOoxmlBatch(context, targetScope, operations, op
     } catch (error) {
         return failedBatchWrite(result, publicSource, 'WORD_OOXML_PACKAGE_FAILED', error);
     }
+    let writeAttempted = false;
+    let written = false;
     const writeBatch = async () => {
+        writeAttempted = true;
         if (resolved.kind === 'paragraph') {
             await insertOoxmlWithRangeFallback(
                 resolved.target,
@@ -649,6 +653,7 @@ export async function executePureOoxmlBatch(context, targetScope, operations, op
             resolved.target.insertOoxml(insertionPayload, insertMode);
             await context.sync();
         }
+        written = true;
     };
     try {
         if (options.disableNativeTracking) {
@@ -661,9 +666,9 @@ export async function executePureOoxmlBatch(context, targetScope, operations, op
             await writeBatch();
         }
     } catch (error) {
-        return failedBatchWrite(result, publicSource, 'WORD_OOXML_WRITE_FAILED', error);
+        return failedBatchWrite(result, publicSource, 'WORD_OOXML_WRITE_FAILED', error, writeAttempted, written);
     }
-    return { ...result, written: true, source: publicSource };
+    return { ...result, written: true, writeAttempted: true, mutationOutcome: 'applied', source: publicSource };
 }
 
 /**
@@ -767,8 +772,8 @@ export async function applySharedOperationToWordParagraph({
         disableNativeTracking,
         baseTrackingMode,
         logPrefix,
-        onInfo: message => console.log(`[${logPrefix}] ${message}`),
-        onWarn: message => console.warn(`[${logPrefix}] ${message}`)
+        onInfo: () => {},
+        onWarn: () => console.warn(`[${logPrefix}] Operation warning; consult the structured result.`)
     });
 }
 
@@ -802,7 +807,7 @@ export async function applySharedOperationToWordScope({
         disableNativeTracking,
         baseTrackingMode,
         logPrefix,
-        onInfo: message => console.log(`[${logPrefix}] ${message}`),
-        onWarn: message => console.warn(`[${logPrefix}] ${message}`)
+        onInfo: () => {},
+        onWarn: () => console.warn(`[${logPrefix}] Operation warning; consult the structured result.`)
     });
 }

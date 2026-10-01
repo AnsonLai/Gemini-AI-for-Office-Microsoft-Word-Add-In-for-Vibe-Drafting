@@ -96,10 +96,10 @@ export function planRedlineBatchOperations(aiChanges, inspectedParagraphs, optio
 /** Apply every proposed edit against one immutable OOXML snapshot and write once. */
 export async function applyRedlineChangesToWordContext(context, aiChanges, options = {}) {
     const changes = Array.isArray(aiChanges) ? aiChanges : [];
-    if (changes.length === 0) return { changesApplied: 0, skipped: [] };
+    if (changes.length === 0) return { changesApplied: 0, skipped: [], written: false, writeAttempted: false, mutationOutcome: 'noop' };
     const logPrefix = options.logPrefix || 'Redline/Shared';
-    const onInfo = options.onInfo || (message => console.log(`[${logPrefix}] ${message}`));
-    const onWarn = options.onWarn || (message => console.warn(`[${logPrefix}] ${message}`));
+    const onInfo = options.onInfo || (() => {});
+    const onWarn = options.onWarn || (() => console.warn(`[${logPrefix}] Batch warning; consult the structured result.`));
     const batchRunner = options.batchRunner || executePureOoxmlBatch;
     try {
         const result = await batchRunner(
@@ -122,7 +122,7 @@ export async function applyRedlineChangesToWordContext(context, aiChanges, optio
             : 0;
         const skipped = changes.flatMap((change, index) => {
             const receipt = receipts.find(item => item.operationIndex === index + 1);
-            if (receipt?.committed) return [];
+            if (result?.written === true && receipt?.committed) return [];
             const item = result?.results?.[index];
             const error = item?.error || result?.error;
             return [{
@@ -136,7 +136,13 @@ export async function applyRedlineChangesToWordContext(context, aiChanges, optio
         });
         if (result?.status === 'error') onWarn(result.error?.message || 'Redline batch failed.');
         onInfo(`Total changes applied: ${changesApplied}`);
-        return { changesApplied, skipped, batchResult: result };
+        return {
+            changesApplied, skipped, batchResult: result,
+            status: result?.status, error: result?.error,
+            receipts, written: result?.written === true,
+            writeAttempted: result?.writeAttempted === true,
+            mutationOutcome: result?.mutationOutcome || (result?.written ? 'applied' : result?.rolledBack ? 'rolled_back' : result?.hasChanges === false ? 'noop' : 'refused')
+        };
     } catch (error) {
         onWarn(`Redline batch failed: ${error?.message || error}`);
         return {
@@ -147,7 +153,8 @@ export async function applyRedlineChangesToWordContext(context, aiChanges, optio
                 reason: error?.message || String(error),
                 ...(error?.code ? { code: error.code } : {})
             })),
-            error
+            error,
+            written: false, writeAttempted: false, mutationOutcome: 'failed'
         };
     }
 }

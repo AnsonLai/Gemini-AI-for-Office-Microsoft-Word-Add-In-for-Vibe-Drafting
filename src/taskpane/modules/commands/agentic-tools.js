@@ -1,3 +1,5 @@
+import { requestGemini } from '../chat/gemini-client.js';
+import { createMutationObserver } from './mutation-outcome.js';
 /* global Word */
 
 import {
@@ -9,6 +11,7 @@ import {
   applySharedOperationToWordParagraph,
   applySharedOperationToWordScope,
   applyRedlineChangesToWordContext,
+  executePureOoxmlBatch,
   assertRedlineResult
 } from '../docx-redline-js-integration/index.js';
 import {
@@ -37,6 +40,7 @@ import {
   REDLINE_DIFF_SCHEMA
 } from './redline-prompt.js';
 
+let getRequestSignal;
 let loadApiKey;
 let loadModel;
 let loadSystemMessage;
@@ -49,6 +53,7 @@ let API_LIMITS;
 
 function initAgenticTools(deps) {
   ({
+    getRequestSignal,
     loadApiKey,
     loadModel,
     loadSystemMessage,
@@ -62,6 +67,9 @@ function initAgenticTools(deps) {
 }
 
 async function applyRedlineChangeSet(aiChanges, paragraphTexts = null) {
+  if (getRequestSignal?.()?.aborted) {
+    throw Object.assign(new Error('The request was cancelled before document editing.'), { name: 'AbortError' });
+  }
   const redlineEnabled = loadRedlineSetting();
   const redlineAuthor = loadRedlineAuthor();
   let changesApplied = 0;
@@ -104,12 +112,16 @@ async function applyRedlineChangeSet(aiChanges, paragraphTexts = null) {
   }
 
   let engineSkipped = [];
+  let mutation = { written: false, writeAttempted: false, mutationOutcome: 'refused' };
   await Word.run(async (context) => {
     const trackingState = await setChangeTrackingForAi(context, redlineEnabled, "executeRedline");
     try {
       context.document.load("changeTrackingMode");
       await context.sync();
       const baseTrackingMode = context.document.changeTrackingMode;
+      if (getRequestSignal?.()?.aborted) {
+        throw Object.assign(new Error('The request was cancelled before document editing.'), { name: 'AbortError' });
+      }
       const result = await applyRedlineChangesToWordContext(context, changesToApply, {
         author: redlineAuthor,
         generateRedlines: redlineEnabled,
@@ -120,8 +132,16 @@ async function applyRedlineChangeSet(aiChanges, paragraphTexts = null) {
       });
       changesApplied = result.changesApplied;
       engineSkipped = Array.isArray(result.skipped) ? result.skipped : [];
+      mutation = result;
     } finally {
-      await restoreChangeTracking(context, trackingState, "executeRedline");
+      try {
+        await restoreChangeTracking(context, trackingState, "executeRedline");
+      } catch (error) {
+        // Restoring the setting can fail after the insertion has committed.
+        mutation = { ...mutation, status: 'error',
+          mutationOutcome: mutation.written ? 'applied_with_host_error' : mutation.mutationOutcome,
+          error: { code: error?.code || 'WORD_TRACKING_RESTORE_FAILED', message: error?.message || String(error) } };
+      }
     }
   });
 
@@ -129,7 +149,8 @@ async function applyRedlineChangeSet(aiChanges, paragraphTexts = null) {
     changesApplied,
     redlineEnabled,
     rejectedChanges,
-    engineSkipped
+    engineSkipped,
+    mutation
   };
 }
 
@@ -168,7 +189,7 @@ async function executeRedline(instruction, fullDocumentText) {
       // 2. Call Gemini to get the JSON array of changes
       const aiChanges = await callGeminiForDiffs(prompt);
 
-      console.log(`AI Suggested Changes (raw, attempt ${attempt}):`, aiChanges);
+      console.log(`Diff generation attempt ${attempt}: ${Array.isArray(aiChanges) ? aiChanges.length : 'invalid'} proposed changes.`);
 
       if (!aiChanges || !Array.isArray(aiChanges)) {
         lastFailureMessage = {
@@ -195,8 +216,32 @@ async function executeRedline(instruction, fullDocumentText) {
       const { changes: sanitizedChanges, rejected: sanitizeRejected } =
         sanitizeChangeSet(aiChanges, paragraphTexts.length, paragraphTexts);
 
-      const { changesApplied, redlineEnabled, rejectedChanges: anchorRejected, engineSkipped } =
+      const { changesApplied, redlineEnabled, rejectedChanges: anchorRejected, engineSkipped, mutation } =
         await applyRedlineChangeSet(sanitizedChanges, paragraphTexts);
+
+      if (mutation?.writeAttempted || mutation?.written || mutation?.mutationOutcome === 'failed' || mutation?.mutationOutcome === 'prepared') {
+        if (mutation.status === 'error' || mutation.error || mutation.mutationOutcome === 'indeterminate') {
+          return {
+            ...mutation,
+            message: mutation.written
+              ? `Applied ${changesApplied} edits, but Word reported a follow-up error: ${mutation.error?.message || 'unknown error'}. Do not replay these edits.`
+              : `TOOL_FAILURE ${mutation.error?.code || 'WORD_WRITE_UNCONFIRMED'}: ${mutation.error?.message || 'Word did not confirm the write'}. Inspect the document before making another edit; do not replay this batch.`,
+            showToUser: true
+          };
+        }
+      }
+
+      if (mutation?.mutationOutcome === 'noop') {
+        return { ...mutation, message: 'The requested edits produced no document changes.', showToUser: false };
+      }
+      if (mutation?.status === 'error' || mutation?.error || mutation?.batchResult?.rolledBack) {
+        return { ...mutation,
+          message: `TOOL_FAILURE ${mutation.error?.code || 'ENGINE_REFUSED'}: ${mutation.error?.message || 'The engine refused the edit'}. Re-read and revalidate the target before editing again.`,
+          showToUser: false };
+      }
+      if (mutation?.written && changesApplied === 0) {
+        return { ...mutation, message: 'Word confirmed the document write; no committed operation count was provided. Do not replay this batch.', showToUser: true };
+      }
 
       // Merge validation rejections (WP1/WP2) with reasons the apply engine
       // reported for changes it could not apply (e.g. empty target paragraph),
@@ -207,6 +252,7 @@ async function executeRedline(instruction, fullDocumentText) {
       if (changesApplied === 0) {
         lastFailureMessage = {
           rawChanges: aiChanges,
+          mutation,
           rejectionDetail: rejectionDetail || 'No changes could be mapped to the document content.',
           message: rejectionDetail
             ? `TOOL_FAILURE no_changes_applied: ${allRejected.length} change(s) could not be applied.\n${rejectionDetail}\nDo NOT retry the same change. Re-read the document content and target different paragraph(s), fixing the specific issues above.`
@@ -222,26 +268,31 @@ async function executeRedline(instruction, fullDocumentText) {
         const proposed = changesApplied + allRejected.length;
         return {
           message: `Applied ${changesApplied} of ${proposed} edits${redlineEnabled ? ' with redlines' : ' without redlines'}. ${allRejected.length} rejected:\n${rejectionDetail}`,
+          ...mutation,
           showToUser: true
         };
       }
 
       return {
         message: `Successfully applied ${changesApplied} edits${redlineEnabled ? ' with redlines' : ' without redlines'}.`,
+        ...mutation,
         showToUser: true
       };
     }
 
     // Both attempts failed; report the last (most informed) failure to the model.
     return {
+      ...lastFailureMessage.mutation,
       message: lastFailureMessage.message,
       showToUser: false
     };
 
   } catch (error) {
-    console.error("Error in executeRedline:", error);
+    console.error("Error in executeRedline:", error?.code || error?.name || "UNKNOWN_ERROR");
     return {
       message: `Error applying redlines: ${error.message}`,
+      status: 'error',
+      error: { ...(error?.code ? { code: error.code } : {}), message: error?.message || String(error) },
       showToUser: false  // Silent error - let the model handle it
     };
   }
@@ -256,7 +307,6 @@ async function callGeminiForDiffs(prompt) {
   const geminiApiKey = loadApiKey();
   const geminiModel = loadModel();
   const modelProfile = getModelProfile(geminiModel);
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`;
 
   const jsonSchema = REDLINE_DIFF_SCHEMA;
 
@@ -280,24 +330,8 @@ async function callGeminiForDiffs(prompt) {
     },
   };
 
-  const abortController = new AbortController();
-  const timeoutId = setTimeout(() => abortController.abort(), DIFF_CALL_TIMEOUT_MS);
-
   try {
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: abortController.signal,
-    });
-
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`API failed: ${err}`);
-    }
-
-    const result = await response.json();
-    console.log("Gemini diff raw result:", JSON.stringify(result, null, 2));
+    const result = await requestGemini({ model: geminiModel, apiKey: geminiApiKey, payload, signal: getRequestSignal?.(), timeoutMs: DIFF_CALL_TIMEOUT_MS, maxAttempts: 1 });
 
     if (!result.candidates || !Array.isArray(result.candidates) || result.candidates.length === 0) {
       throw new Error("Gemini diff response contained no candidates.");
@@ -306,18 +340,17 @@ async function callGeminiForDiffs(prompt) {
     const candidate = result.candidates[0];
 
     if (!candidate.content || !candidate.content.parts || !Array.isArray(candidate.content.parts) || candidate.content.parts.length === 0) {
-      console.error("Gemini diff candidate missing content.parts:", candidate);
+      console.error("Gemini diff candidate missing content.parts.");
       throw new Error("Gemini diff response was missing content.parts (possibly blocked by safety settings).");
     }
 
     const textPart = candidate.content.parts.find(part => typeof part?.text === "string" && part.text.trim().length > 0);
     if (!textPart) {
-      console.error("Gemini diff candidate did not include a text JSON part:", candidate);
+      console.error("Gemini diff candidate did not include a text JSON part.");
       throw new Error("Gemini diff response did not include JSON text.");
     }
 
     const jsonText = textPart.text;
-    console.log("Gemini diff JSON text:", jsonText);
 
     // Salvage the complete leading objects when the JSON was truncated (e.g. a
     // repetition loop hit maxOutputTokens mid-string). The sanitizer's dedupe
@@ -332,17 +365,17 @@ async function callGeminiForDiffs(prompt) {
     if (error?.name === 'AbortError') {
       console.error(`Diff generation timed out after ${DIFF_CALL_TIMEOUT_MS / 1000}s (likely a model repetition loop).`);
     } else {
-      console.error("Error getting diffs:", error);
+      console.error("Error getting diffs:", error?.code || error?.name || "UNKNOWN_ERROR");
     }
+    if (error?.code?.startsWith("REQUEST_")) throw error;
     return null;
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 /**
  * Agentic Tool: Inserts comments based on an instruction using Structural Anchoring.
  */
 async function executeComment(instruction, fullDocumentText) {
+  const mutation = createMutationObserver(getRequestSignal);
   const geminiApiKey = loadApiKey();
   if (!geminiApiKey) {
     return "Error: Please set your Gemini API key in the Settings.";
@@ -377,7 +410,7 @@ JSON ARRAY OF COMMENTS:`;
         required: ["paragraphIndex", "textToFind", "commentContent"]
       }
     });
-    console.log("AI Suggested Comments:", aiComments);
+    console.log(`Comment generation: ${Array.isArray(aiComments) ? aiComments.length : 'invalid'} suggestions.`);
 
     if (!aiComments || !Array.isArray(aiComments) || aiComments.length === 0) {
       return {
@@ -404,7 +437,8 @@ JSON ARRAY OF COMMENTS:`;
 
           const targetParagraph = paragraphs.items[pIndex];
           try {
-            const applied = await applySharedOperationToWordParagraph({
+            const applied = await applyObservedParagraphOperation({
+              observer: mutation,
               context,
               targetParagraph,
               operation: {
@@ -426,7 +460,8 @@ JSON ARRAY OF COMMENTS:`;
               console.warn(`[Comment/Shared] No changes produced for P${item.paragraphIndex}`);
             }
           } catch (sharedError) {
-            console.warn(`[Comment/Shared] Failed in P${item.paragraphIndex} (no fallback):`, sharedError?.message || sharedError);
+            console.warn(`[Comment/Shared] Failed in P${item.paragraphIndex} (no fallback):`, sharedError?.code || 'HOST_OPERATION_FAILED');
+            throw sharedError;
           }
         }
       } finally {
@@ -434,13 +469,14 @@ JSON ARRAY OF COMMENTS:`;
       }
     });
 
-    return createToolResult(commentsApplied, 'comments', "Inserted 0 comments. The AI's suggestions could not be mapped to the document content.");
+    return { ...mutation.result(), ...createToolResult(commentsApplied, 'comments', "Inserted 0 comments. The AI's suggestions could not be mapped to the document content.") };
 
   } catch (error) {
-    console.error("Error in executeComment:", error);
+    console.error("Error in executeComment:", error?.code || error?.name || "UNKNOWN_ERROR");
     return {
+      ...mutation.result(error),
       message: `Error inserting comments: ${error.message}`,
-      showToUser: false  // Silent error - let the model handle it
+      showToUser: mutation.result(error).writeAttempted
     };
   }
 }
@@ -450,7 +486,9 @@ JSON ARRAY OF COMMENTS:`;
  * @param {string} fullDocumentText - The document content with paragraph anchors
  * @param {string} highlightColor - The default highlight color (default: "Yellow")
  */
+
 async function executeHighlight(instruction, fullDocumentText, highlightColor = "Yellow") {
+  const mutation = createMutationObserver(getRequestSignal);
   const geminiApiKey = loadApiKey();
   if (!geminiApiKey) {
     return "Error: Please set your Gemini API key in the Settings.";
@@ -486,7 +524,7 @@ JSON ARRAY OF HIGHLIGHTS:`;
         required: ["paragraphIndex", "textToFind"]
       }
     });
-    console.log("AI Suggested Highlights:", aiHighlights);
+    console.log(`Highlight generation: ${Array.isArray(aiHighlights) ? aiHighlights.length : 'invalid'} suggestions.`);
 
     if (!aiHighlights || !Array.isArray(aiHighlights) || aiHighlights.length === 0) {
       return {
@@ -518,7 +556,8 @@ JSON ARRAY OF HIGHLIGHTS:`;
 
           const targetParagraph = paragraphs.items[pIndex];
           try {
-            const applied = await applySharedOperationToWordParagraph({
+            const applied = await applyObservedParagraphOperation({
+              observer: mutation,
               context,
               targetParagraph,
               operation: {
@@ -535,12 +574,13 @@ JSON ARRAY OF HIGHLIGHTS:`;
 
             if (applied) {
               highlightsApplied++;
-              console.log(`[Highlight/Shared] Applied ${normalizedColor} highlight to "${item.textToFind}" in P${item.paragraphIndex}`);
+              console.log(`[Highlight/Shared] Applied ${normalizedColor} highlight in P${item.paragraphIndex}`);
             } else {
               console.warn(`[Highlight/Shared] No changes produced for P${item.paragraphIndex}`);
             }
           } catch (sharedError) {
-            console.warn(`[Highlight/Shared] Failed in P${item.paragraphIndex} (no fallback):`, sharedError?.message || sharedError);
+            console.warn(`[Highlight/Shared] Failed in P${item.paragraphIndex} (no fallback):`, sharedError?.code || 'HOST_OPERATION_FAILED');
+            throw sharedError;
           }
         }
       } finally {
@@ -548,11 +588,12 @@ JSON ARRAY OF HIGHLIGHTS:`;
       }
     });
 
-    return createToolResult(highlightsApplied, 'highlights', "Highlighted 0 items. The AI's suggestions could not be mapped to the document content.");
+    return { ...mutation.result(), ...createToolResult(highlightsApplied, 'highlights', "Highlighted 0 items. The AI's suggestions could not be mapped to the document content.") };
 
   } catch (error) {
-    console.error("Error in executeHighlight:", error);
+    console.error("Error in executeHighlight:", error?.code || error?.name || "UNKNOWN_ERROR");
     return {
+      ...mutation.result(error),
       message: `Error highlighting text: ${error.message}`,
       showToUser: false
     };
@@ -561,6 +602,7 @@ JSON ARRAY OF HIGHLIGHTS:`;
 /**
  * Agentic Tool: Navigates to and selects a specific section of the document.
  */
+
 async function executeNavigate(instruction, fullDocumentText) {
   const geminiApiKey = loadApiKey();
   if (!geminiApiKey) {
@@ -591,7 +633,7 @@ JSON RESPONSE:`;
       },
       required: ["paragraphIndex"]
     });
-    console.log("AI Navigation Result:", navigationResult);
+    console.log('Navigation response received.');
 
     if (!navigationResult || !navigationResult.paragraphIndex) {
       return {
@@ -625,7 +667,7 @@ JSON RESPONSE:`;
     };
 
   } catch (error) {
-    console.error("Error in executeNavigate:", error);
+    console.error("Error in executeNavigate:", error?.code || error?.name || "UNKNOWN_ERROR");
     return {
       message: `Error navigating: ${error.message}`,
       showToUser: false
@@ -657,10 +699,19 @@ function createToolResult(count, itemType, zeroMessage) {
 }
 
 // Generic helper for JSON responses
+async function applyObservedParagraphOperation({ context, targetParagraph, operation, observer, ...options }) {
+  if (getRequestSignal?.()?.aborted) throw Object.assign(new Error('The request was cancelled before document editing.'), { name: 'AbortError' });
+  const result = await executePureOoxmlBatch(context, { paragraph: targetParagraph }, [operation], options);
+  observer.observe(result);
+  if (result.status === 'error' || result.error || result.writeAttempted && !result.written) {
+    throw Object.assign(new Error(result.error?.message || 'Word did not confirm the operation.'), result.error || {});
+  }
+  return result.written === true;
+}
+
 async function callGeminiForJSON(prompt, schema) {
   const geminiApiKey = loadApiKey();
   const geminiModel = loadModel();
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`;
 
   const systemInstruction = {
     parts: [{ text: loadSystemMessage() }]
@@ -679,32 +730,22 @@ async function callGeminiForJSON(prompt, schema) {
   };
 
   try {
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`API failed: ${err}`);
-    }
-
-    const result = await response.json();
+    const result = await requestGemini({ model: geminiModel, apiKey: geminiApiKey, payload, signal: getRequestSignal?.(), timeoutMs: DIFF_CALL_TIMEOUT_MS });
     if (!result.candidates || result.candidates.length === 0) throw new Error("No candidates");
     const candidate = result.candidates[0];
     if (!candidate.content || !candidate.content.parts) throw new Error("No content");
 
     const textPart = candidate.content.parts.find(part => typeof part?.text === "string" && part.text.trim().length > 0);
     if (!textPart) {
-      console.error("Gemini JSON candidate did not include a text JSON part:", candidate);
+      console.error("Gemini JSON candidate did not include a text JSON part.");
       throw new Error("Gemini JSON response did not include JSON text.");
     }
 
     const jsonText = textPart.text;
     return JSON.parse(jsonText);
   } catch (error) {
-    console.error("Error calling Gemini for JSON:", error);
+    console.error("Error calling Gemini for JSON:", error?.code || error?.name || "UNKNOWN_ERROR");
+    if (error?.code?.startsWith("REQUEST_")) throw error;
     return null;
   }
 }
@@ -713,7 +754,6 @@ async function callGeminiForJSON(prompt, schema) {
 async function executeResearch(query) {
   const geminiApiKey = loadApiKey();
   const geminiModel = loadModel();
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`;
 
   const tools = [{ google_search: {} }];
 
@@ -729,18 +769,7 @@ async function executeResearch(query) {
   };
 
   try {
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`Research API failed: ${err}`);
-    }
-
-    const result = await response.json();
+    const result = await requestGemini({ model: geminiModel, apiKey: geminiApiKey, payload, signal: getRequestSignal?.(), timeoutMs: DIFF_CALL_TIMEOUT_MS });
     if (!result.candidates || result.candidates.length === 0) return "No results found.";
 
     const candidate = result.candidates[0];
@@ -748,7 +777,7 @@ async function executeResearch(query) {
 
     return candidate.content.parts[0].text;
   } catch (error) {
-    console.error("Error in executeResearch:", error);
+    console.error("Error in executeResearch:", error?.code || error?.name || "UNKNOWN_ERROR");
     return `Error performing research: ${error.message}`;
   }
 }
@@ -770,7 +799,8 @@ async function executeResearch(query) {
  * @param {number} indentLevel - Relative indent: 0=same, 1=deeper, -1=shallower
  */
 async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0) {
-  console.log(`[executeInsertListItem] Insert after P${afterParagraphIndex}: "${text.substring(0, 50)}..." (indent: ${indentLevel})`);
+  const mutation = createMutationObserver(getRequestSignal);
+  console.log(`[executeInsertListItem] Insert after P${afterParagraphIndex} (indent: ${indentLevel})`);
 
   try {
     await Word.run(async (context) => {
@@ -780,7 +810,7 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
 
         const paragraphs = context.document.body.paragraphs;
         paragraphs.load("items/text");
-        await context.sync();
+        await mutation.sync(context);
 
         const paraIdx = afterParagraphIndex - 1; // Convert to 0-based
         if (paraIdx < 0 || paraIdx >= paragraphs.items.length) {
@@ -791,7 +821,7 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
 
         // Read the adjacent paragraph's OOXML to get its numId and ilvl
         const adjacentOoxml = adjacentPara.getOoxml();
-        await context.sync();
+        await mutation.sync(context);
 
         const ooxmlValue = adjacentOoxml.value;
         const numPrSection = ooxmlValue.match(/<[\w:]*?numPr[\s\S]*?<\/[\w:]*?numPr>/i);
@@ -813,8 +843,9 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
         if (!numIdMatch) {
           // Adjacent paragraph is not a list item - just insert plain paragraph
           console.log("[executeInsertListItem] Adjacent paragraph is not a list item, inserting plain paragraph");
+          mutation.attempt();
           adjacentPara.insertParagraph(text, "After");
-          await context.sync();
+          await mutation.sync(context);
           return;
         }
 
@@ -886,41 +917,36 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
         </pkg:package>`;
 
         // Insert the paragraph with text, then apply list formatting
+        mutation.attempt();
         const insertedPara = adjacentPara.insertParagraph(text, "After");
-        await context.sync();
+        await mutation.sync(context);
 
         // Try to apply the same list formatting using Word's list API
         // The insertedPara should inherit some formatting, but we need to set the list explicitly
         try {
           // Load the inserted paragraph to access its list properties
           insertedPara.load("listItem");
-          await context.sync();
+          await mutation.sync(context);
 
           // If it has a listItem, we can adjust its level
           if (insertedPara.listItem && !insertedPara.listItem.isNullObject) {
             // The list item exists - try to adjust level
             console.log(`[executeInsertListItem] Inserted paragraph has listItem, adjusting level to ${newIlvl}`);
+            mutation.attempt();
             insertedPara.listItem.level = newIlvl;
-            await context.sync();
+            await mutation.sync(context);
           } else {
             // No listItem - need to add it to a list
             // Use the same numId as adjacent paragraph via OOXML
             console.log(`[executeInsertListItem] No listItem found, applying list via OOXML`);
 
             const paraRange = insertedPara.getRange("Whole");
+            mutation.attempt();
             paraRange.insertOoxml(oxmlPara, "Replace");
-            await context.sync();
+            await mutation.sync(context);
           }
         } catch (listError) {
-          console.warn(`[executeInsertListItem] Could not apply list format via API: ${listError.message}`);
-          // Fallback: try OOXML replacement
-          try {
-            const paraRange = insertedPara.getRange("Whole");
-            paraRange.insertOoxml(oxmlPara, "Replace");
-            await context.sync();
-          } catch (oxmlError) {
-            console.warn(`[executeInsertListItem] OOXML fallback also failed: ${oxmlError.message}`);
-          }
+          throw listError;
         }
 
         console.log(`[executeInsertListItem] Successfully inserted list item (numId=${numId}, ilvl=${newIlvl})`);
@@ -930,12 +956,14 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
     });
 
     return {
-      success: true,
+      ...mutation.result(),
+      success: mutation.result().success,
       message: `Successfully inserted list item after P${afterParagraphIndex}`
     };
   } catch (error) {
-    console.error("[executeInsertListItem] Error:", error);
+    console.error("[executeInsertListItem] Error:", error?.code || error?.name || "UNKNOWN_ERROR");
     return {
+      ...mutation.result(typeof error === 'undefined' ? new Error('The operation was refused.') : error),
       success: false,
       message: `Failed to insert list item: ${error.message}`
     };
@@ -951,9 +979,12 @@ async function executeInsertListItem(afterParagraphIndex, text, indentLevel = 0)
  * @param {string} listType - "bullet" or "numbered"
  * @param {string} numberingStyle - For numbered lists: "decimal", "lowerAlpha", "upperAlpha", "lowerRoman", "upperRoman"
  */
+
 async function executeEditList(startIndex, endIndex, newItems, listType, numberingStyle) {
+  const mutation = createMutationObserver(getRequestSignal);
   if (!newItems || newItems.length === 0) {
     return {
+      ...mutation.result(typeof error === 'undefined' ? new Error('The operation was refused.') : error),
       success: false,
       message: `TOOL_FAILURE edit_list: No list items were provided for P${startIndex}-P${endIndex}. Supply the "newItems" array with the list content.`
     };
@@ -963,9 +994,6 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
   console.log(`executeEditList: Converting P${startIndex}-P${endIndex} to ${listType} list with ${newItems.length} items`);
   console.log(`[executeEditList] Numbering style: ${numberingStyle}`);
   console.log(`[executeEditList] Raw newItems array:`);
-  newItems.forEach((item, idx) => {
-    console.log(`  [${idx}]: "${item.substring(0, 60)}${item.length > 60 ? '...' : ''}"`);
-  });
 
   try {
     // Detect and cache document font before entering Word.run.
@@ -983,7 +1011,7 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
 
         const paragraphs = context.document.body.paragraphs;
         paragraphs.load("items/text");
-        await context.sync();
+        await mutation.sync(context);
 
         let startIdx = startIndex - 1; // Convert to 0-based
         let endIdx = endIndex - 1;
@@ -1031,19 +1059,13 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
         const fullRange = startRange.expandTo(endRange);
         const rangeOoxmlResult = fullRange.getOoxml();
 
-        await context.sync();
+        await mutation.sync(context);
 
         const normalizedListType = listType === "bullet" ? "bullet" : "numbered";
         const normalizedNumberingStyle = numberingStyle || "decimal";
         console.log(`[executeEditList] Target list format: ${normalizedListType}, numberingStyle: ${normalizedNumberingStyle}`);
 
         const itemsWithLevels = normalizeListItemsWithLevels(newItems, { indentSpaces: 4 });
-        for (const item of itemsWithLevels) {
-          if (item.removedMarker) {
-            console.log(`[executeEditList] Stripped marker: "${item.removedMarker}" from item`);
-          }
-          console.log(`[executeEditList] Level: ${item.level}, Text: "${item.text.substring(0, 40)}..."`);
-        }
 
         const existingCount = endIdx - startIdx + 1;
         const newCount = itemsWithLevels.length;
@@ -1056,7 +1078,6 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
           .map((p) => p.text || "")
           .join("\n");
 
-        console.log(`[executeEditList] Generated list markdown:\n${listMarkdown}`);
 
         const result = await applyRedlineToOxml(
           rangeOoxmlResult.value,
@@ -1068,6 +1089,7 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
           }
         );
 
+        mutation.observe(result);
         assertRedlineResult(result, 'Agentic list reconciliation');
         if (!result?.oxml || !result.hasChanges) {
           console.log("[executeEditList] Reconciliation reported no list changes");
@@ -1075,8 +1097,9 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
           return;
         }
 
+        mutation.attempt();
         fullRange.insertOoxml(result.oxml, "Replace");
-        await context.sync();
+        await mutation.sync(context);
         listApplied = true;
         console.log("[executeEditList] OOXML list reconciliation + replacement succeeded");
 
@@ -1090,14 +1113,16 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
     });
 
     return {
-      success: true,
+      ...mutation.result(),
+      success: mutation.result().success,
       message: listApplied
         ? `Successfully created ${listType} list with ${newItems.length} items.`
         : "No list changes were needed."
     };
   } catch (error) {
-    console.error("Error in executeEditList:", error);
+    console.error("Error in executeEditList:", error?.code || error?.name || "UNKNOWN_ERROR");
     return {
+      ...mutation.result(typeof error === 'undefined' ? new Error('The operation was refused.') : error),
       success: false,
       message: `TOOL_FAILURE edit_list at P${startIndex}-P${endIndex}: ${error.message}`
     };
@@ -1118,9 +1143,11 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
  * @param {string[]} newHeaderTexts - Optional array of new header texts (without numbers)
  * @param {string} numberingFormat - Optional: 'arabic' (default), 'lowerLetter', 'upperLetter', 'lowerRoman', 'upperRoman'
  */
+
 async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, numberingFormat) {
+  const mutation = createMutationObserver(getRequestSignal);
   if (!paragraphIndices || paragraphIndices.length === 0) {
-    return { success: false, message: "No paragraph indices provided." };
+    return { ...mutation.result(new Error('No paragraph indices provided.')), success: false, message: "No paragraph indices provided." };
   }
 
   // Deduplicate paragraph indices to prevent multiple processing
@@ -1141,7 +1168,7 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
 
         const paragraphs = context.document.body.paragraphs;
         paragraphs.load("items/text");
-        await context.sync();
+        await mutation.sync(context);
 
         // Sort indices to process in order
         const sortedIndices = distinctIndices.sort((a, b) => a - b);
@@ -1158,7 +1185,7 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
         const firstIdx = sortedIndices[0] - 1;
         const firstPara = paragraphs.items[firstIdx];
         firstPara.load("text");
-        await context.sync();
+        await mutation.sync(context);
 
         // Strip manual numbering from the first header if present
         // Enhanced pattern to catch A., 1.1, I., etc.
@@ -1174,16 +1201,18 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
 
         // Replace content directly using "Replace" to avoid doubling issues
         // "Replace" overwrites the entire paragraph content cleanly
+        mutation.attempt();
         firstPara.insertText(firstText, Word.InsertLocation.replace);
-        await context.sync();
+        await mutation.sync(context);
 
         // Start a new list on this paragraph
+        mutation.attempt();
         const list = firstPara.startNewList();
-        await context.sync();
+        await mutation.sync(context);
 
         // Load the list to set its numbering format
         list.load("id, levelTypes");
-        await context.sync();
+        await mutation.sync(context);
 
         // Map format string to Word.ListNumbering constant
         const numberingMap = {
@@ -1198,14 +1227,12 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
 
         // Set the list to use the specified numbering format
         try {
+          mutation.attempt();
           list.setLevelNumbering(0, wordNumbering);
-          await context.sync();
+          await mutation.sync(context);
           console.log(`Set list numbering to ${format}`);
         } catch (numError) {
-          console.warn("Could not set level numbering, trying style approach:", numError);
-          // Fallback: apply numbered list style
-          firstPara.styleBuiltIn = Word.BuiltInStyleName.listNumber;
-          await context.sync();
+          throw numError;
         }
 
         console.log(`Started new numbered list on paragraph ${sortedIndices[0]}`);
@@ -1214,7 +1241,7 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
         for (let i = 1; i < sortedIndices.length; i++) {
           paragraphs.items[sortedIndices[i] - 1].load("text");
         }
-        await context.sync();
+        await mutation.sync(context);
 
         // For remaining headers, attach them to the same list
         for (let i = 1; i < sortedIndices.length; i++) {
@@ -1238,18 +1265,18 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
           }
 
           // Replace content directly
+          mutation.attempt();
           para.insertText(paraText, Word.InsertLocation.replace);
-          await context.sync();
+          await mutation.sync(context);
 
           // Attach to the list
           try {
+            mutation.attempt();
             para.attachToList(list.id, 0); // level 0
-            await context.sync();
+            await mutation.sync(context);
             console.log(`Attached paragraph ${sortedIndices[i]} to list`);
           } catch (attachError) {
-            console.warn(`Could not attach paragraph ${sortedIndices[i]}, using style:`, attachError);
-            para.styleBuiltIn = Word.BuiltInStyleName.listNumber;
-            await context.sync();
+            throw attachError;
           }
         }
 
@@ -1261,12 +1288,14 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
     });
 
     return {
-      success: true,
+      ...mutation.result(),
+      success: mutation.result().success,
       message: `Successfully converted ${distinctIndices.length} headers to a numbered list.`
     };
   } catch (error) {
-    console.error("Error in executeConvertHeadersToList:", error);
+    console.error("Error in executeConvertHeadersToList:", error?.code || error?.name || "UNKNOWN_ERROR");
     return {
+      ...mutation.result(typeof error === 'undefined' ? new Error('The operation was refused.') : error),
       success: false,
       message: `Failed to convert headers to list: ${error.message}`
     };
@@ -1289,7 +1318,9 @@ async function executeConvertHeadersToList(paragraphIndices, newHeaderTexts, num
  * @param {number} targetRow - Target row index (0-based)
  * @param {number} targetColumn - Target column index (0-based)
  */
+
 async function executeEditTable(paragraphIndex, action, content, targetRow, targetColumn) {
+  const mutation = createMutationObserver(getRequestSignal);
   try {
     await Word.run(async (context) => {
       const redlineEnabled = loadRedlineSetting();
@@ -1300,7 +1331,7 @@ async function executeEditTable(paragraphIndex, action, content, targetRow, targ
         const paragraphs = context.document.body.paragraphs;
         // Pre-load text and table relationship
         paragraphs.load("items/text, items/parentTableOrNullObject");
-        await context.sync();
+        await mutation.sync(context);
 
         const pIdx = paragraphIndex - 1;
         if (pIdx < 0 || pIdx >= paragraphs.items.length) {
@@ -1316,7 +1347,7 @@ async function executeEditTable(paragraphIndex, action, content, targetRow, targ
         // Load primary table dimensions first. Rows collection is loaded lazily only when needed.
         stage = "load_table_dimensions";
         table.load("rowCount, columnCount");
-        await context.sync();
+        await mutation.sync(context);
 
         const normalizedAction = String(action || "").trim().toLowerCase();
 
@@ -1330,7 +1361,7 @@ async function executeEditTable(paragraphIndex, action, content, targetRow, targ
           if (!(maxRows > 0) && content.length > 0) {
             stage = "load_rows_for_replace_content_fallback";
             table.rows.load("items");
-            await context.sync();
+            await mutation.sync(context);
             maxRows = Math.min(content.length, table.rows.items.length);
           }
           for (let r = 0; r < maxRows; r++) {
@@ -1341,17 +1372,14 @@ async function executeEditTable(paragraphIndex, action, content, targetRow, targ
               try {
                 const cell = table.getCell(r, c);
                 // Use replace directly to avoid clear()+start edge cases that can throw ItemNotFound.
+                mutation.attempt();
                 cell.body.insertText(value, Word.InsertLocation.replace);
               } catch (cellError) {
-                if (cellError?.code === "ItemNotFound") {
-                  console.warn(`[executeEditTable] Skipping missing cell r${r} c${c} during replace_content`);
-                  continue;
-                }
                 throw cellError;
               }
             }
           }
-          await context.sync();
+          await mutation.sync(context);
 
         } else if (normalizedAction === "add_row") {
           const rowValues = Array.isArray(content)
@@ -1362,25 +1390,27 @@ async function executeEditTable(paragraphIndex, action, content, targetRow, targ
           }
 
           stage = "add_row";
+          mutation.attempt();
           table.addRows(
             Word.InsertLocation.end,
             1,
             [rowValues.map(value => value == null ? "" : String(value))]
           );
-          await context.sync();
+          await mutation.sync(context);
 
         } else if (normalizedAction === "delete_row") {
           stage = "load_rows_for_delete";
           table.rows.load("items");
-          await context.sync();
+          await mutation.sync(context);
 
           if (targetRow === undefined || targetRow < 0 || targetRow >= table.rows.items.length) {
             throw new Error(`Invalid or missing row index: ${targetRow}`);
           }
 
           stage = "delete_row";
+          mutation.attempt();
           table.rows.items[targetRow].delete();
-          await context.sync();
+          await mutation.sync(context);
 
         } else if (normalizedAction === "update_cell") {
           if (targetRow === undefined || targetColumn === undefined || targetRow === null || targetColumn === null) {
@@ -1401,7 +1431,7 @@ async function executeEditTable(paragraphIndex, action, content, targetRow, targ
           if (!(effectiveRowCount > 0) || !(effectiveColumnCount > 0)) {
             stage = "load_rows_for_update_cell_fallback";
             table.rows.load("items/cellCount");
-            await context.sync();
+            await mutation.sync(context);
 
             if (!(effectiveRowCount > 0)) {
               effectiveRowCount = table.rows.items.length;
@@ -1433,7 +1463,7 @@ async function executeEditTable(paragraphIndex, action, content, targetRow, targ
               stage = "update_cell_shared_markdown_prepare";
               const cellParagraphs = cell.body.paragraphs;
               cellParagraphs.load("items/text");
-              await context.sync();
+              await mutation.sync(context);
 
               const currentCellText = cellParagraphs.items
                 .map(p => (p.text == null ? "" : String(p.text)))
@@ -1441,6 +1471,7 @@ async function executeEditTable(paragraphIndex, action, content, targetRow, targ
                 .trim();
 
               stage = "update_cell_shared_markdown_apply";
+              mutation.attempt();
               const applied = await applySharedOperationToWordScope({
                 context,
                 scope: cell.body.getRange(),
@@ -1458,36 +1489,42 @@ async function executeEditTable(paragraphIndex, action, content, targetRow, targ
               if (!applied) {
                 throw new Error("Shared markdown cell update produced no changes");
               }
+              mutation.confirm();
             } else {
               // Use replace directly to avoid clear()+start edge cases.
+              mutation.attempt();
               cell.body.insertText(normalizedValue, Word.InsertLocation.replace);
             }
           } catch (cellError) {
             if (cellError?.code === "ItemNotFound") {
-              throw new Error(`Target cell not found at row ${parsedTargetRow}, column ${parsedTargetColumn}`);
+              throw Object.assign(new Error(`Target cell not found at row ${parsedTargetRow}, column ${parsedTargetColumn}`), { code: cellError.code });
             }
             throw cellError;
           }
-          await context.sync();
+          await mutation.sync(context);
 
         } else {
           throw new Error(`Unknown table action: ${action}`);
         }
       } catch (innerError) {
         const codeSuffix = innerError?.code ? ` (${innerError.code})` : "";
-        throw new Error(`[executeEditTable/${stage}] ${innerError?.message || innerError}${codeSuffix}`);
+        throw Object.assign(new Error(`[executeEditTable/${stage}] ${innerError?.message || innerError}${codeSuffix}`), {
+          ...(innerError?.code ? { code: innerError.code } : {})
+        });
       } finally {
         await restoreChangeTracking(context, trackingState, "executeEditTable");
       }
     });
 
     return {
-      success: true,
+      ...mutation.result(),
+      success: mutation.result().success,
       message: `Successfully performed table operation: ${action}`
     };
   } catch (error) {
-    console.error("Error in executeEditTable:", error);
+    console.error("Error in executeEditTable:", error?.code || error?.name || "UNKNOWN_ERROR");
     return {
+      ...mutation.result(error),
       success: false,
       message: `TOOL_FAILURE edit_table at P${paragraphIndex} (${action}): ${error.message}`
     };
@@ -1508,7 +1545,9 @@ async function executeEditTable(paragraphIndex, action, content, targetRow, targ
  * @param {string[]} newBodyParagraphs - Optional new body paragraphs
  * @param {boolean} preserveSubsections - Whether to preserve subsections
  */
+
 async function executeEditSection(sectionHeaderIndex, newHeaderText, newBodyParagraphs, preserveSubsections) {
+  const mutation = createMutationObserver(getRequestSignal);
   try {
     let editCount = 0;
 
@@ -1520,7 +1559,7 @@ async function executeEditSection(sectionHeaderIndex, newHeaderText, newBodyPara
         const paragraphs = context.document.body.paragraphs;
         // OPTIMIZATION: Path-load nested properties to save round-trips
         paragraphs.load("items/text, items/listItemOrNullObject/level");
-        await context.sync();
+        await mutation.sync(context);
 
         const headerIdx = sectionHeaderIndex - 1;
         if (headerIdx < 0 || headerIdx >= paragraphs.items.length) {
@@ -1563,8 +1602,10 @@ async function executeEditSection(sectionHeaderIndex, newHeaderText, newBodyPara
 
           if (numberMatch) {
             // Preserve the numbering prefix
+            mutation.attempt();
             headerPara.insertText(numberMatch[1] + newHeaderText, Word.InsertLocation.replace);
           } else {
+            mutation.attempt();
             headerPara.insertText(newHeaderText, Word.InsertLocation.replace);
           }
           editCount++;
@@ -1574,20 +1615,22 @@ async function executeEditSection(sectionHeaderIndex, newHeaderText, newBodyPara
         if (newBodyParagraphs && newBodyParagraphs.length > 0) {
           // Delete existing body paragraphs (from end to start)
           for (let i = sectionEndIdx; i > headerIdx; i--) {
+            mutation.attempt();
             paragraphs.items[i].delete();
           }
-          await context.sync();
+          await mutation.sync(context);
 
           // Insert new body paragraphs after header
           let insertAfter = headerPara;
           for (const bodyText of newBodyParagraphs) {
+            mutation.attempt();
             const newPara = insertAfter.insertParagraph(bodyText, Word.InsertLocation.after);
             insertAfter = newPara;
             editCount++;
           }
         }
 
-        await context.sync();
+        await mutation.sync(context);
       } finally {
         await restoreChangeTracking(context, trackingState, "executeEditSection");
       }
@@ -1595,18 +1638,21 @@ async function executeEditSection(sectionHeaderIndex, newHeaderText, newBodyPara
 
     if (editCount === 0) {
       return {
-        success: true,
+        ...mutation.result(),
+        success: mutation.result().success,
         message: "No changes were specified for the section."
       };
     }
 
     return {
-      success: true,
+      ...mutation.result(),
+      success: mutation.result().success,
       message: `Successfully edited section at P${sectionHeaderIndex} (${editCount} changes).`
     };
   } catch (error) {
-    console.error("Error in executeEditSection:", error);
+    console.error("Error in executeEditSection:", error?.code || error?.name || "UNKNOWN_ERROR");
     return {
+      ...mutation.result(typeof error === 'undefined' ? new Error('The operation was refused.') : error),
       success: false,
       message: `Failed to edit section: ${error.message}`
     };
@@ -1622,6 +1668,7 @@ async function executeEditSection(sectionHeaderIndex, newHeaderText, newBodyPara
  * @param {string} fullDocumentText - The full document text with anchors from the chat turn
  * @returns {Promise<{ success: boolean, message: string, stats?: object, scope?: string }>}
  */
+
 async function executeGetSelectionStats({ text, startParagraphIndex, endParagraphIndex } = {}, fullDocumentText = "") {
   try {
     let targetText = "";
@@ -1698,7 +1745,7 @@ async function executeGetSelectionStats({ text, startParagraphIndex, endParagrap
       scope: analyzedScope
     };
   } catch (error) {
-    console.error("Error in executeGetSelectionStats:", error);
+    console.error("Error in executeGetSelectionStats:", error?.code || error?.name || "UNKNOWN_ERROR");
     return {
       success: false,
       message: `Failed to calculate statistics: ${error.message}`

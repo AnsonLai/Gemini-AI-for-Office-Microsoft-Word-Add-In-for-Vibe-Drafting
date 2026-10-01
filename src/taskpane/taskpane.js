@@ -1,3 +1,4 @@
+import { requestGemini, requestGeminiJson, geminiEndpoint } from './modules/chat/gemini-client.js';
 /*
  * Gemini AI for Office - Task Pane Implementation
  * Author: Anson Lai
@@ -24,11 +25,8 @@ import {
 } from './modules/chat/chat-ui.js';
 import {
   maintainHistoryWindow,
-  validateHistoryPairs,
   sanitizeHistory,
-  appendFunctionExchange,
-  removeAllFunctionPairs,
-  createFreshStartWithContext
+  appendFunctionExchange
 } from './modules/chat/chat-history.js';
 import {
   initAgenticTools,
@@ -668,6 +666,7 @@ async function restoreChangeTracking(context, trackingState, sourceLabel = "AI")
 }
 
 initAgenticTools({
+  getRequestSignal: () => currentRequestController?.signal,
   loadApiKey,
   loadModel,
   loadSystemMessage,
@@ -934,7 +933,6 @@ async function runGlanceChecks() {
     });
 
     const model = loadModel('fast'); // Use fast model for glance checks
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
 
     // Prepare prompt for dynamic checks
     let questionsPrompt = "";
@@ -964,13 +962,7 @@ async function runGlanceChecks() {
       safetySettings: SAFETY_SETTINGS_BLOCK_NONE
     };
 
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    const result = await response.json();
+    const result = await requestGemini({ model, apiKey: geminiApiKey, payload, signal: currentRequestController?.signal, timeoutMs: TIMEOUT_LIMITS.FETCH_TIMEOUT_MS });
     const candidate = result.candidates[0];
     let text = candidate.content.parts[0].text;
 
@@ -1293,7 +1285,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
     }
 
     const geminiModel = loadModel(modelType);
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`;
+    const apiUrl = geminiEndpoint(geminiModel, geminiApiKey);
 
     let contextString = "";
     if (docSelection && docSelection.trim() !== "") {
@@ -1621,17 +1613,15 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
       ],
     };
 
-    // --- Tool Execution Loop with Multi-Tier Recovery ---
+    // Bounded tool loop; provider retries never reset mutation history.
     let loopCount = 0;
     let keepLooping = true;
-    let currentRecoveryTier = 0;  // 0=normal, 1=validate pairs, 2=remove all pairs, 3=fresh start, 4=graceful degrade
-    const originalUserMessage = prompt;  // Save for Tier 3 recovery
     let consecutiveNoProgressToolLoops = 0;
     let lastNoProgressSignature = "";
 
     while (keepLooping && loopCount < DOCUMENT_LIMITS.MAX_LOOPS) {
       loopCount++;
-      console.log(`Starting chat loop iteration ${loopCount} (recovery tier: ${currentRecoveryTier})`);
+      console.log(`Starting chat loop iteration ${loopCount}`);
 
       // Check for user cancellation
       if (currentRequestController && currentRequestController.signal.aborted) {
@@ -1692,7 +1682,6 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
         },
       };
 
-      console.log("Sending Chat History to API:", JSON.stringify(chatHistory, null, 2));
 
       let result;
       try {
@@ -1700,62 +1689,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
       } catch (apiError) {
         console.error(`API Error on iteration ${loopCount}:`, apiError);
 
-        // Check if this is a function call/response mismatch error
-        const isFunctionCallError = apiError.message && (
-          apiError.message.includes("function response turn comes immediately after a function call turn") ||
-          apiError.message.includes("function call turn comes immediately after a user turn or after a function response turn")
-        );
-
-        if (isFunctionCallError) {
-          currentRecoveryTier++;
-          console.warn(`Function call error detected. Escalating to recovery tier ${currentRecoveryTier}`);
-
-          if (currentRecoveryTier === 1) {
-            // Tier 1: Validate and clean history pairs
-            // Reaching here means a function-call/response invariant escaped
-            // appendFunctionExchange (which should make this structurally
-            // impossible). Worth investigating if it shows up in manual testing.
-            console.warn("Tier 1 recovery reached: a history invariant escaped appendFunctionExchange.");
-            console.log("Tier 1: Validating history pairs...");
-            const originalLength = chatHistory.length;
-            chatHistory = validateHistoryPairs(chatHistory);
-            console.log(`History cleaned: ${originalLength} -> ${chatHistory.length} messages`);
-            loopCount = 0;  // Reset to retry
-            continue;
-          } else if (currentRecoveryTier === 2) {
-            // Tier 2: Remove ALL function pairs
-            console.log("Tier 2: Removing all function call/response pairs...");
-            chatHistory = removeAllFunctionPairs(chatHistory);
-            console.log(`History after removing function pairs: ${chatHistory.length} messages`);
-            loopCount = 0;
-            continue;
-          } else if (currentRecoveryTier === 3) {
-            // Tier 3: Fresh start with original context
-            console.log("Tier 3: Creating fresh start with original context...");
-            chatHistory = createFreshStartWithContext(originalUserMessage);
-            console.log(`History reset to fresh start: ${chatHistory.length} messages`);
-            loopCount = 0;
-            continue;
-          } else {
-            // Tier 4: Graceful degradation
-            console.log("Tier 4: All recovery attempts failed. Checking for graceful degradation...");
-            removeMessage(loadingMsg);
-
-            const successMessage = generateSuccessMessage(toolsExecutedInCurrentRequest);
-            if (successMessage) {
-              addMessageToChat("System", successMessage + "\n\n*(Conversation refreshed)*");
-              // Reset history for next request
-              chatHistory = [];
-            } else {
-              addMessageToChat("Error", "I encountered an issue with the conversation. Please try again.");
-            }
-            keepLooping = false;
-            break;
-          }
-        }
-
-        // Non-recoverable errors after successful tool execution
-        if (loopCount > 1 && toolsExecutedInCurrentRequest.length > 0) {
+        if (toolsExecutedInCurrentRequest.length > 0) {
           console.warn("Stopping loop due to API error after successful tool execution.");
           const successMessage = generateSuccessMessage(toolsExecutedInCurrentRequest);
           if (successMessage) {
@@ -1768,12 +1702,11 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
           }
           keepLooping = false;
           break;
-        } else {
-          throw apiError;
         }
+
+        throw apiError;
       }
 
-      console.log("Gemini chat raw result:", JSON.stringify(result, null, 2));
 
       if (!result.candidates || !Array.isArray(result.candidates) || result.candidates.length === 0) {
         throw new Error("Gemini response contained no candidates.");
@@ -1789,7 +1722,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
         (candidate.finishReason === "MALFORMED_FUNCTION_CALL" || candidate.finishReason === "UNEXPECTED_TOOL_CALL")
         && (candidate.finishMessage || (candidate.content && candidate.content.parts))
       ) {
-        console.warn(`Gemini returned ${candidate.finishReason}. Attempting to recover...`, candidate.finishMessage || candidate.content);
+        console.warn(`Gemini returned ${candidate.finishReason}. Attempting to recover...`);
 
         const toolNames = [
           "apply_redlines",
@@ -1962,7 +1895,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
         }
 
         if (recoveredFunctionCall) {
-          console.log("Recovered malformed tool call:", recoveredFunctionCall.name, recoveredFunctionCall.args);
+          console.log("Recovered malformed tool call:", recoveredFunctionCall.name);
           parts = [{ functionCall: recoveredFunctionCall }];
           // Ensure content has the proper structure with role
           if (!content || !content.role) {
@@ -1992,7 +1925,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
           });
           continue;
         } else {
-          console.error("Gemini candidate missing content.parts:", candidate);
+          console.error("Gemini candidate missing content.parts.");
 
           let diagnosticInfo = `Finish Reason: ${candidate.finishReason || 'NOT_FOUND'}`;
 
@@ -2015,13 +1948,12 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
         }
       }
 
-      console.log("Gemini chat content.parts:", parts);
 
       // --- Thought Signature Handling ---
       // Check for thought/reasoning parts to potentially log or handle separately
       const thinkingPart = parts.find(p => p.thought || p.thought_signature || p.thoughtSignature);
       if (thinkingPart) {
-        console.log("Model Reasoning detected:", thinkingPart.thought || thinkingPart.thought_signature || thinkingPart.thoughtSignature);
+        console.log("Model reasoning part detected.");
       }
 
       // Check for ALL function calls in the response
@@ -2070,33 +2002,47 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
 
           let toolResult = "";
           let toolSucceeded = false;
+          let toolMutation = null;
 
           if (functionCall.name === "apply_redlines") {
             const checkpointIndex = await createCheckpoint(true, functionCall.name);
             const result = await executeRedline(instruction, docText);
+            toolMutation = result;
             toolResult = result.message;
-            toolSucceeded = !!result.showToUser;
+            toolSucceeded = result.written === true && result.status !== 'error';
 
             // Track successful tool execution for recovery
             toolsExecutedInCurrentRequest.push({
               name: functionCall.name,
               instruction: instruction,
               result: toolResult,
-              success: result.showToUser
+              success: toolSucceeded,
+              status: result.status,
+              error: result.error,
+              receipts: result.receipts,
+              written: result.written === true,
+              writeAttempted: result.writeAttempted === true,
+              mutationOutcome: result.mutationOutcome
             });
 
             // Only show to user if there were actual changes or a true error
             if (result.showToUser) {
               updateSystemMessage(loadingMsg, toolResult, checkpointIndex);
             } else {
-              console.log(`Fallback in progress (0 edits): ${toolResult}`);
+              console.log('Redline tool completed without a confirmed write.');
+            }
+            if (result.mutationOutcome === 'indeterminate' || result.mutationOutcome === 'applied_with_host_error') {
+              // Stop this turn before another model request or queued tool can
+              // replay a write whose completion needs document inspection.
+              throw Object.assign(new Error(toolResult), { code: 'WORD_MUTATION_REQUIRES_INSPECTION' });
             }
 
           } else if (functionCall.name === "insert_comment") {
             const checkpointIndex = await createCheckpoint(true, functionCall.name);
             const result = await executeComment(instruction, docText);
+            toolMutation = result;
             toolResult = result.message;
-            toolSucceeded = !!result.showToUser;
+            toolSucceeded = result.status !== 'error' && result.written === true;
 
             // Track successful tool execution for recovery
             toolsExecutedInCurrentRequest.push({
@@ -2116,8 +2062,9 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
             const checkpointIndex = await createCheckpoint(true, functionCall.name);
             const highlightColor = args.color || "yellow";
             const result = await executeHighlight(instruction, docText, highlightColor);
+            toolMutation = result;
             toolResult = result.message;
-            toolSucceeded = !!result.showToUser;
+            toolSucceeded = result.status !== 'error' && result.written === true;
 
             // Track successful tool execution for recovery
             toolsExecutedInCurrentRequest.push({
@@ -2172,6 +2119,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
               args.listType,
               args.numberingStyle
             );
+            toolMutation = result;
             toolResult = result.message;
             toolSucceeded = !!result.success;
 
@@ -2197,6 +2145,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
               args.text,
               args.indentLevel || 0
             );
+            toolMutation = result;
             toolResult = result.message;
             toolSucceeded = !!result.success;
 
@@ -2224,6 +2173,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
               args.targetRow,
               args.targetColumn
             );
+            toolMutation = result;
             toolResult = result.message;
             toolSucceeded = !!result.success;
 
@@ -2250,6 +2200,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
               args.newBodyParagraphs,
               args.preserveSubsections
             );
+            toolMutation = result;
             toolResult = result.message;
             toolSucceeded = !!result.success;
 
@@ -2275,6 +2226,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
               args.newHeaderTexts,
               args.numberingFormat
             );
+            toolMutation = result;
             toolResult = result.message;
             toolSucceeded = !!result.success;
 
@@ -2294,6 +2246,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
           } else if (functionCall.name === "get_selection_stats") {
             updateSystemMessage(loadingMsg, "Analyzing word & character count...");
             const result = await executeGetSelectionStats(args, docText);
+            toolMutation = result;
             toolResult = result.message;
             toolSucceeded = !!result.success;
 
@@ -2310,6 +2263,19 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
 
           const isMutatingTool = mutatingToolNames.has(functionCall.name);
           if (isMutatingTool) {
+            if (toolMutation) {
+              const record = toolsExecutedInCurrentRequest[toolsExecutedInCurrentRequest.length - 1];
+              Object.assign(record, {
+                status: toolMutation.status, error: toolMutation.error,
+                receipts: toolMutation.receipts, operationResults: toolMutation.operationResults,
+                written: toolMutation.written === true, writeAttempted: toolMutation.writeAttempted === true,
+                mutationOutcome: toolMutation.mutationOutcome
+              });
+              if (['indeterminate', 'partial', 'applied_with_host_error'].includes(toolMutation.mutationOutcome)) {
+                throw Object.assign(new Error(`${toolResult} Inspect the document before editing again; do not replay this operation.`),
+                  { code: 'WORD_MUTATION_REQUIRES_INSPECTION' });
+              }
+            }
             attemptedMutatingToolsThisLoop++;
             if (toolSucceeded) {
               successfulMutatingToolsThisLoop++;
@@ -2467,93 +2433,12 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
   }
 }
 
-// Helper with retry logic and timeout support
+// Retries provider transport only. Tool execution remains in the caller.
 async function callGeminiWithRetry(url, payload, retries = 3, backoff = 1000) {
-  for (let i = 0; i < retries; i++) {
-    // Create abort controller for this specific fetch attempt
-    const fetchController = new AbortController();
-
-    // Create timeout that will abort the fetch
-    const timeoutId = setTimeout(() => {
-      fetchController.abort();
-    }, TIMEOUT_LIMITS.FETCH_TIMEOUT_MS);
-
-    try {
-      // Also check if the global request controller was aborted (user cancelled)
-      if (currentRequestController && currentRequestController.signal.aborted) {
-        throw new Error('Request cancelled by user');
-      }
-
-      // Listen for global cancellation
-      const onGlobalAbort = () => fetchController.abort();
-      if (currentRequestController) {
-        currentRequestController.signal.addEventListener('abort', onGlobalAbort);
-      }
-
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: fetchController.signal
-      });
-
-      // Clean up listeners
-      clearTimeout(timeoutId);
-      if (currentRequestController) {
-        currentRequestController.signal.removeEventListener('abort', onGlobalAbort);
-      }
-
-      if (!response.ok) {
-        const text = await response.text();
-
-        // Check for the specific function call/response error (400 error)
-        const isFunctionCallError = response.status === 400 &&
-          text.includes("function response turn comes immediately after a function call turn");
-
-        if (isFunctionCallError) {
-          // Don't retry this error here - let the caller handle it
-          throw new Error(`API failed: ${text}`);
-        }
-
-        // Only retry on 5xx errors
-        if (response.status >= 500 && response.status < 600) {
-          console.warn(`Attempt ${i + 1} failed with ${response.status}: ${text}`);
-          if (i === retries - 1) throw new Error(`API failed after ${retries} attempts: ${text}`);
-          // Wait before retrying
-          await new Promise(r => setTimeout(r, backoff * Math.pow(2, i))); // Exponential backoff
-          continue;
-        }
-
-        throw new Error(`API failed: ${text}`);
-      }
-
-      return await response.json();
-    } catch (error) {
-      clearTimeout(timeoutId);
-
-      // Check if this was a user cancellation
-      if (error.name === 'AbortError' || error.message === 'Request cancelled by user') {
-        if (currentRequestController && currentRequestController.signal.aborted) {
-          throw new Error('Request cancelled by user');
-        }
-        // This was a timeout abort
-        console.warn(`Attempt ${i + 1} timed out after ${TIMEOUT_LIMITS.FETCH_TIMEOUT_MS / 1000}s`);
-        if (i === retries - 1) {
-          throw new Error(`Request timed out. The AI is taking longer than usual. Please try again.`);
-        }
-        await new Promise(r => setTimeout(r, backoff * Math.pow(2, i)));
-        continue;
-      }
-
-      // If it's the function call error, throw immediately without retry
-      if (error.message && error.message.includes("function response turn comes immediately after a function call turn")) {
-        throw error;
-      }
-
-      if (i === retries - 1) throw error;
-      console.warn(`Attempt ${i + 1} failed: ${error.message}`);
-      await new Promise(r => setTimeout(r, backoff * Math.pow(2, i)));
-    }
-  }
+  return requestGeminiJson(url, payload, {
+    signal: currentRequestController?.signal,
+    timeoutMs: TIMEOUT_LIMITS.FETCH_TIMEOUT_MS,
+    maxAttempts: retries,
+    backoffMs: backoff,
+  });
 }
-

@@ -1,3 +1,4 @@
+import { requestGeminiJson, geminiEndpoint } from '../src/taskpane/modules/chat/gemini-client.js';
 import JSZip from 'https://esm.sh/jszip@3.10.1';
 import {
     configureLogger,
@@ -35,7 +36,6 @@ const EDIT_MODE_STORAGE_KEY = 'browserDemo.editMode';
 const LIBRARY_COLLAPSED_STORAGE_KEY = 'browserDemo.libraryCollapsed';
 const LIBRARY_MAX_DOC_CHARS = 12000;
 const LIBRARY_MAX_PROMPT_CHARS = 48000;
-const GEMINI_REQUEST_PREVIEW_CHARS = 2400;
 const DEMO_MARKERS = [
     'DEMO_TEXT_TARGET',
     'DEMO FORMAT TARGET',
@@ -856,7 +856,7 @@ function maskGeminiEndpoint(endpoint) {
 }
 
 function buildGeminiRequestPayload(userMessage, paragraphs, editModeValue, libraryDocs, apiKey) {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const endpoint = geminiEndpoint('gemini-2.5-flash', apiKey);
     const systemInstruction = buildSystemInstruction(paragraphs, editModeValue, libraryDocs);
     const contents = [
         ...chatHistory,
@@ -873,24 +873,17 @@ function buildGeminiRequestPayload(userMessage, paragraphs, editModeValue, libra
     return { endpoint, requestBody };
 }
 
-function captureGeminiRequestDebug(endpoint, requestBody, selectedLibraryDocsCount, totalLibraryDocCount, formattingDiagnostics = null) {
-    const systemText = String(requestBody?.systemInstruction?.parts?.[0]?.text || '');
-    const systemInstructionPreview = systemText.length > GEMINI_REQUEST_PREVIEW_CHARS
-        ? `${systemText.slice(0, GEMINI_REQUEST_PREVIEW_CHARS)}\n...[truncated in preview]`
-        : systemText;
+function captureGeminiRequestDebug(endpoint, selectedLibraryDocsCount, totalLibraryDocCount, formattingDiagnostics = null) {
     const debugPayload = {
         method: 'POST',
         endpoint: maskGeminiEndpoint(endpoint),
         headers: { 'Content-Type': 'application/json' },
-        body: requestBody,
         meta: {
             selectedLibraryDocsCount,
             totalLibraryDocCount,
             formattingQueryCount: Array.isArray(formattingDiagnostics?.queries) ? formattingDiagnostics.queries.length : 0,
             formattingMatchCount: Array.isArray(formattingDiagnostics?.matches) ? formattingDiagnostics.matches.length : 0
         },
-        formattingDiagnostics,
-        systemInstructionPreview
     };
     lastGeminiRequestDebug = debugPayload;
     if (typeof window !== 'undefined') {
@@ -910,20 +903,9 @@ async function sendGeminiChat(userMessage, paragraphs, apiKey, editModeValue = E
         ? options.formattingDiagnostics
         : null;
     const { endpoint, requestBody } = buildGeminiRequestPayload(userMessage, paragraphs, editModeValue, libraryDocs, apiKey);
-    captureGeminiRequestDebug(endpoint, requestBody, selectedLibraryDocsCount, totalLibraryDocCount, formattingDiagnostics);
+    captureGeminiRequestDebug(endpoint, selectedLibraryDocsCount, totalLibraryDocCount, formattingDiagnostics);
 
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
-    });
-
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Gemini API ${response.status}: ${errorText.slice(0, 400)}`);
-    }
-
-    const payload = await response.json();
+    const payload = await requestGeminiJson(endpoint, requestBody);
     const rawText = payload?.candidates?.[0]?.content?.parts?.map(p => p?.text || '').join('').trim() || '';
     if (!rawText) throw new Error('Gemini returned empty response');
 
@@ -1443,22 +1425,18 @@ function extractJsonObject(text) {
 }
 
 async function generateGeminiRedlineSuggestion(originalText, apiKey) {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const endpoint = geminiEndpoint('gemini-2.5-flash', apiKey);
     const prompt = ['Rewrite the following text as a cleaner sentence for a professional document.', 'Return plain text only, no quotes, markdown, bullets, or explanation.', `Text: ${originalText}`].join('\n');
-    const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.4, maxOutputTokens: 80 } }) });
-    if (!response.ok) throw new Error(`Gemini API ${response.status}: ${(await response.text()).slice(0, 300)}`);
-    const payload = await response.json();
+    const payload = await requestGeminiJson(endpoint, { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.4, maxOutputTokens: 80 } });
     const suggestion = (payload?.candidates?.[0]?.content?.parts?.map(p => p?.text || '').join(' ').trim() || '');
     if (!suggestion) throw new Error('Gemini returned no text suggestion');
     return suggestion;
 }
 
 async function generateGeminiToolAction(apiKey) {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const endpoint = geminiEndpoint('gemini-2.5-flash', apiKey);
     const prompt = ['You are choosing one surprise action for a DOCX demo pipeline.', 'Return JSON only, no markdown and no commentary.', `Allowed targets: ${DEMO_MARKERS.join(', ')}`, 'Choose exactly one tool:', '- comment -> args: { "target": string, "textToComment": string, "commentContent": string }', '- highlight -> args: { "target": string, "textToHighlight": string, "color": string }', '- redline -> args: { "target": string, "modified": string }', 'Keep args short.', '{ "tool": "comment|highlight|redline", "args": { ... } }'].join('\n');
-    const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.9, maxOutputTokens: 200 } }) });
-    if (!response.ok) throw new Error(`Gemini API ${response.status}: ${(await response.text()).slice(0, 300)}`);
-    const payload = await response.json();
+    const payload = await requestGeminiJson(endpoint, { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.9, maxOutputTokens: 200 } });
     const rawText = (payload?.candidates?.[0]?.content?.parts?.map(p => p?.text || '').join('\n').trim() || '');
     if (!rawText) throw new Error('Gemini returned no tool action');
     return normalizeGeminiToolAction(extractJsonObject(rawText));

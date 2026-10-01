@@ -60,6 +60,11 @@ module.exports = async (env, options) => {
       ],
     },
     plugins: [
+      ...(env.WORD_HOST_VALIDATION ? [new HtmlWebpackPlugin({
+        filename: 'officejs-validation.html',
+        template: './scripts/officejs-validation.html',
+        chunks: ['polyfill', 'officejs-validation'],
+      })] : []),
       new HtmlWebpackPlugin({
         filename: "taskpane.html",
         template: "./src/taskpane/taskpane.html",
@@ -110,6 +115,10 @@ module.exports = async (env, options) => {
       port: process.env.npm_package_config_dev_server_port || 3000,
     },
   };
+
+  if (env.WORD_HOST_VALIDATION) {
+    config.entry['officejs-validation'] = './scripts/officejs-validation.js';
+  }
 
   return config;
 };

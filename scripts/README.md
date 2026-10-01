@@ -69,3 +69,63 @@ This lane structure follows the upstream project's testing methodology:
 exact XML and return contracts, independent Word accept/reject expectations,
 and measured performance provide different evidence. Visual review remains a
 separate judgment even when Word opens and exports a document successfully.
+
+## Actual Office.js transport lane
+
+Use desktop Word on Windows and existing trusted development certificates.
+The collector does not install certificates or change trust settings. Close any
+previous collector before starting a new run; port 3000 must be available.
+
+```powershell
+npx webpack --mode development --env WORD_HOST_VALIDATION=1
+node scripts/run-officejs-validation.mjs --launch
+```
+
+The second command registers a separate local validation add-in and launches a
+disposable Word document. It uses no API key and makes no model calls. The
+validation entry point is absent from ordinary development/production builds.
+The page seeds synthetic/Word-authored fixtures, forwards calls to genuine Word
+proxies through the production batch bridge, counts reads/inserts, checks an
+unchanged paragraph and an empty batch, and refuses an invalid target without
+insertion. It exports the resulting DOCX bytes through Office's compressed-file
+API to a collector bound to 127.0.0.1. See [Microsoft's whole-document API guide](https://learn.microsoft.com/en-us/office/dev/add-ins/develop/get-the-whole-document-from-an-add-in-for-powerpoint-or-word?tabs=powerpoint).
+Seeding/export are harness operations; the production edit path remains Flat-OPC.
+
+Inspect `.cache/reliability/officejs/officejs-report.json`: it must have status
+`passed` and current timestamps. A pending/failed report is not completion. The
+collector accepts one claim per run so reopened exported packages do not rerun
+edits. It expires after ten minutes; stop it with Ctrl+C after verification.
+
+Then independently reopen and resolve the actual Office.js output in Word:
+
+```powershell
+npm run test:word -- -FixtureManifest .cache/reliability/officejs/officejs-fixtures.json -SkipNativeInsert -ArtifactsDir .cache/reliability/officejs-oracle -TimeoutSeconds 120
+node scripts/run-officejs-validation.mjs --cleanup
+```
+
+The external-manifest option reuses the supervised Word oracle without generating
+replacement fixtures. It checks source, actual Office.js tracked/accepted/rejected
+views and engine-resolved reference packages. The companion oracle report must
+also pass; the collector alone cannot certify Word's accepted/rejected result.
+Cleanup removes only this validation add-in's registration. Test documents and
+reports remain available for review; close the disposable document when finished.
+
+## Provider and change verification
+
+`node tests/gemini_client_tests.mjs` uses deterministic stub responses to verify
+bounded transient retries, non-retryable HTTP failures, cancellation, timeout
+and cleanup. It is included in `npm test` and consumes no provider credits.
+All provider calls share `src/taskpane/modules/chat/gemini-client.js`; transport
+retries do not run document tools.
+
+The usage comment in `tests/evals/run-evals.mjs` describes the optional live model
+lane: `node tests/evals/run-evals.mjs --model <configured-model> --case <case-name>`,
+with `GEMINI_API_KEY` supplied through the environment.
+Run it with explicitly configured credentials/model when evaluating model output;
+it incurs provider usage and is not part of the offline correctness gate.
+Do not print credentials or raw provider bodies as diagnostic evidence.
+
+For consumer changes, run `npm test`, `npm run build:dev` and `npm run build`.
+For transport/package/revision changes, also run the relevant live Word lane.
+Run the actual Office.js lane when Word transport or host outcome handling changes.
+Benchmarks remain observational; PDF export remains optional.

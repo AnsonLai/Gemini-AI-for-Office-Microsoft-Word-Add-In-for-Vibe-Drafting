@@ -30,7 +30,7 @@ export async function getParagraphOoxmlWithFallback(paragraph, context, options 
         ooxmlValue = ooxmlResult?.value || null;
         if (ooxmlValue) return { ooxml: ooxmlValue, source: 'paragraph' };
     } catch (paragraphError) {
-        console.warn(`[${logPrefix}] Paragraph.getOoxml failed, trying range.getOoxml`, paragraphError);
+        console.warn(`[${logPrefix}] Paragraph.getOoxml failed, trying range.getOoxml`, paragraphError?.code || paragraphError?.name || "UNKNOWN_ERROR");
     }
 
     try {
@@ -40,7 +40,7 @@ export async function getParagraphOoxmlWithFallback(paragraph, context, options 
         ooxmlValue = ooxmlResult?.value || null;
         if (ooxmlValue) return { ooxml: ooxmlValue, source: 'paragraphRange' };
     } catch (rangeError) {
-        console.warn(`[${logPrefix}] Range.getOoxml failed for paragraph`, rangeError);
+        console.warn(`[${logPrefix}] Range.getOoxml failed for paragraph`, rangeError?.code || rangeError?.name || "UNKNOWN_ERROR");
     }
 
     try {
@@ -56,7 +56,7 @@ export async function getParagraphOoxmlWithFallback(paragraph, context, options 
                 ooxmlValue = ooxmlResult?.value || null;
                 if (ooxmlValue) return { ooxml: ooxmlValue, source: 'tableCell' };
             } catch (cellError) {
-                console.warn(`[${logPrefix}] Parent table cell getOoxml failed, trying cell range`, cellError);
+                console.warn(`[${logPrefix}] Parent table cell getOoxml failed, trying cell range`, cellError?.code || cellError?.name || "UNKNOWN_ERROR");
                 try {
                     const cellRange = paragraph.parentTableCellOrNullObject.getRange();
                     ooxmlResult = cellRange.getOoxml();
@@ -64,7 +64,7 @@ export async function getParagraphOoxmlWithFallback(paragraph, context, options 
                     ooxmlValue = ooxmlResult?.value || null;
                     if (ooxmlValue) return { ooxml: ooxmlValue, source: 'tableCellRange' };
                 } catch (cellRangeError) {
-                    console.warn(`[${logPrefix}] Parent table cell range getOoxml failed`, cellRangeError);
+                    console.warn(`[${logPrefix}] Parent table cell range getOoxml failed`, cellRangeError?.code || cellRangeError?.name || "UNKNOWN_ERROR");
                 }
             }
         }
@@ -76,7 +76,7 @@ export async function getParagraphOoxmlWithFallback(paragraph, context, options 
                 ooxmlValue = ooxmlResult?.value || null;
                 if (ooxmlValue) return { ooxml: ooxmlValue, source: 'table' };
             } catch (tableError) {
-                console.warn(`[${logPrefix}] Parent table getOoxml failed, trying table range`, tableError);
+                console.warn(`[${logPrefix}] Parent table getOoxml failed, trying table range`, tableError?.code || tableError?.name || "UNKNOWN_ERROR");
                 try {
                     const tableRange = paragraph.parentTableOrNullObject.getRange();
                     ooxmlResult = tableRange.getOoxml();
@@ -84,19 +84,20 @@ export async function getParagraphOoxmlWithFallback(paragraph, context, options 
                     ooxmlValue = ooxmlResult?.value || null;
                     if (ooxmlValue) return { ooxml: ooxmlValue, source: 'tableRange' };
                 } catch (tableRangeError) {
-                    console.warn(`[${logPrefix}] Parent table range getOoxml failed`, tableRangeError);
+                    console.warn(`[${logPrefix}] Parent table range getOoxml failed`, tableRangeError?.code || tableRangeError?.name || "UNKNOWN_ERROR");
                 }
             }
         }
     } catch (tableTraversalError) {
-        console.warn(`[${logPrefix}] Table OOXML fallback failed`, tableTraversalError);
+        console.warn(`[${logPrefix}] Table OOXML fallback failed`, tableTraversalError?.code || tableTraversalError?.name || "UNKNOWN_ERROR");
     }
 
     return { ooxml: null, source: null };
 }
 
 /**
- * Inserts OOXML with `Paragraph.insertOoxml`, then retries using range-based insertion for GeneralException.
+ * Selects a supported insertion target before writing. A rejected synchronization
+ * cannot prove that Word made no change, so never replay the insertion.
  *
  * @param {Word.Paragraph} paragraph - Target paragraph proxy
  * @param {string} wrappedOoxml - Package/fragment OOXML
@@ -106,26 +107,15 @@ export async function getParagraphOoxmlWithFallback(paragraph, context, options 
  * @returns {Promise<void>}
  */
 export async function insertOoxmlWithRangeFallback(paragraph, wrappedOoxml, insertMode, context, logPrefix = 'OOXML') {
-    try {
+    if (typeof paragraph.insertOoxml === 'function') {
         paragraph.insertOoxml(wrappedOoxml, insertMode);
-        await context.sync();
-        return;
-    } catch (primaryError) {
-        const isGeneralException = primaryError && primaryError.code === 'GeneralException';
-        if (!isGeneralException) {
-            throw primaryError;
-        }
-
-        console.warn(`[${logPrefix}] Paragraph.insertOoxml failed with GeneralException. Retrying via range (${insertMode}).`);
-        console.warn(`[${logPrefix}] Failing OOXML payload:`, wrappedOoxml);
-
+    } else {
         const fallbackRange = insertMode === 'After'
             ? paragraph.getRange('End')
             : paragraph.getRange('Whole');
-
         fallbackRange.insertOoxml(wrappedOoxml, insertMode);
-        await context.sync();
     }
+    await context.sync();
 }
 
 /**
