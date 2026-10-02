@@ -1,90 +1,61 @@
 # Library follow-ups
 
-## Current status: installed 0.8.3
+Upstream work items for `@ansonlai/docx-redline-js`, which the project owner
+maintains. Library defects are documented here with a portable reproducer
+instead of being worked around in the add-in. A reproducer exits 0 while its
+defect reproduces against the installed package and 1 once fixed. Resolved
+reports move to [`completed/`](completed/); once every report is resolved, the
+[canonical list follow-up](../plans/2026-09-30-canonical-list-migration-follow-up.md)
+deletes this folder.
 
-The root and MCP consumers pin exact 0.8.3. The release fixes plain insertion
-rejection, multi-paragraph and all-empty list rejection, historical inspection,
-public-facade same-kind numbering, and list-fragment parsing/start values.
-These reports remain as historical reproductions, not current open defects.
-See the [0.8.3 validation](../validation-reports/2026-09-30-docx-redline-v083.md).
+## Current status: installed 0.8.4 (verified 2026-10-02)
 
-The remaining open requirement is [canonical list capabilities](2026-09-30-canonical-list-operations.md):
-plain-to-list/header conversion and list-format changes remain unsupported by
-0.8.3. The bare-XML unchanged-header receipt error also remains a documented
-library limitation. Those features are planned in the library's
-`docs/plans/2026-09-30-canonical-list-operations.md`, not implemented.
-The August agentic plan is closed with deferred scope at the user's request.
-Remaining canonical work is tracked in the fresh
-[Canonical List Migration Follow-up](../plans/2026-09-30-canonical-list-migration-follow-up.md).
+The root and MCP consumers pin exact 0.8.4. Every 2026-10-01 report except
+Word's table Reject All paragraph is fixed in 0.8.4, and all earlier 0.8.2/0.8.3
+fixes still hold; those reports are in [`completed/`](completed/) with dated
+resolution notes.
 
-### Table append tracked-formatting issue (2026-10-01)
+The add-in adopted the 0.8.4 APIs: `format_text` sends `textOccurrence`,
+`edit_list` passes the document's `numberingXml` to `applyRedlineToOxml`, and
+the `UNSUPPORTED_TABLE_FORMATTING` refusal now covers only the remaining 0.8.4
+limitation (changing the text of a paragraph that carries the author's own
+pending formatting while adding a table).
 
-The installed 0.8.3 package can lose existing or newly requested underline
-formatting when a tracked table append is accepted. The add-in refuses the
-reproduced combinations before writing with `UNSUPPORTED_TABLE_FORMATTING`;
-this is an upstream library limitation tracked separately in the
-[table-append formatting report](2026-10-01-table-append-tracked-formatting.md).
-The final desktop Word run also found an extra empty paragraph after tracked
-Reject All; this separate issue is tracked in the
-[table-append rejection report](2026-10-01-word-reject-table-append-paragraph.md).
-The [consumer incident plan](../plans/2026-09-30-table-creation-reliability.md)
-and [host report](../validation-reports/2026-10-01-table-creation-reliability.md)
-record the complete 20-check scope and results. No full live chat/model
-reproduction is claimed.
+## Open
 
-## Historical 0.8.2 investigation and unpublished review
-
-These are separate upstream work items for `@ansonlai/docx-redline-js`.
-The add-in and MCP pin exact 0.8.2. A registry check during the 2026-09-30
-consumer wrap-up found 0.8.2 still published as latest; the local library
-release and changelog also remain at 0.8.2. These Markdown packets are local
-reports, not evidence that GitHub issues have been filed or resolved.
-
-### Requirements recorded against 0.8.2
-
-| Report | Evidence / effect |
-| --- | --- |
-| [Plain insertion rejection](2026-09-30-list-insertion-rejection.md) | Independent Word Reject All leaves an extra empty paragraph; plain-anchor canonical insertion stays disabled. |
-| [List-range rejection](2026-09-30-list-range-rejection.md) | Independent Word Reject All merges source paragraphs; broad canonical list replacement stays disabled. |
-| [Canonical list capabilities](2026-09-30-canonical-list-operations.md) | Unmarked/text-changing header conversion and list-format changes lack a verified canonical mapping. |
-| [Historical list inspection](2026-09-30-historical-list-inspection.md) | Offline inspection reads historical numbering as current; the reproduced operation refuses without a write or native replay. |
-
-The [agentic plan](../plans/completed/2026-08-29-agentic-tools-and-list-reliability.md)
-remains open at the user's request until the library fixes permit full
-canonical migration. Passing native Word paths do not resolve these reports.
-
-After an upstream release, update exact pins together, rerun each diagnostic
-expecting complete source restoration, run the supported matrix and actual
-Office.js transport, then verify accepted/rejected exports in independent Word.
-Migrate additional commands only after their numbering and targeting semantics
-pass. Keep active helper modules until every caller has migrated.
-
-### Earlier fixes in 0.8.2
-
-- [Hyperlink boundary](2026-09-30-hyperlink-boundary.md): adjacent plain
-  punctuation stays outside the hyperlink.
-- [Manual line-break rejection](2026-09-30-line-break-rejection.md): Reject All
-  restores text on the correct side of the break.
-
-The fixed boundary cases remain in the consumer compatibility/fidelity gates.
-No library-side patch or consumer reconstruction workaround is part of this
-wrap-up.
-
-### Historical unpublished source review (2026-09-30)
-
-The local library now contains uncommitted fixes for historical inspection and
-the two original paragraph-boundary defects. The original add-in diagnostic
-cases pass 12 independent Word checks through the consumer's standalone/merge
-path. These are local fixes awaiting release, not fixes in installed 0.8.2.
-The [review report](../validation-reports/2026-09-30-unpublished-library-list-review.md)
-records focused tests, header receipts and index conventions.
-
-Additional upstream concerns found during that review:
-
-- [All-empty list ranges lose source paragraphs on Reject All](2026-09-30-all-empty-list-range-rejection.md): reproduced offline in the local tree.
-- [Public DOCX facade changes unrelated list numbering](2026-09-30-public-facade-list-numbering.md): independent Word failures; identical numbering output in published 0.8.2 proves this predates the new fixes.
+| Report | Since | Effect on the add-in |
+| --- | --- | --- |
+| [Canonical list capabilities](2026-09-30-canonical-list-operations.md) | 0.8.2 | Plain/unmarked header conversion and list-format changes are unsupported, so those tools keep native Word routes (`reproduce-plain-header-conversion.mjs` still exits 0 on 0.8.4). |
+| [Word Reject All leaves an extra paragraph after a final table append](2026-10-01-word-reject-table-append-paragraph.md) | 0.8.3 | Table removal on Reject All now works in Word, but one empty paragraph remains after the original text. |
+| [Separate list operations restart numbering](2026-10-02-separate-list-operations-restart-numbering.md) | **0.8.4 regression** | Non-adjacent headers converted in one batch land in different lists ("A.", "A."). Production `convert_headers_to_list` is still native, so users are unaffected; the canonical fidelity case is skipped. |
+| [Weak-target soft-break replacement deletes the paragraph](2026-10-02-weak-target-soft-break-deletion.md) | 0.8.4 | Data loss with `ok` status when targeting by index + text only. The add-in always sends strong targets and is not exposed. |
 
 The library's proposed `docs/plans/2026-09-30-canonical-list-operations.md`
-addresses the remaining conversion/remapping feature work, but it is not
-implemented. The agentic plan remains open until released fixes and verified
-capabilities enable full canonical migration.
+covers the canonical list capabilities; it is not implemented. Remaining
+canonical work is tracked in the
+[Canonical List Migration Follow-up](../plans/2026-09-30-canonical-list-migration-follow-up.md).
+
+## After an upstream release
+
+Update both exact pins together, rerun every open reproducer (expect exit 1),
+the offline suite, the [golden scenario](../../scripts/README.md#golden-scenario-desktop-word)
+and the affected Word lanes with independent Accept All/Reject All checks.
+Move fixed reports to `completed/` with a dated resolution note and update
+the links to them.
+
+## Completed
+
+| Report | Fixed in |
+| --- | --- |
+| [Manual line-break rejection](completed/2026-09-30-line-break-rejection.md) | 0.8.2 |
+| [Hyperlink boundary](completed/2026-09-30-hyperlink-boundary.md) | 0.8.2 |
+| [Plain insertion rejection](completed/2026-09-30-list-insertion-rejection.md) | 0.8.3 |
+| [List-range rejection](completed/2026-09-30-list-range-rejection.md) | 0.8.3 |
+| [All-empty list range rejection](completed/2026-09-30-all-empty-list-range-rejection.md) | 0.8.3 |
+| [Historical list inspection](completed/2026-09-30-historical-list-inspection.md) | 0.8.3 |
+| [Public facade list numbering](completed/2026-09-30-public-facade-list-numbering.md) | 0.8.3 |
+| [Table append tracked formatting](completed/2026-10-01-table-append-tracked-formatting.md) | 0.8.4 |
+| [Soft-break list conversion](completed/2026-10-01-soft-break-list-conversion.md) | 0.8.4 |
+| [Soft-break localized replacements](completed/2026-10-01-soft-break-localized-replacements.md) | 0.8.4 |
+| [Generated bullet numbering collision](completed/2026-10-01-generated-bullet-numbering-collision.md) | 0.8.4 |
+| [Format occurrence targeting](completed/2026-10-01-format-occurrence-targeting.md) | 0.8.4 (`textOccurrence`) |

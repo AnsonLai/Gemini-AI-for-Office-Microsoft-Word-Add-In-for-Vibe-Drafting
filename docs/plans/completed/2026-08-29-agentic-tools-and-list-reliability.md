@@ -97,10 +97,10 @@ The main chat passes its canonical source baseline into list insertion; stale or
 
 Separately reported library dependencies:
 
-- [Plain insertion Reject All leaves an empty paragraph](../../library-issues/2026-09-30-list-insertion-rejection.md), independently confirmed in Word.
-- [List range Reject All merges source paragraphs](../../library-issues/2026-09-30-list-range-rejection.md), independently confirmed in Word.
+- [Plain insertion Reject All leaves an empty paragraph](../../library-issues/completed/2026-09-30-list-insertion-rejection.md), independently confirmed in Word.
+- [List range Reject All merges source paragraphs](../../library-issues/completed/2026-09-30-list-range-rejection.md), independently confirmed in Word.
 - [Unmarked/text-changing header conversion lacks a canonical mapping](../../library-issues/2026-09-30-canonical-list-operations.md).
-- [Historical list properties are inspected as active numbering](../../library-issues/2026-09-30-historical-list-inspection.md), reproduced offline; the operation refuses without a write or native replay.
+- [Historical list properties are inspected as active numbering](../../library-issues/completed/2026-09-30-historical-list-inspection.md), reproduced offline; the operation refuses without a write or native replay.
 
 - Identify commands still using paragraph/scope adapters and native list metadata.
 - Preserve relative indentation: -1 shallower, 0 same, +1 deeper, with Word levels clamped to 0–8.

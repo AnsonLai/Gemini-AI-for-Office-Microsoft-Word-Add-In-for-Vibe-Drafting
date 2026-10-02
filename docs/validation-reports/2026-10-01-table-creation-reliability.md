@@ -51,7 +51,7 @@ The incident plan remains open for the unresolved library requirements.
 
 ```powershell
 node tests/table_append_batch_tests.mjs --export-host-dir .cache/table-append-host
-node docs/library-issues/2026-10-01-table-append-tracked-formatting-reproducer.mjs
+node docs/library-issues/completed/2026-10-01-table-append-tracked-formatting-reproducer.mjs
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-wp6-word.ps1 -FixtureManifest .cache/table-append-host/manifest.json -ArtifactsDir .cache/table-append-word -TimeoutSeconds 180
 ```
 
@@ -62,5 +62,5 @@ reports are under the specified `.cache` directories. No live Gemini request,
 actual Office.js collector run or PDF export is part of this incident validation.
 
 See the [incident plan](../plans/2026-09-30-table-creation-reliability.md) and the
-[separate formatting report](../library-issues/2026-10-01-table-append-tracked-formatting.md)
+[separate formatting report](../library-issues/completed/2026-10-01-table-append-tracked-formatting.md)
 and [Word Reject All paragraph report](../library-issues/2026-10-01-word-reject-table-append-paragraph.md).

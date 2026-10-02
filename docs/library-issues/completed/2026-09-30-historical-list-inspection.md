@@ -1,6 +1,8 @@
 # 0.8.2 historical list properties reported as active
 
-**Resolution:** Fixed in installed 0.8.3. The reproduction below describes the earlier defect; see [0.8.3 validation](../validation-reports/2026-09-30-docx-redline-v083.md).
+> **Resolved:** Fixed in 0.8.3; re-verified against 0.8.4 on 2026-10-02 (historical `pPrChange` paragraph inspects as `list: null`).
+
+**Resolution:** Fixed in installed 0.8.3. The reproduction below describes the earlier defect; see [0.8.3 validation](../../validation-reports/2026-09-30-docx-redline-v083.md).
 
 **Package:** `@ansonlai/docx-redline-js@0.8.2`  
 **Checked:** 2026-09-30  

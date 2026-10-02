@@ -1,6 +1,8 @@
 # Reject All leaves an extra paragraph after a plain-anchor list insertion
 
-**Resolution:** Fixed in installed 0.8.3. The reproduction below describes the earlier defect; see [0.8.3 validation](../validation-reports/2026-09-30-docx-redline-v083.md).
+> **Resolved:** Fixed in 0.8.3; re-verified offline against 0.8.4 on 2026-10-02 (rejected text equals the source).
+
+**Resolution:** Fixed in installed 0.8.3. The reproduction below describes the earlier defect; see [0.8.3 validation](../../validation-reports/2026-09-30-docx-redline-v083.md).
 
 **Package:** `@ansonlai/docx-redline-js@0.8.2`  
 **Host:** Microsoft Word 16.0, build 16.0.20430  
@@ -74,7 +76,7 @@ Plain paragraph before bullet list.
 Bullet Root A
 ```
 
-The rejected package has an additional empty paragraph between the insertion anchor and the first list item. The rest of the document text matches the source. This result was reproduced by the independent Word host check; see [the saved Word report](../validation-reports/2026-09-30-agentic-list-known-defects-word.json) and `tests/agentic_list_fidelity_tests.mjs` for the host evidence and package exporter.
+The rejected package has an additional empty paragraph between the insertion anchor and the first list item. The rest of the document text matches the source. This result was reproduced by the independent Word host check; see [the saved Word report](../../validation-reports/2026-09-30-agentic-list-known-defects-word.json) and `tests/agentic_list_fidelity_tests.mjs` for the host evidence and package exporter.
 
 ## Minimal standalone reproduction
 

@@ -14,10 +14,10 @@
 > migration transfers to the fresh [follow-up](plans/2026-09-30-canonical-list-migration-follow-up.md),
 > which depends on separately tracked upstream capabilities.
 > The tracked-text fidelity defects and historical-property inspection findings
-> covered by 0.8.3 are fixed and validated; canonical header conversion and
+> covered by 0.8.3 (and the 0.8.4 follow-up fixes) are fixed and validated; canonical header conversion and
 > list-format operations remain unsupported and are tracked by the follow-up.
 > Current consumers pin exact
-> `@ansonlai/docx-redline-js@0.8.3`; see [ROADMAP.md](../ROADMAP.md) and
+> `@ansonlai/docx-redline-js@0.8.4`; see [ROADMAP.md](../ROADMAP.md) and
 > [STATE.md](../STATE.md) for the current posture.
 > For the current file-level ownership split, including the local Flat OPC
 > bridge and consumer-owned reliability/startup work, see the

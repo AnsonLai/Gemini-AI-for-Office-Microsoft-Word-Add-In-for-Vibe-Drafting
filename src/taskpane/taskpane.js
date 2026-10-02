@@ -30,6 +30,7 @@ import {
   appendFunctionExchange
 } from './modules/chat/chat-history.js';
 import { advanceMutationLoopGuard, getMaxLoopStopMessage } from './modules/chat/mutation-loop-guard.js';
+import { buildCanonicalContextText } from './modules/chat/canonical-context.js';
 import { appendRefreshedDocumentContext, isNoWriteStaleContextRefusal } from './modules/chat/refreshed-document-context.js';
 import { getModelProfile } from './modules/config/model-profiles.js';
 import {
@@ -314,6 +315,7 @@ async function extractEnhancedDocumentContext(context) {
       section: currentSection,
       subSection: currentSubSection,
       isSectionHeader: sectionMarker === "§",
+      meta: metaString,
       enhancedLine: enhancedLine
     });
   }
@@ -325,16 +327,38 @@ async function extractEnhancedDocumentContext(context) {
   };
 }
 
+/** Prefer the canonical (engine) paragraph text for the model view; fall back to Word text. */
+function canonicalContextOr(enhancedParagraphs, sourceBaseline, wordFormattedText) {
+  if (!enhancedParagraphs) return wordFormattedText;
+  const canonicalText = buildCanonicalContextText(enhancedParagraphs, sourceBaseline);
+  if (canonicalText == null) {
+    const comparable = value => String(value ?? '').replace(/\s+/g, ' ').trim();
+    const firstTextMismatch = enhancedParagraphs.findIndex((paragraph, offset) => comparable(sourceBaseline?.[offset]?.exactText) !== comparable(paragraph.text));
+    console.warn('Canonical context unavailable: Word and source paragraphs do not align; using Word text.', {
+      wordParagraphs: enhancedParagraphs.length,
+      sourceParagraphs: Array.isArray(sourceBaseline) ? sourceBaseline.length : null,
+      firstTextMismatch: firstTextMismatch < 0 ? null : firstTextMismatch + 1,
+      extraSourceTail: Array.isArray(sourceBaseline)
+        ? sourceBaseline.slice(enhancedParagraphs.length).map(paragraph => ({ index: paragraph.index, empty: !comparable(paragraph.exactText) }))
+        : null
+    });
+    return wordFormattedText;
+  }
+  return canonicalText;
+}
+
 /** Capture a fresh model view and canonical source baseline for the next model turn. */
 async function captureRefreshedDocumentContext(wordOperationSupportPromise) {
   let formattedText = '';
   let sourceBaseline = [];
+  let enhancedParagraphs = null;
 
   await Word.run(async (context) => {
     const body = context.document.body;
     try {
       const enhancedContext = await extractEnhancedDocumentContext(context);
       formattedText = enhancedContext.formattedText;
+      enhancedParagraphs = enhancedContext.paragraphs;
     } catch (error) {
       console.warn('Enhanced context refresh failed; using document text', error?.code || error?.name);
       body.load('text');
@@ -351,7 +375,7 @@ async function captureRefreshedDocumentContext(wordOperationSupportPromise) {
   if (!Array.isArray(sourceBaseline) || sourceBaseline.length === 0) {
     throw new Error('The current document source baseline is unavailable.');
   }
-  return { formattedText, sourceBaseline };
+  return { formattedText: canonicalContextOr(enhancedParagraphs, sourceBaseline, formattedText), sourceBaseline };
 }
 
 let chatHistory = [];
@@ -1324,9 +1348,11 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
       selection.load("text");
 
       // We'll try enhanced extraction first as it's the gold standard
+      let enhancedParagraphs = null;
       try {
         const enhancedContext = await extractEnhancedDocumentContext(context);
         docText = enhancedContext.formattedText;
+        enhancedParagraphs = enhancedContext.paragraphs;
         console.log(`Enhanced context extracted: ${enhancedContext.paragraphs.length} paragraphs`);
       } catch (enhancedError) {
         console.warn("Enhanced context failed, falling back to simple text", enhancedError);
@@ -1343,6 +1369,8 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
         await context.sync();
         const [wordOperationRunner] = await wordOperationSupportPromise;
         docSourceBaseline = wordOperationRunner.captureWordSourceBaseline(sourceOoxml.value);
+        // Show the model the same paragraph text that edits are applied to.
+        docText = canonicalContextOr(enhancedParagraphs, docSourceBaseline, docText);
       } catch (error) {
         console.warn('Canonical document targeting context unavailable', error?.code || error?.name);
       }
@@ -1452,7 +1480,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
         function_declarations: [
           {
             name: "apply_redlines",
-            description: "Applies suggested edits to the document. Use this tool whenever the user asks to 'edit text', 'change text', 'modify', 'add', 'delete', 'reword', 'rephrase', 'update', 'bold', 'italicize', 'underline', 'strikethrough', convert text into a table, or apply inline TEXT FORMATTING to existing paragraphs.\n\nIMPORTANT - FORMATTING RULES:\n- Bold: **text**\n- Italic: *text*\n- Underline: ++text++\n- Strikethrough: ~~text~~\n\nIMPORTANT - LIST RULES:\n- Use Markdown syntax for lists. \n- For Bullet Lists: Use '* item'. For nested items, indent with 4 spaces (e.g., '    * sub-item').\n- For Numbered Lists: Use '1. item', 'a. item', 'i. item', etc. explicitly. \n- For Nested Numbering: Use '1.1.', '1.1.1.' styles if appropriate. \n- DO NOT use simple hyphens ('-') if you intend to create a structured or numbered list. \n- INDENTATION is critical for sub-levels. Use 2 or 4 spaces.\n\nIMPORTANT - TABLE RULES:\n- Use apply_redlines for converting normal paragraphs into a new table.\n- In the instruction, explicitly identify the full paragraph range to replace (for example: 'Replace P4 through P6 with a two-column markdown table').\n- Require a complete multiline GitHub Markdown table with a header row, separator row, and data row(s).\n- NEVER ask for a single pipe-delimited line like 'A|B|C'; that is plain text, not a Word table.\n- Preserve multi-line source blocks by using additional table rows. Do not put HTML tags such as <br> inside markdown table cells.\n\nFor full list structure conversions (like turning multiple lines into A., B., C. or 1., 2., 3. list items), prefer the dedicated list tools.\n\nDo NOT suggest changes in the chat; always use this tool to apply them directly. The edits will be applied under track changes (redlines). NEVER say you have applied edits unless you have successfully called this tool.",
+            description: "Applies suggested edits to the document. Use this tool whenever the user asks to 'edit text', 'change text', 'modify', 'add', 'delete', 'reword', 'rephrase', 'update', 'bold', 'italicize', 'underline', 'strikethrough', remove such formatting (e.g. 'unbold'), convert text into a table, or apply inline TEXT FORMATTING to existing paragraphs.\n\nIMPORTANT - FORMATTING RULES:\n- Bold: **text**\n- Italic: *text*\n- Underline: ++text++\n- Strikethrough: ~~text~~\n\nIMPORTANT - LIST RULES:\n- Use Markdown syntax for lists. \n- For Bullet Lists: Use '* item'. For nested items, indent with 4 spaces (e.g., '    * sub-item').\n- For Numbered Lists: Use '1. item', 'a. item', 'i. item', etc. explicitly. \n- For Nested Numbering: Use '1.1.', '1.1.1.' styles if appropriate. \n- DO NOT use simple hyphens ('-') if you intend to create a structured or numbered list. \n- INDENTATION is critical for sub-levels. Use 2 or 4 spaces.\n\nIMPORTANT - TABLE RULES:\n- Use apply_redlines for converting normal paragraphs into a new table.\n- In the instruction, explicitly identify the full paragraph range to replace (for example: 'Replace P4 through P6 with a two-column markdown table').\n- Require a complete multiline GitHub Markdown table with a header row, separator row, and data row(s).\n- NEVER ask for a single pipe-delimited line like 'A|B|C'; that is plain text, not a Word table.\n- Preserve multi-line source blocks by using additional table rows. Do not put HTML tags such as <br> inside markdown table cells.\n\nFor full list structure conversions (like turning multiple lines into A., B., C. or 1., 2., 3. list items), prefer the dedicated list tools.\n\nDo NOT suggest changes in the chat; always use this tool to apply them directly. The edits will be applied under track changes (redlines). NEVER say you have applied edits unless you have successfully called this tool.",
             parameters: {
               type: "OBJECT",
               properties: {

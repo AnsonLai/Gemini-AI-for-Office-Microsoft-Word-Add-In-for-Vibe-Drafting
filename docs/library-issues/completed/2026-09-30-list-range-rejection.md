@@ -1,6 +1,8 @@
 # Reject All merges the original paragraphs of a replaced list range
 
-**Resolution:** Fixed in installed 0.8.3. The reproduction below describes the earlier defect; see [0.8.3 validation](../validation-reports/2026-09-30-docx-redline-v083.md).
+> **Resolved:** Fixed in 0.8.3; re-verified offline against 0.8.4 on 2026-10-02 (rejected text equals the source).
+
+**Resolution:** Fixed in installed 0.8.3. The reproduction below describes the earlier defect; see [0.8.3 validation](../../validation-reports/2026-09-30-docx-redline-v083.md).
 
 **Package:** `@ansonlai/docx-redline-js@0.8.2`  
 **Host:** Microsoft Word 16.0, build 16.0.20430  
@@ -84,7 +86,7 @@ Word produced one paragraph with concatenated text:
 Bullet Root ABullet Insertion Anchor
 ```
 
-The rejected package has one fewer paragraph and no longer preserves the source boundary between the two list items. This result was reproduced by the independent Word host check; see [the saved Word report](../validation-reports/2026-09-30-agentic-list-known-defects-word.json) and `tests/agentic_list_fidelity_tests.mjs` for the host evidence and package exporter.
+The rejected package has one fewer paragraph and no longer preserves the source boundary between the two list items. This result was reproduced by the independent Word host check; see [the saved Word report](../../validation-reports/2026-09-30-agentic-list-known-defects-word.json) and `tests/agentic_list_fidelity_tests.mjs` for the host evidence and package exporter.
 
 ## Minimal standalone reproduction
 

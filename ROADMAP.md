@@ -7,7 +7,7 @@
 ## Current package and consumers
 
 The Word add-in and MCP server pin the exact
-`@ansonlai/docx-redline-js@0.8.3` release. The package owns supported OOXML
+`@ansonlai/docx-redline-js@0.8.4` release. The package owns supported OOXML
 document operations, reconciliation and DOCX package lifecycle; consumer code
 owns tool mapping, host I/O, browser UI/session flow, and MCP tool contracts.
 The add-in still has a local Flat OPC bridge/mapping layer, while the browser
@@ -60,14 +60,14 @@ live validation gates pass.
 
 The v0.8.2 library follow-up reports recorded these earlier defects and gaps:
 
-- [Plain insertion Reject All leaves an empty paragraph](docs/library-issues/2026-09-30-list-insertion-rejection.md).
-- [List range Reject All merges source paragraphs](docs/library-issues/2026-09-30-list-range-rejection.md).
+- [Plain insertion Reject All leaves an empty paragraph](docs/library-issues/completed/2026-09-30-list-insertion-rejection.md).
+- [List range Reject All merges source paragraphs](docs/library-issues/completed/2026-09-30-list-range-rejection.md).
 - [Unmarked or text-changing header conversion lacks a canonical mapping](docs/library-issues/2026-09-30-canonical-list-operations.md).
-- [Historical list properties are inspected as active numbering](docs/library-issues/2026-09-30-historical-list-inspection.md).
+- [Historical list properties are inspected as active numbering](docs/library-issues/completed/2026-09-30-historical-list-inspection.md).
 
 The v0.8.3 release notes report fixes for the paragraph-boundary Reject All
 failures, historical paragraph-property inspection, `openDocx` list-range
-numbering, and explicit list-start parsing. Current validation covers 12
+numbering, and explicit list-start parsing. The dated v0.8.3 validation covers 12
 supported list cases (48 Office.js checks), five native routes (20 Office.js
 checks), and 17 exports checked by the independent Word oracle (92 applicable
 checks passed, zero failed, five not applicable). The original two
@@ -78,7 +78,7 @@ limits are that plain or text-changing header-to-list conversion and
 list-format changes lack supported canonical operations, and a
 marker-prefixed `1. Header` to `1. Header` operation on bare `document.xml` can
 fail with `RECEIPT_RECONCILIATION_FAILED`. See the [v0.8.3 report](docs/validation-reports/2026-09-30-docx-redline-v083.md)
-for the current run status and linked artifacts.
+for the v0.8.3 run status and linked artifacts. The [0.8.4 validation](docs/validation-reports/2026-10-02-docx-redline-v084.md) report records the upgrade. Open library items (see the [library issues index](docs/library-issues/README.md)): canonical list capabilities; Word Reject All leaving one extra paragraph after a final table append; the 0.8.4 regression where separate list operations restart numbering; and weak-target soft-break deletion.
 
 ## Longer-term direction
 

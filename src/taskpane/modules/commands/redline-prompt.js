@@ -24,12 +24,14 @@ Each change must be an object with the following structure:
 - "paragraphIndex": The integer number of the paragraph to modify (e.g., 1 for [P1]). For "replace_range", this is the START paragraph.
 - "anchorText": REQUIRED for every change. Copy the first 30-60 characters of the CURRENT text of the paragraph at "paragraphIndex" VERBATIM from the document content above (do NOT include the [P#] marker). For "replace_range", anchor the START paragraph. For an empty paragraph, use "". This is used to verify your edit lands on the correct paragraph.
 - "endParagraphIndex": (Only for "replace_range") The integer number of the END paragraph (inclusive).
-- "operation": "edit_paragraph", "replace_paragraph", "modify_text", or "replace_range".
+- "operation": "edit_paragraph", "replace_paragraph", "modify_text", "replace_range", or "format_text".
 - "newContent": (For "edit_paragraph" full rewrites ONLY) The complete rewritten paragraph content.
 - "replacements": (For "edit_paragraph" localized edits ONLY) An array of {"find":"exact existing text","replace":"new text"}. Use this instead of "newContent" for word, phrase, or sentence edits within one paragraph. Each "find" must match the CURRENT paragraph text exactly, including case and punctuation. Use "occurrence" (1-based) if "find" appears more than once.
 - "content": (REQUIRED for "replace_paragraph" and "replace_range" ONLY) The new content to insert.
 - "originalText": (For "modify_text" ONLY) The specific text snippet within the paragraph to find and replace. **MAX 80 characters**.
 - "replacementText": (For "modify_text" ONLY) The new text to replace "originalText" with.
+- "find": (For "format_text" ONLY) Exact single-line text in the paragraph whose character formatting changes. If it appears more than once, add the 1-based "occurrence" of the appearance to format.
+- "formatting": (For "format_text" ONLY) An object of true/false flags among "bold", "italic", "underline", "strikethrough". false REMOVES that formatting, e.g. {"bold":false}.
 
 **MARKDOWN FORMATTING (VERY IMPORTANT)**:
 All content, newContent, replacementText, and replacements.replace values support Markdown formatting. Use these when the user requests formatting:
@@ -59,6 +61,11 @@ All content, newContent, replacementText, and replacements.replace values suppor
 - **STRIPPING**: When converting existing lists, REMOVE the original markers from your response and use ONLY the markdown syntax described above.
 
 When the user asks for formatted content (bullets, tables, bold, etc.), ALWAYS use the appropriate Markdown syntax.
+
+**FORMAT-ONLY CHANGES (unbold, un-italicize, remove underline, or format existing text without changing it)**:
+- Use "format_text" and never rewrite the text: unchanged text without Markdown markers does NOT remove existing formatting.
+- Example removing bold: {"paragraphIndex":12,"anchorText":"The Receiving Party shall","operation":"format_text","find":"Confidential Information","formatting":{"bold":false}}
+- Use one "format_text" change per distinct span; several may target the same paragraph.
 
 Rules:
 - **PREFER LOCALIZED EDITS**: For word, phrase, or sentence edits inside one existing paragraph, use "edit_paragraph" with "replacements": [{"find":"exact current text","replace":"new text"}] instead of rewriting the entire paragraph. Multiple distinct replacements may be included in one change.
@@ -124,7 +131,7 @@ export const REDLINE_DIFF_SCHEMA = {
       },
       operation: {
         type: "STRING",
-        enum: ["edit_paragraph", "replace_paragraph", "modify_text", "replace_range"],
+        enum: ["edit_paragraph", "replace_paragraph", "modify_text", "replace_range", "format_text"],
         description: "The type of operation to perform",
       },
       newContent: {
@@ -142,6 +149,24 @@ export const REDLINE_DIFF_SCHEMA = {
             occurrence: { type: "INTEGER", description: "1-based occurrence when find appears more than once" },
           },
           required: ["find", "replace"],
+        },
+      },
+      find: {
+        type: "STRING",
+        description: "ONLY for format_text: exact single-line text in the paragraph whose character formatting changes. Must occur exactly once unless occurrence is given.",
+      },
+      occurrence: {
+        type: "INTEGER",
+        description: "ONLY for format_text: 1-based occurrence of a repeated find to format.",
+      },
+      formatting: {
+        type: "OBJECT",
+        description: "ONLY for format_text: character-format flags to set; false removes the formatting (e.g. bold false to unbold).",
+        properties: {
+          bold: { type: "BOOLEAN" },
+          italic: { type: "BOOLEAN" },
+          underline: { type: "BOOLEAN" },
+          strikethrough: { type: "BOOLEAN" },
         },
       },
       content: {

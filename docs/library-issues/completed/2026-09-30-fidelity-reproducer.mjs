@@ -1,6 +1,6 @@
 /**
  * Minimal DOCX fidelity reproducer for @ansonlai/docx-redline-js v0.8.1.
- * Run: node docs/library-issues/2026-09-30-fidelity-reproducer.mjs
+ * Run: node docs/library-issues/completed/2026-09-30-fidelity-reproducer.mjs
  * Optional: DOCX_REDLINE_SOURCE_ROOT points to a source checkout (uses index.js,
  * never dist). The script exits 1 when either independent correctness oracle fails.
  */

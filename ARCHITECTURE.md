@@ -8,7 +8,7 @@ Word-only adapter.
 
 ```mermaid
 graph TD
-    Package[@ansonlai/docx-redline-js 0.8.3] --> Portable[Portable consumer core]
+    Package[@ansonlai/docx-redline-js 0.8.4] --> Portable[Portable consumer core]
     Portable --> WordAdapter[Word adapter / Office.js]
     WordAdapter --> Addin[Word taskpane]
     Package --> Browser[Browser document session]
@@ -19,7 +19,7 @@ graph TD
 
 | Component | Responsibility |
 | --- | --- |
-| `@ansonlai/docx-redline-js` | Public DOCX facade, OOXML operations, package inspection and reconciliation. Both package manifests pin exact version `0.8.3`. |
+| `@ansonlai/docx-redline-js` | Public DOCX facade, OOXML operations, package inspection and reconciliation. Both package manifests pin exact version `0.8.4`. |
 | `src/taskpane/modules/docx-redline-js-integration/consumer-core.js` | Portable source inspection, canonical operation preparation, result handling and Flat OPC package construction. It has no Word, UI or filesystem globals. |
 | `word-operation-runner.js`, `word-redline-runner.js`, `word-ooxml.js` | Word proxy reads/inserts, synchronization, native tracking management and the add-in's compatibility bridge. |
 | `browser-demo/document-session.js` | Browser open/inspect/atomic edit/serialize lifecycle through the package facade. JSZip is retained for preview. |
@@ -98,15 +98,15 @@ diagnostics distinguish missing baseline, text, index and fingerprint failures.
 For `apply_redlines`, the append planner has one narrow coalescing case: a
 compatible edit of the final paragraph plus one Markdown table append. Both
 original changes map to the combined library operation receipt, and the
-paragraph-count-plus-one append anchor is preserved and validated. Unsupported
-tracked inline formatting around that combination is refused before the Word
-write as `UNSUPPORTED_TABLE_FORMATTING`. The final 2026-10-01 Word run passed
-13 of 20 checks: plain accepted table content and both native insertions pass,
-while tracked Reject All leaves an extra paragraph and the formatting fixture's
-Accept All loses underline. See the
+paragraph-count-plus-one append anchor is preserved and validated. As of 0.8.4, `UNSUPPORTED_TABLE_FORMATTING` refuses only changing the text of a
+paragraph that carries the author's own pending formatting while adding a table
+(a documented 0.8.4 limitation); new inline formatting with a table and appends
+after an underlined paragraph are allowed. Word Reject All still leaves one
+extra empty paragraph after a final table append (open library report). The
+dated 2026-10-01 Word run on 0.8.3 passed 13 of 20 checks; see the
 [incident plan](docs/plans/2026-09-30-table-creation-reliability.md),
 [Word report](docs/validation-reports/2026-10-01-table-creation-reliability.md),
-[tracked-formatting report](docs/library-issues/2026-10-01-table-append-tracked-formatting.md),
+[tracked-formatting report](docs/library-issues/completed/2026-10-01-table-append-tracked-formatting.md),
 and [Reject All paragraph report](docs/library-issues/2026-10-01-word-reject-table-append-paragraph.md).
 
 ## Taskpane startup and tool dispatch
@@ -164,7 +164,7 @@ source-level-2 outdent, UpperRoman insertion, lowerRoman insertion, and
 insertion with redlining disabled while restoring prior `TrackAll`; the five
 engine-reference views were marked not applicable, not counted as passes.
 
-Current v0.8.3 verification covers 12 supported list cases with 48 actual
+Dated v0.8.3 verification (see the [0.8.4 validation](docs/validation-reports/2026-10-02-docx-redline-v084.md) report for the current upgrade) covers 12 supported list cases with 48 actual
 Office.js checks, plus those five native routes with 20 more checks (68 total).
 The independent Word oracle checked 17 exports: 92 applicable checks passed,
 none failed, and five were not applicable. The two original public-facade

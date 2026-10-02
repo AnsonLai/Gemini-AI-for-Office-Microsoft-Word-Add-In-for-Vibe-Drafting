@@ -49,11 +49,17 @@ try {
     operation: 'edit_paragraph', paragraphIndex: refreshedBaseline.find(item => item.exactText === 'Final paragraph stays unchanged.').index,
     replacements: [{ find: 'Final paragraph', replace: 'Updated paragraph' }]
   }];
-  const staleAttempt = await applyRedlineChangesToWordContext(context, nextChange, {
-    author: 'Editor', sourceBaseline: oldBaseline, onInfo() {}, onWarn() {}
-  });
+  // docx-redline-js 0.8.4 keeps the final paragraph in place when a table is
+  // appended, so its identity (and an old baseline for it) stays valid. A
+  // paragraph the old baseline never saw, such as a new table cell, is stale.
+  const cellIndex = refreshedBaseline.find(item => item.exactText === 'Mountain').index;
+  assert.ok(cellIndex > oldBaseline.length, 'the appended table adds paragraphs after the old baseline');
+  const staleAttempt = await applyRedlineChangesToWordContext(context, [{
+    operation: 'edit_paragraph', paragraphIndex: cellIndex,
+    replacements: [{ find: 'Mountain', replace: 'Hill' }]
+  }], { author: 'Editor', sourceBaseline: oldBaseline, onInfo() {}, onWarn() {} });
   assert.equal(staleAttempt.error?.code, 'STALE_DOCUMENT_CONTEXT');
-  assert.equal(staleAttempt.written, false, 'an old baseline must still refuse stale paragraph counts');
+  assert.equal(staleAttempt.written, false, 'an old baseline must refuse targets it never inspected');
 
   const currentAttempt = await applyRedlineChangesToWordContext(context, nextChange, {
     author: 'Editor', sourceBaseline: refreshedBaseline, onInfo() {}, onWarn() {}
@@ -73,11 +79,13 @@ try {
   assert.equal(validated.length, 3, 'the refresher text must stay beside its matched function response');
   assert.match(validated[2].parts.at(-1).text, /Updated paragraph/);
 
-  // Simulate Undo after the original request captured its source snapshot.
+  // Simulate Undo after the original request captured its source snapshot: the
+  // table cell the refreshed baseline knows about no longer exists.
   currentOoxml = makePackage();
-  const refusedAfterUndo = await applyRedlineChangesToWordContext(context, nextChange, {
-    author: 'Editor', sourceBaseline: refreshedBaseline, onInfo() {}, onWarn() {}
-  });
+  const refusedAfterUndo = await applyRedlineChangesToWordContext(context, [{
+    operation: 'edit_paragraph', paragraphIndex: cellIndex,
+    replacements: [{ find: 'Mountain', replace: 'Hill' }]
+  }], { author: 'Editor', sourceBaseline: refreshedBaseline, onInfo() {}, onWarn() {} });
   assert.equal(isNoWriteStaleContextRefusal(refusedAfterUndo), true);
   const writeCountBeforeRecovery = writes.length;
   const freshAfterUndo = captureWordSourceBaseline(currentOoxml);

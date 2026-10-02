@@ -21,8 +21,12 @@
  * @returns {string}
  */
 export function normalizeForAnchor(value) {
+  // Anchors only verify targeting, so fold quote styles: models routinely
+  // copy "Party’s" as "Party's". Document text and finds stay exact.
   return String(value == null ? "" : value)
     .replace(/^\s*\[P\d+(?:\|[^\]]*)?\]\s*/, "")
+    .replace(/[‘’‚‛′]/g, "'")
+    .replace(/[“”„‟″]/g, '"')
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -44,6 +48,38 @@ function validateLocalizedReplacements(replacements, paragraphText = null) {
       }
       if (count > 1 && item.occurrence == null) return "replacement_ambiguous_find";
     }
+  }
+  return null;
+}
+
+const FORMAT_TEXT_KEYS = new Set(["bold", "italic", "underline", "strikethrough"]);
+
+/**
+ * Validate a format_text change: an exact, unambiguous `find` span plus a
+ * `formatting` object of boolean character-format flags (false removes).
+ *
+ * @param {object} change
+ * @param {string|null} [paragraphText] - when given, `find` must occur exactly once
+ * @returns {string|null} rejection reason code, or null when valid
+ */
+export function validateFormatTextChange(change, paragraphText = null) {
+  const find = change?.find;
+  const formatting = change?.formatting;
+  if (typeof find !== "string" || find.length === 0 || /[\r\n]/.test(find)
+    || !formatting || typeof formatting !== "object" || Array.isArray(formatting)) {
+    return "invalid_format_text";
+  }
+  const entries = Object.entries(formatting);
+  if (entries.length === 0 || entries.some(([key, value]) => !FORMAT_TEXT_KEYS.has(key) || typeof value !== "boolean")) {
+    return "invalid_format_text";
+  }
+  if (change.occurrence != null && (!Number.isInteger(change.occurrence) || change.occurrence < 1)) {
+    return "invalid_format_text";
+  }
+  if (paragraphText != null) {
+    const count = String(paragraphText).split(find).length - 1;
+    if (count === 0 || (change.occurrence != null && change.occurrence > count)) return "replacement_find_not_found";
+    if (count > 1 && change.occurrence == null) return "format_find_ambiguous";
   }
   return null;
 }
@@ -95,11 +131,14 @@ export function verifyAnchor(change, paragraphTexts) {
   const claimedIndex = change ? change.paragraphIndex : undefined;
   const texts = Array.isArray(paragraphTexts) ? paragraphTexts : [];
   const verifyFinds = (idx) => {
-    if (!change || change.replacements == null) return { ok: true };
+    const isFormat = change?.operation === "format_text";
+    if (!change || (change.replacements == null && !isFormat)) return { ok: true };
     if (!Number.isInteger(idx) || idx < 1 || idx > texts.length || texts[idx - 1] == null) {
       return { ok: false, reason: "replacement_find_not_found" };
     }
-    const reason = validateLocalizedReplacements(change.replacements, texts[idx - 1]);
+    const reason = isFormat
+      ? validateFormatTextChange(change, texts[idx - 1])
+      : validateLocalizedReplacements(change.replacements, texts[idx - 1]);
     return reason ? { ok: false, reason } : { ok: true };
   };
 
@@ -179,6 +218,7 @@ const VALID_OPERATIONS = new Set([
   "replace_paragraph",
   "modify_text",
   "replace_range",
+  "format_text",
 ]);
 
 // Repair: strip stray [P#] markers the model may have leaked into document text.
@@ -301,6 +341,18 @@ export function sanitizeChangeSet(rawChanges, paragraphCount, paragraphTexts = n
     } else if (operation === "modify_text") {
       delete change.content;
       delete change.newContent;
+    } else if (operation === "format_text") {
+      // Character formatting only: never let a text payload reach the engine.
+      delete change.content;
+      delete change.newContent;
+      delete change.originalText;
+      delete change.replacementText;
+      delete change.replacements;
+      const reason = validateFormatTextChange(change, Array.isArray(paragraphTexts) ? paragraphTexts[idx - 1] ?? null : null);
+      if (reason) {
+        reject(reason);
+        continue;
+      }
     }
 
     // 4. Empty-content guard for replace_paragraph / replace_range / edit_paragraph.
@@ -374,8 +426,9 @@ export function sanitizeChangeSet(rawChanges, paragraphCount, paragraphTexts = n
       continue;
     }
 
-    // 9. Dedupe on (paragraphIndex, operation); keep the first.
-    const key = `${idx}:${operation}`;
+    // 9. Dedupe on (paragraphIndex, operation); keep the first. Distinct
+    // format_text spans in one paragraph are separate edits.
+    const key = operation === "format_text" ? `${idx}:${operation}:${change.find}` : `${idx}:${operation}`;
     if (seen.has(key)) {
       reject("duplicate_target");
       continue;
@@ -468,7 +521,11 @@ const REJECTION_HINTS = {
   anchor_mismatch:
     "the anchorText did not match the targeted paragraph; copy the first 30-60 characters of the correct paragraph verbatim",
   invalid_operation:
-    "operation must be one of edit_paragraph, replace_paragraph, modify_text, replace_range",
+    "operation must be one of edit_paragraph, replace_paragraph, modify_text, replace_range, format_text",
+  invalid_format_text:
+    'format_text requires a single-line "find" copied exactly from the paragraph and a "formatting" object whose keys are bold, italic, underline, or strikethrough with true/false values',
+  format_find_ambiguous:
+    'format_text "find" appears more than once in the target paragraph; specify its 1-based "occurrence"',
   index_out_of_range:
     "paragraphIndex (and endParagraphIndex for replace_range) must be within the document",
   empty_content:

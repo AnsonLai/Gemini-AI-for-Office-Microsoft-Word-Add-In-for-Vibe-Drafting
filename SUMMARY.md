@@ -17,9 +17,9 @@ both native insertions pass; tracked Reject All leaves an extra paragraph,
 while Accept All loses underline in the formatting fixture. See the
 [incident plan](docs/plans/2026-09-30-table-creation-reliability.md),
 [host report](docs/validation-reports/2026-10-01-table-creation-reliability.md),
-[tracked-formatting report](docs/library-issues/2026-10-01-table-append-tracked-formatting.md),
+[tracked-formatting report](docs/library-issues/completed/2026-10-01-table-append-tracked-formatting.md),
 and [Reject All paragraph report](docs/library-issues/2026-10-01-word-reject-table-append-paragraph.md).
-No full live chat/model reproduction is claimed.
+No full live chat/model reproduction is claimed. Update (2026-10-02): as of 0.8.4, `UNSUPPORTED_TABLE_FORMATTING` refuses only changing the text of a paragraph that carries the author's own pending formatting while adding a table; Accept All keeps underline, and Word Reject All still leaves one extra empty paragraph after a final table append (open library report).
 
 ### Undo/stale-context follow-up
 
@@ -39,14 +39,15 @@ found stability across repeated reads, tracking toggles and Reject All; restart
 and Ctrl+Z were not exercised, and Office.js behavior is not established by COM.
 The user's exact refusal cause remains unconfirmed; the fidelity plan stays open.
 
-## Current package status: v0.8.3
+## Package status: v0.8.3 record (current pin 0.8.4)
 
 The add-in, MCP server and browser demo use the public
-`@ansonlai/docx-redline-js@0.8.3` package. Its release notes describe fixes for
+`@ansonlai/docx-redline-js@0.8.4` package. Its release notes describe fixes for
 tracked paragraph-boundary behavior, historical paragraph-property
 inspection, list-range numbering through `openDocx`, and explicit list-start
-parsing. Current consumer and Word validation is recorded in the [v0.8.3
-report](docs/validation-reports/2026-09-30-docx-redline-v083.md); the dated
+parsing. The dated v0.8.3 consumer and Word validation is recorded in the [v0.8.3
+report](docs/validation-reports/2026-09-30-docx-redline-v083.md), and the 0.8.4
+upgrade in the [0.8.4 validation](docs/validation-reports/2026-10-02-docx-redline-v084.md) report; the dated
 v0.8.2 reports below remain historical evidence.
 
 Canonical list migration remains open. Plain or text-changing header-to-list
@@ -101,7 +102,7 @@ not close the full canonical list migration. Four upstream reports covered
 insertion Reject All leaving an empty paragraph, list-range Reject All merging
 paragraphs, missing canonical header-conversion mapping, and historical list
 properties treated as active numbering. At that dated checkpoint, no library
-fix release was available; see the current v0.8.3 status above.
+fix release was available; see the v0.8.3 status above.
 
 Current posture and verification records are summarized in
 [STATE.md](STATE.md), [ROADMAP.md](ROADMAP.md), and the linked dated plans.

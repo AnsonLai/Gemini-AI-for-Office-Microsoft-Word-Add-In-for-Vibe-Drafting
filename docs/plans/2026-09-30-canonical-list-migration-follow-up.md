@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-30  
 **Status:** Planned — waiting for upstream canonical conversion/remapping capabilities.  
-**Baseline:** Exact `@ansonlai/docx-redline-js@0.8.3` in root and MCP consumers.
+**Baseline:** Exact `@ansonlai/docx-redline-js@0.8.4` in root and MCP consumers.
 
 ## Origin and scope
 
@@ -12,11 +12,19 @@ is closed and archived. Its unfinished full canonical list migration is
 transferred here. This transfer does not claim that all commands already use
 canonical operations.
 
-The 0.8.3 upgrade resolves the reported rejection, historical-inspection,
+The 0.8.3 upgrade resolved the reported rejection, historical-inspection,
 all-empty-range and public-facade numbering defects. [Validation](../validation-reports/2026-09-30-docx-redline-v083.md)
 passes 51 offline suites, 68 actual Office.js checks, 92 independent Word checks
 on their exports, and 12 additional facade Word checks. These are the starting
 evidence, not validation of the future capabilities below.
+
+**2026-10-02 note:** 0.8.4 adds `textOccurrence` and `applyRedlineToOxml`
+`numberingXml` (see the [0.8.4 validation](../validation-reports/2026-10-02-docx-redline-v084.md)),
+but still lacks plain-to-list conversion and list-format changes. It also
+introduced a numbering-continuity regression ([separate list operations restart
+numbering](../library-issues/2026-10-02-separate-list-operations-restart-numbering.md))
+that blocks canonical `convert_headers_to_list`. The acceptance criteria and the
+no-consumer-side-workaround stance below are unchanged.
 
 ## Current consumer behavior
 
@@ -38,7 +46,7 @@ upstream prerequisites and independent host checks in this plan.
 ## Upstream prerequisites
 
 Library plan: `C:/Users/Phara/Desktop/Projects/Docx Redline JS/docs/plans/2026-09-30-canonical-list-operations.md`.
-The published 0.8.3 release explicitly excludes canonical plain-to-list
+The published 0.8.3 release explicitly excluded canonical plain-to-list
 conversion and list-format changes. [Capability report](../library-issues/2026-09-30-canonical-list-operations.md).
 
 Required behavior includes:

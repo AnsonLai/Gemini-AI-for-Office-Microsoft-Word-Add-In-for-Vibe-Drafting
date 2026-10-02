@@ -1,6 +1,8 @@
 import './setup-xml-provider.mjs';
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { acceptTrackedChangesInOoxml, inspectDocumentParts, openDocx } from '@ansonlai/docx-redline-js';
 import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalone-runner';
 import { buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
 import { sanitizeChangeSet } from '../src/taskpane/modules/commands/change-validation.js';
@@ -28,13 +30,41 @@ function testPlanningUsesInitialParagraphDescriptors() {
     assert.equal(operations[1].target.paragraphId, 'AAAABBBB');
     assert.equal(operations[2].target.exactText, '');
     assert.equal(operations[2].modified, 'Filled blank.');
-    assert.ok(operations.every(item => item.structuredContent === true));
+    // Content rewrites may carry Markdown blocks; localized find/replace is literal.
+    assert.equal(operations[0].structuredContent, false);
+    assert.ok(operations.slice(1).every(item => item.structuredContent === true));
     const localized = planRedlineBatchOperations([
         { operation: 'edit_paragraph', paragraphIndex: 2,
           replacements: [{ find: 'Second', replace: 'Updated' }] }
     ], paragraphs);
     assert.deepEqual(localized[0].replacements, [{ find: 'Second', replace: 'Updated' }]);
     assert.equal(localized[0].modified, undefined);
+    assert.equal(localized[0].structuredContent, false);
+}
+
+async function testLiteralReplacementKeepsLetteredSoftBreakParagraph() {
+    // Golden scenario step 16 on the real NDA: the recitals are one paragraph of
+    // "A. ...", "B. ...", "C. ..." lines separated by soft breaks. Rewording one
+    // phrase must not turn the paragraph into an auto-numbered list.
+    const bytes = new Uint8Array(readFileSync(new URL('./fixtures/golden/sample-nda.docx', import.meta.url)));
+    const source = openDocx(bytes);
+    const paragraphs = source.inspect().paragraphs;
+    const recitals = paragraphs.find(paragraph => paragraph.exactText.startsWith('A. The Disclosing Party possesses'));
+    const decode = name => new TextDecoder().decode(source.entries.get(name));
+    const operations = planRedlineBatchOperations([{ operation: 'edit_paragraph', paragraphIndex: recitals.index,
+        replacements: [{ find: 'a potential business relationship or transaction', replace: 'a specific project codenamed “Titan”' }] }], paragraphs);
+    const result = await applyOperationsToDocumentXml(decode('word/document.xml'), operations, 'Editor',
+        { numberingXml: decode('word/numbering.xml'), stylesXml: decode('word/styles.xml') },
+        { atomic: true, generateRedlines: true, structuredContent: true });
+    assert.equal(result.status, 'ok', JSON.stringify(result.error));
+    const accepted = acceptTrackedChangesInOoxml(result.documentXml, { allAuthors: true }).oxml;
+    const acceptedParagraphs = inspectDocumentParts({ documentXml: accepted }).paragraphs;
+    const edited = acceptedParagraphs.find(paragraph => paragraph.exactText.includes('Titan'));
+    assert.ok(edited, 'the replacement is applied');
+    assert.equal(edited.exactText.split('\n').length, 3, 'all three lettered lines stay in one paragraph');
+    assert.ok(edited.exactText.startsWith('A. The Disclosing Party possesses'));
+    assert.equal(edited.list ?? null, null, 'the paragraph is not converted into a list');
+    assert.equal(acceptedParagraphs.length, paragraphs.length);
 }
 
 function testRangeAndInsertionPlanning() {
@@ -184,6 +214,57 @@ async function testRepeatedFindOccurrenceAgainstEngine() {
     assert.match(result.documentXml, /phrase/);
 }
 
+async function testFormatTextRemovesBoldAgainstEngine() {
+    // Unbolding cannot be expressed as unchanged text; format_text plans the
+    // engine's format operation and records a tracked "not bold" change.
+    const text = 'The Confidential Information shall be kept secret.';
+    const xml = '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p>'
+        + '<w:r><w:t xml:space="preserve">The </w:t></w:r>'
+        + '<w:r><w:rPr><w:b/></w:rPr><w:t>Confidential Information</w:t></w:r>'
+        + '<w:r><w:t xml:space="preserve"> shall be kept secret.</w:t></w:r>'
+        + '</w:p><w:sectPr/></w:body></w:document>';
+    const changes = [{ operation: 'format_text', paragraphIndex: 1, anchorText: 'The Confidential',
+        find: 'Confidential Information', formatting: { bold: false }, newContent: 'leaked text' }];
+    const sanitized = sanitizeChangeSet(changes, 1, [text]);
+    assert.equal(sanitized.rejected.length, 0);
+    assert.equal(sanitized.changes[0].newContent, undefined, 'format_text never carries a text payload');
+    const operations = planRedlineBatchOperations(sanitized.changes, [{ index: 1, exactText: text }]);
+    assert.deepEqual(operations, [{
+        type: 'format', target: { index: 1, exactText: text }, targetRef: 'P1',
+        textToFormat: 'Confidential Information', properties: { bold: false }
+    }]);
+    const result = await applyOperationsToDocumentXml(xml, operations, 'Editor', null, {
+        atomic: true, generateRedlines: true, structuredContent: true
+    });
+    assert.equal(result.status, 'ok', JSON.stringify(result.error));
+    assert.equal(result.hasChanges, true);
+    assert.match(result.documentXml,
+        /<w:b w:val="0"\/>.*<w:rPrChange[^>]*><w:rPr><w:b\/><\/w:rPr><\/w:rPrChange><\/w:rPr><w:t>Confidential Information</);
+
+    // Golden scenario "unbold BC in governing law" with a repeated phrase: only
+    // the SECOND "British Columbia" is bold (Strong style); textOccurrence
+    // selects it inside the strongly targeted paragraph.
+    const lawText = 'the laws of British Columbia, courts of British Columbia.';
+    const lawXml = '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p>'
+        + '<w:r><w:t xml:space="preserve">the laws of British Columbia, courts of </w:t></w:r>'
+        + '<w:r><w:rPr><w:rStyle w:val="Strong"/></w:rPr><w:t>British Columbia</w:t></w:r>'
+        + '<w:r><w:t>.</w:t></w:r>'
+        + '</w:p><w:sectPr/></w:body></w:document>';
+    const law = sanitizeChangeSet([{ operation: 'format_text', paragraphIndex: 1, anchorText: 'the laws of',
+        find: 'British Columbia', occurrence: 2, formatting: { bold: false } }], 1, [lawText]);
+    assert.equal(law.rejected.length, 0);
+    const lawOperations = planRedlineBatchOperations(law.changes, [{ index: 1, exactText: lawText }]);
+    assert.equal(lawOperations[0].textOccurrence, 2);
+    assert.equal(lawOperations[0].target.occurrence, undefined, 'paragraph targeting is not given an occurrence');
+    const lawResult = await applyOperationsToDocumentXml(lawXml, lawOperations, 'Editor', null, {
+        atomic: true, generateRedlines: true, structuredContent: true
+    });
+    assert.equal(lawResult.status, 'ok', JSON.stringify(lawResult.error));
+    assert.match(lawResult.documentXml, /<w:t xml:space="preserve">the laws of British Columbia, courts of <\/w:t>/,
+        'the first occurrence is untouched');
+    assert.match(lawResult.documentXml, /<w:rStyle w:val="Strong"\/><w:b w:val="0"\/>.*<\/w:rPrChange><\/w:rPr><w:t>British Columbia</);
+}
+
 function makeFlatOpcParagraph(text, paragraphId) {
     const escaped = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     return `<w:p xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" w14:paraId="${paragraphId}"><w:r><w:t>${escaped}</w:t></w:r></w:p>`;
@@ -330,6 +411,8 @@ await testEmptyParagraphIsHandledByEngine();
 await testEndToEndSingleWordWrite();
 await testRangeAndAppendAgainstEngine();
 await testRepeatedFindOccurrenceAgainstEngine();
+await testFormatTextRemovesBoldAgainstEngine();
+await testLiteralReplacementKeepsLetteredSoftBreakParagraph();
 await testMatchingBaselineCommitsAndStaleTargetsRefuseWithoutWrite();
 await testDefaultWarningsIdentifyFailureWithoutDocumentContent();
 // Engine receipts can be committed to prepared XML even when Word did not confirm insertion.

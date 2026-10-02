@@ -12,7 +12,9 @@ function createPlanningError(code, message) {
 }
 
 function normalizeAnchor(value) {
-    return String(value ?? '').replace(/^\s*\[P\d+(?:\|[^\]]*)?\]\s*/, '').replace(/\s+/g, ' ').trim();
+    return String(value ?? '').replace(/^\s*\[P\d+(?:\|[^\]]*)?\]\s*/, '')
+        .replace(/[‘’‚‛′]/g, "'").replace(/[“”„‟″]/g, '"')
+        .replace(/\s+/g, ' ').trim();
 }
 
 function paragraphAnchorMatches(change, paragraph) {
@@ -34,22 +36,31 @@ function singleMarkdownTable(content) {
     return analysis.blocks.length === 1 && analysis.blocks[0]?.type === 'table';
 }
 
-function assertSafeTableFormatting(content, paragraph, options, fail) {
+/**
+ * docx-redline-js 0.8.4 keeps inline formatting when a table is appended, but
+ * editing the TEXT of a paragraph that carries the same author's pending
+ * formatting change still drops that formatting on Accept All (documented
+ * library limitation). Refuse only that combination.
+ *
+ * @param {string} content - Markdown that contains the table
+ * @param {object} paragraph - source paragraph the table is written at
+ * @param {string|null} retainedText - paragraph text kept before the table
+ *   (null: derive it from the non-table blocks of `content`)
+ */
+function assertSafeTableFormatting(content, paragraph, options, fail, retainedText = null) {
     const analysis = analyzeStructuredContent(content);
     if (!analysis.valid || !analysis.blocks.some(block => block.type === 'table')) return;
-    const requestedFormatting = analysis.blocks
+    const kept = retainedText ?? analysis.blocks
         .filter(block => block.type !== 'table')
-        .some(block => preprocessMarkdown(block.markdown ?? block.text ?? '').formatHints.length > 0);
-    if (requestedFormatting) {
+        .map(block => preprocessMarkdown(block.markdown ?? block.text ?? '').cleanText)
+        .join('\n');
+    const normalize = value => String(value ?? '').replace(/\s+/g, ' ').trim();
+    // A table that fully replaces the paragraph keeps no formatted text to lose.
+    if (normalize(kept) && normalize(kept) !== normalize(paragraph.exactText)
+        && hasSameAuthorTrackedRunFormatting(options.sourceDocumentXml, paragraph.index, options.author)) {
         fail(
             'UNSUPPORTED_TABLE_FORMATTING',
-            'The installed document engine does not reliably preserve new inline formatting in the same replacement as a Markdown table.'
-        );
-    }
-    if (hasSameAuthorTrackedRunFormatting(options.sourceDocumentXml, paragraph.index, options.author)) {
-        fail(
-            'UNSUPPORTED_TABLE_FORMATTING',
-            'Replacing or appending a Markdown table at a paragraph with pending same-author character-format revisions can discard that formatting in the installed document engine.'
+            'Changing the text of a paragraph with your own pending formatting change while adding a table would lose that formatting on Accept All. Make the text edit and the table as separate requests.'
         );
     }
 }
@@ -125,20 +136,14 @@ function coalesceFinalParagraphEditAndTableAppend(changes, paragraphs, options, 
 
     const appendedContent = contentOf(appendChange, appendName);
     if (!singleMarkdownTable(appendedContent)) return null;
-    assertSafeTableFormatting(appendedContent, paragraph, options, (code, message) => {
-        throw createPlanningError(code, message);
-    });
 
     const editedText = editedParagraphText(editChange, editName, paragraph, options, decodeEscapes, contentOf);
     if (editedText.includes('\n') || editedText.includes('\r') || analyzeStructuredContent(editedText).blocks.some(block => block.type !== 'paragraph')) {
         return null;
     }
-    if (preprocessMarkdown(editedText).formatHints.length > 0) {
-        throw createPlanningError(
-            'UNSUPPORTED_TABLE_FORMATTING',
-            'The installed document engine does not preserve newly requested inline formatting when it is combined with an appended Markdown table.'
-        );
-    }
+    assertSafeTableFormatting(appendedContent, paragraph, options, (code, message) => {
+        throw createPlanningError(code, message);
+    }, preprocessMarkdown(editedText).cleanText);
 
     return {
         operations: [{
@@ -204,10 +209,35 @@ export function planRedlineBatchOperationsWithMapping(aiChanges, inspectedParagr
         const paragraph = paragraphAt(append ? paragraphs.length : requestedIndex);
         const target = descriptor(paragraph);
         const common = { type: 'redline', target, targetRef: `P${paragraph.index}`, structuredContent: true };
+        // Localized find/replace is a literal text edit: the composed paragraph must
+        // not be reread as Markdown blocks (a lettered "A. ... / B. ..." soft-break
+        // paragraph would otherwise become a list). Inline Markdown formatting still applies.
+        const literal = { ...common, structuredContent: false };
+        if (operationName === 'format_text') {
+            // Character-format changes (including removal, e.g. bold:false)
+            // cannot be expressed as text: identical text is a no-op redline.
+            const textToFormat = decodeEscapes(change?.find ?? '');
+            const formatting = change?.formatting;
+            if (!textToFormat || !formatting || typeof formatting !== 'object' || Array.isArray(formatting)) {
+                fail('INVALID_OPERATION', 'format_text requires find text and a formatting object.');
+            }
+            operations.push({
+                type: 'format',
+                target,
+                targetRef: `P${paragraph.index}`,
+                textToFormat,
+                // textOccurrence selects the match inside the paragraph;
+                // target.occurrence would select a paragraph instead.
+                ...(Number.isInteger(change?.occurrence) ? { textOccurrence: change.occurrence } : {}),
+                properties: { ...formatting }
+            });
+            changeOperationIndexes.push(operations.length);
+            continue;
+        }
         if (Array.isArray(change?.replacements) && change.replacements.length > 0) {
             if (operationName === 'replace_range') fail('INVALID_OPERATION', 'Localized replacements require one paragraph.');
             operations.push({
-                ...common,
+                ...literal,
                 replacements: change.replacements.map(item => ({
                     find: decodeEscapes(item.find),
                     replace: options.sanitizeInput === true
@@ -223,7 +253,7 @@ export function planRedlineBatchOperationsWithMapping(aiChanges, inspectedParagr
             const find = decodeEscapes(change?.originalText ?? '');
             if (!find) fail('INVALID_OPERATION', 'modify_text requires originalText.');
             const replace = contentOf(change, operationName);
-            operations.push({ ...common, replacements: [{ find, replace }] });
+            operations.push({ ...literal, replacements: [{ find, replace }] });
             changeOperationIndexes.push(operations.length);
             continue;
         }
@@ -231,7 +261,8 @@ export function planRedlineBatchOperationsWithMapping(aiChanges, inspectedParagr
             fail('INVALID_OPERATION', `Unsupported redline operation: ${operationName || '(missing)'}.`);
         }
         const content = contentOf(change, operationName);
-        assertSafeTableFormatting(content, paragraph, options, fail);
+        // An append keeps the final paragraph's text in front of the table.
+        assertSafeTableFormatting(content, paragraph, options, fail, append ? paragraph.exactText : null);
         if (append) {
             operations.push({ ...common, modified: `${target.exactText}\n${content}` });
             changeOperationIndexes.push(operations.length);

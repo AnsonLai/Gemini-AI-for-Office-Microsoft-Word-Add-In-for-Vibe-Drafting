@@ -25,4 +25,5 @@ export {
     applyRedlineChangesToWordContext,
     planRedlineBatchOperations
 } from './word-redline-runner.js';
+export { readPackageNumberingXml } from './consumer-core.js';
 

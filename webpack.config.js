@@ -76,7 +76,10 @@ module.exports = async (env, options) => {
       new HtmlWebpackPlugin({
         filename: "taskpane.html",
         template: "./src/taskpane/taskpane.html",
-        chunks: ["polyfill", "taskpane"],
+        // The golden scenario driver loads ahead of the taskpane only in its
+        // dedicated development build (scripts/run-golden-scenario.mjs).
+        chunks: env.GOLDEN_SCENARIO ? ["polyfill", "golden-driver", "taskpane"] : ["polyfill", "taskpane"],
+        chunksSortMode: "manual",
       }),
       new CopyWebpackPlugin({
         patterns: [
@@ -126,6 +129,9 @@ module.exports = async (env, options) => {
 
   if (env.WORD_HOST_VALIDATION) {
     config.entry['officejs-validation'] = './scripts/officejs-validation.js';
+  }
+  if (env.GOLDEN_SCENARIO) {
+    config.entry['golden-driver'] = './scripts/golden/golden-driver.js';
   }
 
   return config;

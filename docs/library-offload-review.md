@@ -1,7 +1,7 @@
 # Library offload review — August plans and September upgrade
 
 **Reviewed:** 2026-09-30  
-**Installed library:** Exact `@ansonlai/docx-redline-js@0.8.3` in root and MCP.  
+**Installed library:** Exact `@ansonlai/docx-redline-js@0.8.4` in root and MCP.  
 **Purpose:** Internal ownership and maintenance review, separate from release notes.
 
 ## What moved out of the consumers
@@ -79,7 +79,8 @@ Word uses scope/body Flat OPC transport. Whole-document binary Word insertion
 is a deferred option.
 
 Library 0.8.2 fixed hyperlink punctuation and manual-break rejection, and 0.8.3
-fixed reported list rejection/inspection/numbering defects. Those fixes belong
+fixed reported list rejection/inspection/numbering defects; 0.8.4 fixed the
+soft-break, bullet-numbering, format-occurrence and table-append formatting reports. Those fixes belong
 to the shared engine; the add-in carries regression evidence rather than
 parallel fixes. Remaining canonical plain-to-list/header conversion and list
 format changes belong to the [fresh migration follow-up](plans/2026-09-30-canonical-list-migration-follow-up.md).
@@ -90,6 +91,7 @@ validation evidence, deleting `docs/library-issues/` and updating incoming links
 ## Evidence and testing ownership
 
 The [published 0.8.3 validation record](validation-reports/2026-09-30-docx-redline-v083.md)
+(the [0.8.4 validation](validation-reports/2026-10-02-docx-redline-v084.md) report records the later upgrade)
 records 51 passing offline suites, four excluded entrypoints, 68 actual Office.js
 checks, 92 independent Word checks on exported list/native cases and 12 separate
 facade Word checks. The five inapplicable engine-reference views are excluded

@@ -8,7 +8,7 @@ browser document demo and a local MCP server for DOCX workflows.
 
 ## Runtime boundaries
 
-The consumers pin `@ansonlai/docx-redline-js@0.8.3` exactly. The package owns
+The consumers pin `@ansonlai/docx-redline-js@0.8.4` exactly. The package owns
 OOXML reconciliation and its public document facade. The add-in also has a
 portable consumer layer at
 `src/taskpane/modules/docx-redline-js-integration/consumer-core.js` for source
@@ -57,7 +57,7 @@ and live validation evidence must be described separately.
 
 The broader canonical list migration remains open. The v0.8.2 reports recorded
 Reject All paragraph-boundary failures and historical-numbering inspection;
-the v0.8.3 release notes report fixes for those behaviors. Those historical
+the v0.8.3 release notes report fixes for those behaviors. The 0.8.4 upgrade is recorded in the [0.8.4 validation](docs/validation-reports/2026-10-02-docx-redline-v084.md) report. The 0.8.4 upgrade is recorded in the [0.8.4 validation](docs/validation-reports/2026-10-02-docx-redline-v084.md) report. Those historical
 reports preserve the earlier evidence and do not add current host-validation
 results. Plain or text-changing header-to-list conversion and list-format
 changes still lack supported canonical operations. A marker-prefixed

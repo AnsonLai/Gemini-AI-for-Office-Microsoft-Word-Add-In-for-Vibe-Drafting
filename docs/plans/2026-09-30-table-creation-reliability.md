@@ -11,7 +11,7 @@ The final Word run passed 13 of 20 checks: plain accepted table content and
 both native insertions pass; tracked Reject All paragraph structure and
 underline fidelity fail. See the
 [validation report](../validation-reports/2026-10-01-table-creation-reliability.md),
-[tracked-formatting report](../library-issues/2026-10-01-table-append-tracked-formatting.md),
+[tracked-formatting report](../library-issues/completed/2026-10-01-table-append-tracked-formatting.md),
 and [Reject All paragraph report](../library-issues/2026-10-01-word-reject-table-append-paragraph.md).
 
 **2026-10-01 follow-up:** A later pasted log shows two successive P4 proposals
@@ -56,7 +56,7 @@ Ocean/Valley/Canyon and Meadow/Desert/Island.
   empty paragraph after the seven source paragraphs. The formatting fixture's
   Accept All loses underline, and its Reject All also leaves an extra empty
   paragraph. See the [host report](../validation-reports/2026-10-01-table-creation-reliability.md)
-  and [tracked-formatting report](../library-issues/2026-10-01-table-append-tracked-formatting.md)
+  and [tracked-formatting report](../library-issues/completed/2026-10-01-table-append-tracked-formatting.md)
   and [Reject All paragraph report](../library-issues/2026-10-01-word-reject-table-append-paragraph.md).
 - When one proposal edits P7 and another appends at P8, the consumer maps both
   to P7. The library refuses overlapping source targets atomically with
@@ -76,13 +76,19 @@ Ocean/Valley/Canyon and Meadow/Desert/Island.
   and write evidence. Compatible final-paragraph editing plus one table append
   is narrowly coalesced and its two original change indexes map to the shared
   operation receipt. Unverified tracked inline formatting is refused before
-  the host write with `UNSUPPORTED_TABLE_FORMATTING`.
+  the host write with `UNSUPPORTED_TABLE_FORMATTING`. As of 0.8.4 (2026-10-02)
+  that refusal covers only changing the text of a paragraph that carries the
+  author's own pending formatting while adding a table; new inline formatting
+  with a table and appends after an underlined paragraph are allowed.
 
 The pasted log alone does not identify which engine code was returned, and this
 incident did not include a full live chat/model reproduction. The consumer
 regressions explain reproduced failure modes but do not prove every cause in
-the user's document. The separate 0.8.3 library issue concerns tracked inline
-formatting preservation; it is not repaired by the consumer changes.
+the user's document. The separate 0.8.3 library issue concerned tracked inline
+formatting preservation; it was not repaired by the consumer changes and is
+fixed in 0.8.4 (see the [0.8.4 validation](../validation-reports/2026-10-02-docx-redline-v084.md)).
+Word Reject All still leaves one extra empty paragraph after a final table
+append (open library report).
 
 ## Work packages
 

@@ -147,7 +147,9 @@ function editList(source, request) {
   const itemsWithLevels = normalizeListItemsWithLevels(request.newItems, { indentSpaces: 4 });
   const listMarkdown = buildListMarkdown(itemsWithLevels, listType, numberingStyle);
 
-  return [redline(start, listMarkdown, end)];
+  // Explicit structured content lets the engine convert manually lettered or
+  // numbered source text whose markers equal the generated Markdown ones.
+  return [{ ...redline(start, listMarkdown, end), structuredContent: true }];
 }
 
 function stripManualHeaderNumbering(text) {

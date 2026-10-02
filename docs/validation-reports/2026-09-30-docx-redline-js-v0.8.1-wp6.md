@@ -133,7 +133,7 @@ coverage gaps. No library-side fix or consumer XML workaround was introduced.
   confirms this is an emitted-revision problem, not only a resolver discrepancy.
 
 The issue bodies include the portable
-`docs/library-issues/2026-09-30-fidelity-reproducer.mjs`. Its synthetic one-paragraph
+`docs/library-issues/completed/2026-09-30-fidelity-reproducer.mjs`. Its synthetic one-paragraph
 cases require independent outcomes and exit 1 until corrected; set
 `DOCX_REDLINE_SOURCE_ROOT` to test source instead of the installed package.
 The exported known-defect cases retain expected and observed engine states

@@ -42,7 +42,9 @@ function testSchemaShape() {
   for (const key of ['paragraphIndex', 'anchorText', 'endParagraphIndex', 'operation', 'newContent', 'replacements', 'content', 'originalText', 'replacementText']) {
     assert.ok(props[key], `schema missing property: ${key}`);
   }
-  assert.deepStrictEqual(props.operation.enum, ['edit_paragraph', 'replace_paragraph', 'modify_text', 'replace_range']);
+  assert.deepStrictEqual(props.operation.enum, ['edit_paragraph', 'replace_paragraph', 'modify_text', 'replace_range', 'format_text']);
+  assert.strictEqual(props.find.type, 'STRING');
+  assert.deepStrictEqual(Object.keys(props.formatting.properties), ['bold', 'italic', 'underline', 'strikethrough']);
   assert.strictEqual(props.replacements.type, 'ARRAY');
   assert.deepStrictEqual(props.replacements.items.required, ['find', 'replace']);
 }

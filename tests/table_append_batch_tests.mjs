@@ -206,27 +206,33 @@ function testLocalizedReplacementMustBeExactAndUnambiguous() {
     assert.equal(result.operations[0].modified, `Final Closing paragraph.\n${table}`);
 }
 
-function testFormattingRequestsFailClosed() {
+async function testNewInlineFormattingWithTableIsPreserved() {
+    // docx-redline-js 0.8.4 keeps inline formatting requested together with a
+    // table append (previously refused as UNSUPPORTED_TABLE_FORMATTING).
+    const sources = original.map((exactText, index) => ({ index: index + 1, exactText }));
     const changes = [
         { operation: 'edit_paragraph', paragraphIndex: 7,
             replacements: [{ find: original[6], replace: `++${original[6]}++` }] },
         { operation: 'replace_paragraph', paragraphIndex: 8, content: table }
     ];
-    assert.throws(
-        () => planRedlineBatchOperationsWithMapping(changes,
-            original.map((exactText, index) => ({ index: index + 1, exactText })), { author }),
-        error => error.code === 'UNSUPPORTED_TABLE_FORMATTING'
-    );
+    const coalesced = planRedlineBatchOperationsWithMapping(changes, sources, { author });
+    assert.equal(coalesced.operations.length, 1);
+    assert.equal(coalesced.operations[0].modified, `++${original[6]}++\n${table}`);
+    const fullReplacement = planRedlineBatchOperations([{
+        operation: 'replace_paragraph', paragraphIndex: 7, content: `++${original[6]}++\n${table}`
+    }], sources);
+    assert.equal(fullReplacement.length, 1);
 
-    const fullReplacement = [{
-        operation: 'replace_paragraph', paragraphIndex: 7,
-        content: `++${original[6]}++\n${table}`
-    }];
-    assert.throws(
-        () => planRedlineBatchOperationsWithMapping(fullReplacement,
-            original.map((exactText, index) => ({ index: index + 1, exactText })), { author }),
-        error => error.code === 'UNSUPPORTED_TABLE_FORMATTING'
-    );
+    for (const operations of [coalesced.operations, fullReplacement]) {
+        const prepared = await prepareCanonicalBatch(sourcePackage(), () => operations, { author, existingRevisions: 'merge-same-author' });
+        assert.equal(prepared.status, 'ready', JSON.stringify(prepared.result.error));
+        const accepted = await resolvePackageXml(prepared.result.documentXml, 'accept');
+        const rejected = await resolvePackageXml(prepared.result.documentXml, 'reject');
+        assert.match(accepted, /<w:u w:val="single"\/>(?:(?!<\/w:r>)[\s\S])*Final paragraph stays unchanged\./, 'underline is kept on Accept All');
+        assertTable(tablesIn(accepted)[0]);
+        assert.deepEqual(directParagraphs(rejected).filter(Boolean), original, 'Reject All restores the source');
+        assert.equal(tablesIn(rejected).length, 0);
+    }
 
     const plainFullReplacement = planRedlineBatchOperations([{
         operation: 'replace_paragraph', paragraphIndex: 7,
@@ -249,7 +255,7 @@ async function testAppendAnchorNeverAutocorrectsIntoItsSourceParagraph() {
     assert.equal(prefixed.length, 1, 'different valid prefixes still identify the same final paragraph');
 }
 
-async function testPriorSameAuthorUnderlineRefusesAppendBeforeAnyWrite() {
+async function testPriorSameAuthorUnderlineAllowsAppendButRefusesTextEdit() {
     const first = await prepareCanonicalBatch(sourcePackage(), source => planRedlineBatchOperations([
         { operation: 'edit_paragraph', paragraphIndex: 7, anchorText: original[6],
             replacements: [{ find: original[6], replace: `++${original[6]}++` }] }
@@ -261,47 +267,33 @@ async function testPriorSameAuthorUnderlineRefusesAppendBeforeAnyWrite() {
     assert.doesNotMatch(firstRejected, /<w:u\b/, 'Reject All removes that underline revision');
 
     const baseline = captureWordSourceBaseline(first.insertionPayload);
-    const writes = [];
-    const body = {
-        getOoxml: () => ({ value: first.insertionPayload }),
-        insertOoxml: value => writes.push(value)
+    const run = async changes => {
+        const writes = [];
+        const body = { getOoxml: () => ({ value: first.insertionPayload }), insertOoxml: value => writes.push(value) };
+        const outcome = await applyRedlineChangesToWordContext({ document: { body }, async sync() {} }, changes,
+            { author, sourceBaseline: baseline, onInfo() {}, onWarn() {} });
+        return { outcome, writes };
     };
-    const outcome = await applyRedlineChangesToWordContext(
-        { document: { body }, async sync() {} },
+
+    // 0.8.4: appending after (or rewriting with unchanged text) a paragraph that
+    // carries the author's own pending underline keeps that underline.
+    for (const changes of [
         [{ operation: 'replace_paragraph', paragraphIndex: 8, anchorText: original[6], content: table }],
-        { author, sourceBaseline: baseline, onInfo() {}, onWarn() {} }
-    );
+        [{ operation: 'replace_paragraph', paragraphIndex: 7, anchorText: original[6], content: `${original[6]}\n${table}` }]
+    ]) {
+        const { outcome, writes } = await run(changes);
+        assert.equal(outcome.error, undefined, JSON.stringify(outcome.error));
+        assert.equal(writes.length, 1, 'the table append is written');
+    }
+
+    // Documented 0.8.4 limitation: changing that paragraph's text while adding the
+    // table would still lose the pending underline, so it is refused before writing.
+    const { outcome, writes } = await run([{ operation: 'replace_paragraph', paragraphIndex: 7, anchorText: original[6],
+        content: `${revised}\n${table}` }]);
     assert.equal(outcome.mutationOutcome, 'refused');
     assert.equal(outcome.error?.code, 'UNSUPPORTED_TABLE_FORMATTING');
     assert.equal(outcome.writeAttempted, false);
-    assert.equal(outcome.written, false);
     assert.equal(writes.length, 0);
-    assert.match(firstAccepted, /<w:u\b/, 'refusal leaves the previously accepted underline available');
-
-    const replaceBody = {
-        getOoxml: () => ({ value: first.insertionPayload }),
-        insertOoxml: value => writes.push(value)
-    };
-    const replacementOutcome = await applyRedlineChangesToWordContext(
-        { document: { body: replaceBody }, async sync() {} },
-        [{ operation: 'replace_paragraph', paragraphIndex: 7, anchorText: original[6], content: `${original[6]}\n${table}` }],
-        { author, sourceBaseline: baseline, onInfo() {}, onWarn() {} }
-    );
-    assert.equal(replacementOutcome.mutationOutcome, 'refused');
-    assert.equal(replacementOutcome.error?.code, 'UNSUPPORTED_TABLE_FORMATTING');
-    assert.equal(replacementOutcome.writeAttempted, false);
-    assert.equal(writes.length, 0, 'same-author P7 full replacement is refused before insertion');
-
-    const plainBody = { getOoxml: () => ({ value: sourcePackage() }), insertOoxml: value => writes.push(value) };
-    const inlineOutcome = await applyRedlineChangesToWordContext(
-        { document: { body: plainBody }, async sync() {} },
-        [{ operation: 'replace_paragraph', paragraphIndex: 7, anchorText: original[6], content: `++${original[6]}++\n${table}` }],
-        { author, onInfo() {}, onWarn() {} }
-    );
-    assert.equal(inlineOutcome.mutationOutcome, 'refused');
-    assert.equal(inlineOutcome.error?.code, 'UNSUPPORTED_TABLE_FORMATTING');
-    assert.equal(inlineOutcome.writeAttempted, false);
-    assert.equal(writes.length, 0, 'new inline formatting plus table is refused before insertion');
 }
 
 async function testCoalescedReceiptMapsBackToBothInputChanges() {
@@ -357,8 +349,8 @@ async function buildHostFixtures(destination) {
         planRedlineBatchOperations(underlineChange, source.paragraphs)
     ), { author, existingRevisions: 'merge-same-author' });
     assert.equal(underlineOnly.status, 'ready');
-    // This raw consumer-core call deliberately bypasses the add-in's new guard
-    // to preserve a separate installed-library known-failure fixture.
+    // Append after a paragraph carrying the author's own pending underline;
+    // fixed in docx-redline-js 0.8.4 (underline kept on Accept All).
     const unguardedAppend = await prepareCanonicalBatch(underlineOnly.insertionPayload, source => (
         planRedlineBatchOperations([
             { operation: 'replace_paragraph', paragraphIndex: 8, anchorText: original[6], content: table }
@@ -367,7 +359,7 @@ async function buildHostFixtures(destination) {
     assert.equal(unguardedAppend.status, 'ready');
     const defectAccepted = await resolvePackageXml(unguardedAppend.result.documentXml, 'accept');
     const defectRejected = await resolvePackageXml(unguardedAppend.result.documentXml, 'reject');
-    assert.doesNotMatch(defectAccepted, /<w:u\b/, 'engine reference confirms the known accepted-formatting loss');
+    assert.match(defectAccepted, /<w:u\b/, 'engine reference keeps the pending underline on Accept All');
     assert.match(defectRejected, /Final paragraph stays unchanged\./);
 
     mkdirSync(destination, { recursive: true });
@@ -376,9 +368,9 @@ async function buildHostFixtures(destination) {
         ['table-append-tracked.docx', prepared.result.documentXml],
         ['table-append-accepted.docx', acceptedXml],
         ['table-append-rejected.docx', rejectedXml],
-        ['table-append-underline-known-failure-tracked.docx', unguardedAppend.result.documentXml],
-        ['table-append-underline-known-failure-accepted.docx', defectAccepted],
-        ['table-append-underline-known-failure-rejected.docx', defectRejected]
+        ['table-append-prior-underline-tracked.docx', unguardedAppend.result.documentXml],
+        ['table-append-prior-underline-accepted.docx', defectAccepted],
+        ['table-append-prior-underline-rejected.docx', defectRejected]
     ]) writeFileSync(resolve(destination, name), makeDocx(xml));
 
     const positiveNativeOperation = prepared.operations[0];
@@ -404,7 +396,7 @@ async function buildHostFixtures(destination) {
         rejected: { paragraphs: original, tables: emptyTables }
     };
     const positiveInsertion = 'table-append-coalesced-insertion.xml';
-    const knownFailureInsertion = 'table-append-underline-known-failure-insertion.xml';
+    const knownFailureInsertion = 'table-append-prior-underline-insertion.xml';
     writeFileSync(resolve(destination, positiveInsertion), prepared.insertionPayload, 'utf8');
     writeFileSync(resolve(destination, knownFailureInsertion), unguardedAppend.insertionPayload, 'utf8');
     const manifest = {
@@ -424,11 +416,11 @@ async function buildHostFixtures(destination) {
                 nativeOperations: [positiveNativeOperation]
             },
             {
-                name: 'table-append-inline-format-known-library-defect',
+                name: 'table-append-after-prior-underline',
                 source: 'table-append-source.docx',
-                tracked: 'table-append-underline-known-failure-tracked.docx',
-                accepted: 'table-append-underline-known-failure-accepted.docx',
-                rejected: 'table-append-underline-known-failure-rejected.docx',
+                tracked: 'table-append-prior-underline-tracked.docx',
+                accepted: 'table-append-prior-underline-accepted.docx',
+                rejected: 'table-append-prior-underline-rejected.docx',
                 insertionXml: knownFailureInsertion,
                 expectedBodyStructure: failureExpected,
                 expectedAcceptedText: [...original, 'Mountain', 'River', 'Forest', 'Ocean', 'Valley', 'Canyon', 'Meadow', 'Desert', 'Island'].join('\n'),
@@ -450,9 +442,9 @@ async function buildHostFixtures(destination) {
 testCoalescesOnlyTheAdjacentEditAndAppend();
 await testPlainEditThenTablePreservesAcceptedAndRejectedViews();
 testLocalizedReplacementMustBeExactAndUnambiguous();
-testFormattingRequestsFailClosed();
+await testNewInlineFormattingWithTableIsPreserved();
 await testAppendAnchorNeverAutocorrectsIntoItsSourceParagraph();
-await testPriorSameAuthorUnderlineRefusesAppendBeforeAnyWrite();
+await testPriorSameAuthorUnderlineAllowsAppendButRefusesTextEdit();
 await testCoalescedReceiptMapsBackToBothInputChanges();
 
 const exportIndex = process.argv.indexOf('--export-host-dir');

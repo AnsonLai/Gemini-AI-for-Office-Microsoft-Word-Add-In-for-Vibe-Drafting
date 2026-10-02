@@ -262,6 +262,31 @@ function testModifyTextStructuralContent() {
   assert.strictEqual(rejectReason({ paragraphIndex: 2, operation: 'modify_text', originalText: 'a', replacementText: '- bullet' }), 'modify_text_structural_content');
 }
 
+function testFormatText() {
+  const texts = ['The Confidential Information and Confidential terms.', 'Second paragraph.'];
+  const valid = { paragraphIndex: 1, operation: 'format_text', anchorText: 'The Confidential',
+    find: 'Confidential Information', formatting: { bold: false } };
+  const accepted = sanitizeChangeSet([valid, { ...valid, find: 'terms', formatting: { italic: true } }], texts.length, texts);
+  assert.strictEqual(accepted.rejected.length, 0, 'distinct spans in one paragraph are not duplicates');
+  assert.deepStrictEqual(verifyAnchor(valid, texts), { ok: true });
+
+  const reason = change => sanitizeChangeSet([change], texts.length, texts).rejected[0]?.reason;
+  assert.strictEqual(reason({ ...valid, find: 'confidential information' }), 'replacement_find_not_found');
+  assert.strictEqual(verifyAnchor({ ...valid, find: 'missing' }, texts).reason, 'replacement_find_not_found');
+  assert.strictEqual(reason({ ...valid, find: 'Confidential' }), 'format_find_ambiguous');
+  assert.strictEqual(sanitizeChangeSet([{ ...valid, find: 'Confidential', occurrence: 2 }], texts.length, texts).changes.length, 1,
+    'occurrence selects one appearance of a repeated find');
+  assert.strictEqual(reason({ ...valid, find: 'Confidential', occurrence: 3 }), 'replacement_find_not_found');
+  assert.strictEqual(reason({ ...valid, find: 'Confidential', occurrence: 0 }), 'invalid_format_text');
+  assert.strictEqual(reason({ ...valid, formatting: {} }), 'invalid_format_text');
+  assert.strictEqual(reason({ ...valid, formatting: { bold: 'no' } }), 'invalid_format_text');
+  assert.strictEqual(reason({ ...valid, formatting: { color: false } }), 'invalid_format_text');
+  assert.strictEqual(reason({ ...valid, find: 'Confidential\nInformation' }), 'invalid_format_text');
+  assert.strictEqual(reason({ ...valid, find: undefined }), 'invalid_format_text');
+  assert.match(formatRejections([{ paragraphIndex: 1, operation: 'format_text', reason: 'format_find_ambiguous' }]),
+    /1-based "occurrence"/);
+}
+
 function testLocalizedReplacements() {
   const texts = ['The Seller shall notify the Buyer promptly.', 'A repeated term and term again.'];
   const valid = { paragraphIndex: 1, operation: 'edit_paragraph', anchorText: 'The Seller shall',
@@ -287,6 +312,13 @@ function testLocalizedReplacements() {
   assert.deepStrictEqual(verifyAnchor(selected, texts), { ok: true });
   const missingOccurrence = { ...ambiguous, replacements: [{ find: 'term', replace: 'phrase', occurrence: 3 }] };
   assert.strictEqual(sanitizeChangeSet([missingOccurrence], texts.length, texts).rejected[0].reason, 'replacement_find_not_found');
+
+  // Anchors fold quote styles (models copy "Party’s" as "Party's"); finds stay exact.
+  const curly = ['The Receiving Party’s legal counsel may retain one (1) copy.'];
+  assert.deepStrictEqual(verifyAnchor({ paragraphIndex: 1, operation: 'edit_paragraph', anchorText: "The Receiving Party's legal counsel",
+    replacements: [{ find: 'one (1) copy', replace: 'two (2) copies' }] }, curly), { ok: true });
+  assert.strictEqual(verifyAnchor({ paragraphIndex: 1, operation: 'edit_paragraph', anchorText: 'The Receiving Party',
+    replacements: [{ find: "Party's legal", replace: 'x' }] }, curly).reason, 'replacement_find_not_found');
 
   const corrected = { paragraphIndex: 2, operation: 'edit_paragraph', anchorText: 'The Seller shall',
     replacements: [{ find: 'Seller', replace: 'Provider' }] };
@@ -410,6 +442,7 @@ testInapplicableFieldsStripped();
 testOriginalTextTooLong();
 testModifyTextStructuralContent();
 testLocalizedReplacements();
+testFormatText();
 testMalformedTable();
 testSchemaTextLeak();
 testDeduplicate();

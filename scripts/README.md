@@ -138,6 +138,46 @@ The oracle inspects the source, actual tracked/accepted/rejected views and
 engine-resolved references independently. Keep mocked invocation tests,
 Office.js proxy checks and the desktop Word oracle distinct in summaries.
 
+## Golden scenario (desktop Word)
+
+`scripts/golden/nda-scenario.mjs` holds the owner's 16-prompt editing session
+on `tests/fixtures/golden/sample-nda.docx`: each prompt, the model responses to
+replay, and objective checks. The runner builds a dedicated taskpane bundle
+(`--env GOLDEN_SCENARIO=1`, into `.cache/golden/dist`), serves it on port 3001
+under a separate add-in identity with its own settings storage, and opens it in
+a **separate** Word instance (`WINWORD /x`), so a running Word session and the
+dev server on 3000 are untouched. A driver types each prompt into the real chat
+UI and waits for the production chat loop; after every step the document is
+exported and scored on its accepted view (paragraphs, effective formatting
+including character styles, lists and number formats, tables, comments,
+highlights) plus a check that new redlines carry the configured author.
+Earlier checks are regressed at later steps.
+
+```powershell
+# Deterministic lane: model responses replayed from the scenario (no provider calls)
+node scripts/run-golden-scenario.mjs --launch
+# Live lane: real Gemini, scored by the same checks (incurs provider usage)
+$env:GEMINI_API_KEY = '...'
+node scripts/run-golden-scenario.mjs --mode live --model gemini-flash-latest --launch
+# Remove the sideload registration
+node scripts/run-golden-scenario.mjs --cleanup
+```
+
+Useful options: `--until <n>` (first n steps), `--skip-build`, `--keep-word`
+(leave the golden Word instance open), `--step-timeout <seconds>`,
+`--artifacts-dir`. Results land in `.cache/golden/<timestamp>/`: `report.md`,
+`report.json`, per-step `.docx` exports with transcript/console JSON, and
+`model-log.jsonl` (every model request and the response served or received;
+never the API key). Replay references such as `{ $p: { startsWith: '...' } }`
+resolve against the `[P#]` context inside each intercepted request, so scripted
+paragraph numbers follow earlier edits. A replay desync (an unexpected or
+missing model call, e.g. a corrective retry) fails the step.
+
+Checks linked to a `knownIssue` report as known library defects
+(`docs/library-issues/`) instead of failures. `tests/golden_scenario_tests.mjs`
+covers the harness offline (reference resolution, replay queue, checks) and runs
+in `npm test`; the scenario itself needs desktop Word.
+
 ## Taskpane startup profile
 
 Startup profiling is enabled only in a dedicated build and is not part of

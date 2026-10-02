@@ -3,7 +3,7 @@ import './setup-xml-provider.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import { openDocx, validateDocxPackage } from '@ansonlai/docx-redline-js';
+import { acceptTrackedChangesInOoxml, inspectDocumentParts, openDocx, rejectTrackedChangesInOoxml, validateDocxPackage } from '@ansonlai/docx-redline-js';
 import { MemoryZip, zipDocx, unzipDocx } from '@ansonlai/docx-redline-js/document/zip-archive.js';
 import { createParser, createSerializer } from '@ansonlai/docx-redline-js/adapters/xml-adapter.js';
 import { executePureOoxmlBatch } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
@@ -165,8 +165,9 @@ function flatOpc(sourceEntries) {
         return contentType?.includes('xml') ? `<pkg:part pkg:name="/${name}" pkg:contentType="${contentType}"><pkg:xmlData>${dec.decode(value).replace(/<\?xml[^?]*\?>/, '')}</pkg:xmlData></pkg:part>` : '';
     }).join('') + '</pkg:package>';
 }
-// A combined formatted paragraph containing tabs, breaks and a hyperlink cannot
-// be reconciled by the installed engine; require atomic refusal with no Word write.
+// A combined formatted paragraph containing tabs, breaks and a hyperlink. 0.8.3
+// refused localized replacements here (soft break); 0.8.4 applies a within-line
+// replacement and must keep the tab, break and hyperlink in both views.
 const combinedTree = parse(xml(entries, 'word/document.xml'));
 const combinedParagraphs = nodes(combinedTree, 'p');
 for (const extra of combinedParagraphs.slice(1, 3)) {
@@ -178,14 +179,21 @@ combinedEntries.set('word/document.xml', enc.encode(serialize(combinedTree)));
 const combinedSource = zipDocx(combinedEntries);
 const structuralTarget = openDocx(combinedSource).inspect().paragraphs[0];
 assert.equal(structuralTarget.exactText, 'Bold term and italic term\ttabbed\nLine with example.org.');
-const refusedWrites = [];
-const refusedScope = { getOoxml: () => ({ value: flatOpc(combinedEntries) }), insertOoxml: value => refusedWrites.push(value) };
-const refused = await executePureOoxmlBatch({ sync: async () => {} }, refusedScope,
+const combinedWrites = [];
+const combinedScope = { getOoxml: () => ({ value: flatOpc(combinedEntries) }), insertOoxml: value => combinedWrites.push(value) };
+const combined = await executePureOoxmlBatch({ sync: async () => {} }, combinedScope,
     [{ type: 'replace', target: { paragraphId: structuralTarget.paragraphId, fingerprint: structuralTarget.fingerprint }, replacements: [{ find: 'tabbed', replace: 'aligned' }] }], { author: 'WP6 reviewer' });
-assert.equal(refused.status, 'error');
-assert.equal(refused.written, false);
-assert.equal(refused.rolledBack, true);
-assert.equal(refusedWrites.length, 0, 'unsupported combined target must not write');
+assert.equal(combined.status, 'ok', JSON.stringify(combined.error));
+assert.equal(combined.written, true);
+assert.equal(combinedWrites.length, 1, 'the within-line replacement is written once');
+const combinedDocument = combinedWrites[0].match(/pkg:name="\/word\/document\.xml"[\s\S]*?<pkg:xmlData>([\s\S]*?)<\/pkg:xmlData>/)[1];
+const combinedAccepted = acceptTrackedChangesInOoxml(combinedDocument, { allAuthors: true }).oxml;
+const combinedRejected = rejectTrackedChangesInOoxml(combinedDocument, { allAuthors: true }).oxml;
+assert.equal(inspectDocumentParts({ documentXml: combinedAccepted }).paragraphs[0].exactText,
+    'Bold term and italic term\taligned\nLine with example.org.', 'accepted view keeps the tab and line break');
+assert.match(combinedAccepted, /<w:hyperlink\b/, 'accepted view keeps the hyperlink');
+assert.equal(inspectDocumentParts({ documentXml: combinedRejected }).paragraphs[0].exactText, structuralTarget.exactText,
+    'Reject All restores the exact source text');
 
 const writes = [];
 const scope = { getOoxml: () => ({ value: flatOpc(beforeSiblings) }), insertOoxml: value => writes.push(value) };

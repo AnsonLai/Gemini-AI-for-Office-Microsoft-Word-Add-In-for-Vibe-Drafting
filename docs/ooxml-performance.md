@@ -1,8 +1,8 @@
 # OOXML performance measurements
 
 Performance observations are separate from fidelity gates. Both consumers pin
-exact `@ansonlai/docx-redline-js@0.8.3`. The dated performance reports below
-measured 0.8.2; they have not been rerun as 0.8.3 timing evidence. A slower large document does not justify
+exact `@ansonlai/docx-redline-js@0.8.4`. The dated performance reports below
+measured 0.8.2; they have not been rerun as 0.8.4 timing evidence. A slower large document does not justify
 changing its tracked-change semantics.
 
 The [library offload review](library-offload-review.md) separates delegated

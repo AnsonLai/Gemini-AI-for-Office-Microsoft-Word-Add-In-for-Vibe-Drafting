@@ -222,6 +222,16 @@ function readBatchSource(scopeOoxml) {
     return { ...parts, paragraphs: inspection.paragraphs, packageDoc: null };
 }
 
+/**
+ * The numbering part of a Word flat-OPC package (e.g. body.getOoxml()), or null.
+ * List generation needs the document's real numbering so generated list IDs
+ * do not collide with existing ones.
+ */
+export function readPackageNumberingXml(scopeOoxml) {
+    if (typeof scopeOoxml !== 'string' || !scopeOoxml.includes('<pkg:package')) return null;
+    return packagePartXml(parseXmlStrict(scopeOoxml, 'Word scope package'), '/word/numbering.xml');
+}
+
 /** Capture targeting identities with the same accepted-view inspector used at execution. */
 export function captureSourceBaseline(scopeOoxml) {
     return readBatchSource(scopeOoxml).paragraphs.map(paragraph => ({

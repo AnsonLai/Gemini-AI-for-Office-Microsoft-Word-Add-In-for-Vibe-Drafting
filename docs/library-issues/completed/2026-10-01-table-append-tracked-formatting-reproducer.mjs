@@ -1,4 +1,4 @@
-import '../../tests/setup-xml-provider.mjs';
+import '../../../tests/setup-xml-provider.mjs';
 
 import assert from 'node:assert/strict';
 import {
@@ -7,8 +7,8 @@ import {
     rejectTrackedChangesInOoxml
 } from '@ansonlai/docx-redline-js';
 import { buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
-import { prepareCanonicalBatch } from '../../src/taskpane/modules/docx-redline-js-integration/consumer-core.js';
-import { planRedlineBatchOperations } from '../../src/taskpane/modules/docx-redline-js-integration/redline-plan.js';
+import { prepareCanonicalBatch } from '../../../src/taskpane/modules/docx-redline-js-integration/consumer-core.js';
+import { planRedlineBatchOperations } from '../../../src/taskpane/modules/docx-redline-js-integration/redline-plan.js';
 
 const author = 'Table Append Library Reproducer';
 const table = '| Mountain | River | Forest |\n| --- | --- | --- |\n| Ocean | Valley | Canyon |\n| Meadow | Desert | Island |';

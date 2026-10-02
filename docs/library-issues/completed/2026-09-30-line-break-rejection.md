@@ -1,5 +1,7 @@
 # Reject All reorders text around a manual line break after localized replacement
 
+> **Resolved:** Fixed in 0.8.2; re-verified against 0.8.4 on 2026-10-02 (`2026-09-30-fidelity-reproducer.mjs` passes).
+
 Repository: `AnsonLai/docx-redline-js`. Reproduces in installed 0.8.1 and clean
 source HEAD `c4db17a8a622852c0596ec8725573ac0101d9a09` (version 0.8.1).
 

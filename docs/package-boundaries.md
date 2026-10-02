@@ -1,6 +1,6 @@
 # Consumer package boundaries
 
-The consumers pin `@ansonlai/docx-redline-js@0.8.3`. The library owns document
+The consumers pin `@ansonlai/docx-redline-js@0.8.4`. The library owns document
 inspection, OOXML edits, revision resolution and package serialization.
 
 | Surface | Responsibility | Host dependencies |
@@ -58,7 +58,7 @@ published browser bundle; loading its unbundled entry without dependency maps
 previously failed on bare XML/ZIP dependency specifiers.
 
 The v0.8.2 reports preserve earlier Reject All and historical-property
-findings; v0.8.3 validation passes 12 independent Word checks on the two
+findings; dated v0.8.3 validation passes 12 independent Word checks on the two
 former public-facade Reject All cases. The release notes describe those fixes.
 Remaining canonical limits are plain or text-changing header-to-list
 conversion and list-format changes. A marker-prefixed `1. Header` no-op on bare

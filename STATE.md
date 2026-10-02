@@ -8,19 +8,24 @@
 
 - **Table incident (2026-10-01):** consumer changes coalesce only a compatible
   final-paragraph edit plus one appended Markdown table, preserve the append
-  anchor, map both source changes to the operation receipt, and refuse tracked
-  inline-formatting combinations with `UNSUPPORTED_TABLE_FORMATTING`. After a
+  anchor, map both source changes to the operation receipt, and refuse changing
+  the text of a paragraph that carries the author's own pending formatting
+  while adding a table with `UNSUPPORTED_TABLE_FORMATTING` (the only remaining
+  0.8.4 limitation; new inline formatting with a table and appends after an
+  underlined paragraph are allowed). After a
   confirmed mutation exchange, the next model turn receives refreshed document
   text and baseline. History retains complete tool exchanges; read-only calls
   do not reset the failed-mutation budget; loop exhaustion reports a terminal
-  status. The 54-suite offline aggregate and production build pass. The final
-  Word run passed 13 of 20 checks: plain accepted table content and native
-  insertion pass; tracked Reject All leaves an extra paragraph, and Accept All
-  loses underline in the formatting fixture. These fidelity gates remain open;
-  see the
+  status. The 54-suite offline aggregate and production build pass. The dated
+  2026-10-01 Word run on 0.8.3 passed 13 of 20 checks: plain accepted table
+  content and native insertion pass; tracked Reject All leaves an extra
+  paragraph, and Accept All lost underline in the formatting fixture. In 0.8.4
+  the underline loss is fixed (desktop Word Accept All keeps underline and the
+  3x3 table); Word Reject All still leaves one extra empty paragraph after a
+  final table append, which remains open. See the
   [incident plan](docs/plans/2026-09-30-table-creation-reliability.md),
   [host report](docs/validation-reports/2026-10-01-table-creation-reliability.md),
-  [tracked-formatting report](docs/library-issues/2026-10-01-table-append-tracked-formatting.md),
+  [tracked-formatting report](docs/library-issues/completed/2026-10-01-table-append-tracked-formatting.md),
   and [Reject All paragraph report](docs/library-issues/2026-10-01-word-reject-table-append-paragraph.md).
 
 - **Undo/stale-context follow-up (2026-10-01):** a new log records two P4
@@ -37,7 +42,7 @@
   of the user's refusal remains unconfirmed. The fidelity plan stays open.
 
 - **Library:** the Word add-in and MCP server pin exact
-  `@ansonlai/docx-redline-js@0.8.3`. Browser editing uses the same package
+  `@ansonlai/docx-redline-js@0.8.4`. Browser editing uses the same package
   through its public document-session facade.
 - **Host boundaries:** portable mapping and OOXML preparation are separated
   from Word transport. The library owns supported document operations,
@@ -86,17 +91,18 @@ canonical-operation capability work and later consumer/Word validation.
 Existing native or legacy paths remain for general `edit_list` and header
 conversion, deeper/other-style insertion, tracking-off requests and unsupported
 outdent contexts.
-Current v0.8.3 validation is recorded in the
-[release report](docs/validation-reports/2026-09-30-docx-redline-v083.md);
-passing these gates alone will not close the full migration.
+The dated v0.8.3 validation is recorded in the
+[release report](docs/validation-reports/2026-09-30-docx-redline-v083.md); the
+0.8.4 upgrade is in the [0.8.4 validation](docs/validation-reports/2026-10-02-docx-redline-v084.md) report.
+Passing these gates alone will not close the full migration.
 
-The current list matrix covers 12 supported cases with 48 Office.js checks and
+The dated v0.8.3 list matrix covers 12 supported cases with 48 Office.js checks and
 five native routes with 20 additional checks (68 total). The independent Word
 oracle reports 92 applicable checks passed, zero failed, and five not
 applicable across 17 exports. The two original public-facade Reject All cases
 pass 12 Word checks. `npm test` passes 51 suites with zero failures and four
 exclusions; validation and production builds pass. See the [v0.8.3 report](docs/validation-reports/2026-09-30-docx-redline-v083.md)
-and its linked JSON artifacts for the current evidence.
+and its linked JSON artifacts for that evidence.
 
 The dated 2026-09-30 v0.8.2 consumer baseline records five native cases, 20 actual
 Office.js checks, 20 independent Word source/tracked/Accept All/Reject All
@@ -107,13 +113,18 @@ counts.
 The v0.8.2 library reports documented Reject All paragraph-boundary failures
 and historical paragraph-property inspection. The v0.8.3 release notes report
 fixes for those behaviors, including all-empty list ranges, and for
-`openDocx` list numbering and explicit list starts; current validation confirms
+`openDocx` list numbering and explicit list starts; v0.8.3 validation confirmed
 the original two public-facade Reject All cases. The dated reports retain
-their original evidence. Current known limits are canonical conversion of
+their original evidence. Known limits (open library reports) are canonical conversion of
 plain or text-changing headers to lists, canonical list-format changes, and possible
 `RECEIPT_RECONCILIATION_FAILED` for a marker-prefixed `1. Header` no-op on bare
-`document.xml`. The active plan remains open until canonical migration and its
-downstream validation are complete.
+`document.xml`. Open library reports on 0.8.4 are listed in the
+[library issues index](docs/library-issues/README.md): canonical list
+capabilities; Word Reject All leaving one extra paragraph after a final table
+append; the 0.8.4 regression where separate list operations restart numbering
+(production `convert_headers_to_list` is native and unaffected); and weak-target
+soft-break deletion (the add-in sends strong targets). The active plan remains
+open until canonical migration and its downstream validation are complete.
 
 ## Operating Decisions
 

@@ -1,5 +1,19 @@
 # Word Reject All leaves an extra paragraph after a final table append
 
+## Status after 0.8.4 (2026-10-02): still open
+
+0.8.4 changed tracked tables to row-level `w:trPr/w:ins` marks (no `w:ins`
+around `w:tbl`), and Word's Reject All now removes the table without hanging.
+A fresh desktop Word check (Word 16.0, build 16.0.20430, `OpenNoRepairDialog`,
+`Revisions.RejectAll()` on both the plain-append and prior-underline tracked
+packages built with 0.8.4) still ends with the original seven paragraphs **plus
+one extra empty paragraph** and one revision left. Accept All in Word keeps
+the 3×3 table and the paragraph underline. The engine's own
+`rejectTrackedChangesInOoxml` still returns exactly seven paragraphs, so the
+remaining mismatch is in how Word resolves the trailing paragraph mark of an
+end-of-document table append. The underline-loss half of this incident is
+fixed (see `completed/2026-10-01-table-append-tracked-formatting.md`).
+
 ## Reproduction
 
 From the repository root, export the table-append fixtures and run the Word oracle:

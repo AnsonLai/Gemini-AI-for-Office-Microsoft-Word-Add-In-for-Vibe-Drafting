@@ -16,7 +16,8 @@ import {
   applySharedOperationToWordScope,
   applyRedlineChangesToWordContext,
   executePureOoxmlBatch,
-  assertRedlineResult
+  assertRedlineResult,
+  readPackageNumberingXml
 } from '../docx-redline-js-integration/index.js';
 import {
   detectDocumentFont
@@ -1114,8 +1115,12 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
         const endRange = lastPara.getRange("End");
         const fullRange = startRange.expandTo(endRange);
         const rangeOoxmlResult = fullRange.getOoxml();
+        // The whole document's numbering, so generated list IDs stay unique.
+        const bodyOoxmlResult = context.document.body.getOoxml();
 
         await mutation.sync(context);
+        const numberingXml = readPackageNumberingXml(bodyOoxmlResult.value)
+          || readPackageNumberingXml(rangeOoxmlResult.value);
 
         const normalizedListType = listType === "bullet" ? "bullet" : "numbered";
         const normalizedNumberingStyle = numberingStyle || "decimal";
@@ -1141,7 +1146,11 @@ async function executeEditList(startIndex, endIndex, newItems, listType, numberi
           listMarkdown,
           {
             author: redlineEnabled ? redlineAuthor : undefined,
-            generateRedlines: redlineEnabled
+            generateRedlines: redlineEnabled,
+            // edit_list always means "make this a real list", even when the
+            // source already carries identical manual markers ("A. ...").
+            explicitStructuredContent: true,
+            ...(numberingXml ? { numberingXml } : {})
           }
         );
 

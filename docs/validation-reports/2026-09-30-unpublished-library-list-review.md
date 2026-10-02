@@ -33,7 +33,7 @@ This uses static exported packages, not a fresh Office.js transport run.
 A separate public DOCX facade comparison passes eight checks and fails four
 numbering checks. Published 0.8.2 and the local facade produce identical
 numbering XML for that edit, so this is pre-existing. See the
-[separate facade report](../library-issues/2026-09-30-public-facade-list-numbering.md).
+[separate facade report](../library-issues/completed/2026-09-30-public-facade-list-numbering.md).
 
 ## Header receipts and indexes
 
