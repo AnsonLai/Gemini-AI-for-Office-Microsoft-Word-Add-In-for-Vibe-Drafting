@@ -85,6 +85,11 @@ try {
   appendRefreshedDocumentContext(recoveryResponses, '[P2] Final paragraph stays unchanged.', 'stale-refusal');
   assert.equal(writes.length, writeCountBeforeRecovery, 'refreshing context does not replay or apply the refused batch');
   assert.match(recoveryResponses.at(-1).text, /Replan.*do not reuse/s);
+  const mixedResponses = [];
+  appendRefreshedDocumentContext(mixedResponses, '[P2] Mixed context.', 'mixed');
+  assert.match(mixedResponses[0].text, /Some edits.*were applied.*refused as stale before any write/s);
+  assert.match(mixedResponses[0].text, /do not reuse the refused batch.*do not redo the edits that were already applied/s);
+  assert.doesNotMatch(mixedResponses[0].text, /^The previous edit was refused/);
   const replanned = await applyRedlineChangesToWordContext(context, [{
     operation: 'edit_paragraph', paragraphIndex: 2,
     replacements: [{ find: 'Final paragraph', replace: 'Replanned paragraph' }]

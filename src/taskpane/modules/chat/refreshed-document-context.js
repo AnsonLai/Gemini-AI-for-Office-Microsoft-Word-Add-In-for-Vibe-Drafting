@@ -7,11 +7,18 @@ export function appendRefreshedDocumentContext(functionResponses, formattedText,
     throw new TypeError('Refreshed document context must be text.');
   }
 
-  functionResponses.push({
-    text: reason === 'stale-refusal'
-      ? `The previous edit was refused before any write because its source context was stale. Replan from this refreshed document context; do not reuse the refused batch:\n"""${formattedText}"""`
-      : `Current document context after the confirmed edit:\n"""${formattedText}"""`
-  });
+  let text;
+  if (reason === 'mixed') {
+    text = `Some edits in this step were applied, and at least one other edit was refused as stale before any write. Replan the remaining work from this refreshed document context; do not reuse the refused batch and do not redo the edits that were already applied:
+"""${formattedText}"""`;
+  } else if (reason === 'stale-refusal') {
+    text = `The previous edit was refused before any write because its source context was stale. Replan from this refreshed document context; do not reuse the refused batch:
+"""${formattedText}"""`;
+  } else {
+    text = `Current document context after the confirmed edit:
+"""${formattedText}"""`;
+  }
+  functionResponses.push({ text });
   return functionResponses;
 }
 

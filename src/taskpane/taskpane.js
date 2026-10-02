@@ -2476,7 +2476,9 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
             docSourceBaseline = refreshedContext.sourceBaseline;
             if (refreshAfterStaleRefusal) staleContextRefreshUsed = true;
             appendRefreshedDocumentContext(functionResponses, docText,
-              refreshAfterStaleRefusal ? 'stale-refusal' : 'confirmed-write');
+              refreshAfterStaleRefusal
+                ? (confirmedMutationThisLoop ? 'mixed' : 'stale-refusal')
+                : 'confirmed-write');
           } catch (error) {
             console.error('Document context refresh failed:', error?.code || error?.name);
             chatHistory = [];
