@@ -45,31 +45,19 @@ import {
   REDLINE_DIFF_SCHEMA
 } from './redline-prompt.js';
 
-let getRequestSignal;
-let loadApiKey;
-let loadModel;
-let loadSystemMessage;
-let loadRedlineSetting;
-let loadRedlineAuthor;
-let setChangeTrackingForAi;
-let restoreChangeTracking;
-let SAFETY_SETTINGS_BLOCK_NONE;
-let API_LIMITS;
-
-function initAgenticTools(deps) {
-  ({
-    getRequestSignal,
-    loadApiKey,
-    loadModel,
-    loadSystemMessage,
-    loadRedlineSetting,
-    loadRedlineAuthor,
-    setChangeTrackingForAi,
-    restoreChangeTracking,
-    SAFETY_SETTINGS_BLOCK_NONE,
-    API_LIMITS
-  } = deps);
-}
+export function createAgenticTools(deps = {}) {
+const {
+  getRequestSignal,
+  loadApiKey,
+  loadModel,
+  loadSystemMessage,
+  loadRedlineSetting,
+  loadRedlineAuthor,
+  setChangeTrackingForAi,
+  restoreChangeTracking,
+  SAFETY_SETTINGS_BLOCK_NONE,
+  API_LIMITS
+} = deps;
 
 function missingApiKeyResult(mutation = null, showToUser = false) {
   const message = 'Error: Please set your Gemini API key in the Settings.';
@@ -1821,8 +1809,7 @@ async function executeGetSelectionStats({ text, startParagraphIndex, endParagrap
   }
 }
 
-export {
-  initAgenticTools,
+return {
   executeRedline,
   executeComment,
   executeHighlight,
@@ -1835,3 +1822,33 @@ export {
   executeEditSection,
   executeGetSelectionStats
 };
+}
+
+let defaultAgenticTools = createAgenticTools();
+
+export let executeRedline = defaultAgenticTools.executeRedline;
+export let executeComment = defaultAgenticTools.executeComment;
+export let executeHighlight = defaultAgenticTools.executeHighlight;
+export let executeNavigate = defaultAgenticTools.executeNavigate;
+export let executeResearch = defaultAgenticTools.executeResearch;
+export let executeInsertListItem = defaultAgenticTools.executeInsertListItem;
+export let executeEditList = defaultAgenticTools.executeEditList;
+export let executeConvertHeadersToList = defaultAgenticTools.executeConvertHeadersToList;
+export let executeEditTable = defaultAgenticTools.executeEditTable;
+export let executeEditSection = defaultAgenticTools.executeEditSection;
+export let executeGetSelectionStats = defaultAgenticTools.executeGetSelectionStats;
+
+export function initAgenticTools(deps) {
+  defaultAgenticTools = createAgenticTools(deps);
+  executeRedline = defaultAgenticTools.executeRedline;
+  executeComment = defaultAgenticTools.executeComment;
+  executeHighlight = defaultAgenticTools.executeHighlight;
+  executeNavigate = defaultAgenticTools.executeNavigate;
+  executeResearch = defaultAgenticTools.executeResearch;
+  executeInsertListItem = defaultAgenticTools.executeInsertListItem;
+  executeEditList = defaultAgenticTools.executeEditList;
+  executeConvertHeadersToList = defaultAgenticTools.executeConvertHeadersToList;
+  executeEditTable = defaultAgenticTools.executeEditTable;
+  executeEditSection = defaultAgenticTools.executeEditSection;
+  executeGetSelectionStats = defaultAgenticTools.executeGetSelectionStats;
+}

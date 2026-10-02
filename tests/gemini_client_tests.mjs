@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { requestGemini, requestGeminiJson, geminiEndpoint } from '../src/taskpane/modules/chat/gemini-client.js';
+import { runDocumentAgentLoop } from '../src/taskpane/modules/chat/document-agent-loop.js';
+import { createToolRegistry } from '../src/taskpane/modules/chat/tool-registry.js';
 
 const payload = { contents: [{ parts: [{ text: 'private document' }] }] };
 const url = geminiEndpoint('configured-model', 'secret+key');
@@ -82,10 +84,91 @@ await assert.rejects(requestGeminiJson(url, payload, { signal: tracked.signal, f
 assert.equal(listeners, 0);
 
 // Keep every known caller on the audited boundary and avoid raw request diagnostics.
-for (const file of ['src/taskpane/taskpane.js', 'src/taskpane/modules/commands/agentic-tools.js', 'browser-demo/demo.js', 'tests/evals/run-evals.mjs']) {
+for (const file of [
+  'src/taskpane/taskpane.js',
+  'src/taskpane/modules/commands/agentic-tools.js',
+  'src/taskpane/modules/chat/document-agent-loop.js',
+  'src/taskpane/modules/chat/tool-registry.js',
+  'browser-demo/demo.js',
+  'tests/evals/run-evals.mjs'
+]) {
   const source = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
   assert.doesNotMatch(source, /\bfetch\s*\(/, `${file}: direct Gemini transport bypass`);
 }
 const taskpane = readFileSync(new URL('../src/taskpane/taskpane.js', import.meta.url), 'utf8');
-assert.ok(taskpane.indexOf('if (toolsExecutedInCurrentRequest.length > 0)', taskpane.indexOf('catch (apiError)')) < taskpane.indexOf('throw apiError;', taskpane.indexOf('catch (apiError)')), 'Post-tool provider errors stop before history recovery');
-console.log('PASS: centralized Gemini requests, bounded recovery, cancellation, timeout and safe diagnostics');
+const providerWrapper = taskpane.match(/async function callGeminiWithRetry\([\s\S]*?\n\}/)?.[0];
+assert.ok(providerWrapper, 'sendChatMessage must route provider calls through its audited wrapper');
+assert.match(providerWrapper, /return requestGeminiJson\(url, payload,/);
+assert.match(providerWrapper, /signal = currentRequestController\?\.signal/);
+assert.match(providerWrapper, /\n\s*signal,/);
+assert.match(providerWrapper, /timeoutMs:\s*TIMEOUT_LIMITS\.FETCH_TIMEOUT_MS/);
+
+// Exercise the extracted loop through the same audited JSON transport. A tool
+// call is executed once; a later provider error and its transport retries must
+// stop the loop without replaying the tool.
+{
+  const originalBaseline = [{ index: 1, exactText: 'Original', fingerprint: 'first' }];
+  const state = {
+    history: [{ role: 'user', parts: [{ text: 'Correct the typo.' }] }],
+    docText: '[P1] Original',
+    docSourceBaseline: originalBaseline,
+    records: []
+  };
+  let modelRequests = 0;
+  let transportCalls = 0;
+  let executions = 0;
+  let capturedExecutorBaseline;
+  const registry = createToolRegistry({
+    executeRedline: async (_instruction, _documentText, sourceBaseline) => {
+      executions++;
+      capturedExecutorBaseline = sourceBaseline;
+      return {
+        status: 'ok', success: true, showToUser: true, message: 'Edit applied.',
+        written: true, writeAttempted: true, mutationOutcome: 'applied'
+      };
+    }
+  });
+  const fetchImpl = async (_url, init) => {
+    transportCalls++;
+    const requestBody = JSON.parse(init.body);
+    assert.ok(Array.isArray(requestBody.contents), 'the audited client sends the loop history');
+    if (transportCalls === 1) {
+      return {
+        ok: true,
+        json: async () => ({ candidates: [{ content: { parts: [{ functionCall: {
+          name: 'apply_redlines', args: { instruction: 'correct the typo' }
+        } }] } }] })
+      };
+    }
+    return { ok: false, status: 503 };
+  };
+
+  await runDocumentAgentLoop({
+    state,
+    registry,
+    loadRegistry: async () => registry,
+    requestModel: history => {
+      modelRequests++;
+      return requestGeminiJson(url, { contents: history }, {
+        fetchImpl, sleep: async () => {}, random: () => 0, maxAttempts: 3, timeoutMs: 1000
+      });
+    },
+    refreshContext: async () => ({
+      formattedText: '[P1] Corrected',
+      sourceBaseline: [{ index: 1, exactText: 'Corrected', fingerprint: 'second' }]
+    }),
+    createCheckpoint: async () => 'checkpoint',
+    requestStartTime: 0,
+    now: () => 1,
+    totalTimeoutMs: 10000
+  });
+
+  assert.equal(state.stopReason, 'provider_error');
+  assert.equal(modelRequests, 2, 'the loop stops after the provider error instead of replaying the tool');
+  assert.equal(transportCalls, 4, 'only the audited client retries the failed provider request');
+  assert.equal(executions, 1, 'the already completed redline is never replayed');
+  assert.equal(capturedExecutorBaseline, originalBaseline, 'the executor receives the source snapshot used for the first tool call');
+  assert.equal(state.records[0].written, true, 'provider failure preserves confirmed host-write evidence');
+}
+
+console.log('PASS: centralized Gemini requests, bounded recovery, cancellation, timeout, safe diagnostics and no tool replay');

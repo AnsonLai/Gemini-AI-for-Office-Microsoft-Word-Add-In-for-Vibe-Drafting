@@ -1,6 +1,4 @@
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import { parse } from 'acorn';
 import {
   initAgenticTools,
   executeEditTable,
@@ -9,6 +7,7 @@ import {
   executeHighlight,
   executeNavigate
 } from '../src/taskpane/modules/commands/agentic-tools.js';
+import { getToolDeclarations } from '../src/taskpane/modules/chat/tool-registry.js';
 
 let apiKey = 'table-test-key';
 initAgenticTools({
@@ -74,49 +73,20 @@ function createTableHarness({ rowCellCounts = [2, 2] } = {}) {
   return { events, get runCount() { return runCount; } };
 }
 
-function findProperty(node, name) {
-  if (!node || node.type !== 'ObjectExpression') return null;
-  return node.properties.find(property => property.type === 'Property'
-    && (property.key.name ?? property.key.value) === name) || null;
-}
+function testRegistrySchemaUsesNestedArraysAndOnlySupportedActions() {
+  const tools = getToolDeclarations();
+  const declaration = tools[0]?.function_declarations?.find(tool => tool.name === 'edit_table');
+  assert.ok(declaration, 'edit_table function declaration must exist in the authoritative registry');
 
-function literalValue(node) {
-  return node?.type === 'Literal' ? node.value : undefined;
-}
-
-function testTaskpaneSchemaUsesNestedArraysAndOnlySupportedActions() {
-  const taskpaneSource = fs.readFileSync(new URL('../src/taskpane/taskpane.js', import.meta.url), 'utf8');
-  const ast = parse(taskpaneSource, { ecmaVersion: 'latest', sourceType: 'module' });
-  const stack = [...ast.body];
-  let declaration = null;
-  while (stack.length > 0) {
-    const node = stack.pop();
-    if (!node || typeof node !== 'object') continue;
-    if (node.type === 'ObjectExpression'
-      && literalValue(findProperty(node, 'name')?.value) === 'edit_table') {
-      declaration = node;
-      break;
-    }
-    for (const value of Object.values(node)) {
-      if (Array.isArray(value)) stack.push(...value);
-      else if (value && typeof value === 'object') stack.push(value);
-    }
-  }
-  assert.ok(declaration, 'edit_table function declaration must exist in taskpane schema');
-
-  const parameters = findProperty(declaration, 'parameters')?.value;
-  const properties = findProperty(parameters, 'properties')?.value;
-  const contentSchema = findProperty(properties, 'content')?.value;
-  const actionSchema = findProperty(properties, 'action')?.value;
-  assert.equal(literalValue(findProperty(contentSchema, 'type')?.value), 'ARRAY');
-  const rowSchema = findProperty(contentSchema, 'items')?.value;
-  assert.equal(literalValue(findProperty(rowSchema, 'type')?.value), 'ARRAY');
-  const cellSchema = findProperty(rowSchema, 'items')?.value;
-  assert.equal(literalValue(findProperty(cellSchema, 'type')?.value), 'STRING');
-  assert.deepEqual(findProperty(actionSchema, 'enum')?.value.elements.map(literalValue), [
+  const contentSchema = declaration.parameters.properties.content;
+  const actionSchema = declaration.parameters.properties.action;
+  assert.equal(contentSchema.type, 'ARRAY');
+  assert.equal(contentSchema.items.type, 'ARRAY');
+  assert.equal(contentSchema.items.items.type, 'STRING');
+  assert.deepEqual(actionSchema.enum, [
     'replace_content', 'add_row', 'delete_row', 'update_cell'
   ]);
-  assert.doesNotMatch(literalValue(findProperty(declaration, 'description')?.value), /columns/i,
+  assert.doesNotMatch(declaration.description, /columns/i,
     'tool description must not advertise unavailable column operations');
 }
 
@@ -225,7 +195,7 @@ async function testNavigationSuccessAndFailureAreStructured() {
 }
 
 try {
-  testTaskpaneSchemaUsesNestedArraysAndOnlySupportedActions();
+  testRegistrySchemaUsesNestedArraysAndOnlySupportedActions();
   await testTablePreflightRejectsInvalidRequestsBeforeWord();
   await testLiveTableBoundsRefuseOversizedOverlayBeforeFirstWrite();
   await testNestedCanonicalInputsReachWordWithoutTruncation();

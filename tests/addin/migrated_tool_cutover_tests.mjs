@@ -7,8 +7,23 @@ const source = fs.readFileSync(agenticToolsPath, 'utf8');
 const program = parse(source, { ecmaVersion: 'latest', sourceType: 'module' });
 
 function extractFunctionBody(functionName) {
-    const declaration = program.body.map(node => node.type === 'ExportNamedDeclaration' ? node.declaration : node)
-        .find(node => node?.type === 'FunctionDeclaration' && node.id?.name === functionName);
+    function findDeclaration(node) {
+        if (!node || typeof node !== 'object') return null;
+        if (node.type === 'FunctionDeclaration' && node.id?.name === functionName) return node;
+        for (const value of Object.values(node)) {
+            if (Array.isArray(value)) {
+                for (const child of value) {
+                    const found = findDeclaration(child);
+                    if (found) return found;
+                }
+            } else if (value && typeof value === 'object') {
+                const found = findDeclaration(value);
+                if (found) return found;
+            }
+        }
+        return null;
+    }
+    const declaration = findDeclaration(program);
     assert.ok(declaration, `Missing function: ${functionName}`);
     return source.slice(declaration.body.start + 1, declaration.body.end - 1);
 }

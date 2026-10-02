@@ -26,12 +26,11 @@ import {
 } from './modules/chat/chat-ui.js';
 import {
   maintainHistoryWindow,
-  sanitizeHistory,
-  appendFunctionExchange
+  sanitizeHistory
 } from './modules/chat/chat-history.js';
-import { advanceMutationLoopGuard, getMaxLoopStopMessage } from './modules/chat/mutation-loop-guard.js';
+import { runDocumentAgentLoop } from './modules/chat/document-agent-loop.js';
+import { createToolRegistry, getToolDeclarations } from './modules/chat/tool-registry.js';
 import { buildCanonicalContextText } from './modules/chat/canonical-context.js';
-import { appendRefreshedDocumentContext, isNoWriteStaleContextRefusal } from './modules/chat/refreshed-document-context.js';
 import { getModelProfile } from './modules/config/model-profiles.js';
 import {
   saveCheckpoint,
@@ -379,7 +378,6 @@ async function captureRefreshedDocumentContext(wordOperationSupportPromise) {
 }
 
 let chatHistory = [];
-let toolsExecutedInCurrentRequest = [];  // Track successful tool executions for recovery
 
 Office.onReady((info) => {
   const officeReadyMs = TASKPANE_STARTUP_PROFILE_ENABLED && typeof performance !== 'undefined'
@@ -1297,13 +1295,14 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
   hideAllRetryButtons();
 
   // Reset tool execution tracker for this request
-  toolsExecutedInCurrentRequest = [];
+  const requestRecords = [];
 
   // Sanitize history to remove any hanging function calls from interrupted sessions
   chatHistory = sanitizeHistory(chatHistory);
 
   // Set up abort controller for this request (allows user cancellation)
-  currentRequestController = new AbortController();
+  const requestController = new AbortController();
+  currentRequestController = requestController;
   const requestStartTime = Date.now();
 
   // Resolve the model profile up front so it is available in both the request
@@ -1422,6 +1421,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
 
     });
     // --- Check Document Size ---
+    if (currentRequestController !== requestController) return;
     const wordCount = docText.split(/\s+/).length;
     const estimatedTokens = Math.ceil(wordCount * DOCUMENT_LIMITS.TOKEN_MULTIPLIER);
 
@@ -1474,248 +1474,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
       chatHistory = maintainHistoryWindow(chatHistory, 10);
     }
 
-    // Define tools
-    const tools = [
-      {
-        function_declarations: [
-          {
-            name: "apply_redlines",
-            description: "Applies suggested edits to the document. Use this tool whenever the user asks to 'edit text', 'change text', 'modify', 'add', 'delete', 'reword', 'rephrase', 'update', 'bold', 'italicize', 'underline', 'strikethrough', remove such formatting (e.g. 'unbold'), convert text into a table, or apply inline TEXT FORMATTING to existing paragraphs.\n\nIMPORTANT - FORMATTING RULES:\n- Bold: **text**\n- Italic: *text*\n- Underline: ++text++\n- Strikethrough: ~~text~~\n\nIMPORTANT - LIST RULES:\n- Use Markdown syntax for lists. \n- For Bullet Lists: Use '* item'. For nested items, indent with 4 spaces (e.g., '    * sub-item').\n- For Numbered Lists: Use '1. item', 'a. item', 'i. item', etc. explicitly. \n- For Nested Numbering: Use '1.1.', '1.1.1.' styles if appropriate. \n- DO NOT use simple hyphens ('-') if you intend to create a structured or numbered list. \n- INDENTATION is critical for sub-levels. Use 2 or 4 spaces.\n\nIMPORTANT - TABLE RULES:\n- Use apply_redlines for converting normal paragraphs into a new table.\n- In the instruction, explicitly identify the full paragraph range to replace (for example: 'Replace P4 through P6 with a two-column markdown table').\n- Require a complete multiline GitHub Markdown table with a header row, separator row, and data row(s).\n- NEVER ask for a single pipe-delimited line like 'A|B|C'; that is plain text, not a Word table.\n- Preserve multi-line source blocks by using additional table rows. Do not put HTML tags such as <br> inside markdown table cells.\n\nFor full list structure conversions (like turning multiple lines into A., B., C. or 1., 2., 3. list items), prefer the dedicated list tools.\n\nDo NOT suggest changes in the chat; always use this tool to apply them directly. The edits will be applied under track changes (redlines). NEVER say you have applied edits unless you have successfully called this tool.",
-            parameters: {
-              type: "OBJECT",
-              properties: {
-                instruction: {
-                  type: "STRING",
-                  description: "The specific instruction for how to edit the document (e.g., 'Change Lessor to Landlord', 'Fix spelling', 'Reword the introduction'). For text-to-table conversions, include the exact source paragraph range and the complete multiline markdown table to insert; do not give only a vague instruction like 'turn these into a table'.",
-                },
-              },
-              required: ["instruction"],
-            },
-          },
-          {
-            name: "insert_comment",
-            description: "Inserts comments into the document based on the user's instruction. Use this tool to flag risks, add notes, or review specific sections. NEVER say you have inserted comments unless you have successfully called this tool.",
-            parameters: {
-              type: "OBJECT",
-              properties: {
-                instruction: {
-                  type: "STRING",
-                  description: "The instruction for what to comment on and what to say (e.g., 'Flag all risky clauses', 'Comment on the first paragraph').",
-                },
-              },
-              required: ["instruction"],
-            },
-          },
-          {
-            name: "highlight_text",
-            description: "Highlights text with a colored background marker (like a highlighter pen). ONLY use this tool when the user EXPLICITLY asks to 'highlight' text. Do NOT use this for formatting requests like 'bold', 'italicize', or general emphasis - those should use apply_redlines with markdown syntax instead. Use this tool ONLY for explicit highlight requests like 'highlight all dates in yellow' or 'mark these terms with highlighting'. NEVER say you have highlighted text unless you have successfully called this tool.",
-            parameters: {
-              type: "OBJECT",
-              properties: {
-                instruction: {
-                  type: "STRING",
-                  description: "The instruction for what to highlight (e.g., 'Highlight all dates', 'Mark placeholders').",
-                },
-                color: {
-                  type: "STRING",
-                  enum: ["yellow", "green", "cyan", "magenta", "blue", "red", "darkBlue", "darkCyan", "darkGreen", "darkMagenta", "darkRed", "darkYellow", "gray25", "gray50", "black", "white"],
-                  description: "Optional: highlight color. Default is 'yellow'. Options include: yellow, green, cyan, magenta, blue, red, and dark variants.",
-                },
-              },
-              required: ["instruction"],
-            },
-          },
-          {
-            name: "perform_research",
-            description: "Performs a Google Search to answer questions that require external knowledge, facts, or up-to-date information. Use this when the user asks for information not in the document.",
-            parameters: {
-              type: "OBJECT",
-              properties: {
-                instruction: {
-                  type: "STRING",
-                  description: "The search query to send to Google.",
-                },
-              },
-              required: ["instruction"],
-            },
-          },
-          {
-            name: "navigate_to_section",
-            description: "Navigates to and selects a specific section of the document. Use this when the user asks to go to, scroll to, find, or jump to a particular part of the document (e.g., 'go to the introduction', 'scroll to paragraph 5', 'find the signature block', 'show me the definitions section'). This helps users quickly locate relevant content without manually scrolling.",
-            parameters: {
-              type: "OBJECT",
-              properties: {
-                instruction: {
-                  type: "STRING",
-                  description: "The navigation instruction describing what section to go to (e.g., 'go to paragraph 3', 'find the table of contents', 'scroll to the conclusion', 'show me where parties are defined').",
-                },
-              },
-              required: ["instruction"],
-            },
-          },
-          {
-            name: "edit_list",
-            description: "Edit an entire list as a unit. Use this when you need to modify, add, or remove items from a bulleted or numbered list. This preserves list formatting and structure better than apply_redlines. Look for paragraphs with |ListNumber or |ListBullet in the context. For numbered lists, you can specify different numbering styles: '1, 2, 3' (decimal - default), 'a, b, c' (lowerAlpha), 'A, B, C' (upperAlpha), 'i, ii, iii' (lowerRoman), or 'I, II, III' (upperRoman). NEVER say you have edited a list unless you have successfully called this tool.",
-            parameters: {
-              type: "OBJECT",
-              properties: {
-                startParagraphIndex: {
-                  type: "INTEGER",
-                  description: "The paragraph index of the FIRST item in the list (e.g., 3 for [P3])",
-                },
-                endParagraphIndex: {
-                  type: "INTEGER",
-                  description: "The paragraph index of the LAST item in the list",
-                },
-                newItems: {
-                  type: "ARRAY",
-                  items: { type: "STRING" },
-                  description: "The new list items in order. Each string is one list item text (without bullets/numbers).",
-                },
-                listType: {
-                  type: "STRING",
-                  enum: ["bullet", "numbered"],
-                  description: "The type of list to create",
-                },
-                numberingStyle: {
-                  type: "STRING",
-                  enum: ["decimal", "lowerAlpha", "upperAlpha", "lowerRoman", "upperRoman"],
-                  description: "Optional: For numbered lists, the numbering style to use. Default is 'decimal' (1, 2, 3). Options: 'decimal' (1, 2, 3), 'lowerAlpha' (a, b, c), 'upperAlpha' (A, B, C), 'lowerRoman' (i, ii, iii), 'upperRoman' (I, II, III).",
-                },
-              },
-              required: ["startParagraphIndex", "endParagraphIndex", "newItems", "listType"],
-            },
-          },
-          {
-            name: "insert_list_item",
-            description: "Insert a single list item after a specific paragraph. Use this for surgical additions to an existing list - it inherits the numbering format from the paragraph you insert after. Much better than edit_list when you only need to add one or two items. Do NOT include numbering markers in the text - Word will add them automatically.",
-            parameters: {
-              type: "OBJECT",
-              properties: {
-                afterParagraphIndex: {
-                  type: "INTEGER",
-                  description: "The paragraph index to insert after (e.g., 5 to insert after [P5])",
-                },
-                text: {
-                  type: "STRING",
-                  description: "The text content of the new list item (WITHOUT any numbering like '1.' or '1.1.' - Word adds these automatically)",
-                },
-                indentLevel: {
-                  type: "INTEGER",
-                  description: "Optional: Relative indentation from the paragraph you're inserting after. Allowed values: -1 (one level shallower), 0 (same level, default), 1 (one level deeper). Values outside -1..1 are treated as invalid and clamped.",
-                },
-              },
-              required: ["afterParagraphIndex", "text"],
-            },
-          },
-          {
-            name: "edit_table",
-            description: "Edit content or add/remove rows in an existing table. Look for paragraphs with |T:row,col in the context. NEVER say you have edited a table unless you have successfully called this tool.",
-            parameters: {
-              type: "OBJECT",
-              properties: {
-                paragraphIndex: {
-                  type: "INTEGER",
-                  description: "Any paragraph index that is part of the table (has T:row,col marker)",
-                },
-                action: {
-                  type: "STRING",
-                  enum: ["replace_content", "add_row", "delete_row", "update_cell"],
-                  description: "The table operation to perform",
-                },
-                content: {
-                  type: "ARRAY",
-                  items: { type: "ARRAY", items: { type: "STRING" } },
-                  description: "For replace_content: rows of cell strings [[row1cells], [row2cells]]. For add_row: exactly one row [[cell1, cell2]]. For update_cell: exactly one cell [[new text]]. Omit for delete_row.",
-                },
-                targetRow: {
-                  type: "INTEGER",
-                  description: "For delete_row/update_cell: the 0-based row index. add_row appends at the end.",
-                },
-                targetColumn: {
-                  type: "INTEGER",
-                  description: "For update_cell: the 0-based column index",
-                },
-              },
-              required: ["paragraphIndex", "action"],
-            },
-          },
-          {
-            name: "edit_section",
-            description: "Edit a document section as a unit. Use this for legal contracts where numbered/lettered items serve as section headers (marked with §) followed by body text (marked with §N). This preserves the section structure and list numbering. NEVER say you have edited a section unless you have successfully called this tool.",
-            parameters: {
-              type: "OBJECT",
-              properties: {
-                sectionHeaderIndex: {
-                  type: "INTEGER",
-                  description: "The paragraph index of the section header (the list item marked with §, e.g., '1. Definitions')",
-                },
-                newHeaderText: {
-                  type: "STRING",
-                  description: "Optional: new text for the section header. The list number/letter is automatically preserved.",
-                },
-                newBodyParagraphs: {
-                  type: "ARRAY",
-                  items: { type: "STRING" },
-                  description: "Optional: new body paragraphs for this section. Each string becomes one paragraph. Omit to keep existing body.",
-                },
-                preserveSubsections: {
-                  type: "BOOLEAN",
-                  description: "If true, only edits body text until the next subsection. If false or omitted, replaces entire section including subsections.",
-                },
-              },
-              required: ["sectionHeaderIndex"],
-            },
-          },
-          {
-            name: "convert_headers_to_list",
-            description: "Convert non-contiguous headers to a numbered list. Use this when headers like '1. PURPOSE', '2. DEFINITION', '3. EXCLUSIONS' have body text between them and need to be converted to a proper auto-numbered list. The tool strips manual numbering and creates a Word list where all headers share continuous numbering. Supports different formats: 1,2,3 or a,b,c or i,ii,iii. NEVER say you have converted headers unless you have successfully called this tool.",
-            parameters: {
-              type: "OBJECT",
-              properties: {
-                paragraphIndices: {
-                  type: "ARRAY",
-                  items: { type: "INTEGER" },
-                  description: "Array of 1-based paragraph indices of the headers to convert (e.g., [3, 7, 15] for headers at P3, P7, P15)",
-                },
-                newHeaderTexts: {
-                  type: "ARRAY",
-                  items: { type: "STRING" },
-                  description: "Optional: new text for each header (without numbers). If omitted, existing text is used with manual numbers stripped.",
-                },
-                numberingFormat: {
-                  type: "STRING",
-                  enum: ["arabic", "lowerLetter", "upperLetter", "lowerRoman", "upperRoman"],
-                  description: "Optional: numbering format. 'arabic' = 1,2,3 (default), 'lowerLetter' = a,b,c, 'upperLetter' = A,B,C, 'lowerRoman' = i,ii,iii, 'upperRoman' = I,II,III",
-                },
-              },
-              required: ["paragraphIndices"],
-            },
-          },
-          {
-            name: "get_selection_stats",
-            description: "Calculates the exact word count and character count (stripping out all formatting like markdown, internal tags, and HTML) of a selection, text snippet, or specified paragraph range. Use this tool whenever the user asks for word count, character count, or document statistics.",
-            parameters: {
-              type: "OBJECT",
-              properties: {
-                text: {
-                  type: "STRING",
-                  description: "Optional: The text string to count. If user provided a specific quote or text, pass it here.",
-                },
-                startParagraphIndex: {
-                  type: "INTEGER",
-                  description: "Optional: The starting 1-based paragraph index (e.g., 1 for [P1])",
-                },
-                endParagraphIndex: {
-                  type: "INTEGER",
-                  description: "Optional: The ending 1-based paragraph index (e.g., 3 for [P3])",
-                },
-              },
-            },
-          },
-        ],
-      },
-    ];
+    const tools = getToolDeclarations();
 
     const systemInstruction = {
       parts: [
@@ -1774,832 +1533,72 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
       ],
     };
 
-    // Bounded tool loop; provider retries never reset mutation history.
-    let loopCount = 0;
-    let keepLooping = true;
-    let consecutiveNoProgressToolLoops = 0;
-    let lastNoProgressSignature = "";
-    let staleContextRefreshUsed = false;
-
-    while (keepLooping && loopCount < DOCUMENT_LIMITS.MAX_LOOPS) {
-      loopCount++;
-      console.log(`Starting chat loop iteration ${loopCount}`);
-
-      // Check for user cancellation
-      if (currentRequestController && currentRequestController.signal.aborted) {
-        console.log('Request cancelled by user during loop');
-        removeMessage(loadingMsg);
-        addMessageToChat("System", "Request cancelled.");
-        keepLooping = false;
-        break;
-      }
-
-      // Check for overall timeout
-      const elapsedTime = Date.now() - requestStartTime;
-      if (elapsedTime > TIMEOUT_LIMITS.TOTAL_REQUEST_TIMEOUT_MS) {
-        console.warn(`Overall request timeout exceeded: ${elapsedTime}ms`);
-        removeMessage(loadingMsg);
-
-        // Only suggest reverting to 2.5 for models flagged as preview/throttled.
-        const throttleWarning = modelProfile.previewThrottleWarning
-          ? "\n\nThis model is in preview and your access has likely been throttled. Please go into settings and revert to Gemini 2.5."
-          : "";
-
-        // If some tools executed successfully, show partial success
-        if (toolsExecutedInCurrentRequest.length > 0) {
-          const successMessage = generateSuccessMessage(toolsExecutedInCurrentRequest);
-
-          if (successMessage) {
-            addMessageToChat("System", successMessage + "\n\n*(Request timed out after completing some changes)*" + throttleWarning);
-          } else {
-            addMessageToChat("Error", "Request timed out. Some changes may have been applied." + throttleWarning);
-          }
-        } else {
-          // Specific message for throttle/timeout
-          addMessageToChat("Error", "The request timed out." + (throttleWarning || " Please try again."));
-
-          // Discard the timed out request from history to allow user to continue clean
-          // Remove the last user message we added for this request
-          // (The one pushed at `chatHistory.push({ role: "user", parts: [{ text: prompt }] });`)
-          // We only remove it if we haven't successfully done tools that we want to keep context for.
-          if (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === "user") {
-            console.log("Discarding timed out request from history");
-            chatHistory.pop();
-          }
-        }
-        keepLooping = false;
-        break;
-      }
-
-      // Prepare payload with current history. maxOutputTokens comes from the
-      // model profile (defaults preserve the previous API_LIMITS value). The chat
-      // loop intentionally does NOT set a temperature, matching prior behavior.
-      const payload = {
-        contents: chatHistory,
-        systemInstruction: systemInstruction,
-        tools: tools,
-        safetySettings: SAFETY_SETTINGS_BLOCK_NONE,
-        generationConfig: {
-          maxOutputTokens: modelProfile.maxOutputTokens
+    // The portable loop owns exchanges and stop decisions; this adapter owns UI/Word I/O.
+    const loopState = { history: chatHistory, docText, docSourceBaseline, records: requestRecords };
+    try {
+      await runDocumentAgentLoop({
+        state: loopState,
+        registry: createToolRegistry(),
+        loadRegistry: async () => {
+          const toolsModule = await loadAgenticTools();
+          return createToolRegistry(toolsModule.createAgenticTools({
+            ...agenticToolDependencies, getRequestSignal: () => requestController.signal,
+          }));
         },
-      };
-
-
-      let result;
-      try {
-        result = await callGeminiWithRetry(apiUrl, payload, modelProfile.retries);
-      } catch (apiError) {
-        console.error(`API Error on iteration ${loopCount}:`, apiError);
-
-        if (toolsExecutedInCurrentRequest.length > 0) {
-          console.warn("Stopping loop due to API error after successful tool execution.");
-          const successMessage = generateSuccessMessage(toolsExecutedInCurrentRequest);
-          if (successMessage) {
-            if (loadingMsg) {
-              updateSystemMessage(loadingMsg, successMessage + "\n\n*(Conversation refreshed)*");
+        requestModel: history => callGeminiWithRetry(apiUrl, {
+          contents: history,
+          systemInstruction,
+          tools,
+          safetySettings: SAFETY_SETTINGS_BLOCK_NONE,
+          generationConfig: { maxOutputTokens: modelProfile.maxOutputTokens },
+        }, modelProfile.retries, 1000, requestController.signal),
+        refreshContext: () => captureRefreshedDocumentContext(wordOperationSupportPromise),
+        createCheckpoint,
+        signal: requestController.signal,
+        requestStartTime,
+        maxLoops: DOCUMENT_LIMITS.MAX_LOOPS,
+        maxNoProgressToolLoops: DOCUMENT_LIMITS.MAX_NO_PROGRESS_TOOL_LOOPS,
+        totalTimeoutMs: TIMEOUT_LIMITS.TOTAL_REQUEST_TIMEOUT_MS,
+        onEvent(event) {
+          if (currentRequestController !== requestController) return;
+          if (event.type === 'turn_start') {
+            console.log(`Starting chat loop iteration ${event.turn}`);
+          } else if (event.type === 'call_recovered') {
+            console.log('Recovered malformed tool call:', event.name);
+          } else if (event.type === 'tool_start') {
+            updateSystemMessage(loadingMsg, event.progressText);
+          } else if (event.type === 'tool_end') {
+            if (event.display.show) {
+              updateSystemMessage(loadingMsg, event.completionText,
+                event.completionWithCheckpoint ? event.checkpointIndex : undefined);
+            }
+            const messages = document.getElementById('chat-messages');
+            if (loadingMsg && messages) messages.appendChild(loadingMsg);
+          } else if (event.type === 'response') {
+            if (requestRecords.length === 0) removeMessage(loadingMsg);
+            addMessageToChat('Gemini', event.text);
+          } else if (event.type === 'stop') {
+            if (event.reason === 'cancelled') {
+              removeMessage(loadingMsg);
+              addMessageToChat('System', event.message);
             } else {
-              addMessageToChat("System", successMessage + "\n\n*(Conversation refreshed)*");
+              const throttleWarning = event.reason === 'timeout' && modelProfile.previewThrottleWarning
+                ? '\n\nThis model is in preview and your access has likely been throttled. Please go into settings and revert to Gemini 2.5.'
+                : '';
+              updateSystemMessage(loadingMsg, event.message + throttleWarning);
             }
-            chatHistory = [];
+          } else if (event.type === 'mutation_failure') {
+            console.warn(`[LoopGuard] No-progress mutation loop ${event.failures}/${DOCUMENT_LIMITS.MAX_NO_PROGRESS_TOOL_LOOPS}`);
           }
-          keepLooping = false;
-          break;
-        }
-
-        throw apiError;
-      }
-
-
-      if (!result.candidates || !Array.isArray(result.candidates) || result.candidates.length === 0) {
-        throw new Error("Gemini response contained no candidates.");
-      }
-
-      const candidate = result.candidates[0];
-      let parts = [];
-      let content = candidate.content;
-
-      if (content && content.parts && Array.isArray(content.parts)) {
-        parts = content.parts;
-      } else if (
-        (candidate.finishReason === "MALFORMED_FUNCTION_CALL" || candidate.finishReason === "UNEXPECTED_TOOL_CALL")
-        && (candidate.finishMessage || (candidate.content && candidate.content.parts))
-      ) {
-        console.warn(`Gemini returned ${candidate.finishReason}. Attempting to recover...`);
-
-        const toolNames = [
-          "apply_redlines",
-          "insert_comment",
-          "highlight_text",
-          "perform_research",
-          "navigate_to_section",
-          "edit_list",
-          "insert_list_item",
-          "edit_table",
-          "edit_section",
-          "convert_headers_to_list",
-          "get_selection_stats"
-        ];
-
-        const tryParseArgs = (rawArgs) => {
-          if (!rawArgs || typeof rawArgs !== "string") return null;
-          const trimmed = rawArgs.trim();
-          if (!trimmed) return {};
-
-          try {
-            return JSON.parse(trimmed);
-          } catch (_) {
-            // Fall through to tolerant parser.
-          }
-
-          try {
-            const normalized = trimmed
-              .replace(/^\(\s*/, "")
-              .replace(/\s*\)\s*$/, "")
-              .replace(/,\s*([}\]])/g, "$1")
-              .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:/g, '$1"$2":')
-              .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_, s) => `"${s.replace(/"/g, '\\"')}"`);
-            return JSON.parse(normalized);
-          } catch (_) {
-            return null;
-          }
-        };
-
-        const parseMalformedEditListArgs = (rawArgs) => {
-          if (!rawArgs || typeof rawArgs !== "string") return null;
-
-          const parseIntField = (fieldName) => {
-            const match = rawArgs.match(new RegExp(`${fieldName}\\s*:\\s*(\\d+)`, "i"));
-            return match ? parseInt(match[1], 10) : null;
-          };
-
-          const parseStringField = (fieldName) => {
-            const match = rawArgs.match(new RegExp(`${fieldName}\\s*:\\s*([^,}\\]]+)`, "i"));
-            return match ? String(match[1]).trim().replace(/^["']|["']$/g, "") : null;
-          };
-
-          const startParagraphIndex = parseIntField("startParagraphIndex");
-          const endParagraphIndex = parseIntField("endParagraphIndex");
-          const listTypeRaw = parseStringField("listType");
-          const numberingStyle = parseStringField("numberingStyle");
-
-          if (!startParagraphIndex || !endParagraphIndex) {
-            return null;
-          }
-
-          const listType = (listTypeRaw || "numbered").toLowerCase();
-          const normalizedListType = listType === "bullet" ? "bullet" : "numbered";
-
-          let newItems = [];
-          const itemsMatch = rawArgs.match(/newItems\s*:\s*\[([\s\S]*?)\](?=\s*,\s*[A-Za-z_][A-Za-z0-9_]*\s*:|\s*$)/i);
-          if (itemsMatch && itemsMatch[1]) {
-            const itemsRaw = itemsMatch[1]
-              .replace(/\r?\n/g, " ")
-              .replace(/\s+/g, " ")
-              .trim();
-
-            if (itemsRaw) {
-              // Common malformed pattern: unquoted sentence-like items separated by " , "
-              const sentenceSplit = itemsRaw
-                .split(/(?<=[.;!?])\s*,\s*(?=[A-Z0-9(“"'])/)
-                .map((s) => s.trim().replace(/^["']|["']$/g, ""))
-                .filter(Boolean);
-
-              if (sentenceSplit.length > 0) {
-                newItems = sentenceSplit;
-              } else {
-                // Fallback for simpler malformed arrays.
-                newItems = itemsRaw
-                  .split(/\s*,\s*/)
-                  .map((s) => s.trim().replace(/^["']|["']$/g, ""))
-                  .filter(Boolean);
-              }
-            }
-          }
-
-          const parsed = {
-            startParagraphIndex,
-            endParagraphIndex,
-            listType: normalizedListType
-          };
-
-          if (numberingStyle) {
-            parsed.numberingStyle = numberingStyle;
-          }
-
-          if (newItems.length > 0) {
-            parsed.newItems = newItems;
-          }
-
-          return parsed;
-        };
-
-        const parseMalformedConvertHeadersArgs = (rawArgs) => {
-          if (!rawArgs || typeof rawArgs !== "string") return null;
-          const indicesMatch = rawArgs.match(/paragraphIndices\s*:\s*\[([^\]]*)\]/i);
-          if (!indicesMatch || !indicesMatch[1]) {
-            return null;
-          }
-
-          const paragraphIndices = indicesMatch[1]
-            .split(/\s*,\s*/)
-            .map((v) => parseInt(v.trim(), 10))
-            .filter((v) => Number.isFinite(v));
-
-          if (paragraphIndices.length === 0) {
-            return null;
-          }
-
-          const numberingFormatMatch = rawArgs.match(/numberingFormat\s*:\s*([^,}\]]+)/i);
-          const numberingFormat = numberingFormatMatch
-            ? String(numberingFormatMatch[1]).trim().replace(/^["']|["']$/g, "")
-            : undefined;
-
-          return numberingFormat
-            ? { paragraphIndices, numberingFormat }
-            : { paragraphIndices };
-        };
-
-        let recoveredFunctionCall = null;
-        for (const toolName of toolNames) {
-          const regex = new RegExp(`${toolName}\\s*\\(?\\s*(\\{[\\s\\S]*?\\})\\s*\\)?`, "i");
-          const match = candidate.finishMessage.match(regex);
-          if (!match || !match[1]) {
-            continue;
-          }
-
-          let parsedArgs = tryParseArgs(match[1]);
-          if ((!parsedArgs || typeof parsedArgs !== "object" || Array.isArray(parsedArgs)) && toolName === "edit_list") {
-            parsedArgs = parseMalformedEditListArgs(match[1]);
-          }
-          if ((!parsedArgs || typeof parsedArgs !== "object" || Array.isArray(parsedArgs)) && toolName === "convert_headers_to_list") {
-            parsedArgs = parseMalformedConvertHeadersArgs(match[1]);
-          }
-          if (!parsedArgs || typeof parsedArgs !== "object" || Array.isArray(parsedArgs)) {
-            continue;
-          }
-
-          recoveredFunctionCall = {
-            name: toolName,
-            args: parsedArgs
-          };
-          break;
-        }
-
-        // Legacy fallback: recover redline instruction from raw malformed text.
-        if (!recoveredFunctionCall) {
-          const redlineMatch = candidate.finishMessage.match(/apply_redlines\s*\{\s*instruction\s*:\s*(.*)\s*\}/s);
-          if (redlineMatch && redlineMatch[1]) {
-            recoveredFunctionCall = {
-              name: "apply_redlines",
-              args: { instruction: redlineMatch[1].trim() }
-            };
-          }
-        }
-
-        if (recoveredFunctionCall) {
-          console.log("Recovered malformed tool call:", recoveredFunctionCall.name);
-          parts = [{ functionCall: recoveredFunctionCall }];
-          // Ensure content has the proper structure with role
-          if (!content || !content.role) {
-            content = { role: "model", parts: parts };
-          } else {
-            content.parts = parts;
-          }
-        }
-      }
-
-      if (parts.length === 0) {
-        // Handle empty STOP responses gracefully (silent success)
-        if (candidate.finishReason === "STOP") {
-          console.log("Gemini returned empty parts with finishReason: STOP. Treating as silent success.");
-          parts = [{ text: "Task completed successfully." }];
-        } else if (candidate.finishReason === "UNEXPECTED_TOOL_CALL" || candidate.finishReason === "MALFORMED_FUNCTION_CALL") {
-          // The model tried to call a tool but the call was malformed/unexpected
-          // and we couldn't recover it. Ask the model to retry without a tool call.
-          console.warn(`Gemini returned ${candidate.finishReason} with no recoverable data. Asking model to retry.`);
-          chatHistory.push({
-            role: "model",
-            parts: [{ text: `I encountered an issue trying to use a tool (${candidate.finishReason}). Let me try a different approach.` }]
-          });
-          chatHistory.push({
-            role: "user",
-            parts: [{ text: "Your previous tool call was malformed. Please try again — either rephrase the tool call with valid arguments, or respond with text only." }]
-          });
-          continue;
-        } else {
-          console.error("Gemini candidate missing content.parts.");
-
-          let diagnosticInfo = `Finish Reason: ${candidate.finishReason || 'NOT_FOUND'}`;
-
-          // Check for safety ratings that might have triggered an empty response
-          if (candidate.safetyRatings && Array.isArray(candidate.safetyRatings)) {
-            const highRatings = candidate.safetyRatings.filter(r => r.probability !== "NEGLIGIBLE");
-            if (highRatings.length > 0) {
-              diagnosticInfo += ` | Safety: ${highRatings.map(r => `${r.category}:${r.probability}`).join(', ')}`;
-            }
-          }
-
-          // Check for specific finish reasons like SAFETY or RECITATION
-          if (candidate.finishReason === "SAFETY") {
-            diagnosticInfo += " | Content blocked by safety filters.";
-          } else if (candidate.finishReason === "RECITATION") {
-            diagnosticInfo += " | Content blocked due to copyright/recitation filters.";
-          }
-
-          throw new Error(`Gemini response was missing content.parts. ${diagnosticInfo}`);
-        }
-      }
-
-
-      // --- Thought Signature Handling ---
-      // Check for thought/reasoning parts to potentially log or handle separately
-      const thinkingPart = parts.find(p => p.thought || p.thought_signature || p.thoughtSignature);
-      if (thinkingPart) {
-        console.log("Model reasoning part detected.");
-      }
-
-      // Check for ALL function calls in the response
-      const functionCallParts = parts.filter((part) => part.functionCall);
-
-      if (functionCallParts.length > 0) {
-        const agenticTools = await loadAgenticTools();
-        // If this is the first loop, remove the "Thinking..." message so we can show tool status
-        // Keep loading message visible during tool execution
-
-
-        // Execute ALL function calls and collect responses
-        const functionResponses = [];
-        const mutatingToolNames = new Set([
-          "apply_redlines",
-          "insert_comment",
-          "highlight_text",
-          "edit_list",
-          "insert_list_item",
-          "edit_table",
-          "edit_section",
-          "convert_headers_to_list"
-        ]);
-        let attemptedMutatingToolsThisLoop = 0;
-        let successfulMutatingToolsThisLoop = 0;
-        let confirmedMutationThisLoop = false;
-        let staleContextRefusedThisLoop = false;
-        const failedMutationSignatures = [];
-
-        for (const functionCallPart of functionCallParts) {
-          const functionCall = functionCallPart.functionCall;
-          const args = functionCall.args;
-          const instruction = args.instruction;
-
-          // Update loading message status
-          if (loadingMsg) {
-            const toolFriendlyNames = {
-              "apply_redlines": `Applying edits: "${instruction}"...`,
-              "insert_comment": `Inserting comments: "${instruction}"...`,
-              "highlight_text": `Highlighting text: "${instruction}"...`,
-              "perform_research": `Researching: "${instruction}"...`,
-              "navigate_to_section": `Navigating to: "${instruction}"...`,
-              "get_selection_stats": "Analyzing word & character count..."
-            };
-            const statusText = toolFriendlyNames[functionCall.name] || "Working...";
-            updateSystemMessage(loadingMsg, statusText);
-          }
-
-
-          let toolResult = "";
-          let toolSucceeded = false;
-          let toolMutation = null;
-
-          if (functionCall.name === "apply_redlines") {
-            const checkpointIndex = await createCheckpoint(true, functionCall.name);
-            const result = await agenticTools.executeRedline(instruction, docText, docSourceBaseline);
-            toolMutation = result;
-            toolResult = result.message;
-            toolSucceeded = result.written === true && result.status !== 'error';
-
-            // Track successful tool execution for recovery
-            toolsExecutedInCurrentRequest.push({
-              name: functionCall.name,
-              instruction: instruction,
-              result: toolResult,
-              success: toolSucceeded,
-              status: result.status,
-              error: result.error,
-              receipts: result.receipts,
-              written: result.written === true,
-              writeAttempted: result.writeAttempted === true,
-              mutationOutcome: result.mutationOutcome
-            });
-
-            // Only show to user if there were actual changes or a true error
-            if (result.showToUser) {
-              updateSystemMessage(loadingMsg, toolResult, checkpointIndex);
-            } else {
-              console.log('Redline tool completed without a confirmed write.');
-            }
-            if (result.mutationOutcome === 'indeterminate' || result.mutationOutcome === 'applied_with_host_error') {
-              // Stop this turn before another model request or queued tool can
-              // replay a write whose completion needs document inspection.
-              throw Object.assign(new Error(toolResult), { code: 'WORD_MUTATION_REQUIRES_INSPECTION' });
-            }
-
-          } else if (functionCall.name === "insert_comment") {
-            const checkpointIndex = await createCheckpoint(true, functionCall.name);
-            const result = await agenticTools.executeComment(instruction, docText);
-            toolMutation = result;
-            toolResult = result.message;
-            toolSucceeded = result.status !== 'error' && result.written === true;
-
-            // Track successful tool execution for recovery
-            toolsExecutedInCurrentRequest.push({
-              name: functionCall.name,
-              instruction: instruction,
-              result: toolResult,
-              success: result.showToUser
-            });
-
-            if (result.showToUser) {
-              updateSystemMessage(loadingMsg, toolResult, checkpointIndex);
-            } else {
-              console.log(`Fallback in progress (0 comments): ${toolResult}`);
-            }
-
-          } else if (functionCall.name === "highlight_text") {
-            const checkpointIndex = await createCheckpoint(true, functionCall.name);
-            const highlightColor = args.color || "yellow";
-            const result = await agenticTools.executeHighlight(instruction, docText, highlightColor);
-            toolMutation = result;
-            toolResult = result.message;
-            toolSucceeded = result.status !== 'error' && result.written === true;
-
-            // Track successful tool execution for recovery
-            toolsExecutedInCurrentRequest.push({
-              name: functionCall.name,
-              instruction: instruction,
-              result: toolResult,
-              success: result.showToUser
-            });
-
-            if (result.showToUser) {
-              updateSystemMessage(loadingMsg, toolResult, checkpointIndex);
-            } else {
-              console.log(`Fallback in progress (0 highlights): ${toolResult}`);
-            }
-
-          } else if (functionCall.name === "perform_research") {
-            updateSystemMessage(loadingMsg, `Researching: "${instruction}"...`);
-            toolResult = await agenticTools.executeResearch(instruction);
-            toolSucceeded = true;
-
-            // Track successful tool execution for recovery
-            toolsExecutedInCurrentRequest.push({
-              name: functionCall.name,
-              instruction: instruction,
-              result: toolResult,
-              success: true
-            });
-
-            updateSystemMessage(loadingMsg, `Found search results for: "${instruction}"`);
-          } else if (functionCall.name === "navigate_to_section") {
-            updateSystemMessage(loadingMsg, `Navigating to: "${instruction}"...`);
-            const result = await agenticTools.executeNavigate(instruction, docText);
-            toolResult = result.message;
-            toolSucceeded = result.success === true;
-
-            // Track successful tool execution for recovery
-            toolsExecutedInCurrentRequest.push({
-              name: functionCall.name,
-              instruction: instruction,
-              result,
-              success: toolSucceeded
-            });
-
-            updateSystemMessage(loadingMsg, toolSucceeded
-              ? `Navigated to: "${instruction}"`
-              : `Navigation failed: ${toolResult || 'No target selected.'}`);
-          } else if (functionCall.name === "edit_list") {
-            const checkpointIndex = await createCheckpoint(true, functionCall.name);
-            updateSystemMessage(loadingMsg, `Editing list from P${args.startParagraphIndex} to P${args.endParagraphIndex}...`);
-
-            const result = await agenticTools.executeEditList(
-              args.startParagraphIndex,
-              args.endParagraphIndex,
-              args.newItems,
-              args.listType,
-              args.numberingStyle
-            );
-            toolMutation = result;
-            toolResult = result.message;
-            toolSucceeded = !!result.success;
-
-            // Track successful tool execution
-            toolsExecutedInCurrentRequest.push({
-              name: functionCall.name,
-              instruction: `edit_list P${args.startParagraphIndex}-P${args.endParagraphIndex}`,
-              result: toolResult,
-              success: result.success
-            });
-
-            if (result.success) {
-              updateSystemMessage(loadingMsg, toolResult, checkpointIndex);
-            } else {
-              updateSystemMessage(loadingMsg, toolResult);
-            }
-          } else if (functionCall.name === "insert_list_item") {
-            const checkpointIndex = await createCheckpoint(true, functionCall.name);
-            updateSystemMessage(loadingMsg, `Inserting list item after P${args.afterParagraphIndex}...`);
-
-            const result = await agenticTools.executeInsertListItem(
-              args.afterParagraphIndex,
-              args.text,
-              args.indentLevel,
-              docSourceBaseline
-            );
-            toolMutation = result;
-            toolResult = result.message;
-            toolSucceeded = !!result.success;
-
-            // Track successful tool execution
-            toolsExecutedInCurrentRequest.push({
-              name: functionCall.name,
-              instruction: `insert_list_item after P${args.afterParagraphIndex}`,
-              result: toolResult,
-              success: result.success
-            });
-
-            if (result.success) {
-              updateSystemMessage(loadingMsg, toolResult, checkpointIndex);
-            } else {
-              updateSystemMessage(loadingMsg, toolResult);
-            }
-          } else if (functionCall.name === "edit_table") {
-            const checkpointIndex = await createCheckpoint(true, functionCall.name);
-            updateSystemMessage(loadingMsg, `Editing table (${args.action})...`);
-
-            const result = await agenticTools.executeEditTable(
-              args.paragraphIndex,
-              args.action,
-              args.content,
-              args.targetRow,
-              args.targetColumn
-            );
-            toolMutation = result;
-            toolResult = result.message;
-            toolSucceeded = !!result.success;
-
-            // Track successful tool execution
-            toolsExecutedInCurrentRequest.push({
-              name: functionCall.name,
-              instruction: `edit_table at P${args.paragraphIndex}: ${args.action}`,
-              result: toolResult,
-              success: result.success
-            });
-
-            if (result.success) {
-              updateSystemMessage(loadingMsg, toolResult, checkpointIndex);
-            } else {
-              updateSystemMessage(loadingMsg, toolResult);
-            }
-          } else if (functionCall.name === "edit_section") {
-            const checkpointIndex = await createCheckpoint(true, functionCall.name);
-            updateSystemMessage(loadingMsg, `Editing section at P${args.sectionHeaderIndex}...`);
-
-            const result = await agenticTools.executeEditSection(
-              args.sectionHeaderIndex,
-              args.newHeaderText,
-              args.newBodyParagraphs,
-              args.preserveSubsections
-            );
-            toolMutation = result;
-            toolResult = result.message;
-            toolSucceeded = !!result.success;
-
-            // Track successful tool execution
-            toolsExecutedInCurrentRequest.push({
-              name: functionCall.name,
-              instruction: `edit_section at P${args.sectionHeaderIndex}`,
-              result: toolResult,
-              success: result.success
-            });
-
-            if (result.success) {
-              updateSystemMessage(loadingMsg, toolResult, checkpointIndex);
-            } else {
-              updateSystemMessage(loadingMsg, toolResult);
-            }
-          } else if (functionCall.name === "convert_headers_to_list") {
-            const checkpointIndex = await createCheckpoint(true, functionCall.name);
-            updateSystemMessage(loadingMsg, `Converting ${args.paragraphIndices?.length || 0} headers to numbered list...`);
-
-            const result = await agenticTools.executeConvertHeadersToList(
-              args.paragraphIndices,
-              args.newHeaderTexts,
-              args.numberingFormat
-            );
-            toolMutation = result;
-            toolResult = result.message;
-            toolSucceeded = !!result.success;
-
-            // Track successful tool execution
-            toolsExecutedInCurrentRequest.push({
-              name: functionCall.name,
-              instruction: `convert_headers_to_list: ${args.paragraphIndices?.join(', ')}`,
-              result: toolResult,
-              success: result.success
-            });
-
-            if (result.success) {
-              updateSystemMessage(loadingMsg, toolResult, checkpointIndex);
-            } else {
-              updateSystemMessage(loadingMsg, toolResult);
-            }
-          } else if (functionCall.name === "get_selection_stats") {
-            updateSystemMessage(loadingMsg, "Analyzing word & character count...");
-            const result = await agenticTools.executeGetSelectionStats(args, docText);
-            toolMutation = result;
-            toolResult = result.message;
-            toolSucceeded = !!result.success;
-
-            // Track tool execution
-            toolsExecutedInCurrentRequest.push({
-              name: functionCall.name,
-              instruction: args.text ? `count text: "${args.text.substring(0, 30)}..."` : `count paragraphs: P${args.startParagraphIndex || 1}`,
-              result: toolResult,
-              success: result.success
-            });
-
-            updateSystemMessage(loadingMsg, result.success ? "Calculated statistics." : toolResult);
-          }
-
-          const isMutatingTool = mutatingToolNames.has(functionCall.name);
-          if (isMutatingTool) {
-            if (toolMutation) {
-              confirmedMutationThisLoop = confirmedMutationThisLoop || toolMutation.written === true;
-              staleContextRefusedThisLoop = staleContextRefusedThisLoop || isNoWriteStaleContextRefusal(toolMutation);
-              const record = toolsExecutedInCurrentRequest[toolsExecutedInCurrentRequest.length - 1];
-              Object.assign(record, {
-                status: toolMutation.status, error: toolMutation.error,
-                receipts: toolMutation.receipts, operationResults: toolMutation.operationResults,
-                written: toolMutation.written === true, writeAttempted: toolMutation.writeAttempted === true,
-                mutationOutcome: toolMutation.mutationOutcome
-              });
-              if (['indeterminate', 'partial', 'applied_with_host_error'].includes(toolMutation.mutationOutcome)) {
-                throw Object.assign(new Error(`${toolResult} Inspect the document before editing again; do not replay this operation.`),
-                  { code: 'WORD_MUTATION_REQUIRES_INSPECTION' });
-              }
-            }
-            attemptedMutatingToolsThisLoop++;
-            if (toolSucceeded) {
-              successfulMutatingToolsThisLoop++;
-            } else {
-              let argsSignature = "";
-              try {
-                argsSignature = JSON.stringify(args || {});
-              } catch (_) {
-                argsSignature = "[unserializable-args]";
-              }
-              failedMutationSignatures.push(`${functionCall.name}|${argsSignature}|${toolResult || ""}`);
-            }
-          }
-
-          // Move loading message to bottom after tool output
-          if (loadingMsg) {
-            const chatMessages = document.getElementById("chat-messages");
-            if (chatMessages) chatMessages.appendChild(loadingMsg);
-          }
-
-          // Collect this function response
-
-          // Shape this exactly as Gemini expects:
-          // functionResponse: {
-          //   name: "tool_name",
-          //   response: {
-          //     name: "tool_name",
-          //     content: [ { text: "..." } ]
-          //   }
-          // }
-          functionResponses.push({
-            functionResponse: {
-              name: functionCall.name,
-              response: {
-                name: functionCall.name,
-                content: [
-                  {
-                    text: toolResult || ""
-                  }
-                ]
-              }
-            }
-          });
-        }
-
-        // The tool arguments in this model turn all refer to the same original
-        // context, so refresh once after the full exchange rather than between
-        // queued calls. The next model turn receives both the new paragraph text
-        // and the baseline used to guard its edits against outside changes.
-        const refreshAfterStaleRefusal = staleContextRefusedThisLoop && !staleContextRefreshUsed;
-        if (confirmedMutationThisLoop || refreshAfterStaleRefusal) {
-          try {
-            const refreshedContext = await captureRefreshedDocumentContext(wordOperationSupportPromise);
-            docText = refreshedContext.formattedText;
-            docSourceBaseline = refreshedContext.sourceBaseline;
-            if (refreshAfterStaleRefusal) staleContextRefreshUsed = true;
-            appendRefreshedDocumentContext(functionResponses, docText,
-              refreshAfterStaleRefusal
-                ? (confirmedMutationThisLoop ? 'mixed' : 'stale-refusal')
-                : 'confirmed-write');
-          } catch (error) {
-            console.error('Document context refresh failed:', error?.code || error?.name);
-            chatHistory = [];
-            updateSystemMessage(loadingMsg,
-              confirmedMutationThisLoop
-                ? 'A document edit was confirmed, but I could not refresh the document context. Inspect the current document before retrying; I stopped before another model turn.'
-                : 'The edit was refused because its source context was stale, and I could not refresh the document context. I stopped before another model turn; restart the request after inspecting the document.');
-            keepLooping = false;
-            break;
-          }
-        }
-
-        // NOW add both the model's function call and the responses to history
-        // together, validating the pair atomically so a mismatched exchange can
-        // never enter history (the condition the tier recovery ladder cleans up
-        // after the fact). On mismatch this throws to the outer catch.
-        appendFunctionExchange(
-          chatHistory,
-          { role: "model", parts: parts },
-          { role: "user", parts: functionResponses }
-        );
-
-        const noProgressState = advanceMutationLoopGuard(
-          { consecutiveNoProgressToolLoops, lastNoProgressSignature },
-          {
-            attemptedMutatingTools: attemptedMutatingToolsThisLoop,
-            successfulMutatingTools: successfulMutatingToolsThisLoop,
-            signature: failedMutationSignatures.join("||").slice(0, 2000),
-            maxNoProgressToolLoops: DOCUMENT_LIMITS.MAX_NO_PROGRESS_TOOL_LOOPS
-          }
-        );
-        consecutiveNoProgressToolLoops = noProgressState.state.consecutiveNoProgressToolLoops;
-        lastNoProgressSignature = noProgressState.state.lastNoProgressSignature;
-
-        if (noProgressState.countedFailure) {
-          console.warn(
-            `[LoopGuard] No-progress mutation loop ${consecutiveNoProgressToolLoops}/${DOCUMENT_LIMITS.MAX_NO_PROGRESS_TOOL_LOOPS}`
-              + (noProgressState.signatureChanged ? " (signature changed)" : "")
-          );
-
-          if (noProgressState.shouldStop) {
-            const loopGuardMessage = "Stopped to prevent a retry loop: repeated document edit attempts are failing with no applied changes.";
-            if (loadingMsg) {
-              updateSystemMessage(loadingMsg, loopGuardMessage);
-            } else {
-              addMessageToChat("System", loopGuardMessage);
-            }
-            // Reset conversation history to avoid carrying forward orphaned
-            // function-call/function-response turns into the next request.
-            chatHistory = [];
-            keepLooping = false;
-            break;
-          }
-        } else if (noProgressState.reset) {
-          console.log('[LoopGuard] Reset no-progress mutation counter after a confirmed document write.');
-        }
-
-      } else {
-        // Normal text response - this ends the loop
-        // Robustly find the text part, skipping thought/thinking parts for the UI
-        const textPart = parts.find(p => p.text && !p.thought);
-        const aiResponse = textPart ? textPart.text : "Response generated (see document for changes).";
-
-        // Add model response to history with proper structure
-        chatHistory.push({
-          role: "model",
-          parts: parts
-        });
-
-        if (toolsExecutedInCurrentRequest.length === 0) {
-          removeMessage(loadingMsg);
-        }
-        addMessageToChat("Gemini", aiResponse);
-        keepLooping = false;
-      }
-    }
-
-    const maxLoopStopMessage = getMaxLoopStopMessage({
-      keepLooping,
-      loopCount,
-      maxLoops: DOCUMENT_LIMITS.MAX_LOOPS,
-      confirmedWrites: toolsExecutedInCurrentRequest.some(tool => tool.written === true)
-    });
-    if (maxLoopStopMessage) {
-      updateSystemMessage(loadingMsg, maxLoopStopMessage);
-    }
-
-    // Maintain rolling window - but ensure we don't break function call/response pairs
-    if (chatHistory.length > 10) {
-      chatHistory = maintainHistoryWindow(chatHistory, 10);
+        },
+      });
+    } finally {
+      // Preserve actual outcomes even when the provider or an injected dependency throws.
+      if (currentRequestController === requestController) chatHistory = loopState.history;
     }
 
   } catch (error) {
+    if (currentRequestController !== requestController) return;
     console.error("Error calling Gemini API:", error);
 
     // Handle user cancellation specifically
@@ -2608,7 +1607,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
       addMessageToChat("System", "Request cancelled.");
     } else {
       // Only remove loadingMsg if no tools were executed (meaning it's still a "Thinking" message)
-      if (toolsExecutedInCurrentRequest.length === 0) {
+      if (requestRecords.length === 0) {
         removeMessage(loadingMsg);
 
         // Cleanup history for failed requests (timeout or error)
@@ -2636,21 +1635,21 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
       }
     }
   } finally {
-    // Clear the global abort controller
-    currentRequestController = null;
-
-    // Unlock UI
-    chatInput.disabled = false;
-    sendButton.disabled = false;
-    if (thinkButton) thinkButton.disabled = false;
-    chatInput.focus();
+    // A refreshed/superseded request cannot overwrite the next request's UI.
+    if (currentRequestController === requestController) {
+      currentRequestController = null;
+      chatInput.disabled = false;
+      sendButton.disabled = false;
+      if (thinkButton) thinkButton.disabled = false;
+      chatInput.focus();
+    }
   }
 }
 
 // Retries provider transport only. Tool execution remains in the caller.
-async function callGeminiWithRetry(url, payload, retries = 3, backoff = 1000) {
+async function callGeminiWithRetry(url, payload, retries = 3, backoff = 1000, signal = currentRequestController?.signal) {
   return requestGeminiJson(url, payload, {
-    signal: currentRequestController?.signal,
+    signal,
     timeoutMs: TIMEOUT_LIMITS.FETCH_TIMEOUT_MS,
     maxAttempts: retries,
     backoffMs: backoff,

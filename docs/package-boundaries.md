@@ -5,6 +5,7 @@ inspection, OOXML edits, revision resolution and package serialization.
 
 | Surface | Responsibility | Host dependencies |
 | --- | --- | --- |
+| `document-agent-loop.js` / `tool-registry.js` | Provider/tool exchanges, stop budgets, schema validation, executor mapping and progress events | Injected provider, context, checkpoint and UI callbacks; no Word/DOM globals |
 | `consumer-core.js` | Immutable-source mapping, validation, operation preparation and result handling | Library and its XML adapter; no Word, UI or filesystem |
 | `word-operation-runner.js` / `word-redline-runner.js` | Read live scopes, manage tracking, write prepared Flat OPC and report confirmed host outcomes | Word request context |
 | Browser document session | Open/inspect, atomic batch mutation, serialize complete DOCX | Public document facade; bytes supplied by caller |
@@ -49,8 +50,9 @@ after host synchronization. Browser/MCP document mutation happens in memory;
 download or filesystem save is a separate action.
 
 Word uses range/body Flat OPC transport. Browser and MCP use complete DOCX
-document sessions. Whole-document Word binary insertion remains a deferred
-transport option, without certification from this plan.
+document sessions. The owner rejected a whole-document Word binary/facade
+upgrade in the [reliability plan](plans/2026-10-02-library-first-lightweight-agent-reliability.md);
+the selected Word route remains Flat OPC transport.
 
 The browser preview retains JSZip because `docx-preview` requires it. Editing
 does not use JSZip to rebuild packages. The no-build page uses the library's

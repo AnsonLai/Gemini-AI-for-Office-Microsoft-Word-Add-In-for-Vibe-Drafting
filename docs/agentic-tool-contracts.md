@@ -1,6 +1,6 @@
 # Agentic Tool Contracts (Current Consumer)
 
-This inventory records the tool declarations and execution paths currently wired in `src/taskpane/taskpane.js` and `src/taskpane/modules/commands/agentic-tools.js`. The library contract references are from the installed and locked `@ansonlai/docx-redline-js@0.8.4` package. This is a description of the current consumer; it does not imply that every tool already submits a canonical operation.
+This inventory records the tool declarations and execution paths wired through `src/taskpane/taskpane.js`. The authoritative schemas and executor mappings now live in `src/taskpane/modules/chat/tool-registry.js`; `document-agent-loop.js` owns provider/tool exchanges with injected host/UI dependencies. Editing implementations remain in `src/taskpane/modules/commands/agentic-tools.js`. WP1 preserves all 11 declarations and the current edit behavior. The library contract references are from the installed and locked `@ansonlai/docx-redline-js@0.8.4` package. This is a description of the current consumer; it does not imply that every tool already submits a canonical operation.
 
 The engine extraction predates the four August 29 plans. The later redline
 batch migration delegates `apply_redlines` to one atomic library batch, removing

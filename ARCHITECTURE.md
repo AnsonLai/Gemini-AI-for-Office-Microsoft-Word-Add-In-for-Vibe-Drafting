@@ -111,6 +111,20 @@ and [Reject All paragraph report](docs/library-issues/2026-10-01-word-reject-tab
 
 ## Taskpane startup and tool dispatch
 
+`document-agent-loop.js` owns the serial provider/tool exchanges, paired
+history, context refresh decisions, and stop budgets. It imports no Word or
+DOM APIs; `sendChatMessage` injects provider requests, source refresh,
+checkpoints, lazy executor loading, and UI lifecycle handling.
+`tool-registry.js` is the authoritative declaration/validation/dispatch and
+progress metadata source for the existing 11 tools. Malformed-call recovery
+uses its derived names. This extraction preserves the current edit executors
+through `createAgenticTools(deps)` instances whose signal getter belongs to the
+request. Identity guards prevent a cleared/superseded request from restoring
+history or changing the next request's UI/controller. Legacy module exports
+remain a default-instance compatibility surface.
+The tool protocol is unchanged; direct batches and native-route retirement remain later
+work in the [reliability plan](docs/plans/2026-10-02-library-first-lightweight-agent-reliability.md).
+
 `taskpane.js` uses `createLazyModuleLoader` for editing support. The Word
 operation module and reconciliation package load on first use, rather than in
 the initial entry graph. A concurrent first request shares the same pending
