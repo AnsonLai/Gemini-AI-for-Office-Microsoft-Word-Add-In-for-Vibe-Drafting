@@ -30,7 +30,7 @@ import {
 } from './modules/chat/chat-history.js';
 import { runDocumentAgentLoop } from './modules/chat/document-agent-loop.js';
 import { createToolRegistry, getToolDeclarations } from './modules/chat/tool-registry.js';
-import { buildCanonicalContextText } from './modules/chat/canonical-context.js';
+import { createWordDocumentSourceReader, formatCanonicalDocumentContext } from './modules/chat/word-document-source.js';
 import { getModelProfile } from './modules/config/model-profiles.js';
 import {
   saveCheckpoint,
@@ -170,211 +170,16 @@ const TIMEOUT_LIMITS = {
 
 // Global abort controller for cancelling requests
 let currentRequestController = null;
-/**
- * Extracts enhanced document context with rich formatting metadata.
- * Returns an object with enhanced paragraph notation and section mapping.
- * 
- * Format: [P#|Style|ListInfo|TableInfo|SectionInfo] Text
- * Examples:
- *   [P1|Normal] Regular paragraph
- *   [P2|Heading1] Chapter heading
- *   [P3|ListNumber|L1:0|§] 1. Section header (starts section 1)
- *   [P4|Normal|§1] Body text belonging to section 1
- *   [P5|Normal|T:1,2] Table cell at row 1, column 2
- */
-async function extractEnhancedDocumentContext(context) {
-  const body = context.document.body;
-  const paragraphs = body.paragraphs;
+// The document URL can change when Word reopens/switches documents. Fresh part
+// tokens remain authoritative for edits/Undo within this taskpane instance.
+const documentInstanceId = `${Date.now()}-${Math.random()}`;
+const getDocumentId = () => `${documentInstanceId}:${Office.context.document.url || ''}`;
+const sourceBaselineFrom = inspection => inspection.paragraphs.map(({ index, exactText, fingerprint, paragraphId, inTable }) =>
+  ({ index, exactText, fingerprint, paragraphId, inTable }));
 
-  // Load all relevant paragraph properties
-  paragraphs.load("items");
-  await context.sync();
-
-  // Load detailed properties for each paragraph
-  for (const para of paragraphs.items) {
-    para.load("text, style, listItemOrNullObject, parentTableOrNullObject, parentTableCellOrNullObject");
-  }
-  await context.sync();
-
-  // Load list details for paragraphs that are list items
-  for (const para of paragraphs.items) {
-    if (!para.listItemOrNullObject.isNullObject) {
-      para.listItemOrNullObject.load("level, listString");
-    }
-    if (!para.parentTableCellOrNullObject.isNullObject) {
-      para.parentTableCellOrNullObject.load("rowIndex, cellIndex");
-    }
-  }
-
-  await context.sync();
-
-  // Build enhanced paragraph data
-  const enhancedParagraphs = [];
-  let currentSection = null;      // Current section number (e.g., "1", "2")
-  let currentSubSection = null;   // Current subsection (e.g., "1.1", "2.3")
-  let sectionCounter = 0;         // Tracks top-level sections
-  let lastListLevel = -1;         // Tracks list nesting level
-  let sectionStack = [];          // Stack for tracking nested sections
-
-  for (let i = 0; i < paragraphs.items.length; i++) {
-    const para = paragraphs.items[i];
-    const text = para.text || "";
-    const style = para.style || "Normal";
-
-    // Build metadata parts
-    const metaParts = [style];
-
-    // Check if paragraph is a list item
-    let isListItem = false;
-    let listLevel = -1;
-    let listString = "";
-
-    if (!para.listItemOrNullObject.isNullObject) {
-      isListItem = true;
-      listLevel = para.listItemOrNullObject.level || 0;
-      listString = para.listItemOrNullObject.listString || "";
-
-      // Determine list type from style name
-      const isNumbered = style.toLowerCase().includes("number") ||
-        style.toLowerCase().includes("list number") ||
-        /^\d+[.)]/.test(listString);
-      const listType = isNumbered ? "ListNumber" : "ListBullet";
-
-      // Replace style with more specific list type
-      metaParts[0] = listType;
-
-      // Add list ID and level (using a simple counter-based ID)
-      metaParts.push(`L:${listLevel}`);
-    }
-
-    // Check if paragraph is in a table
-    let isInTable = false;
-    if (!para.parentTableCellOrNullObject.isNullObject) {
-      isInTable = true;
-      const rowIndex = para.parentTableCellOrNullObject.rowIndex || 0;
-      const cellIndex = para.parentTableCellOrNullObject.cellIndex || 0;
-      metaParts.push(`T:${rowIndex},${cellIndex}`);
-    }
-
-    // Section detection for legal contract patterns
-    let sectionMarker = "";
-
-    if (isListItem && !isInTable) {
-      // This list item could be a section header
-      // Detect section headers: list items at level 0 or items that start new sections
-
-      if (listLevel === 0) {
-        // Top-level list item = new section
-        sectionCounter++;
-        currentSection = String(sectionCounter);
-        currentSubSection = null;
-        sectionStack = [currentSection];
-        sectionMarker = "§";  // Mark as section header
-        lastListLevel = listLevel;
-      } else if (listLevel > lastListLevel) {
-        // Nested list item = subsection
-        const parentSection = sectionStack[sectionStack.length - 1] || currentSection;
-        const subNum = sectionStack.length;
-        currentSubSection = `${parentSection}.${listLevel}`;
-        sectionStack.push(currentSubSection);
-        sectionMarker = "§";  // Also mark as subsection header
-        lastListLevel = listLevel;
-      } else if (listLevel <= lastListLevel && listLevel > 0) {
-        // Same or shallower nested level - pop stack and create new subsection
-        while (sectionStack.length > listLevel + 1) {
-          sectionStack.pop();
-        }
-        const parentSection = sectionStack[0] || currentSection;
-        currentSubSection = `${parentSection}.${listLevel}`;
-        sectionStack[listLevel] = currentSubSection;
-        sectionMarker = "§";
-        lastListLevel = listLevel;
-      }
-
-      if (sectionMarker) {
-        metaParts.push(sectionMarker);
-      }
-    } else if (!isListItem && !isInTable && currentSection) {
-      // Non-list paragraph following a section header = section body
-      const belongsTo = currentSubSection || currentSection;
-      metaParts.push(`§${belongsTo}`);
-    }
-
-    // Build the enhanced notation
-    const metaString = metaParts.join("|");
-    const enhancedLine = `[P${i + 1}|${metaString}] ${text}`;
-
-    enhancedParagraphs.push({
-      index: i + 1,
-      text: text,
-      style: style,
-      isListItem: isListItem,
-      listLevel: listLevel,
-      isInTable: isInTable,
-      section: currentSection,
-      subSection: currentSubSection,
-      isSectionHeader: sectionMarker === "§",
-      meta: metaString,
-      enhancedLine: enhancedLine
-    });
-  }
-
-  return {
-    paragraphs: enhancedParagraphs,
-    formattedText: enhancedParagraphs.map(p => p.enhancedLine).join("\n"),
-    sectionCount: sectionCounter
-  };
-}
-
-/** Prefer the canonical (engine) paragraph text for the model view; fall back to Word text. */
-function canonicalContextOr(enhancedParagraphs, sourceBaseline, wordFormattedText) {
-  if (!enhancedParagraphs) return wordFormattedText;
-  const canonicalText = buildCanonicalContextText(enhancedParagraphs, sourceBaseline);
-  if (canonicalText == null) {
-    const comparable = value => String(value ?? '').replace(/\s+/g, ' ').trim();
-    const firstTextMismatch = enhancedParagraphs.findIndex((paragraph, offset) => comparable(sourceBaseline?.[offset]?.exactText) !== comparable(paragraph.text));
-    console.warn('Canonical context unavailable: Word and source paragraphs do not align; using Word text.', {
-      wordParagraphs: enhancedParagraphs.length,
-      sourceParagraphs: Array.isArray(sourceBaseline) ? sourceBaseline.length : null,
-      firstTextMismatch: firstTextMismatch < 0 ? null : firstTextMismatch + 1,
-      extraSourceTail: Array.isArray(sourceBaseline)
-        ? sourceBaseline.slice(enhancedParagraphs.length).map(paragraph => ({ index: paragraph.index, empty: !comparable(paragraph.exactText) }))
-        : null
-    });
-    return wordFormattedText;
-  }
-  return canonicalText;
-}
-
-/** Capture a fresh model view and canonical source baseline for the next model turn. */
-async function captureRefreshedDocumentContext(wordOperationSupportPromise) {
-  let formattedText = '';
-  let sourceBaseline = [];
-  let enhancedParagraphs = null;
-
-  await Word.run(async (context) => {
-    const body = context.document.body;
-    try {
-      const enhancedContext = await extractEnhancedDocumentContext(context);
-      formattedText = enhancedContext.formattedText;
-      enhancedParagraphs = enhancedContext.paragraphs;
-    } catch (error) {
-      console.warn('Enhanced context refresh failed; using document text', error?.code || error?.name);
-      body.load('text');
-      await context.sync();
-      formattedText = body.text || '';
-    }
-
-    const sourceOoxml = body.getOoxml();
-    await context.sync();
-    const [wordOperationRunner] = await wordOperationSupportPromise;
-    sourceBaseline = wordOperationRunner.captureWordSourceBaseline(sourceOoxml.value);
-  });
-
-  if (!Array.isArray(sourceBaseline) || sourceBaseline.length === 0) {
-    throw new Error('The current document source baseline is unavailable.');
-  }
-  return { formattedText: canonicalContextOr(enhancedParagraphs, sourceBaseline, formattedText), sourceBaseline };
+async function captureRefreshedDocumentContext(readSource) {
+  const source = await readSource();
+  return { formattedText: formatCanonicalDocumentContext(source.inspection), sourceBaseline: sourceBaselineFrom(source.inspection) };
 }
 
 let chatHistory = [];
@@ -1332,94 +1137,21 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
     // --- Get Document Context ---
     const wordOperationSupportPromise = loadWordOperationSupport();
     wordOperationSupportPromise.catch(() => {});
-    let docText = "";
-    let docSourceBaseline = [];
-    let docComments = [];
-    let docRedlines = [];
-    let docSelection = "";
-
-    await Word.run(async (context) => {
-      const body = context.document.body;
-
-      // --- STAGE 1: Critical Text Retrieval ---
-      // Fetch current selection & basic text first
-      const selection = context.document.getSelection();
-      selection.load("text");
-
-      // We'll try enhanced extraction first as it's the gold standard
-      let enhancedParagraphs = null;
-      try {
-        const enhancedContext = await extractEnhancedDocumentContext(context);
-        docText = enhancedContext.formattedText;
-        enhancedParagraphs = enhancedContext.paragraphs;
-        console.log(`Enhanced context extracted: ${enhancedContext.paragraphs.length} paragraphs`);
-      } catch (enhancedError) {
-        console.warn("Enhanced context failed, falling back to simple text", enhancedError);
-        // Fallback
-        body.load("text");
-        await context.sync();
-        docText = body.text;
-      }
-
-      // Keep an opaque canonical snapshot alongside the model's human-readable context.
-      // Execution compares this baseline before preparing any proposed redline batch.
-      try {
-        const sourceOoxml = body.getOoxml();
-        await context.sync();
-        const [wordOperationRunner] = await wordOperationSupportPromise;
-        docSourceBaseline = wordOperationRunner.captureWordSourceBaseline(sourceOoxml.value);
-        // Show the model the same paragraph text that edits are applied to.
-        docText = canonicalContextOr(enhancedParagraphs, docSourceBaseline, docText);
-      } catch (error) {
-        console.warn('Canonical document targeting context unavailable', error?.code || error?.name);
-      }
-      docSelection = selection.text;
-
-      // Sync to ensure we captured text/selection before trying risky features
-      await context.sync();
-
-      // --- STAGE 2: Optional Rich Data (Comments/Redlines) ---
-      // These are prone to failure in older Word versions or specific environments
-      try {
-        const isWordApi14 = Office.context.requirements.isSetSupported("WordApi", "1.4");
-        const isWordApi16 = Office.context.requirements.isSetSupported("WordApi", "1.6");
-
-        if (isWordApi14) {
-          const comments = context.document.comments;
-          comments.load("items/content, items/authorName, items/creationDate");
-
-          let trackedChanges = null;
-          if (isWordApi16) {
-            try {
-              trackedChanges = body.getTrackedChanges();
-              trackedChanges.load("items/type, items/text, items/author, items/date");
-            } catch (e) { console.warn("Tracked changes not supported (API available but failed)", e); }
-          } else {
-            console.log("Tracked changes not supported (WordApi 1.6 required)");
-          }
-
-          await context.sync(); // syncing specifically for comments/redlines
-
-          // Process optional data
-          if (comments && comments.items) {
-            docComments = comments.items.map(c => `[Comment by ${c.authorName} on ${c.creationDate}]: ${c.content}`);
-          }
-          if (trackedChanges && trackedChanges.items) {
-            docRedlines = trackedChanges.items.map(tc => `[${tc.type} by ${tc.author} on ${tc.date}]: "${tc.text}"`);
-          }
-        } else {
-          console.log("Optional rich data (comments/redlines) not supported (WordApi 1.4 required)");
-        }
-
-      } catch (optionalDataError) {
-        if (optionalDataError.name === "RichApi.Error" && optionalDataError.code === "ApiNotFound") {
-          console.warn("Could not fetch comments or redlines (API not found despite support check), proceeding with text only.");
-        } else {
-          console.warn("Could not fetch comments or redlines (API error), proceeding with text only:", optionalDataError);
-        }
-      }
-
+    const readSource = createWordDocumentSourceReader({
+      loadSupport: () => wordOperationSupportPromise,
+      getDocumentId,
+      signal: requestController.signal,
     });
+    const documentSource = await readSource();
+    const docText = formatCanonicalDocumentContext(documentSource.inspection);
+    const docSourceBaseline = sourceBaselineFrom(documentSource.inspection);
+    const docSelection = documentSource.selectionText;
+    const docComments = (documentSource.inspection.comments || []).map(comment =>
+      `[Comment by ${comment.author || 'Reviewer'}]: ${comment.text || ''}`);
+    const docRedlines = documentSource.inspection.paragraphs
+      .filter(paragraph => paragraph.hasRevisions)
+      .map(paragraph => `[Tracked changes by ${(paragraph.revisionAuthors || []).join(', ')}]: "${paragraph.exactText}"`);
+
     // --- Check Document Size ---
     if (currentRequestController !== requestController) return;
     const wordCount = docText.split(/\s+/).length;
@@ -1552,7 +1284,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
           safetySettings: SAFETY_SETTINGS_BLOCK_NONE,
           generationConfig: { maxOutputTokens: modelProfile.maxOutputTokens },
         }, modelProfile.retries, 1000, requestController.signal),
-        refreshContext: () => captureRefreshedDocumentContext(wordOperationSupportPromise),
+        refreshContext: () => captureRefreshedDocumentContext(readSource),
         createCheckpoint,
         signal: requestController.signal,
         requestStartTime,

@@ -241,6 +241,22 @@ export function captureSourceBaseline(scopeOoxml) {
     }));
 }
 
+/** Inspect the same Flat OPC parts used for atomic preparation, without Word proxies. */
+export function inspectWordSource(scopeOoxml, options = {}) {
+    const source = readBatchSource(scopeOoxml);
+    const parts = Object.fromEntries([
+        'documentXml', 'commentsXml', 'commentsExtendedXml', 'commentsIdsXml',
+        'commentsExtensibleXml', 'numberingXml', 'stylesXml'
+    ].map(name => [name, source[name] || null]));
+    parts.additionalParts = Object.fromEntries([
+        ['word/commentsIds.xml', parts.commentsIdsXml],
+        ['word/commentsExtensible.xml', parts.commentsExtensibleXml]
+    ].filter(([, xml]) => xml));
+    const inspection = inspectDocumentParts(parts, { ...options, revisionView: 'accepted' });
+    if (inspection.status !== 'ok') throw Object.assign(new Error(inspection.error?.message || 'Canonical inspection failed.'), { code: inspection.error?.code || 'CANONICAL_CONTEXT_UNAVAILABLE' });
+    return { parts, inspection };
+}
+
 /**
  * Parse one immutable OOXML source, build and execute a canonical operation batch,
  * and prepare the OOXML payload without reading or writing a host document.

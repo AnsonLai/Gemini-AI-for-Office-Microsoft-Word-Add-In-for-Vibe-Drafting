@@ -83,30 +83,39 @@ await runNavigationRoundTrip(
   'Error: Please set your Gemini API key in the Settings.'
 );
 
-// The exact Word source baseline is captured inside sendChatMessage and handed
-// to the portable loop as state before the registry invokes executeRedline.
+// The exact canonical source baseline is derived from the same library
+// inspection that formats model context, then handed to the loop before any
+// registry executor runs.
 let baselineDeclaration = null;
 let baselineAssignment = null;
+let sourceBaselineFromDeclaration = null;
 let loopStateDeclaration = null;
 let loopInvocation = null;
 visit(sendChatMessage.body, node => {
-  if (node.type === 'VariableDeclarator' && node.id?.name === 'docSourceBaseline') baselineDeclaration = node;
-  if (node.type === 'AssignmentExpression'
-    && node.left?.type === 'Identifier'
-    && node.left.name === 'docSourceBaseline'
-    && node.right?.type === 'CallExpression'
-    && node.right.callee?.type === 'MemberExpression'
-    && node.right.callee.object?.name === 'wordOperationRunner'
-    && node.right.callee.property?.name === 'captureWordSourceBaseline') {
-    baselineAssignment = node;
+  if (node.type === 'VariableDeclarator' && node.id?.name === 'docSourceBaseline') {
+    baselineDeclaration = node;
+    if (node.init?.type === 'CallExpression'
+      && node.init.callee?.type === 'Identifier'
+      && node.init.callee.name === 'sourceBaselineFrom'
+      && node.init.arguments[0]?.type === 'MemberExpression'
+      && node.init.arguments[0].object?.name === 'documentSource'
+      && node.init.arguments[0].property?.name === 'inspection') {
+      baselineAssignment = node;
+    }
   }
   if (node.type === 'VariableDeclarator' && node.id?.name === 'loopState') loopStateDeclaration = node;
   if (node.type === 'CallExpression' && node.callee?.type === 'Identifier'
     && node.callee.name === 'runDocumentAgentLoop') loopInvocation = node;
 });
+visit(taskpaneAst, node => {
+  if (node.type === 'VariableDeclarator' && node.id?.name === 'sourceBaselineFrom') {
+    sourceBaselineFromDeclaration = node;
+  }
+});
 
 assert.ok(baselineDeclaration, 'sendChatMessage must declare the source baseline locally');
-assert.ok(baselineAssignment, 'sendChatMessage must capture the canonical source baseline');
+assert.ok(baselineAssignment, 'sendChatMessage must derive the baseline from documentSource.inspection');
+assert.ok(sourceBaselineFromDeclaration?.init, 'the taskpane must define its baseline projection');
 assert.ok(loopStateDeclaration?.init?.type === 'ObjectExpression', 'sendChatMessage must construct loop state');
 assert.ok(loopInvocation, 'sendChatMessage must hand work to the portable loop');
 const baselineStateProperty = loopStateDeclaration.init.properties.find(property =>
@@ -118,23 +127,22 @@ const loopStateArgument = loopInvocation.arguments[0]?.properties?.find(property
 assert.ok(baselineStateProperty, 'loop state must contain the locally captured docSourceBaseline');
 assert.equal(loopStateArgument?.value?.name, 'loopState', 'the captured baseline state must be passed into the loop');
 assert.ok(
-  baselineDeclaration.start < baselineAssignment.start
-    && baselineAssignment.end < loopInvocation.start
+  baselineAssignment.start < loopInvocation.start
     && loopInvocation.end < sendChatMessage.body.end,
-  'declaration, capture, and loop invocation must share sendChatMessage scope and order'
+  'baseline derivation and loop invocation must share sendChatMessage scope and order'
 );
 
-const baselineSource = [{ index: 1, exactText: 'Source paragraph', fingerprint: 'fnv1a32:test' }];
-const captureBaseline = new Function(
-  'wordOperationRunner', 'sourceOoxml',
-  `let docSourceBaseline = [];\n${taskpaneSource.slice(baselineAssignment.start, baselineAssignment.end)};\nreturn docSourceBaseline;`
+const baselineSource = [{ index: 1, exactText: 'Source paragraph', fingerprint: 'fnv1a32:test', paragraphId: 'ABCDEF01', inTable: false }];
+const sourceBaselineFrom = new Function(
+  `return (${taskpaneSource.slice(sourceBaselineFromDeclaration.init.start, sourceBaselineFromDeclaration.init.end)});`
+)();
+const deriveBaseline = new Function(
+  'sourceBaselineFrom', 'documentSource',
+  `return ${taskpaneSource.slice(baselineAssignment.init.start, baselineAssignment.init.end)};`
 );
-const capturedBaseline = captureBaseline({
-  captureWordSourceBaseline: ooxml => {
-    assert.equal(ooxml, '<pkg:package/>');
-    return baselineSource;
-  }
-}, { value: '<pkg:package/>' });
+const capturedBaseline = deriveBaseline(sourceBaselineFrom, { inspection: { paragraphs: baselineSource } });
+assert.deepEqual(capturedBaseline, baselineSource,
+  'the actual taskpane sourceBaselineFrom projection must preserve canonical targeting fields');
 
 const makeLoopState = new Function(
   'chatHistory', 'docText', 'docSourceBaseline', 'requestRecords',
@@ -146,7 +154,7 @@ const state = makeLoopState(
   capturedBaseline,
   []
 );
-assert.equal(state.docSourceBaseline, baselineSource);
+assert.deepEqual(state.docSourceBaseline, capturedBaseline);
 
 let executeRedlineArguments = null;
 const redlineRegistry = createToolRegistry({
@@ -174,8 +182,8 @@ await runDocumentAgentLoop({
   requestStartTime: 0,
   now: () => 1
 });
-assert.equal(executeRedlineArguments[2], baselineSource,
-  'the exact baseline captured in sendChatMessage must reach executeRedline through loop state and registry');
+assert.deepEqual(executeRedlineArguments[2], capturedBaseline,
+  'the exact baseline projected from canonical inspection must reach executeRedline through loop state and registry');
 
 // Execute the taskpane's identity guards directly so refresh/new-request races
 // cannot let a superseded request restore history, overwrite UI, or unlock the
@@ -192,16 +200,17 @@ const containsNode = (root, predicate) => {
   return found;
 };
 
-let initialWordRun = null;
+let initialReadSource = null;
 let firstUserHistoryPush = null;
 const identityConditionals = [];
 visit(sendChatMessage.body, node => {
-  if (node.type === 'CallExpression'
-    && node.callee?.type === 'MemberExpression'
-    && node.callee.object?.name === 'Word'
-    && node.callee.property?.name === 'run'
-    && (!initialWordRun || node.start < initialWordRun.start)) {
-    initialWordRun = node;
+  if (node.type === 'VariableDeclarator'
+    && node.id?.name === 'documentSource'
+    && node.init?.type === 'AwaitExpression'
+    && node.init.argument?.type === 'CallExpression'
+    && node.init.argument.callee?.type === 'Identifier'
+    && node.init.argument.callee.name === 'readSource') {
+    initialReadSource = node.init.argument;
   }
   if (node.type === 'CallExpression'
     && node.callee?.type === 'MemberExpression'
@@ -219,11 +228,11 @@ visit(sendChatMessage.body, node => {
 const postContextGuard = identityConditionals.find(node =>
   isControllerComparison(node.test, '!==')
   && node.consequent.type === 'ReturnStatement'
-  && initialWordRun && node.start > initialWordRun.end
+  && initialReadSource && node.start > initialReadSource.end
   && firstUserHistoryPush && node.end < firstUserHistoryPush.start
 );
-assert.ok(initialWordRun && firstUserHistoryPush && postContextGuard,
-  'a superseded request must exit after Word context capture and before appending its user turn');
+assert.ok(initialReadSource && firstUserHistoryPush && postContextGuard,
+  'a superseded request must exit after awaited canonical source capture and before appending its user turn');
 assert.ok(taskpaneSource.slice(postContextGuard.start, postContextGuard.end).includes('return;'));
 const runPostContextGuard = new Function(
   'currentRequestController', 'requestController',

@@ -1,7 +1,7 @@
 # Library-first editing and a lightweight document agent
 
 **Date:** 2026-10-02 (America/Vancouver)  
-**Status:** WP0 and WP1 complete on 2026-10-02; WP2–WP5 are not started.  
+**Status:** WP0–WP2 complete on 2026-10-02; WP3 is next; WP4/WP5 are queued.
 **Baseline:** Add-in release v2.2.0.0; exact `@ansonlai/docx-redline-js@0.8.4` in the add-in and MCP.  
 **Purpose:** Make ordinary professional document changes dependable by reducing tool choices, competing execution paths, repeated AI interpretation, and Word-specific editing logic.
 
@@ -9,7 +9,7 @@
 
 **Decision update (2026-10-02):** The owner accepted the recommended choices and explicitly confirmed a tighter harness without a general skill system, more refusals outside scope, batch-oriented changes, and retaining the existing Word transport instead of pursuing a complete-DOCX facade upgrade. The approved decisions below replace the earlier alternatives; this request does not start implementation.
 
-**Execution update (2026-10-02):** The owner subsequently authorized WP0 and WP1 and requested Luna agents at max reasoning for efficient bounded delegation. This authorization supersedes the earlier plan-only restriction for these two packages. Preserve current editing behavior during WP1; new tool protocol, batch policy cutover, native-route retirement, and checkpoint blocking belong to later packages.
+**Execution update (2026-10-02):** The owner subsequently authorized WP0 and WP1 and requested Luna agents at max reasoning for efficient bounded delegation. This authorization superseded the earlier plan-only restriction for these two packages. The owner then authorized completing WP2–WP5, with a local commit after each milestone; WP0/WP1 were committed as `2c179a1`. Preserve current editing behavior during WP1; new tool protocol, batch policy cutover, native-route retirement, and checkpoint blocking belong to later packages.
 
 ## Execution status and handoff
 
@@ -17,9 +17,10 @@
 | --- | --- | --- |
 | WP0 | Complete | [Scope matrix, route inventory, and fresh baseline](../validation-reports/2026-10-02-lightweight-harness-wp0-baseline.md): 57 offline suites pass; 16/16 desktop replay steps complete, 29/29 content checks pass; three existing native-route author failures reproduced. Frozen bundle at `.cache/reliability/wp0-baseline/dist`. Office.js read/write counters unavailable. |
 | WP1 | Complete | [Extraction, verification, and net-size report](../validation-reports/2026-10-02-lightweight-harness-wp1.md): 61 offline suites pass; development/production builds pass; completed desktop replay preserves 29/29 content checks, 43 local model requests, and the same three author failures. Request/controller/history races fixed; all executor algorithm bodies/signatures and 11 declarations preserved. Net production size: 8,632 → 8,633 lines (+1), across 24 → 27 files. |
-| WP2–WP5 | Not started | WP2 is the next package when authorized. This request covers WP0/WP1 only; no transport/facade experiment. |
+| WP2 | Complete | [Canonical source and handle validation](../validation-reports/2026-10-02-lightweight-harness-wp2.md): 63 milestone offline suites pass; fresh desktop replay preserves 29/29 content checks, the same three author failures and 43 requests. Duplicate Word metadata/context walk removed. |
+| WP3–WP5 | Authorized / queued | Direct batches, native-route retirement, bridge cleanup, and updated verification/documentation. Commit each milestone locally. |
 
-Work is left in this shared working tree, without a commit or deployment. Preserve unrelated changes. The WP0 bundle remains frozen at `.cache/reliability/wp0-baseline/dist`; the completed WP1 replay uses `.cache/reliability/wp1/completed-dist` and `golden-completed`. These artifacts are ignored and are not required to run the checked-in tests on another checkout. Package completion here covers the requested baseline/extraction, with the documented existing author failures; it is not certification of the later product direction.
+WP0/WP1 are committed locally as `2c179a1`; subsequent work continues in the shared working tree. No deployment or push is requested. Preserve unrelated changes. The WP0 bundle remains frozen at `.cache/reliability/wp0-baseline/dist`; the completed WP1 replay uses `.cache/reliability/wp1/completed-dist` and `golden-completed`. These artifacts are ignored and are not required to run the checked-in tests on another checkout. Package completion here covers the requested baseline/extraction, with the documented existing author failures; it is not certification of the later product direction.
 
 ### WP1 implementation handoff
 
@@ -34,7 +35,7 @@ Preserved limits: six model turns, two failed mutation cycles, one proven no-wri
 
 Verification commands: `npm test`, `npm run build:dev`, and `npm run build`; completed replay build/launch commands and exclusions are in the WP1 report. The production build has one deferred-asset size warning; Office.js read/write counters are unavailable, and no live model or Word Online lane was run. Fresh desktop content parity does not close the three native-route author failures or the existing upstream fidelity gates. Source size is essentially flat at this extraction stage; the substantive net deletion remains required in WP3–WP5.
 
-**Continue at WP2 when authorized.** All 11 current tools, nested executor AI calls, native edit routes, multiple queued mutation calls, and nonblocking checkpoint behavior remain for this extraction. Do not infer that the approved future batch/refusal/retirement policy is already implemented. Use the WP0 retained-operation matrix and upstream gates before changing capability claims. Keep the Flat OPC adapter and exact 0.8.4 pins; no upstream engine workarounds or Word binary/facade experiment.
+**Continue at WP3 under the owner’s authorization.** WP2 now captures canonical context directly. The tested inspection session is ready for the direct protocol; its model-facing tool declaration arrives in WP3. All 11 current tools, nested executor AI calls, native edit routes, multiple queued mutation calls, and nonblocking checkpoint behavior remain for this extraction. Do not infer that the approved future batch/refusal/retirement policy is already implemented. Use the WP0 retained-operation matrix and upstream gates before changing capability claims. Keep the Flat OPC adapter and exact 0.8.4 pins; no upstream engine workarounds or Word binary/facade experiment.
 
 ## Approved direction
 
@@ -271,7 +272,7 @@ The selected acceptance target is zero native editing algorithms for retained ca
 
 ## Implementation sequence for later execution
 
-The owner has approved the design choices and authorized WP0/WP1 execution. WP2–WP5 remain future scope. Each package should leave a usable, reviewable result and name the old code removed or the dependency blocking its removal.
+The owner has approved the design choices and authorized completing all packages, with a local commit after each milestone. Each package should leave a usable, reviewable result and name the old code removed or the dependency blocking its removal.
 
 ### WP0 — Freeze the everyday scope and baseline
 
@@ -296,6 +297,8 @@ The owner has approved the design choices and authorized WP0/WP1 execution. WP2�
 **Exit:** Same retained behavior, smaller taskpane orchestration, one authoritative registry, deterministic loop tests. Avoid mixing a broad prompt/schema rewrite into this extraction.
 
 ### WP2 — Canonical inspection and source-bound handles
+
+**Completed 2026-10-02:** [Canonical inspection and handle report](../validation-reports/2026-10-02-lightweight-harness-wp2.md).
 
 - Implement focused inspection over the current Word source using supported library inspection APIs. Retain strong descriptors privately and provide compact target handles and human locations.
 - Bind target/range/end handles to document instance, snapshot, revision view, and structural dependencies. Expire them after actual writes, Undo/external changes, and reopening; freshness checks remain authoritative if change events are unavailable.
@@ -402,4 +405,12 @@ All recommended choices are accepted. The owner additionally ruled out the Word 
 
 No font-family tooling, page-layout assistant, arbitrary formatting engine, general skill system, Pi runtime adoption/experiment, complete-DOCX Word facade upgrade or binary-bridge experiment, new model/provider catalogue, UI redesign, multi-document workflow, new research system, plugin marketplace, autonomous subagents, general code execution, speculative edit-without-inspection default, revision acceptance/comment deletion convenience tools, or broad repository/type-system rewrite.
 
-The design choices are approved and recorded. The owner has now requested WP0 and WP1 execution; use the execution status and handoff above for current progress. Later packages remain unstarted.
+The design choices are approved and recorded. The owner has authorized execution through WP5; use the execution status and handoff above for current progress. Commit each milestone and keep external validation limitations explicit.
+
+### WP2 continuation seam
+
+`word-document-source.js` reads body OOXML and selection in one sync; `inspectWordSource` extracts the same Flat OPC parts used for preparation. The model context and source baseline now come from the library inspector, without a Word paragraph/list/table proxy walk or silent text fallback. The document identity includes a taskpane instance and host URL; fresh canonical part tokens remain authoritative when Undo/external-change events are unavailable.
+
+`createDocumentInspectionSession({readSource,maxResults,maxTextChars,maxTotalTextChars})` returns inspect/resolve/resolveHandles/resolveRange/invalidate. `inspect` provides opaque handles/cursors and compact human locations; `resolveHandles(handles,{source})` accepts only a trusted internal fresh capture and returns `{status,source,targets:[{handle,kind,descriptor,fullTextInspected}]}`. All handles in a batch resolve against that one snapshot. Truncated paragraph text cannot authorize a full rewrite; the explicit end handle preserves the final paragraph internally for append composition. Comment sibling parts are supplied through the public token API’s additional-parts input.
+
+The session is tested but is deliberately not yet declared to the model alongside the old tools. WP3 replaces the old protocol in one cutover. Production size at WP2 is 9,022 physical lines / 29 files (+389 versus WP1); this preparatory increase must be offset by the planned executor/compatibility deletion, not called a net simplification.

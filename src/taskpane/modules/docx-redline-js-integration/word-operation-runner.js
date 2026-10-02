@@ -5,6 +5,7 @@ import { insertOoxmlWithRangeFallback, withNativeTrackingDisabled } from './word
 export {
     captureSourceBaseline,
     captureWordSourceBaseline,
+    inspectWordSource,
     isSimplePlainTextRedline,
     applySharedOperationToParagraphOoxml,
     applySharedOperationToScopeOoxml,
