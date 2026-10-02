@@ -77,12 +77,18 @@ const requestHandler = async (request, response) => {
         if (path.startsWith('/source/') && testCase) {
             response.end(readFileSync(resolve(sourceDirectory, testCase.source)).toString('base64')); return;
         }
-        if (((path.startsWith('/artifact/') || path.startsWith('/prepared-source/') || path.startsWith('/checkpoint/')) && testCase || path === '/result') && request.method === 'POST') {
+        if (((path.startsWith('/artifact/') || path.startsWith('/prepared-source/') || path.startsWith('/checkpoint/') || path.startsWith('/restored/')
+            || path.startsWith('/restored-source/') || path.startsWith('/restore-diagnostics/')) && testCase || path === '/result') && request.method === 'POST') {
             const parts = []; let size = 0;
             for await (const part of request) { size += part.length; if (size > 20 * 1024 * 1024) throw new Error('Artifact too large'); parts.push(part); }
             const payload = Buffer.concat(parts);
             if (path === '/result') {
                 const result = JSON.parse(payload.toString('utf8'));
+                const restorationControls = Array.isArray(result.restorationControls) ? result.restorationControls : [];
+                const requiredRestorationCases = [
+                    'same-level-insert-redlines-disabled-restores-tracking',
+                    'direct-literal-replacement-preserves-comment-threads'
+                ];
                 if (result.status === 'passed' && cases.some(c => c.usesPreparedSource && !existsSync(join(directory, `${c.name}-prepared-source.docx`)))) {
                     throw new Error('Passing host result is missing a prepared source package');
                 }
@@ -92,16 +98,48 @@ const requestHandler = async (request, response) => {
                 if (result.status === 'passed' && cases.some(c => !existsSync(join(directory, `${c.name}-checkpoint.xml`)))) {
                     throw new Error('Passing host result is missing a source checkpoint');
                 }
+                if (result.status === 'passed' && (restorationControls.length !== requiredRestorationCases.length
+                    || requiredRestorationCases.some(name => !restorationControls.some(control => control.case === name))
+                    || restorationControls.some(control => !cases.some(c => c.name === control.case)
+                        || !existsSync(join(directory, `${control.case}-restored.docx`))))) {
+                    throw new Error('Passing host result is missing a required IndexedDB checkpoint-restoration export');
+                }
                 writeFileSync(join(directory, 'officejs-report.json'), JSON.stringify({ ...result, startedAt, checkedAt: new Date().toISOString() }, null, 2));
                 if (result.status === 'passed') {
-                    writeFileSync(join(directory, 'officejs-fixtures.json'), JSON.stringify({ cases: cases.map(c => ({
+                    const oracleCases = cases.map(c => ({
                         ...c,
                         ...(result.fixtureExpectations?.[c.name] || {}),
                         source: c.usesPreparedSource ? join(directory, `${c.name}-prepared-source.docx`) : join(directory, `${c.name}-source.docx`),
                         checkpoint: join(directory, `${c.name}-checkpoint.xml`),
                         ...(c.accepted ? { accepted: resolve(sourceDirectory, c.accepted) } : {}),
                         ...(c.rejected ? { rejected: resolve(sourceDirectory, c.rejected) } : {}),
-                        tracked: `${c.name}-officejs.docx` })), controls: [] }, null, 2));
+                        tracked: `${c.name}-officejs.docx` }));
+                    for (const control of restorationControls) {
+                        const restoredCase = oracleCases.find(c => c.name === control.case);
+                        const restoredArtifact = `${restoredCase.name}-restored.docx`;
+                        const originalNumbering = restoredCase.expectedNumbering?.source;
+                        oracleCases.push({
+                            ...restoredCase,
+                            name: `${restoredCase.name}-checkpoint-restoration`,
+                            tracked: restoredArtifact,
+                            accepted: restoredArtifact,
+                            rejected: restoredArtifact,
+                            expectedMinimumBodyRevisions: Number.isInteger(restoredCase.expectedRestoredBodyRevisions)
+                                ? undefined : control.checkpointRevisionElementCount > 0 ? 1 : undefined,
+                            expectedExactBodyRevisions: Number.isInteger(restoredCase.expectedRestoredBodyRevisions)
+                                ? restoredCase.expectedRestoredBodyRevisions
+                                : control.checkpointRevisionElementCount === 0 ? 0 : undefined,
+                            expectedSourceText: restoredCase.expectedSourceText,
+                            expectedAcceptedText: restoredCase.expectedRestoredAcceptedText || restoredCase.expectedSourceText,
+                            expectedRejectedText: restoredCase.expectedRestoredRejectedText || restoredCase.expectedSourceText,
+                            expectedComments: Number.isInteger(control.checkpointCommentCount)
+                                ? control.checkpointCommentCount : restoredCase.expectedComments ?? 0,
+                            ...(originalNumbering ? { expectedNumbering: {
+                                source: originalNumbering, accepted: originalNumbering, rejected: originalNumbering
+                            } } : {})
+                        });
+                    }
+                    writeFileSync(join(directory, 'officejs-fixtures.json'), JSON.stringify({ cases: oracleCases, controls: [] }, null, 2));
                 }
                 console.log(`Office.js result: ${result.status}`);
                 response.end('ok');
@@ -109,7 +147,9 @@ const requestHandler = async (request, response) => {
                 return;
             } else {
                 const artifact = path.startsWith('/checkpoint/') ? `${testCase.name}-checkpoint.xml`
-                    : `${testCase.name}-${path.startsWith('/prepared-source/') ? 'prepared-source' : 'officejs'}.docx`;
+                    : path.startsWith('/restore-diagnostics/') ? `${testCase.name}-restore-diagnostics.json`
+                        : path.startsWith('/restored-source/') ? `${testCase.name}-restored-source.xml`
+                            : `${testCase.name}-${path.startsWith('/prepared-source/') ? 'prepared-source' : path.startsWith('/restored/') ? 'restored' : 'officejs'}.docx`;
                 writeFileSync(join(directory, artifact), payload);
             }
             response.end('ok'); return;

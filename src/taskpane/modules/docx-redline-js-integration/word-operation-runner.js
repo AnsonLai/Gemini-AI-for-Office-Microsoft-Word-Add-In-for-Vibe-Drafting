@@ -1,16 +1,8 @@
-/** Word host adapter. OOXML preparation lives in the host-neutral consumer core. */
-import { applySharedOperationToParagraphOoxml, applySharedOperationToScopeOoxml, isSimplePlainTextRedline, prepareCanonicalBatch } from './consumer-core.js';
-import { insertOoxmlWithRangeFallback, withNativeTrackingDisabled } from './word-ooxml.js';
+/** Word host adapter for one body-level canonical OOXML batch. */
+import { prepareCanonicalBatch } from './consumer-core.js';
+import { withNativeTrackingDisabled } from './word-ooxml.js';
 
-export {
-    captureSourceBaseline,
-    captureWordSourceBaseline,
-    inspectWordSource,
-    isSimplePlainTextRedline,
-    applySharedOperationToParagraphOoxml,
-    applySharedOperationToScopeOoxml,
-    prepareCanonicalBatch
-} from './consumer-core.js';
+export { inspectWordSource, prepareCanonicalBatch } from './consumer-core.js';
 
 function failedBatchWrite(result, source, code, error, writeAttempted = false, written = false) {
     return {
@@ -55,44 +47,30 @@ function createBatchTiming(options) {
     };
 }
 
-function resolveWordOperationScope(scope) {
-    if (!scope) throw new Error('Missing scope for applyWordOperation');
-    if (scope.paragraph) {
-        if (scope.endParagraph) {
-            const range = scope.paragraph.getRange().expandTo(scope.endParagraph.getRange());
-            return { kind: 'range', target: range };
-        }
-        return { kind: 'paragraph', target: scope.paragraph };
-    }
-    if (scope.range) {
-        return { kind: 'range', target: scope.range };
-    }
-    if (typeof scope.getOoxml === 'function' && typeof scope.insertOoxml === 'function') {
-        return { kind: 'range', target: scope };
-    }
-    throw new Error('Unsupported scope shape for applyWordOperation');
-}
-
 /**
- * Applies one atomic operation batch to a Word body, range, or paragraph.
- * `operations` may be an array or an async factory receiving the one-read source.
- * The engine result and its receipts are returned unchanged, with `written` added.
+ * Reads a Word body once, prepares a canonical operation batch, and performs at
+ * most one whole-body package replacement.
+ *
+ * `operations` may be an array or an async factory receiving the inspected
+ * source. Partial ranges and paragraphs are intentionally unsupported.
  */
-export async function executePureOoxmlBatch(context, targetScope, operations, options = {}) {
+export async function executePureOoxmlBatch(context, body, operations, options = {}) {
     const timing = createBatchTiming(options);
     const startedAt = timing?.now();
     try {
-        return await executePureOoxmlBatchInternal(context, targetScope, operations, options, timing);
+        return await executePureOoxmlBatchInternal(context, body, operations, options, timing);
     } finally {
         timing?.record('adapterTotal', startedAt);
     }
 }
 
-async function executePureOoxmlBatchInternal(context, targetScope, operations, options, timing) {
+async function executePureOoxmlBatchInternal(context, body, operations, options, timing) {
     if (!context || typeof context.sync !== 'function') {
         throw new TypeError('A Word request context is required');
     }
-    const resolved = resolveWordOperationScope(targetScope);
+    if (!body || typeof body.getOoxml !== 'function' || typeof body.insertOoxml !== 'function') {
+        throw new TypeError('A Word body is required for a whole-document batch');
+    }
     const checkCancelled = () => {
         if (options.signal?.aborted) throw Object.assign(new Error('Request cancelled before document commit.'), { name: 'AbortError', code: 'REQUEST_CANCELLED' });
     };
@@ -100,7 +78,7 @@ async function executePureOoxmlBatchInternal(context, targetScope, operations, o
     let ooxmlResult;
     const sourceStartedAt = timing?.now();
     try {
-        ooxmlResult = resolved.target.getOoxml();
+        ooxmlResult = body.getOoxml();
         await context.sync();
     } finally {
         timing?.record('sourceReadSync', sourceStartedAt);
@@ -148,20 +126,10 @@ async function executePureOoxmlBatchInternal(context, targetScope, operations, o
         const insertionStartedAt = timing?.now();
         try {
             writeAttempted = true;
-            if (resolved.kind === 'paragraph') {
-                await insertOoxmlWithRangeFallback(
-                    resolved.target,
-                    insertionPayload,
-                    'Replace',
-                    context,
-                    options.logPrefix || 'WordOp/Batch'
-                );
-            } else {
-                const insertMode = (typeof Word !== 'undefined' && (Word.InsertLocation?.replace || Word.InsertLocation?.Replace))
-                    || 'Replace';
-                resolved.target.insertOoxml(insertionPayload, insertMode);
-                await context.sync();
-            }
+            const insertMode = (typeof Word !== 'undefined' && (Word.InsertLocation?.replace || Word.InsertLocation?.Replace))
+                || 'Replace';
+            body.insertOoxml(insertionPayload, insertMode);
+            await context.sync();
             written = true;
         } finally {
             timing?.record('insertSync', insertionStartedAt);
@@ -182,145 +150,4 @@ async function executePureOoxmlBatchInternal(context, targetScope, operations, o
             requiresInspection: options.disableNativeTracking === true && error.code !== 'REQUEST_CANCELLED' };
     }
     return { ...result, written: true, writeAttempted: true, mutationOutcome: 'applied', source: publicSource, checkpointIndex };
-}
-
-/**
- * Applies a canonical operation to a Word paragraph/range scope.
- *
- * @param {Word.RequestContext} context
- * @param {Object} operation
- * @param {Object} scope
- * @param {Object} [options={}]
- * @returns {Promise<boolean>} True when changes were applied
- */
-export async function applyWordOperation(context, operation, scope, options = {}) {
-    const resolved = resolveWordOperationScope(scope);
-    const scopeOoxmlResult = resolved.target.getOoxml();
-    await context.sync();
-
-    const bridgeOptions = {
-        author: options.author,
-        generateRedlines: options.generateRedlines,
-        sanitizeInput: options.sanitizeInput === true,
-        existingRevisions: options.existingRevisions,
-        onInfo: options.onInfo,
-        onWarn: options.onWarn,
-        runner: options.runner
-    };
-    const bridgeResult = resolved.kind === 'paragraph'
-        ? await applySharedOperationToParagraphOoxml(scopeOoxmlResult?.value || '', operation, bridgeOptions)
-        : await applySharedOperationToScopeOoxml(scopeOoxmlResult?.value || '', operation, bridgeOptions);
-
-    if (!bridgeResult.hasChanges) {
-        return false;
-    }
-
-    const canUseDirectParagraphPayload = false; // direct_paragraph snippet injection crashes Word parser with w:ins elements
-    const insertionPayload = canUseDirectParagraphPayload
-        ? bridgeResult.paragraphOoxml
-        : bridgeResult.packageOoxml;
-    if (!insertionPayload) {
-        return false;
-    }
-    if (typeof options.onInfo === 'function') {
-        options.onInfo(
-            `Insertion strategy: ${canUseDirectParagraphPayload ? 'direct_paragraph' : 'package'} `
-            + `(kind=${resolved.kind}, singleParagraphOutput=${bridgeResult.singleParagraphOutput === true}, `
-            + `hasComments=${!!bridgeResult.commentsXml}, hasNumbering=${!!bridgeResult.numberingXml}, `
-            + `isSimplePlainTextRedline=${isSimplePlainTextRedline(operation)})`
-        );
-    }
-
-    await withNativeTrackingDisabled(context, async () => {
-        if (resolved.kind === 'paragraph') {
-            await insertOoxmlWithRangeFallback(
-                resolved.target,
-                insertionPayload,
-                'Replace',
-                context,
-                options.logPrefix || 'WordOp/Shared'
-            );
-        } else {
-            const insertMode = (typeof Word !== 'undefined' && (Word.InsertLocation?.replace || Word.InsertLocation?.Replace))
-                || 'Replace';
-            resolved.target.insertOoxml(insertionPayload, insertMode);
-            await context.sync();
-        }
-    }, {
-        enabled: !!options.disableNativeTracking,
-        baseTrackingMode: options.baseTrackingMode ?? null,
-        logPrefix: options.logPrefix || 'WordOp/Shared'
-    });
-
-    return true;
-}
-
-/**
- * Applies a shared standalone operation to a single Word paragraph.
- *
- * @param {Object} params
- * @param {Word.RequestContext} params.context
- * @param {Word.Paragraph} params.targetParagraph
- * @param {Object} params.operation
- * @param {string} params.author
- * @param {boolean} params.generateRedlines
- * @param {boolean} [params.disableNativeTracking=false]
- * @param {Word.ChangeTrackingMode|null} [params.baseTrackingMode=null]
- * @param {string} params.logPrefix
- * @returns {Promise<boolean>} True when a change is applied
- */
-export async function applySharedOperationToWordParagraph({
-    context,
-    targetParagraph,
-    operation,
-    author,
-    generateRedlines,
-    disableNativeTracking = false,
-    baseTrackingMode = null,
-    logPrefix
-}) {
-    return applyWordOperation(context, operation, { paragraph: targetParagraph }, {
-        author,
-        generateRedlines,
-        disableNativeTracking,
-        baseTrackingMode,
-        logPrefix,
-        onInfo: () => {},
-        onWarn: () => console.warn(`[${logPrefix}] Operation warning; consult the structured result.`)
-    });
-}
-
-/**
- * Applies a shared standalone operation to a Word paragraph/range scope.
- *
- * @param {Object} params
- * @param {Word.RequestContext} params.context
- * @param {Word.Range|Word.Paragraph} params.scope
- * @param {Object} params.operation
- * @param {string} params.author
- * @param {boolean} params.generateRedlines
- * @param {boolean} [params.disableNativeTracking=false]
- * @param {Word.ChangeTrackingMode|null} [params.baseTrackingMode=null]
- * @param {string} params.logPrefix
- * @returns {Promise<boolean>} True when a change is applied
- */
-export async function applySharedOperationToWordScope({
-    context,
-    scope,
-    operation,
-    author,
-    generateRedlines,
-    disableNativeTracking = false,
-    baseTrackingMode = null,
-    logPrefix
-}) {
-    return applyWordOperation(context, operation, { range: scope }, {
-        author,
-        generateRedlines,
-        disableNativeTracking,
-        baseTrackingMode,
-        logPrefix,
-        onInfo: () => {},
-        onWarn: () => console.warn(`[${logPrefix}] Operation warning; consult the structured result.`)
-    });
 }

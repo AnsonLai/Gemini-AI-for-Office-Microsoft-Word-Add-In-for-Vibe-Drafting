@@ -1,6 +1,6 @@
 import './setup-xml-provider.mjs';
 import assert from 'node:assert/strict';
-import { buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
+import { buildDocumentFragmentPackage, buildDocumentCommentsPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
 import { inspectWordSource } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
 import { createDocumentInspectionSession } from '../src/taskpane/modules/chat/document-inspection-session.js';
 import { createDocumentTools } from '../src/taskpane/modules/chat/document-tools.js';
@@ -81,7 +81,7 @@ function createHarness(text, options = {}) {
     session,
     getDocumentId: () => options.currentDocumentId?.() ?? documentId,
     getAuthor: () => 'Document Tools Test',
-    getGenerateRedlines: () => true,
+    getGenerateRedlines: () => options.generateRedlines !== false,
     persistCheckpoint: async source => {
       events.push('checkpoint');
       checkpoints.push(source);
@@ -324,6 +324,53 @@ async function apply(harness, edits) {
   assert.equal(receipt.verified, false);
   assert.equal(harness.counts.contentWrites, 1);
   assert.equal(inspectWordSource(harness.currentXml).inspection.paragraphs[0].exactText, 'Revised clause.');
+}
+
+// Word's existing-comment transport boundary refuses the entire
+// mixed proposal before checkpoint persistence or insertion, on fresh parts.
+for (const metadata of [
+  '<w15:commentEx w15:paraId="2222BBBB" w15:paraIdParent="1111AAAA"/>',
+  '<w15:commentEx w15:paraId="2222BBBB" w15:done="1"/>',
+  '<w15:commentEx w15:paraId="2222BBBB" w15:done="0"/>',
+]) {
+  const w14 = 'http://schemas.microsoft.com/office/word/2010/wordml';
+  const w15 = 'http://schemas.microsoft.com/office/word/2012/wordml';
+  let threaded = buildDocumentCommentsPackage(`<w:document xmlns:w="${W}"><w:body><w:p><w:commentRangeStart w:id="0"/><w:r><w:t>Original clause.</w:t></w:r><w:commentRangeEnd w:id="0"/></w:p></w:body></w:document>`,
+    `<w:comments xmlns:w="${W}" xmlns:w14="${w14}"><w:comment w:id="0" w:author="Reviewer"><w:p w14:paraId="1111AAAA"><w:r><w:t>Original comment.</w:t></w:r></w:p></w:comment><w:comment w:id="1" w:author="Responder"><w:p w14:paraId="2222BBBB"><w:r><w:t>Reply or resolved comment.</w:t></w:r></w:p></w:comment></w:comments>`);
+  threaded = threaded.replace('</pkg:package>', `<pkg:part pkg:name="/word/commentsExtended.xml" pkg:contentType="application/vnd.ms-word.commentsExtended+xml"><pkg:xmlData><w15:commentsEx xmlns:w15="${w15}"><w15:commentEx w15:paraId="1111AAAA"/>${metadata}</w15:commentsEx></pkg:xmlData></pkg:part></pkg:package>`);
+  const inspection = inspectWordSource(threaded).inspection;
+  assert.equal(inspection.comments.length, 2);
+  const harness = createHarness('Original clause.', { initialXml: threaded });
+  const target = await harness.handleFor('Original clause.');
+  const receipt = await apply(harness, [
+    { type: 'replace_text', target, find: 'Original', replace: 'Revised' },
+    { type: 'comment', target, text: 'New comment.' },
+  ]);
+  assert.equal(receipt.error.code, 'UNSUPPORTED_EXISTING_COMMENTS');
+  assert.equal(receipt.requestedCount, 2);
+  assert.equal(receipt.accountedCount, 0);
+  assert.equal(receipt.writeAttempted, false);
+  assert.equal(harness.counts.contentWrites, 0);
+  assert.equal(harness.checkpoints.length, 0);
+  assert.equal(harness.currentXml, threaded, 'the supported text intent cannot escape the refused mixed batch');
+}
+
+{
+  const revised = buildDocumentFragmentPackage(`<w:p><w:ins w:id="21" w:author="Prior Reviewer" w:date="2026-10-02T00:00:00Z"><w:r><w:t>Pending clause.</w:t></w:r></w:ins></w:p><w:p><w:r><w:t>Untouched clause.</w:t></w:r></w:p>`, { appendTrailingParagraph: false });
+  const harness = createHarness('Pending clause.', { initialXml: revised, generateRedlines: false });
+  const target = await harness.handleFor('Pending clause.');
+  const other = await harness.handleFor('Untouched clause.');
+  const receipt = await apply(harness, [
+    { type: 'replace_text', target, find: 'Pending', replace: 'Revised' },
+    { type: 'replace_text', target: other, find: 'Untouched', replace: 'Changed' },
+  ]);
+  assert.equal(receipt.error.code, 'UNTRACKED_EDIT_ON_REVISED_TARGET');
+  assert.equal(receipt.writeAttempted, false);
+  assert.equal(receipt.requestedCount, 2);
+  assert.equal(receipt.accountedCount, 0);
+  assert.equal(harness.counts.contentWrites, 0);
+  assert.equal(harness.checkpoints.length, 0);
+  assert.equal(harness.currentXml, revised, 'an unsupported target cannot flatten prior revisions or escape the mixed-batch refusal');
 }
 
 console.log('PASS: direct document tools checkpoint, freshness, single-write, verification, no-op, cancellation and failure receipts');

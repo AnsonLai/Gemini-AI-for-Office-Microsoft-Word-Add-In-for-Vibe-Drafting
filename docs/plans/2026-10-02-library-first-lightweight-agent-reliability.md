@@ -1,7 +1,7 @@
 # Library-first editing and a lightweight document agent
 
 **Date:** 2026-10-02 (America/Vancouver)  
-**Status:** WP0–WP4 complete locally on 2026-10-02; WP5 is in progress. Live provider and Word Online shipping gates remain explicit.
+**Status:** WP0–WP5 complete locally on 2026-10-02. Live provider and Word Online shipping gates remain explicit.
 **Baseline:** Add-in release v2.2.0.0; exact `@ansonlai/docx-redline-js@0.8.4` in the add-in and MCP.  
 **Purpose:** Make ordinary professional document changes dependable by reducing tool choices, competing execution paths, repeated AI interpretation, and Word-specific editing logic.
 
@@ -20,39 +20,59 @@
 | WP2 | Complete | [Canonical source and handle validation](../validation-reports/2026-10-02-lightweight-harness-wp2.md): 63 milestone offline suites pass; fresh desktop replay preserves 29/29 content checks, the same three author failures and 43 requests. Duplicate Word metadata/context walk removed. |
 | WP3 | Complete locally | [Direct typed batch report](../validation-reports/2026-10-02-lightweight-harness-wp3.md): 66 milestone offline suites; full direct Word replay 16/16 prompts, 48/48 checks, zero regressions. Ten verified batches: nine writes + one no-op; 36 mocked chat calls, zero nested calls. Word export-only metadata stabilized without changing source/payload or meaningful revision IDs. Live models remain a shipping gate. |
 | WP4 | Complete locally | [Native-route retirement and fidelity report](../validation-reports/2026-10-02-lightweight-harness-wp4.md): 11/11 actual Office.js cases, 44/44 independent Word checks, 49/49 NDA replay checks. Documented complete list-change preserves existing numbering. Net fixed production surface 7,004 lines, 1,628 fewer than WP0. |
-| WP5 | In progress | Thin unused compatibility/context helpers and the Flat OPC bridge; verify checkpoint restoration, update documentation and measure net production deletion. |
+| WP5 | Complete locally | [Final bridge, checkpoint and measurement report](../validation-reports/2026-10-02-lightweight-harness-wp5.md): 46 offline suites, 18 actual Office.js checks, 52/52 independent Word checks, 49/49 final NDA replay checks. Verified checkpoint restoration and two new prewrite scope guards. Fixed production surface: 4,355 lines, 49.5% below WP0. |
 
-WP0/WP1 are committed locally as `2c179a1`, WP2 as `e8c9aaa`, and WP3 as `d282255`; subsequent work continues in the shared working tree. No deployment or push is requested. Preserve unrelated changes. The WP0 bundle remains frozen at `.cache/reliability/wp0-baseline/dist`; the completed WP1 replay uses `.cache/reliability/wp1/completed-dist` and `golden-completed`. These artifacts are ignored and are not required to run the checked-in tests on another checkout. Package completion here covers the requested baseline/extraction, with the documented existing author failures; it is not certification of the later product direction.
+WP0/WP1 are committed locally as `2c179a1`, WP2 as `e8c9aaa`, WP3 as `d282255`, and WP4 as `86b6ddc`; WP5 is recorded by the final milestone commit containing this report. No deployment or push is requested. The WP0 bundle remains frozen at `.cache/reliability/wp0-baseline/dist`; the completed WP1 replay uses `.cache/reliability/wp1/completed-dist` and `golden-completed`. These artifacts are ignored and are not required to run the checked-in tests on another checkout. Historical baseline author failures remain documented; the final retained path passes attribution checks. Local completion does not certify the remaining shipping gates.
 
-### Current continuation seam — start WP5
+### Current continuation seam — implementation complete; external gates remain
 
-WP3 is committed as `d282255`; WP4 is complete locally and ready for its milestone
-commit. Production uses exactly two tools and no native editing executor.
-`document-tools.js` depends on `executePureOoxmlBatch` and `inspectWordSource`;
-keep those interfaces while thinning the integration. `consumer-core.js` retains
-Flat OPC extraction/assembly and public comment/numbering helpers, including
-all untouched transported parts. No library upgrade or binary/facade experiment.
+Production has exactly two tools and no native editing executor or compatibility
+command directory. `consumer-core.js` exports only `inspectWordSource` and
+`prepareCanonicalBatch`; `word-operation-runner.js` retains the body-only
+`executePureOoxmlBatch`. Flat OPC extraction/assembly preserves untouched
+transported parts and calls public library comment/numbering helpers. The
+library pin remains 0.8.4; no upstream offload or facade upgrade is claimed.
 
-WP5 ownership: baseline agent handles compatibility integration/command deletion,
-public-library regression/reproducer ports and direct benchmark mapping; recovery
-agent prepares runnable direct live golden evidence capture; root handles
-unused taskpane/loop/context/session code, shared body checkpoint restoration,
-current documentation and final net measurement. Registry agent owns genuine
-Office.js collection, independent Word and checkpoint restoration evidence.
-Unwired `checkpoint-restoration.js` and its tests are WP5 work, excluded from
-WP4 production measurement. Other early current-doc rewrites remain unstaged
-until WP5. Keep this handoff current; commit each milestone without pushing.
+Checkpoint save now resolves on IndexedDB transaction completion, rather than
+request success. The wired restore helper performs one replacement with tracking
+preserved and compares the restored parts. Actual Word regenerated body
+`w14:paraId` and `w14:textId`, including comment paragraph/link IDs; a separate
+restoration comparison excludes only confirmed generated metadata while
+requiring exact public canonical comment relationships, state, authors, dates,
+text and anchors. Unknown metadata references refuse. Normal source tokens
+retain real IDs, so old handles expire after restoration. Saved XML is untouched.
+Successful restore resets the model and visible conversation together; missing,
+failed or unverified restore preserves history and reports the outcome.
 
-Final gates: offline suite and builds; fresh retained direct Office.js/independent
-Word after bridge thinning; full direct taskpane replay after loop cleanup;
-actual production checkpoint save/load/restore and tracking evidence. Live
-fast/slow model validation remains a shipping gate when credentials are absent;
-make its command runnable without claiming it was performed. Desktop coverage
-does not certify Word Online. Preserve independent upstream issue reproducers
-when retiring their old consumer fixture exporters.
+WP5 production thinning, live evidence capture, reproducers and documentation are
+complete. The final direct NDA replay passed 16/16 steps and 49/49 checks;
+production build and manifest validation pass. Actual Office.js passed 18 checks
+over 11 main cases and checkpoint/refusal controls. Independent Word passed
+52 checks, with 13 engine-reference checks explicitly not applicable. The final
+offline aggregate passes 46 suites with three excluded entrypoints. The fixed
+production surface is 4,355 lines across 20 files, down 4,277 lines (49.5%) from
+WP0, including all replacement modules. Two isolated new-comment probes on a threaded source reported
+uncertain host insertion with no replay. Both prior and thinned bridges had
+treated merge-delta comment output as a full replacement. No supported complete
+merge helper for the retained Word Flat OPC seam was found. Adding comments to any source with existing comments is
+now refused as a whole before checkpoint/write; supported wording edits preserve
+threads. This narrower scope is an authorized reliability restriction, rather
+than a new native fallback or a claim that the library contract is defective.
+An untracked rewrite of a paragraph with a prior revision flattened that
+history in a fidelity probe. Such targets now refuse before any write;
+supported edits elsewhere preserve the pending revision and restore it from
+the checkpoint. The add-in's tracked-edit option is required for revised targets.
+The [WP5 report](../validation-reports/2026-10-02-lightweight-harness-wp5.md)
+records final totals, preserved failures, code measurements and reproduction paths.
+
+Remaining shipping gates are live fast/slow provider proposals through the
+runnable direct replay lane and affected Word Online operation checks. Desktop
+evidence does not establish either. Independent upstream issue reproducers stay
+runnable; retiring a consumer capability does not close an engine defect.
+
 ## Approved direction
 
-Build around two document tools: **inspect the document** and **apply a batch of edits**. Keep navigation as an optional third tool. Let the model draft concrete edits against inspected targets; let the library perform document transformations; let a small Word adapter read, commit, and confirm the result.
+Build around two document tools: **inspect the document** and **apply a batch of edits**. Conditional navigation/research retention was evaluated during cutover; both executors are retired in the final supported path. Let the model draft concrete edits against inspected targets; let the library perform document transformations; let a small Word adapter read, commit, and confirm the result.
 
 Aim for **zero native Word editing algorithms in the supported editing path**, with Office.js confined to host transport and host state. The owner has confirmed that the product must remain a Word plugin. The existing browser/MCP consumers are useful comparison and parity lanes, rather than a replacement for editing the user's currently open Word document.
 
@@ -64,7 +84,7 @@ Apply independent changes as one fully validated atomic library batch against on
 
 The target is fewer ways to produce an incorrect document, not merely fewer function declarations. One enormous tool with a free-form instruction and many hidden branches would preserve the current complexity.
 
-## What the current documentation and code establish
+## What the planning baseline documentation and code established
 
 Reviewed all six Markdown files at the `docs/` root: [tool contracts](../agentic-tool-contracts.md), [library offload review](../library-offload-review.md), [package boundaries](../package-boundaries.md), [performance notes](../ooxml-performance.md), [testing](../TESTING.md), and [historical PLAN](../PLAN.md). Also reviewed [v2.2.0.0](../release/v2.2.0.0.md), [architecture](../../ARCHITECTURE.md), current state/roadmap, the active list/table plans, the [0.8.4 validation](../validation-reports/2026-10-02-docx-redline-v084.md), library follow-ups, and the relevant taskpane/tool/context/adapter implementations.
 
@@ -89,7 +109,7 @@ The 0.8.4 report records 57 offline suites passing, four excluded entrypoints, s
 The [library issue index](../library-issues/README.md) and [list migration follow-up](2026-09-30-canonical-list-migration-follow-up.md) identify constraints that remain relevant:
 
 - Plain/text-changing header-to-list conversion and list-format changes do not yet have the required supported canonical behavior.
-- Separate list operations in 0.8.4 can restart non-adjacent header numbering: A/A instead of A/B. The current native conversion path avoids this regression.
+- Separate list operations in 0.8.4 can restart non-adjacent header numbering: A/A instead of A/B. The historical native conversion avoided this regression; conversion is now refused and that executor is deleted.
 - Reject All after a tracked final table append can leave one extra blank paragraph.
 - A weakly targeted soft-break replacement can delete a paragraph while reporting `ok`. Current strong add-in targets avoid the reported case; a new wrapper must retain that protection.
 - Rewriting a paragraph with the author's own pending formatting and adding a table together remains refused by the consumer.
@@ -283,7 +303,7 @@ The existing complete-DOCX consumers avoid live Word transport and remain useful
 
 The selected acceptance target is zero native editing algorithms for retained capabilities. Removing the Office.js dependency is outside scope.
 
-## Implementation sequence for later execution
+## Authorized implementation sequence
 
 The owner has approved the design choices and authorized completing all packages, with a local commit after each milestone. Each package should leave a usable, reviewable result and name the old code removed or the dependency blocking its removal.
 
@@ -346,9 +366,12 @@ The owner has approved the design choices and authorized completing all packages
 
 ### WP5 — Thin the bridge and finish deletion
 
+**Completed locally 2026-10-02:** [Final implementation and verification report](../validation-reports/2026-10-02-lightweight-harness-wp5.md). The bridge uses supported public APIs with the existing Word transport. Native/compatibility executors are deleted; checkpoint persistence and restoration are verified. New comments on comment-bearing sources and untracked edits on revised targets refuse before writing. Live-provider and Word Online checks remain release gates.
+
 - Measure the selected adapter's remaining Flat OPC code. Offload reusable inspection/package preparation upstream through an agreed supported API if justified, retaining only host-specific adaptation here and preserving the Word transport.
 - Remove unused legacy list helpers, prompt/schema copies, regex argument recovery for retired tools, old exports, and redundant context/format inference. Keep font detection only if a surviving path needs it for preservation, not as an editing feature.
 - Update tool contracts, architecture, package boundaries, active plans, README, state, and roadmap around actual supported behavior. Preserve dated incident evidence and the existing conditions for library-issue cleanup.
+- Keep the observed existing-comment merge boundary explicit: new comments require a source without existing comments until supported complete-part assembly is available. Preserve existing threads during retained wording edits and verify checkpoint restoration through generated metadata using canonical relationship evidence.
 
 **Exit:** The final supported path has no native Word editing algorithms, duplicated engine implementation, or orphan compatibility executor. Unsupported requests refuse. Net production complexity decreases across all affected modules, with the Word plugin and its Flat OPC host adapter intact.
 
@@ -371,11 +394,11 @@ The old replay contains old tool names and nested diff responses. It is useful f
 
 Mocked Word, browser preview, COM insertion, actual Office.js, and independent Word assertions cover different boundaries. Report exclusions, skips, unresolved defects, and host build separately; a green offline aggregate cannot close a known Word failure.
 
-The initial plan was based on documentation/source review, without live provider calls or host editing. The subsequent authorized WP0/WP1 execution records fresh tests and isolated desktop Word replays in the validation reports linked above. Later packages still require the applicable evidence in this table; the extraction replay does not validate their new protocol or retired capabilities.
+The initial plan was based on documentation/source review, without live provider calls or host editing. The authorized WP0–WP5 execution records fresh tests, isolated desktop Word replays and independent fidelity checks in the validation reports linked above. The final direct replay validates the retained protocol and explicit refusals; live model behavior and Word Online still require separate evidence.
 
 ### Completion measures
 
-- Default model-facing document tools: two, or three with navigation; research only if explicitly retained as a separate workflow.
+- Final model-facing document tools: exactly two. Navigation/research executors are retired.
 - Secondary AI calls inside retained mutation/navigation executors: zero.
 - Every retained mutating intent requires inspected strong targets and explicit source freshness; no legacy baseline omission in the new path.
 - One content insertion per atomic batch. Source reads, tracking management, checkpoint work, and verification syncs are reported separately rather than hidden in that count.
@@ -387,12 +410,12 @@ The initial plan was based on documentation/source review, without live provider
 
 ## Approved owner decisions (2026-10-02)
 
-All recommended choices are accepted. The owner additionally ruled out the Word facade/binary-transport experiment. Conditional retention of existing navigation, highlighting, and explicit-use research remains governed by demonstrated usage; it does not authorize adding capabilities.
+All recommended choices are accepted. The owner additionally ruled out the Word facade/binary-transport experiment. During implementation, conditional navigation and research executors were retired; narrow explicit highlighting remains an inline formatting intent in the atomic edit tool.
 
 | Decision | Approved choice | Implementation consequence |
 | --- | --- | --- |
 | Word integration | Remove native document-edit algorithms; retain a narrow host adapter and the Word plugin | Fully file-based replacement and removal of Office.js are outside scope. |
-| Default tools | Inspect + apply; retain navigation if used | Existing explicit-use research remains conditional and isolated from ordinary editing. |
+| Default tools | Inspect + apply; retain navigation only if justified | Final cutover retains exactly two tools; navigation and research executors are retired. |
 | Formatting | Preserve existing formatting; retain only current basic inline emphasis/removal | No font-family, font-size, layout, or general style tooling. |
 | Lists | Retain verified everyday list text/insertion; gate conversion/style/deep structural changes on upstream support | Unsupported requests refuse; no native fallback in the new path. |
 | Tables | Retain ordinary cell text changes; migrate structural actions only with fidelity evidence | Refuse uncertified row/structural edits and final table append while the known Reject All defect remains unresolved. |
@@ -423,4 +446,3 @@ All recommended choices are accepted. The owner additionally ruled out the Word 
 No font-family tooling, page-layout assistant, arbitrary formatting engine, general skill system, Pi runtime adoption/experiment, complete-DOCX Word facade upgrade or binary-bridge experiment, new model/provider catalogue, UI redesign, multi-document workflow, new research system, plugin marketplace, autonomous subagents, general code execution, speculative edit-without-inspection default, revision acceptance/comment deletion convenience tools, or broad repository/type-system rewrite.
 
 The design choices are approved and recorded. The owner has authorized execution through WP5; use the execution status and handoff above for current progress. Commit each milestone and keep external validation limitations explicit.
-

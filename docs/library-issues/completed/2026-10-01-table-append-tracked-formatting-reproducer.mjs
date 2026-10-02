@@ -6,9 +6,7 @@ import {
     inspectDocumentParts,
     rejectTrackedChangesInOoxml
 } from '@ansonlai/docx-redline-js';
-import { buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
-import { prepareCanonicalBatch } from '../../../src/taskpane/modules/docx-redline-js-integration/consumer-core.js';
-import { planRedlineBatchOperations } from '../../../src/taskpane/modules/docx-redline-js-integration/redline-plan.js';
+import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalone-runner';
 
 const author = 'Table Append Library Reproducer';
 const table = '| Mountain | River | Forest |\n| --- | --- | --- |\n| Ocean | Valley | Canyon |\n| Meadow | Desert | Island |';
@@ -18,9 +16,10 @@ const sourceParagraphs = [
     'Final paragraph stays unchanged.'
 ];
 const originalFinal = sourceParagraphs[6];
-const sourcePackage = buildDocumentFragmentPackage(sourceParagraphs.map(text => (
+const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+const sourceDocumentXml = `<w:document xmlns:w="${W}"><w:body>${sourceParagraphs.map(text => (
     `<w:p><w:r><w:t>${text}</w:t></w:r></w:p>`
-)).join(''), { appendTrailingParagraph: false });
+)).join('')}<w:sectPr/></w:body></w:document>`;
 
 function revisionState(xml) {
     const inspection = inspectDocumentParts({ documentXml: xml });
@@ -31,7 +30,7 @@ function revisionState(xml) {
     return { paragraphs, cells, tableCount, underline: /<w:u\b/.test(xml) };
 }
 
-async function resolve(xml, action) {
+function resolve(xml, action) {
     const result = action === 'accept'
         ? acceptTrackedChangesInOoxml(xml, { allAuthors: true })
         : rejectTrackedChangesInOoxml(xml, { allAuthors: true });
@@ -39,60 +38,59 @@ async function resolve(xml, action) {
     return result.oxml;
 }
 
-// Turn 1: request underline on P7 and accept the generated same-author change.
-const underline = await prepareCanonicalBatch(sourcePackage, source => planRedlineBatchOperations([
-    {
-        operation: 'edit_paragraph', paragraphIndex: 7, anchorText: originalFinal,
-        replacements: [{ find: originalFinal, replace: `++${originalFinal}++` }]
-    }
-], source.paragraphs), { author, existingRevisions: 'merge-same-author' });
-assert.equal(underline.status, 'ready', JSON.stringify(underline.result.error));
-const underlineAccepted = revisionState(await resolve(underline.result.documentXml, 'accept'));
-const underlineRejected = revisionState(await resolve(underline.result.documentXml, 'reject'));
-assert.equal(underlineAccepted.underline, true, 'the initial underline operation works');
+async function replaceFinalParagraph(documentXml, modified, existingRevisions) {
+    const inspection = inspectDocumentParts({ documentXml });
+    assert.equal(inspection.status, 'ok');
+    const target = inspection.paragraphs.find(paragraph => paragraph.exactText === originalFinal);
+    assert.ok(target, 'the final paragraph is resolved from the current canonical source');
+    return applyOperationsToDocumentXml(documentXml, [{
+        type: 'redline', target, modified, structuredContent: true
+    }], author, null, {
+        atomic: true,
+        structuredContent: true,
+        pairReplacements: true,
+        generateRedlines: true,
+        ...(existingRevisions ? { existingRevisions } : {})
+    });
+}
+
+// Turn 1: add a tracked underline to the final paragraph.
+const underline = await replaceFinalParagraph(sourceDocumentXml, `++${originalFinal}++`);
+assert.equal(underline.status, 'ok', JSON.stringify(underline.error));
+const underlineAccepted = revisionState(resolve(underline.documentXml, 'accept'));
+const underlineRejected = revisionState(resolve(underline.documentXml, 'reject'));
+assert.equal(underlineAccepted.underline, true);
 assert.equal(underlineRejected.underline, false);
 assert.deepEqual(underlineRejected.paragraphs, sourceParagraphs);
 
-// Turn 2: model P8 append intent, planned against the unchanged accepted-view P7.
-// This deliberately omits sourceDocumentXml from the planner options to exercise
-// the installed engine behind the add-in's safety refusal.
-const append = await prepareCanonicalBatch(underline.insertionPayload, source => (
-    planRedlineBatchOperations([
-        { operation: 'replace_paragraph', paragraphIndex: 8, anchorText: originalFinal, content: table }
-    ], source.paragraphs)
-), { author, existingRevisions: 'merge-same-author' });
-assert.equal(append.status, 'ready', JSON.stringify(append.result.error));
-const appendAccepted = revisionState(await resolve(append.result.documentXml, 'accept'));
-const appendRejected = revisionState(await resolve(append.result.documentXml, 'reject'));
-assert.deepEqual(appendAccepted.paragraphs, sourceParagraphs);
+// Turn 2: append a Markdown table after the same paragraph with the author's
+// pending underline. This is the public-library regression guard for 0.8.4.
+const append = await replaceFinalParagraph(underline.documentXml, `${originalFinal}\n${table}`, 'merge-same-author');
+assert.equal(append.status, 'ok', JSON.stringify(append.error));
+const appendAccepted = revisionState(resolve(append.documentXml, 'accept'));
+const appendRejected = revisionState(resolve(append.documentXml, 'reject'));
+assert.deepEqual(appendAccepted.paragraphs, [...sourceParagraphs, '']);
 assert.equal(appendAccepted.tableCount, 1);
 assert.deepEqual(appendAccepted.cells, [
     'Mountain', 'River', 'Forest', 'Ocean', 'Valley', 'Canyon', 'Meadow', 'Desert', 'Island'
 ]);
-assert.equal(appendAccepted.underline, false, 'known failure: same-author append discarded accepted underline');
+assert.equal(appendAccepted.underline, true, '0.8.4 keeps accepted underline after the same-author table append');
 assert.deepEqual(appendRejected.paragraphs, sourceParagraphs);
 assert.equal(appendRejected.tableCount, 0);
 assert.equal(appendRejected.underline, false);
 
-// Independent second failure: asking for new Markdown underline and a table in
-// one replacement string reports success and emits the table, but loses underline.
-const mixed = await prepareCanonicalBatch(sourcePackage, source => ([{
-    type: 'redline',
-    target: { index: 7, exactText: originalFinal },
-    targetRef: 'P7',
-    structuredContent: true,
-    modified: `++${originalFinal}++\n${table}`
-}]), { author, existingRevisions: 'merge-same-author' });
-assert.equal(mixed.status, 'ready', JSON.stringify(mixed.result.error));
-const mixedAccepted = revisionState(await resolve(mixed.result.documentXml, 'accept'));
-assert.equal(mixedAccepted.underline, false, 'known failure: requested new underline is absent');
-assert.equal(mixedAccepted.tableCount, 1, 'the structural table is retained while its inline formatting request is lost');
+// Independent same-batch case: requested underline and table survive together.
+const mixed = await replaceFinalParagraph(sourceDocumentXml, `++${originalFinal}++\n${table}`);
+assert.equal(mixed.status, 'ok', JSON.stringify(mixed.error));
+const mixedAccepted = revisionState(resolve(mixed.documentXml, 'accept'));
+assert.equal(mixedAccepted.underline, true, '0.8.4 retains the requested underline');
+assert.equal(mixedAccepted.tableCount, 1);
 assert.deepEqual(mixedAccepted.cells, [
     'Mountain', 'River', 'Forest', 'Ocean', 'Valley', 'Canyon', 'Meadow', 'Desert', 'Island'
 ]);
 
 console.log(JSON.stringify({
-    implementation: '@ansonlai/docx-redline-js 0.8.3 installed package',
+    implementation: '@ansonlai/docx-redline-js public standalone-runner API',
     sameAuthorTrackedAppend: {
         firstUnderlineAccepted: underlineAccepted.underline,
         appendedTableAccepted: appendAccepted.tableCount === 1,
@@ -101,10 +99,10 @@ console.log(JSON.stringify({
         rejectAllRemovesTable: appendRejected.tableCount === 0
     },
     combinedNewUnderlineAndTable: {
-        engineStatus: mixed.result.status,
+        engineStatus: mixed.status,
         acceptedUnderline: mixedAccepted.underline,
         acceptedTableCount: mixedAccepted.tableCount,
         acceptedTableCells: mixedAccepted.cells
     },
-    outcome: 'KNOWN_LIBRARY_DEFECT_REPRODUCED'
+    outcome: '0.8.4_REGRESSION_GUARD_PASSED'
 }, null, 2));

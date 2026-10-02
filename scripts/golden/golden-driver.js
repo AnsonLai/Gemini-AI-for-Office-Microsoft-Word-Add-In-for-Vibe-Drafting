@@ -5,7 +5,7 @@
 // It types each scenario prompt into the real chat UI and waits for the
 // production chat loop to finish. In replay mode every Gemini request is
 // answered by the local golden server; in live mode requests go to Gemini
-// unchanged and are only recorded. After each step the document is exported
+// unchanged and paired with its response before the loop continues. After each step the document is exported
 // for host-independent scoring.
 
 const GEMINI_HOST = 'generativelanguage.googleapis.com';
@@ -14,6 +14,7 @@ const nativeFetch = globalThis.fetch.bind(globalThis);
 const consoleLines = [];
 let currentStep = null;
 let pendingSourceDiagnostics = Promise.resolve();
+let pendingModelLogs = Promise.resolve();
 
 // Source snapshots can be enabled only by an explicit deterministic golden
 // replay flag. The caller restricts this to the local NDA fixture and stores
@@ -54,6 +55,11 @@ async function post(route, body, type = 'application/json') {
 // The request URL carries the API key: only the model name leaves this function.
 const modelName = url => decodeURIComponent(String(url).split('/models/')[1]?.split(':')[0] || 'unknown');
 
+function recordLiveExchange(exchange) {
+    pendingModelLogs = pendingModelLogs.then(() => post('/golden/model-log', exchange));
+    return pendingModelLogs;
+}
+
 globalThis.fetch = async (input, init = {}) => {
     const url = typeof input === 'string' ? input : input?.url;
     if (!session || !String(url).includes(GEMINI_HOST)) return nativeFetch(input, init);
@@ -63,10 +69,18 @@ globalThis.fetch = async (input, init = {}) => {
         const response = await post('/golden/model', { step: currentStep, model, payload });
         return new Response(await response.text(), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
-    const response = await nativeFetch(input, init);
-    response.clone().text()
-        .then(text => post('/golden/model-log', { step: currentStep, model, payload, status: response.status, response: text }))
-        .catch(() => {});
+    const step = currentStep;
+    let response;
+    try {
+        response = await nativeFetch(input, init);
+    } catch (error) {
+        // Do not serialize fetch errors: some runtimes include the full URL,
+        // which carries the API key. The boolean preserves the failed exchange.
+        await recordLiveExchange({ step, model, payload, status: null, response: null, requestError: true });
+        throw error;
+    }
+    const responseText = await response.clone().text();
+    await recordLiveExchange({ step, model, payload, status: response.status, response: responseText });
     return response;
 };
 
@@ -120,6 +134,7 @@ async function runStep(step, index) {
     await waitFor(() => !input.disabled, session.stepTimeoutMs, `step ${step.id} to finish`);
     await delay(500);
     await pendingSourceDiagnostics;
+    await pendingModelLogs;
 
     const transcript = chatMessages().slice(before);
     const bytes = await exportDocx();

@@ -1,5 +1,13 @@
 # Table creation and multi-step chat reliability
 
+> Scope update (2026-10-02): the owner approved the [library-first lightweight
+> harness plan](2026-10-02-library-first-lightweight-agent-reliability.md).
+> Unsupported native editing commands and their migration queue are retired.
+> The smaller retained subset uses direct library batches; broader list/table
+> structure is refused. This is an intentional capability retirement, not
+> evidence that upstream defects were fixed. Preserve the dated incident and
+> independent library reproducers below, including issue cleanup conditions.
+
 **Date:** 2026-09-30  
 **Status:** Open — consumer recovery is implemented; tracked Word fidelity remains blocked by separate upstream issues.
 

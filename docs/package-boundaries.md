@@ -1,70 +1,27 @@
 # Consumer package boundaries
 
-The consumers pin `@ansonlai/docx-redline-js@0.8.4`. The library owns document
-inspection, OOXML edits, revision resolution and package serialization.
+Both manifests exact-pin `@ansonlai/docx-redline-js@0.8.4`. The library owns canonical inspection, targeting, literal matching, OOXML mutation, revisions, numbering and DOCX package semantics. Application prompting, scope, harness and Word transport defects are fixed here; engine defects receive upstream reports and independent reproducers.
 
-| Surface | Responsibility | Host dependencies |
-| --- | --- | --- |
-| `document-agent-loop.js` / `tool-registry.js` | Provider/tool exchanges, stop budgets, schema validation, executor mapping and progress events | Injected provider, context, checkpoint and UI callbacks; no Word/DOM globals |
-| `consumer-core.js` | Immutable-source mapping, validation, operation preparation and result handling | Library and its XML adapter; no Word, UI or filesystem |
-| `word-operation-runner.js` / `word-redline-runner.js` | Read live scopes, manage tracking, write prepared Flat OPC and report confirmed host outcomes | Word request context |
-| Browser document session | Open/inspect, atomic batch mutation, serialize complete DOCX | Public document facade; bytes supplied by caller |
-| Browser demo UI | File selection, prompt context, preview and downloads | DOM and browser file APIs |
-| MCP document service | File/session management and existing tool contracts | Node filesystem and MCP transport |
+| Surface | Responsibility |
+| --- | --- |
+| Loop, registry and guide | Bounded provider/tool exchanges, scope, paired history, truthful completion and UI events. |
+| Inspection session | Bounded opaque handles/cursors tied to strong library descriptors and fresh source identity. |
+| Intent compiler | Validate the complete allowlisted proposal and map desired states to public canonical operations. No model call, search engine or native edit algorithm. |
+| Document tools | Fresh resolution, exact-source checkpoint, atomic preparation/commit and affected-state verification. |
+| `consumer-core.js` | Read Word Flat OPC parts and assemble a preserved insertion package around library output. No Word, UI or filesystem globals. |
+| Word adapter/source identity | Source/selection/count reads, sync, one body insertion, tracking state, checkpoint transport and confirmed export-metadata stabilization. |
+| Browser document session | Open/inspect/atomic edit/serialize through the public complete-DOCX facade; JSZip remains for preview. |
+| MCP document service | Node file/session I/O and public facade operations; persistence is explicit. |
 
-The add-in integration `index.js` remains a compatibility surface with Word
-exports. Non-Word consumers import the explicit portable entry point instead
-of that mixed index. Existing adapter export names remain available.
+The Word plugin keeps Flat OPC transport, as approved by the owner. Supported editing has no native paragraph/list/table algorithm or compatibility executor. Remaining part/relationship assembly is host adaptation and delegates reusable comment/numbering reconciliation to published helpers.
 
-## Delegated work and remaining local paths
+A future agreed public Flat OPC prepare/export API could remove more assembly, with preservation evidence. No assumed facade input, local engine clone or dependency experiment is included. Word preparation does not confirm a write; synchronized host evidence plus verification does. Browser/MCP edits happen in memory, with download/save separate. Offline success or preview does not certify Office.js transport.
 
-The OOXML engine was extracted before the four August 29 plans. The later
-completed plans and September upgrade moved specific workflows onto its public
-facade:
+Ordinary-comment output is a merge delta. Until a supported public merge path
+exists, the Word consumer refuses adding comments to sources with existing
+comments; it never replaces the whole part with a delta or appends duplicate
+parts. Restore uses a derived comparison for proven Word-generated metadata,
+guarded by canonical comment relationship/anchor equality, without changing XML
+payloads or ordinary freshness checks.
 
-- Redline edits are planned from one source snapshot and sent as one atomic
-  library batch. The migrated route no longer has the iterative Word paragraph
-  loop or manual table recovery.
-- MCP open, inspect, edit, and serialize use the library document session. The
-  four redundant package, paragraph-targeting, library-adapter, and XML services
-  plus direct `jszip` and `@xmldom/xmldom` dependencies were removed.
-- The browser session uses the facade for open, inspect, edit, and serialization.
-  JSZip remains in the demo for `docx-preview` only.
-- Canonical `insert_list_item` is limited to supported tracking-on insertion
-  into active bullet and decimal lists at levels 0–1. `edit_list` still uses
-  the legacy `applyRedlineToOxml` route; header conversion and unsupported
-  insertion shapes remain on native Word paths.
-
-The add-in's `consumer-core.js` remains responsible for portable source mapping,
-validation, operation preparation, result handling, and Flat OPC construction;
-the Word adapter owns Office.js reads/writes and tracking. Provider retry,
-mutation outcome reporting, and lazy taskpane loading are consumer-side
-reliability/startup improvements, not library offloads. See the
-[library offload review](library-offload-review.md).
-
-## Transport and outcome differences
-
-Portable preparation can produce a ready insertion payload. It cannot confirm
-that Word accepted a write; the Word adapter sets its mutation outcome only
-after host synchronization. Browser/MCP document mutation happens in memory;
-download or filesystem save is a separate action.
-
-Word uses range/body Flat OPC transport. Browser and MCP use complete DOCX
-document sessions. The owner rejected a whole-document Word binary/facade
-upgrade in the [reliability plan](plans/2026-10-02-library-first-lightweight-agent-reliability.md);
-the selected Word route remains Flat OPC transport.
-
-The browser preview retains JSZip because `docx-preview` requires it. Editing
-does not use JSZip to rebuild packages. The no-build page uses the library's
-published browser bundle; loading its unbundled entry without dependency maps
-previously failed on bare XML/ZIP dependency specifiers.
-
-The v0.8.2 reports preserve earlier Reject All and historical-property
-findings; dated v0.8.3 validation passes 12 independent Word checks on the two
-former public-facade Reject All cases. The release notes describe those fixes.
-Remaining canonical limits are plain or text-changing header-to-list
-conversion and list-format changes. A marker-prefixed `1. Header` no-op on bare
-`document.xml` can fail with `RECEIPT_RECONCILIATION_FAILED`. The migration
-status is in the [canonical migration follow-up](plans/2026-09-30-canonical-list-migration-follow-up.md).
-Portable extraction does not certify unsupported list mutations or native
-fallback fidelity. Preview output is not an independent Word oracle.
+Current behavior: [tool contracts](agentic-tool-contracts.md). Measured changes and host evidence: [reliability plan](plans/2026-10-02-library-first-lightweight-agent-reliability.md). Unsupported engine shapes remain in [library issues](library-issues/README.md); removal of native fallback does not close them.

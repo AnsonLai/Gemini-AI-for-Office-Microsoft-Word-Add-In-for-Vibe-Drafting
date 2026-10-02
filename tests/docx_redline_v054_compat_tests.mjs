@@ -5,11 +5,6 @@ import { dirname, join, resolve } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 
-import {
-    assertRedlineResult,
-    prepareOperationInput,
-    RedlineOperationError
-} from '../src/taskpane/modules/docx-redline-js-integration/redline-result.js';
 
 const EXPECTED_VERSION = '0.5.4';
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
@@ -69,39 +64,7 @@ function walkJavaScriptFiles(root) {
     return files;
 }
 
-function testNewCodesPassThroughConsumerBoundary() {
-    const codes = [
-        'INVALID_OPERATION',
-        'COMMENTED_CONTENT_DELETE',
-        'ANCHOR_NOT_FOUND',
-        'AMBIGUOUS_ANCHOR',
-        'PATCH_ROUNDTRIP_MISMATCH',
-        'FOREIGN_PARAGRAPH_MARK_DELETION',
-        'GENERATED_OOXML_INVALID',
-        'REJECTED_INSERTION_STATE_REQUIRED',
-        'UNSAFE_REVISION_BOUNDARY',
-        'FUTURE_V05_ERROR'
-    ];
-
-    for (const code of codes) {
-        assert.throws(
-            () => assertRedlineResult({
-                status: 'error',
-                hasChanges: false,
-                error: { code, message: 'Synthetic v0.5 failure' },
-                warnings: ['preserved warning']
-            }, 'v0.5.4 compatibility test'),
-            error => {
-                assert.ok(error instanceof RedlineOperationError);
-                assert.strictEqual(error.code, code);
-                assert.deepStrictEqual(error.details.warnings, ['preserved warning']);
-                return true;
-            }
-        );
-    }
-}
-
-function testConsumerBatchCallsRequireExplicitAtomicity() {
+function testProductionBatchCallsRequireExplicitAtomicity() {
     const productionRoots = [
         join(REPO_ROOT, 'src'),
         join(REPO_ROOT, 'browser-demo'),
@@ -326,50 +289,14 @@ async function testRevisionLifecycleAndStructuralText(api, runner) {
     assert.strictEqual(canonicalDocumentText(api, rejected.oxml), originalText);
 }
 
-async function testConsumerSanitizationPolicy(api, runner) {
-    const source = documentXml([paragraphXml('Original clause.', '9999AAAA')]);
-    const operation = {
-        type: 'redline',
-        target: { index: 1, exactText: 'Original clause.' },
-        modified: 'Here is the redline:\nPay $1,000 under $term$.'
-    };
-    const prepared = prepareOperationInput(operation, true);
-    assert.strictEqual(prepared.sanitized, true);
-    assert.strictEqual(prepared.operation.modified, 'Pay $1,000 under $term$.');
-
-    const sanitized = await runner.applyOperationToDocumentXml(
-        source,
-        prepared.operation,
-        'AI Redliner',
-        null,
-        { generateRedlines: false, sanitizeInput: true, strictTargets: true }
-    );
-    const literal = await runner.applyOperationToDocumentXml(
-        source,
-        operation,
-        'AI Redliner',
-        null,
-        { generateRedlines: false, sanitizeInput: false, strictTargets: true }
-    );
-
-    assert.strictEqual(sanitized.status, 'ok');
-    assert.strictEqual(canonicalDocumentText(api, sanitized.documentXml), 'Pay $1,000 under $term$.');
-    assert.strictEqual(literal.status, 'ok');
-    assert.strictEqual(
-        canonicalDocumentText(api, literal.documentXml),
-        'Here is the redline:\nPay $1,000 under $term$.'
-    );
-}
-
 async function run() {
-    testNewCodesPassThroughConsumerBoundary();
-    testConsumerBatchCallsRequireExplicitAtomicity();
+    testProductionBatchCallsRequireExplicitAtomicity();
 
     const packageRoot = resolvePackageRoot();
     const version = readPackageVersion(packageRoot);
     if (version !== EXPECTED_VERSION) {
         console.log(
-            `PASS: v0.5.4 consumer guards; SKIP: package behavior requires ${EXPECTED_VERSION} `
+            `PASS: production atomicity guard; SKIP: package behavior requires ${EXPECTED_VERSION} `
             + `(resolved ${version}). Set DOCX_REDLINE_PACKAGE_ROOT to a v0.5.4 package root to run it before WP2.`
         );
         return;
@@ -382,7 +309,6 @@ async function run() {
     await testAtomicBatchRollsBackAllArtifacts(runner);
     await testSameAuthorMergeAndForeignAuthorRefusal(api, runner);
     await testRevisionLifecycleAndStructuralText(api, runner);
-    await testConsumerSanitizationPolicy(api, runner);
     console.log('PASS: docx-redline-js v0.5.4 compatibility tests');
 }
 

@@ -12,6 +12,82 @@ export function classifyRequest(payload) {
     return 'other';
 }
 
+const DEFAULT_FAST_MODEL = 'gemini-flash-latest';
+const DEFAULT_SLOW_MODEL = 'gemini-2.5-pro';
+
+/** Resolve the existing fast/slow taskpane settings without introducing model IDs. */
+export function resolveGoldenModelSettings({ profile = 'configured', fastModel = null, slowModel = null } = {}) {
+    const fast = typeof fastModel === 'string' && fastModel.trim() ? fastModel.trim() : DEFAULT_FAST_MODEL;
+    const slow = typeof slowModel === 'string' && slowModel.trim() ? slowModel.trim() : DEFAULT_SLOW_MODEL;
+    if (profile === 'configured') return { profile, fast, slow };
+    if (profile === 'fast') {
+        if (slowModel) throw new Error('--slow-model cannot be combined with --profile fast');
+        return { profile, fast, slow: fast };
+    }
+    if (profile === 'slow') {
+        if (fastModel) throw new Error('--model cannot be combined with --profile slow');
+        return { profile, fast: slow, slow };
+    }
+    throw new Error('--profile must be configured, fast, or slow');
+}
+
+/**
+ * Observe only provider exchanges actually captured for one user turn. Function
+ * receipts come exclusively from the latest request's current-turn history;
+ * clipped history therefore stays incomplete instead of gaining synthetic data.
+ */
+export function createStepObservationCollector(requestPrompt) {
+    const requestCounts = { chat: 0, aux: 0, other: 0 };
+    const served = [];
+    let latestPayload = null;
+    let exchanges = 0;
+    let invalidResponses = 0;
+
+    return {
+        record({ payload, response, status } = {}) {
+            const kind = classifyRequest(payload);
+            requestCounts[kind]++;
+            latestPayload = payload && typeof payload === 'object' ? payload : null;
+            exchanges++;
+
+            let parsed = response;
+            if (typeof parsed === 'string') {
+                try { parsed = JSON.parse(parsed); } catch { parsed = null; }
+            }
+            const successfulStatus = status == null || (Number(status) >= 200 && Number(status) < 300);
+            const firstCandidate = successfulStatus && Array.isArray(parsed?.candidates) ? parsed.candidates[0] : null;
+            const parts = Array.isArray(firstCandidate?.content?.parts) ? firstCandidate.content.parts : null;
+            if (!parts) {
+                invalidResponses++;
+                return;
+            }
+            for (const part of parts) served.push({ kind, part });
+        },
+        summary() {
+            const functionResponses = {};
+            const functionResponseHistory = {};
+            for (const message of currentStepMessages(latestPayload, requestPrompt)) {
+                for (const part of Array.isArray(message?.parts) ? message.parts : []) {
+                    const functionResponse = part?.functionResponse;
+                    if (typeof functionResponse?.name !== 'string') continue;
+                    const name = functionResponse.name;
+                    const result = parseFunctionResponse(functionResponse);
+                    functionResponses[name] = result;
+                    (functionResponseHistory[name] ||= []).push(result);
+                }
+            }
+            return {
+                served: [...served],
+                requestCounts: { ...requestCounts },
+                functionResponses,
+                functionResponseHistory,
+                exchanges,
+                invalidResponses
+            };
+        }
+    };
+}
+
 function textParts(payload) {
     const parts = [];
     const visit = value => {

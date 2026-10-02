@@ -13,7 +13,6 @@ const MAX_TOTAL_TEXT_CHARS_LIMIT = 12000;
 const MAX_SEARCH_CHARS = 1000;
 const MAX_STORED_HANDLES = 400;
 const MAX_STORED_CURSORS = 100;
-const MAX_STORED_COVERAGES = 100;
 
 let fallbackId = 0;
 
@@ -206,13 +205,11 @@ export function createDocumentInspectionSession({
   const sessionId = opaqueId('session');
   const handles = new Map();
   const cursors = new Map();
-  const coverage = new Map();
   let generation = 0;
   let currentSnapshot = null;
   let diagnosticParts = null;
   let diagnosticHostParagraphCount;
   let nextHandleNumber = 0;
-  let nextCoverageNumber = 0;
 
   function invalidate() {
     generation += 1;
@@ -221,7 +218,6 @@ export function createDocumentInspectionSession({
     diagnosticHostParagraphCount = undefined;
     handles.clear();
     cursors.clear();
-    coverage.clear();
   }
 
   async function loadSnapshot(source = null) {
@@ -399,10 +395,6 @@ export function createDocumentInspectionSession({
         invalidate();
         throw sessionError('HANDLE_STORE_LIMIT', 'This inspection session reached its handle limit. Start a fresh inspection session.');
       }
-      if (coverage.size >= MAX_STORED_COVERAGES) {
-        invalidate();
-        throw sessionError('INSPECTION_COVERAGE_LIMIT', 'This inspection session reached its coverage limit. Start a fresh inspection session.');
-      }
 
       const issued = [];
       const unresolvedCount = editableParagraphs.length;
@@ -449,17 +441,6 @@ export function createDocumentInspectionSession({
         handles.get(issued[index].handle).fullTextInspected = projected[index].textComplete;
       }
 
-      nextCoverageNumber += 1;
-      const coverageId = `${sessionId}_c${nextCoverageNumber.toString(36)}`;
-      const fullTextIndexes = new Set(issued
-        .filter((_, index) => projected[index].textComplete)
-        .map(({ paragraph }) => paragraph.index));
-      coverage.set(coverageId, {
-        generation,
-        revisionToken: snapshot.revisionToken,
-        fullTextIndexes
-      });
-      for (const { handle } of issued) handles.get(handle).coverageId = coverageId;
 
       let endHandle;
       if (normalized.includeDocumentEnd) {
@@ -470,7 +451,6 @@ export function createDocumentInspectionSession({
         const lastParagraph = fullInspection.paragraphs?.filter(paragraph => paragraph.index !== snapshot.excludedParagraphIndex).at(-1);
         if (fullInspection.status === 'ok' && hasStrongDescriptor(lastParagraph)) {
           endHandle = makeHandle('document-end', lastParagraph, snapshot, {
-            coverageId,
             fullTextInspected: false
           });
         }
@@ -563,55 +543,9 @@ export function createDocumentInspectionSession({
     }
   }
 
-  async function resolve(handle, options = {}) {
-    const result = await resolveHandles([handle], options);
-    return result.status === 'ok' ? { ...result, target: result.targets[0] } : result;
-  }
-
-  async function resolveMany(handleList, options = {}) {
-    return resolveHandles(handleList, options);
-  }
-
-  async function resolveRange({ startHandle, endHandle } = {}, options = {}) {
-    const result = await resolveHandles([startHandle, endHandle], options);
-    if (result.status !== 'ok') return result;
-    const [start, end] = result.targets;
-    if (start.kind !== 'paragraph' || end.kind !== 'paragraph') {
-      return errorResult(sessionError('INVALID_RANGE_HANDLES', 'A range requires paragraph handles for both endpoints.'));
-    }
-    const startIndex = start.descriptor.index;
-    const endIndex = end.descriptor.index;
-    if (endIndex < startIndex) return errorResult(sessionError('INVALID_RANGE_HANDLES', 'The range end must follow its start.'));
-    const startEntry = handles.get(startHandle);
-    const endEntry = handles.get(endHandle);
-    if (!startEntry || !endEntry || startEntry.coverageId !== endEntry.coverageId) {
-      return errorResult(sessionError('RANGE_NOT_FULLY_INSPECTED', 'Inspect the complete requested range in one result before resolving it.'));
-    }
-    const coverageEntry = coverage.get(startEntry.coverageId);
-    if (!coverageEntry || coverageEntry.generation !== generation) {
-      return errorResult(sessionError('RANGE_NOT_FULLY_INSPECTED', 'The range inspection has expired. Inspect it again before resolving.'));
-    }
-    for (let index = startIndex; index <= endIndex; index++) {
-      if (!coverageEntry.fullTextIndexes.has(index)) {
-        return errorResult(sessionError('RANGE_NOT_FULLY_INSPECTED', 'The complete source text for this range was not returned. Inspect the full range without truncation before resolving it.'));
-      }
-    }
-    return {
-      ...result,
-      range: {
-        start: start.descriptor,
-        end: end.descriptor,
-        paragraphCount: endIndex - startIndex + 1
-      }
-    };
-  }
-
   return Object.freeze({
     inspect,
-    resolve,
-    resolveRange,
     resolveHandles,
-    resolveMany,
     invalidate
   });
 }

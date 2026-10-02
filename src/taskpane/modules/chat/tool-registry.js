@@ -29,7 +29,7 @@ export const getToolDeclarations = () => JSON.parse(JSON.stringify(DECLARATIONS)
 export function createToolRegistry(executors = {}) {
   function describe(name) {
     const known = NAMES.includes(name), mutating = name === 'apply_document_edits';
-    return { known, name, mutating, withCheckpoint: false,
+    return { known, name, mutating,
       instruction: mutating ? 'Apply the requested document batch' : 'Inspect the document',
       progressText: mutating ? 'Validating the document edit batch...' : 'Inspecting the document...',
     };

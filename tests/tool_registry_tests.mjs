@@ -46,7 +46,7 @@ function testDeclarationsAndRecoveryNames() {
     'caller mutations must not alter the authoritative definitions');
   assert.equal(registry.describe('inspect_document').mutating, false);
   assert.equal(registry.describe('apply_document_edits').mutating, true);
-  assert.equal(registry.describe('apply_document_edits').withCheckpoint, false,
+  assert.equal(registry.describe('apply_document_edits').withCheckpoint, undefined,
     'the adapter persists a source-guarded checkpoint inside the atomic batch');
 }
 

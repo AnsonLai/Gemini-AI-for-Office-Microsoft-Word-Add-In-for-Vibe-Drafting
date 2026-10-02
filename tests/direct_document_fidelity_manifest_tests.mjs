@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { openDocx } from '@ansonlai/docx-redline-js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -120,11 +121,44 @@ const noRedlineListCase = insertListItem(
     expectedRejectedText: insertParagraph(sourceTexts, 'Bullet Root B', 'Inserted bullet with redlines disabled').join('\n') }
 );
 
-const literalSource = 'Plain paragraph before bullet list.';
-const literalAccepted = 'Plain paragraph ahead of bullet list.';
-const literalCase = textCase('direct-literal-replacement-preserves-sentinel', [
-  { type: 'replace_text', targetText: literalSource, find: 'before', replace: 'ahead of' }
-], replaceParagraph(sourceTexts, literalSource, literalAccepted));
+const commentSource = 'tests/fixtures/wp6/threaded-comments.docx';
+const commentSourceTexts = [
+  'The Supplier shall deliver the goods within thirty days.',
+  'Payment is due upon receipt of invoice.',
+  'This agreement is governed by local law.'
+];
+const commentSourceInspection = openDocx(new Uint8Array(readFileSync(path.join(root, commentSource)))).inspect();
+assert.equal(commentSourceInspection.status, 'ok');
+assert.equal(commentSourceInspection.comments.length, 3, 'the Word-authored restore checkpoint source contains three existing comments');
+assert.deepEqual(commentSourceInspection.paragraphs.map(paragraph => paragraph.exactText), commentSourceTexts);
+const commentRevisionSentinel = 'Existing tracked checkpoint revision sentinel.';
+const commentPreparedTexts = insertParagraph(commentSourceTexts, commentSourceTexts[2], commentRevisionSentinel);
+const commentLiteralSource = commentSourceTexts[0];
+const commentLiteralAccepted = 'The Supplier shall deliver the goods within forty days.';
+const literalCase = textCase('direct-literal-replacement-preserves-comment-threads', [
+  { type: 'replace_text', targetText: commentLiteralSource, find: 'within thirty days', replace: 'within forty days' }
+], insertParagraph(replaceParagraph(commentSourceTexts, commentLiteralSource, commentLiteralAccepted), commentSourceTexts[2], commentRevisionSentinel), {
+  source: commentSource,
+  usesPreparedSource: true,
+  sourcePreparation: [{ type: 'tracked-append', afterText: commentSourceTexts[2], text: commentRevisionSentinel, trackingMode: 'trackAll' }],
+  productionOptions: { generateRedlines: false, priorTrackingMode: 'trackAll' },
+  expectedSourceText: commentPreparedTexts.join('\n'),
+  expectedRejectedText: replaceParagraph(commentSourceTexts, commentLiteralSource, commentLiteralAccepted).join('\n'),
+  expectedRestoredAcceptedText: commentPreparedTexts.join('\n'),
+  expectedRestoredRejectedText: commentSourceTexts.join('\n'),
+  expectedComments: 3,
+  expectedMinimumBodyRevisions: 1,
+  expectedRestoredBodyRevisions: 1,
+  expectedFormatting: [],
+  expectedNumbering: { source: [], accepted: [], rejected: [] },
+  pendingRevisionRefusalControl: {
+    targetText: commentRevisionSentinel,
+    replacementText: 'This edit must be refused while tracked revisions are pending.',
+    expectedErrorCode: 'UNTRACKED_EDIT_ON_REVISED_TARGET'
+  },
+  commentRefusalControl: { text: 'Add a new note to this existing threaded document.' },
+  restorationHandleText: commentLiteralAccepted
+});
 
 const rewriteSource = 'Plain paragraph between headers.';
 const rewriteAccepted = 'Plain paragraph between the two header candidates.';
@@ -212,6 +246,7 @@ assert.ok(outputDirectory && !String(process.argv[outputArg + 1] || '').startsWi
 mkdirSync(outputDirectory, { recursive: true });
 const sourcePaths = new Map([
   ['nested-lists-source.docx', path.join(fixtureDirectory, 'nested-lists-source.docx')],
+  [commentSource, path.join(root, commentSource)],
   [tableSource, path.join(root, tableSource)]
 ]);
 const manifest = {

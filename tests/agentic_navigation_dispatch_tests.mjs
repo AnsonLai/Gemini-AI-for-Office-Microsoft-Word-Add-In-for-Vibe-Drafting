@@ -23,82 +23,16 @@ visit(taskpaneAst, node => {
 });
 assert.ok(sendChatMessage, 'sendChatMessage must remain an inspectable host adapter');
 
-// The direct protocol inspects through a read-only tool, then applies a batch
-// with opaque handles and arguments only. The locally captured baseline stays
-// in loop state for source identity; it is not a legacy executor parameter.
-
-// The exact canonical source baseline is derived from the same library
-// inspection that formats model context, then handed to the loop before any
-// registry executor runs.
-let baselineDeclaration = null;
-let baselineAssignment = null;
-let sourceBaselineFromDeclaration = null;
-let loopStateDeclaration = null;
-let loopInvocation = null;
+// Strong descriptors belong to the source-bound inspection session, rather than loop state.
+let loopInvocation, loopStateDeclaration;
 visit(sendChatMessage.body, node => {
-  if (node.type === 'VariableDeclarator' && node.id?.name === 'docSourceBaseline') {
-    baselineDeclaration = node;
-    if (node.init?.type === 'CallExpression'
-      && node.init.callee?.type === 'Identifier'
-      && node.init.callee.name === 'sourceBaselineFrom'
-      && node.init.arguments[0]?.type === 'MemberExpression'
-      && node.init.arguments[0].object?.name === 'documentSource'
-      && node.init.arguments[0].property?.name === 'inspection') {
-      baselineAssignment = node;
-    }
-  }
+  if (node.type === 'CallExpression' && node.callee?.name === 'runDocumentAgentLoop') loopInvocation = node;
   if (node.type === 'VariableDeclarator' && node.id?.name === 'loopState') loopStateDeclaration = node;
-  if (node.type === 'CallExpression' && node.callee?.type === 'Identifier'
-    && node.callee.name === 'runDocumentAgentLoop') loopInvocation = node;
 });
-visit(taskpaneAst, node => {
-  if (node.type === 'VariableDeclarator' && node.id?.name === 'sourceBaselineFrom') {
-    sourceBaselineFromDeclaration = node;
-  }
-});
-
-assert.ok(baselineDeclaration, 'sendChatMessage must declare the source baseline locally');
-assert.ok(baselineAssignment, 'sendChatMessage must derive the baseline from documentSource.inspection');
-assert.ok(sourceBaselineFromDeclaration?.init, 'the taskpane must define its baseline projection');
-assert.ok(loopStateDeclaration?.init?.type === 'ObjectExpression', 'sendChatMessage must construct loop state');
-assert.ok(loopInvocation, 'sendChatMessage must hand work to the portable loop');
-const baselineStateProperty = loopStateDeclaration.init.properties.find(property =>
-  property.key?.name === 'docSourceBaseline'
-  && property.value?.type === 'Identifier'
-  && property.value.name === 'docSourceBaseline'
-);
-const loopStateArgument = loopInvocation.arguments[0]?.properties?.find(property => property.key?.name === 'state');
-assert.ok(baselineStateProperty, 'loop state must contain the locally captured docSourceBaseline');
-assert.equal(loopStateArgument?.value?.name, 'loopState', 'the captured baseline state must be passed into the loop');
-assert.ok(
-  baselineAssignment.start < loopInvocation.start
-    && loopInvocation.end < sendChatMessage.body.end,
-  'baseline derivation and loop invocation must share sendChatMessage scope and order'
-);
-
-const baselineSource = [{ index: 1, exactText: 'Source paragraph', fingerprint: 'fnv1a32:test', paragraphId: 'ABCDEF01', inTable: false }];
-const sourceBaselineFrom = new Function(
-  `return (${taskpaneSource.slice(sourceBaselineFromDeclaration.init.start, sourceBaselineFromDeclaration.init.end)});`
-)();
-const deriveBaseline = new Function(
-  'sourceBaselineFrom', 'documentSource',
-  `return ${taskpaneSource.slice(baselineAssignment.init.start, baselineAssignment.init.end)};`
-);
-const capturedBaseline = deriveBaseline(sourceBaselineFrom, { inspection: { paragraphs: baselineSource } });
-assert.deepEqual(capturedBaseline, baselineSource,
-  'the actual taskpane sourceBaselineFrom projection must preserve canonical targeting fields');
-
-const makeLoopState = new Function(
-  'chatHistory', 'docText', 'docSourceBaseline', 'requestRecords',
-  `return (${taskpaneSource.slice(loopStateDeclaration.init.start, loopStateDeclaration.init.end)});`
-);
-const state = makeLoopState(
-  [{ role: 'user', parts: [{ text: 'Revise the source paragraph.' }] }],
-  '[P1] Source paragraph',
-  capturedBaseline,
-  []
-);
-assert.deepEqual(state.docSourceBaseline, capturedBaseline);
+assert.ok(loopInvocation && loopStateDeclaration);
+assert.deepEqual(loopStateDeclaration.init.properties.map(p => p.key.name), ['history', 'records']);
+assert.doesNotMatch(taskpaneSource, /sourceBaselineFrom|docSourceBaseline|body\.clear\(/);
+const state = { history: [{ role: 'user', parts: [{ text: 'Revise the source paragraph.' }] }], records: [] };
 
 const expectedEdits = {
   edits: [{ type: 'replace_text', target: 'opaque:source-handle', find: 'Source', replace: 'Updated' }]
@@ -140,10 +74,6 @@ await runDocumentAgentLoop({
   loadRegistry: async () => directRegistry,
   requestModel: async () => {
     providerTurns++;
-    if (providerTurns === 2) {
-      assert.deepEqual(state.docSourceBaseline, capturedBaseline,
-        'the source baseline remains attached to loop state through read-only inspection and into edit dispatch');
-    }
     return replies.shift();
   },
   refreshContext: async () => {
@@ -160,7 +90,7 @@ assert.deepEqual(appliedArgs, expectedEdits,
 assert.equal(applyArgumentCount, 1, 'the executor no longer receives document text or a separate baseline');
 assert.equal(providerTurns, 3, 'inspection, one atomic apply batch, and the final response each use one model turn');
 assert.equal(state.records.filter(record => record.mutating).length, 1);
-assert.deepEqual(state.docSourceBaseline, refreshedBaseline, 'a confirmed batch installs the fresh post-write baseline');
+assert.ok(state.history.some(turn => turn.parts.some(part => part.text?.includes('Updated paragraph'))), 'fresh post-write context reaches the next model turn');
 assert.equal(refreshCount, 1);
 
 const unsupportedRegistry = createToolRegistry({
@@ -334,4 +264,121 @@ for (const staleController of [{}, null]) {
   assert.deepEqual(staleCleanup.effects, []);
 }
 
-console.log('PASS: agentic navigation dispatch and loop-bound source baseline');
+// Evaluate the actual checkpoint UI adapter with host/storage dependencies
+// stubbed. A failed lookup or unverified write must retain both the model
+// history and visible transcript; only the current, verified restore may reset
+// them and remove stale retry/revert controls with the old message nodes.
+let restoreCheckpointNode = null;
+visit(taskpaneAst, node => {
+  if (node.type === 'FunctionDeclaration' && node.id?.name === 'restoreCheckpoint') restoreCheckpointNode = node;
+});
+assert.ok(restoreCheckpointNode, 'checkpoint restore must remain an inspectable taskpane adapter');
+const restoreFunctionSource = taskpaneSource.slice(restoreCheckpointNode.start, restoreCheckpointNode.end)
+  .replace("await import('./modules/chat/checkpoint-restoration.js')", 'await loadCheckpointRestoration()');
+assert.notEqual(restoreFunctionSource, taskpaneSource.slice(restoreCheckpointNode.start, restoreCheckpointNode.end),
+  'the restore adapter keeps its production import seam for this isolated test');
+const createRestoreHarness = new Function(
+  'getCheckpoint', 'loadCheckpointRestoration', 'getDocumentId',
+  'document', 'addMessageToChat', 'updateSystemMessage', 'console', 'initialController', 'initialHistory',
+  `${restoreFunctionSource};
+   let currentRequestController = initialController;
+   let chatHistory = initialHistory;
+   return {
+     restoreCheckpoint,
+     getCurrent: () => currentRequestController,
+     setCurrent: value => { currentRequestController = value; },
+     getHistory: () => chatHistory
+   };`
+);
+function makeRestoreHarness({ record = { ooxml: '<checkpoint/>' }, restoreResult, deferredRestore,
+  checkpointError, restoreError } = {}) {
+  const oldHistory = [{ role: 'user', parts: [{ text: 'old conversation' }] }];
+  const messages = { innerHTML: 'old transcript including revert and retry controls' };
+  const controls = new Map(['chat-input', 'send-button', 'think-button'].map(id => [id, { disabled: false }]));
+  const effects = [];
+  const restore = createRestoreHarness(
+    async () => {
+      if (checkpointError) throw checkpointError;
+      return record;
+    },
+    async () => ({ restoreBodyCheckpoint: async (...args) => {
+      effects.push(['restore', ...args]);
+      if (restoreError) throw restoreError;
+      if (deferredRestore) {
+        deferredRestore.started();
+        return deferredRestore.promise;
+      }
+      return restoreResult;
+    } }),
+    () => 'document-id',
+    { getElementById: id => id === 'chat-messages' ? messages : controls.get(id) || null },
+    (...args) => { effects.push(['add', ...args]); return { id: `message-${effects.length}` }; },
+    (...args) => effects.push(['update', ...args]),
+    { error() {} },
+    null,
+    oldHistory
+  );
+  return { ...restore, oldHistory, messages, controls, effects };
+}
+
+let restoreHarness = makeRestoreHarness({ restoreResult: {
+  success: false, verified: false, message: 'The checkpoint could not be verified.'
+} });
+await restoreHarness.restoreCheckpoint('checkpoint-id');
+assert.equal(restoreHarness.getHistory(), restoreHarness.oldHistory,
+  'an unverified restore preserves model history');
+assert.equal(restoreHarness.messages.innerHTML, 'old transcript including revert and retry controls',
+  'an unverified restore preserves the visible transcript and its controls');
+assert.ok(restoreHarness.effects.some(effect => effect[0] === 'update' && effect[2] === 'The checkpoint could not be verified.'));
+
+restoreHarness = makeRestoreHarness({ record: null, restoreResult: null });
+await restoreHarness.restoreCheckpoint('missing-checkpoint');
+assert.equal(restoreHarness.getHistory(), restoreHarness.oldHistory,
+  'a missing checkpoint preserves model history');
+assert.equal(restoreHarness.messages.innerHTML, 'old transcript including revert and retry controls',
+  'a missing checkpoint leaves the existing transcript intact');
+
+restoreHarness = makeRestoreHarness({ checkpointError: new Error('Checkpoint storage failed.') });
+await restoreHarness.restoreCheckpoint('checkpoint-id');
+assert.equal(restoreHarness.getHistory(), restoreHarness.oldHistory,
+  'a checkpoint lookup error preserves model history');
+assert.equal(restoreHarness.messages.innerHTML, 'old transcript including revert and retry controls',
+  'a checkpoint lookup error preserves the existing transcript');
+
+restoreHarness = makeRestoreHarness({ restoreError: new Error('Word restore failed.') });
+await restoreHarness.restoreCheckpoint('checkpoint-id');
+assert.equal(restoreHarness.getHistory(), restoreHarness.oldHistory,
+  'a restore exception preserves model history');
+assert.equal(restoreHarness.messages.innerHTML, 'old transcript including revert and retry controls',
+  'a restore exception preserves the existing transcript');
+
+restoreHarness = makeRestoreHarness({ restoreResult: {
+  success: true, verified: true, message: 'Reverted and verified the body checkpoint.'
+} });
+await restoreHarness.restoreCheckpoint('checkpoint-id');
+assert.deepEqual(restoreHarness.getHistory(), [], 'a verified restore starts a fresh model conversation');
+assert.equal(restoreHarness.messages.innerHTML, '', 'a verified restore removes the old transcript and retry/revert controls');
+assert.ok(restoreHarness.effects.some(effect => effect[0] === 'add'
+  && effect[1] === 'System' && effect[2] === 'Reverted and verified the body checkpoint.'),
+'the visible transcript records the verified restoration');
+
+let signalRestoreResolve, signalRestoreStarted;
+const deferredRestore = {
+  promise: new Promise(resolve => { signalRestoreResolve = resolve; }),
+  started: () => signalRestoreStarted?.()
+};
+const restoreStarted = new Promise(resolve => { signalRestoreStarted = resolve; });
+restoreHarness = makeRestoreHarness({ deferredRestore });
+const staleRestore = restoreHarness.restoreCheckpoint('checkpoint-id');
+await restoreStarted;
+const newerController = {};
+restoreHarness.setCurrent(newerController);
+signalRestoreResolve({ success: true, verified: true, message: 'Reverted and verified the body checkpoint.' });
+await staleRestore;
+assert.equal(restoreHarness.getCurrent(), newerController, 'a superseded restore cannot clear its replacement controller');
+assert.equal(restoreHarness.getHistory(), restoreHarness.oldHistory,
+  'a superseded restore cannot reset the successor conversation history');
+assert.equal(restoreHarness.messages.innerHTML, 'old transcript including revert and retry controls',
+  'a superseded restore cannot clear the successor transcript');
+
+console.log('PASS: direct tool dispatch and request-scoped UI/history guards');

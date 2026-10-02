@@ -1,58 +1,30 @@
-# Word Taskpane
+# Word taskpane
 
-This directory contains the Microsoft Word add-in UI, chat/tool orchestration
-and Office.js integration. The UI is implemented in HTML, CSS and JavaScript.
+This directory contains the in-place Word plugin, settings, chat UI, lightweight
+inspect/apply harness and Office.js body transport. The add-in pins exact
+`@ansonlai/docx-redline-js@0.8.4`.
 
-## Main components
+`taskpane.js` keeps UI and host concerns. Portable `document-agent-loop.js`
+coordinates bounded provider/tool exchanges; `tool-registry.js` declares exactly
+two tools. `document-inspection-session.js` issues source-bound opaque handles;
+`document-edit-intents.js` maps fully validated typed batches to library
+operations. `document-tools.js` requires a persisted exact-source checkpoint,
+checks freshness, commits once and verifies the host result. The compact
+`document-editing-guide.js` supplies model guidance without a skill framework.
 
-- `taskpane.js` coordinates chat, document context, checkpoints and tool
-  dispatch. Editing support is loaded on first use; a failed module load can be
-  retried.
-- `modules/commands/agentic-tools.js` validates tool requests and coordinates
-  the document operations.
-- `modules/docx-redline-js-integration/consumer-core.js` contains add-in
-  mapping, source validation and the local Flat OPC preparation/assembly
-  bridge; supported DOCX operations and reconciliation run through the pinned
-  library.
-- `modules/docx-redline-js-integration/word-operation-runner.js` and
-  `word-ooxml.js` own Word proxy reads, insertions, synchronization and tracking
-  management; `redline-plan.js` maps validated AI changes to source-bound
-  operations. The integration `index.js` preserves established exports.
-- `modules/chat/gemini-client.js` provides bounded shared HTTP transport.
-- `modules/storage/checkpoint-store.js` stores pre-mutation snapshots in
-  IndexedDB.
+The integration folder retains Flat OPC preparation/assembly and Word
+read/insert/tracking state. Native paragraph/list/table edit routes, nested AI
+interpretation and orphan compatibility executors are retired. No host write
+is replayed after an uncertain result. The existing Gemini transport and
+IndexedDB checkpoint store remain local consumer responsibilities.
 
-The add-in pins `@ansonlai/docx-redline-js@0.8.3` for OOXML reconciliation.
-Portable preparation is separated from Word I/O, but not every tool has moved
-to the canonical atomic batch path. The old iterative Word redline loop,
-native insertion recovery and manual table synthesis were removed from the
-migrated redline route, which now prepares one atomic library batch before the
-Word adapter's single confirmed insertion. `insert_list_item` is canonical
-only for the verified tracking-on bullet/decimal subset at source/resolved
-levels 0–1. General `edit_list` and header conversion, deeper/other-style
-insertion, tracking-off requests and unsupported outdent contexts remain on
-native or established legacy paths. The local Flat OPC bridge and operation
-mapping are not library code. Shared Gemini transport/outcomes, test lanes and
-deferred startup are consumer reliability/packaging work. See the [library
-offload review](../../docs/library-offload-review.md). Current v0.8.3 checks cover
-12 supported list cases (48 Office.js checks) and five native routes (20
-Office.js checks); the independent Word oracle reports 92 applicable checks
-passed across 17 exports, zero failed, and five not applicable. `npm test`
-passes 51 suites with zero failures and four exclusions. See the [v0.8.3
-report](../../docs/validation-reports/2026-09-30-docx-redline-v083.md). See the root
-[architecture](../../ARCHITECTURE.md), [tool contracts](../../docs/agentic-tool-contracts.md)
-and [canonical migration follow-up](../../docs/plans/2026-09-30-canonical-list-migration-follow-up.md)
-for boundaries and remaining limits.
+Read the [tool contract](../../docs/agentic-tool-contracts.md),
+[architecture](../../ARCHITECTURE.md) and
+[implementation plan](../../docs/plans/2026-10-02-library-first-lightweight-agent-reliability.md)
+for supported scope and recorded evidence. Body checkpoints preserve only the
+transported body package. Live model and Word Online validation limits remain
+explicit.
 
-## Local verification
-
-From the repository root:
-
-```powershell
-npm run build:dev
-npm test
-```
-
-Actual desktop Word and Office.js transport checks are separate Windows lanes;
-offline tests and mocked Word proxies do not establish all native Word fidelity.
-See [validation instructions](../../scripts/README.md).
+From the repository root, run `npm test`, `npm run build:dev` and `npm run build`.
+Real Office.js and independent desktop Word lanes are separate; commands are in
+[scripts/README.md](../../scripts/README.md).

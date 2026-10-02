@@ -29,8 +29,6 @@ function testBehaviorPreservingDefaults() {
   for (const name of ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-flash-latest']) {
     const p = getModelProfile(name);
     assert.strictEqual(p.maxOutputTokens, 48000, `${name} maxOutputTokens`);
-    assert.strictEqual(p.diffMaxOutputTokens, 16384, `${name} diffMaxOutputTokens`);
-    assert.strictEqual(p.temperature, 0.1, `${name} temperature`);
     assert.strictEqual(p.retries, 3, `${name} retries`);
   }
 }

@@ -15,20 +15,27 @@ Word's table Reject All paragraph is fixed in 0.8.4, and all earlier 0.8.2/0.8.3
 fixes still hold; those reports are in [`completed/`](completed/) with dated
 resolution notes.
 
-The add-in adopted the 0.8.4 APIs: `format_text` sends `textOccurrence`,
-`edit_list` passes the document's `numberingXml` to `applyRedlineToOxml`, and
-the `UNSUPPORTED_TABLE_FORMATTING` refusal now covers only the remaining 0.8.4
-limitation (changing the text of a paragraph that carries the author's own
-pending formatting while adding a table).
+The current Word agent uses two typed tools and retains the 0.8.4 occurrence
+contract for narrow formatting and complete-list changes for certified
+same-level insertion. Legacy `edit_list`, header conversion and table creation
+commands are retired; there is no native fallback. The earlier
+`UNSUPPORTED_TABLE_FORMATTING` command guard is historical. Structural table
+requests now refuse altogether. Scope retirement does not close these reports.
 
 ## Open
 
 | Report | Since | Effect on the add-in |
 | --- | --- | --- |
-| [Canonical list capabilities](2026-09-30-canonical-list-operations.md) | 0.8.2 | Plain/unmarked header conversion and list-format changes are unsupported, so those tools keep native Word routes (`reproduce-plain-header-conversion.mjs` still exits 0 on 0.8.4). |
+| [Canonical list capabilities](2026-09-30-canonical-list-operations.md) | 0.8.2 | Header conversion and list-format changes are refused by the Word agent; no native route remains. `reproduce-plain-header-conversion.mjs` still exits 0 on 0.8.4. |
 | [Word Reject All leaves an extra paragraph after a final table append](2026-10-01-word-reject-table-append-paragraph.md) | 0.8.3 | Table removal on Reject All now works in Word, but one empty paragraph remains after the original text. |
-| [Separate list operations restart numbering](2026-10-02-separate-list-operations-restart-numbering.md) | **0.8.4 regression** | Non-adjacent headers converted in one batch land in different lists ("A.", "A."). Production `convert_headers_to_list` is still native, so users are unaffected; the canonical fidelity case is skipped. |
+| [Separate list operations restart numbering](2026-10-02-separate-list-operations-restart-numbering.md) | **0.8.4 regression** | Non-adjacent headers converted in one batch land in different lists ("A.", "A."). Header conversion is retired/refused; canonical migration remains gated. |
 | [Weak-target soft-break replacement deletes the paragraph](2026-10-02-weak-target-soft-break-deletion.md) | 0.8.4 | Data loss with `ok` status when targeting by index + text only. The add-in always sends strong targets and is not exposed. |
+
+## Consumer transport/API gaps (not library defects)
+
+| Report | Since | Effect on the add-in |
+| --- | --- | --- |
+| [Existing comments need a safe merge-delta transport](2026-10-02-word-existing-comments-delta-transport.md) | 0.8.4 | New comments are refused when canonical source inspection finds existing comments; ordinary text edits remain available. |
 
 The library's proposed `docs/plans/2026-09-30-canonical-list-operations.md`
 covers the canonical list capabilities; it is not implemented. Remaining
@@ -38,7 +45,7 @@ canonical work is tracked in the
 ## After an upstream release
 
 Update both exact pins together, rerun every open reproducer (expect exit 1),
-the offline suite, the [golden scenario](../../scripts/README.md#golden-scenario-desktop-word)
+the offline suite, the [golden scenario](../../scripts/README.md#original-sixteen-prompt-nda-taskpane-gate)
 and the affected Word lanes with independent Accept All/Reject All checks.
 Move fixed reports to `completed/` with a dated resolution note and update
 the links to them.

@@ -14,7 +14,7 @@
 
 Gemini AI for Office integrates Google Gemini AI to draft, edit, and review your document directly. Unlock the power of Google's Gemini AI directly inside Microsoft Word.
 
-Gemini AI for Office is the ultimate writing companion, designed to help you draft, edit, and perfect your documents using your own Google API key. Whether you are a student, professional, or creative writer, this add-in streamlines your workflow while giving you full control over your AI usage and costs.
+Gemini AI for Office helps with precise wording, review and ordinary professional document changes using your own Google API key.
 
 ## Key Features
 
@@ -27,21 +27,21 @@ request is processed by Google's API; see [Security Notes](#security-notes).
 Chat naturally with your document. Ask for summaries, clarifications, or rewrites using the latest Gemini models from Google.
 
 ### Direct Document Editing
-The AI can apply document edits as tracked changes for review in Word. Redline
-behavior depends on the selected tool and supported document shape; see the
-validation notes below for the current list-operation limits.
-
+Inspect focused document text, then apply one source-bound batch of concrete
+changes through `docx-redline-js`. The Word plugin supports text corrections,
+clause rewrites, plain paragraph insertion/deletion, comments, basic inline
+emphasis, narrow same-level list insertion and table-cell text. Unsupported
+structure, fonts, layout, research and revision acceptance are refused. Native
+Word editing fallbacks and secondary AI interpretation are retired.
 ### Automated "Glance" Checks
 Set up custom criteria—like "Check for Grammar" or "Verify Factual Accuracy"—and get an instant analysis every time you open a document.
-
-### Built-in Research
-Need to verify a fact? The AI can perform Google Searches to find the latest information and cite sources directly in your text.
 
 ### Custom Personas
 Tailor the AI's personality and expertise. Make it a helpful tutor, a strict legal editor, or a creative writing coach.
 
 ### Safety & Versioning
-Experiment freely with built-in state checkpoints. Easily revert to previous versions of your document if you change your mind.
+Each new edit requires a saved body checkpoint. Revert restores that transported body package; it is not a complete-document backup.
+Adding comments currently requires a document without existing comments. Supported wording edits preserve existing comments and threads; mixed requests outside this restriction are refused before writing.
 
 Transform how you write today with Gemini AI for Office.
 
@@ -133,14 +133,14 @@ Follow these steps if you want to modify the code or run it locally.
 - Be specific in your instructions
 - The AI analyzes the entire document, not just selected text
 - Review all changes before accepting them
-- Changes are applied with Word's Track Changes feature
+- The library authors tracked changes; the Word adapter preserves the prior host tracking mode.
 
 ### Managing Checkpoints
 
-The add-in automatically saves a checkpoint of the document **before each AI edit**, so you can roll back any change.
+Before a new atomic edit batch writes, the add-in saves its exact source body Flat OPC checkpoint in IndexedDB. If persistence fails, the edit is refused.
 
 **How checkpoints work:**
-- A checkpoint is captured automatically before every document-mutating tool runs (with a short throttle so a single multi-edit turn doesn't snapshot repeatedly).
+- One exact-source checkpoint precedes each actual batch write. Verified no-ops do not create checkpoints.
 - Checkpoints are stored in the browser's **IndexedDB** (not localStorage), so they are not limited by the ~5MB localStorage quota and can hold large documents.
 - The most recent 10 checkpoints are kept; older ones are evicted automatically.
 
@@ -194,18 +194,13 @@ AIWordPlugin/
 ├── src/
 │   ├── taskpane/
 │   │   ├── taskpane.html              # Main UI
-│   │   ├── taskpane.js                # Chat loop, Gemini calls, checkpoints, tool dispatch
+│   │   ├── taskpane.js                # UI, host context, settings and checkpoints
 │   │   ├── taskpane.css               # Styling
 │   │   └── modules/
-│   │       ├── commands/              # Agentic tools (agentic-tools.js), redline prompt,
-│   │       │                          #   change validation (anchor + sanitizer)
-│   │       ├── chat/                  # Chat UI + history invariants (appendFunctionExchange)
+│   │       ├── chat/                  # Inspect/apply harness, typed compiler, UI and history
 │   │       ├── config/                # Per-model profiles (model-profiles.js)
 │   │       ├── storage/               # IndexedDB checkpoint store
-│   │       ├── context/               # Document context extraction
-│   │       ├── glance/                # "Glance" automated checks
-│   │       ├── ui/                    # UI helpers
-│   │       ├── utils/                 # Markdown/font helpers
+│   │       ├── utils/                 # Lazy module loading
 │   │       └── docx-redline-js-integration/
 │   │           ├── consumer-core.js    # Portable preparation and package helpers
 │   │           └── word-operation-runner.js  # Word I/O and atomic batch adapter
@@ -274,81 +269,36 @@ Tests live in `tests/` as `.mjs` files and run directly with Node (no Word requi
 node tests/<name>.mjs
 ```
 
-**Reliability suites** (model-variance hardening):
-
-```bash
-node tests/change_validation_tests.mjs        # anchor verification + change-set sanitizer
-node tests/model_profiles_tests.mjs           # per-model profile resolution
-node tests/chat_history_invariant_tests.mjs   # function-call/response history invariants
-node tests/checkpoint_store_tests.mjs         # IndexedDB checkpoint store (pure helpers)
-node tests/redline_prompt_tests.mjs           # shared redline prompt/schema integrity
-```
-
-**Engine / integration suites:**
-
-```bash
-node tests/word_redline_batch_plan_tests.mjs
-node tests/insert_list_item_level_tests.mjs
-node tests/word_list_binding_regression_tests.mjs
-node tests/agentic_request_validation_tests.mjs
-node tests/agentic_list_tool_validation_tests.mjs
-node tests/include_numbering_behavior.mjs
-```
-
-The [agentic tool contract inventory](docs/agentic-tool-contracts.md) records actual argument shapes, index conventions and remaining native paths. List tools reject invalid arguments and live out-of-range targets before content writes. Header conversion preserves the original index/text pairing when sorting targets.
-
-### Agentic list fidelity and desktop Word
-
-The [Word-authored fixture](tests/fixtures/agentic-lists/README.md) includes nested lists, numbering continuation/restart, plain transitions and formatting sentinels. Offline tests compare exact accepted/rejected text and numbering definitions. The dated v0.8.2 diagnostics remain historical; the v0.8.3 checks below are the dated record of those fixes. The [0.8.4 validation](docs/validation-reports/2026-10-02-docx-redline-v084.md) report covers the current 0.8.4 upgrade.
+**Direct-tool reliability and Word fidelity:**
 
 ```powershell
-node tests/agentic_list_fidelity_tests.mjs --export-host-dir .cache/reliability/agentic-list-fixtures
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-wp6-word.ps1 -FixtureManifest .cache/reliability/agentic-list-fixtures/manifest.json -ArtifactsDir .cache/agentic-tools/list-word-oracle -SkipNativeInsert
-npx webpack --mode development --env WORD_HOST_VALIDATION=1
-node scripts/run-officejs-validation.mjs --fixture-manifest .cache/reliability/agentic-list-fixtures/manifest.json --artifacts-dir .cache/agentic-tools/list-officejs --launch
+npm test
+node tests/document_agent_loop_tests.mjs
+node tests/document_edit_intents_tests.mjs
+node tests/document_tools_tests.mjs
+node tests/document_inspection_session_tests.mjs
+node tests/word_source_identity_tests.mjs
+node tests/checkpoint_restoration_tests.mjs
+node tests/direct_document_fidelity_manifest_tests.mjs
 ```
 
-The last command opens a disposable Word validation document using existing local development certificates. After the collector reports success, independently verify its exports using `-FixtureManifest .cache/agentic-tools/list-officejs/officejs-fixtures.json`; stop the collector and remove its temporary registration with `node scripts/run-officejs-validation.mjs --artifacts-dir .cache/agentic-tools/list-officejs --cleanup`.
-
-The dated v0.8.2 reports record Reject All findings for [plain-anchor insertion](docs/library-issues/completed/2026-09-30-list-insertion-rejection.md) and [list-range replacement](docs/library-issues/completed/2026-09-30-list-range-rejection.md). The v0.8.3 package has since passed the corresponding public-facade Word checks: both former failures pass 12 independent checks, and the dated v0.8.3 Word matrix reports 92 applicable checks passed with none failed. The release notes describe the fixes, including all-empty source ranges and historical paragraph-property inspection; see the [v0.8.3 validation report](docs/validation-reports/2026-09-30-docx-redline-v083.md) for test evidence. Canonical list migration remains open because plain or text-changing header-to-list conversion and list-format changes still lack supported canonical operations. A marker-prefixed `1. Header` to `1. Header` operation on bare `document.xml` can also fail with `RECEIPT_RECONCILIATION_FAILED`.
-
-The earlier v0.8.2 baseline recorded five native fallback cases with 20 actual Office.js checks and 20 independent Word checks on Word 16.0.20430.20092: deep `+1` insertion, source-level-2 outdent, UpperRoman insertion, lowerRoman insertion, and insertion with redlining disabled while restoring prior `TrackAll`. The v0.8.3 validation covers 12 supported list cases with 48 Office.js checks plus these five native routes with 20 more checks (68 total). Its independent Word oracle checked 17 exports: 92 applicable checks passed, zero failed, and five were not applicable. The original two public-facade Reject All cases pass 12 Word checks. `npm test` passes 51 suites with zero failures and four exclusions; validation and production builds pass. See the [v0.8.3 report](docs/validation-reports/2026-09-30-docx-redline-v083.md), [list Office.js report](docs/validation-reports/2026-09-30-v083-list-officejs.json), [native Office.js report](docs/validation-reports/2026-09-30-v083-native-officejs.json), [Word report](docs/validation-reports/2026-09-30-v083-officejs-word.json), [facade Word report](docs/validation-reports/2026-09-30-v083-facade-word.json), and [canonical migration follow-up](docs/plans/2026-09-30-canonical-list-migration-follow-up.md). Five engine-reference views are not applicable and are not counted as passes. The 0.8.3 checks verify the reported cases; they do not migrate all list paths to canonical OOXML or establish every native list configuration. Passing fallback checks do not complete the canonical migration.
-
+The [tool contract](docs/agentic-tool-contracts.md) defines the two tools and
+retained/refused actions. The [implementation plan](docs/plans/2026-10-02-library-first-lightweight-agent-reliability.md)
+links each milestone's evidence. Actual Office.js exports and independent Word
+save/reopen/Accept All/Reject All checks remain separate from offline mocks;
+see [runnable host commands](scripts/README.md). The Word-authored list fixture
+preserves source numbering continuation/restart and formatting sentinels.
+Dated native-route reports remain historical evidence for retired capabilities.
+Live fast/slow models must pass before shipping the changed prompt. Desktop
+validation does not certify Word Online.
 ### Portable preparation and browser document sessions
 
-The add-in's local `src/taskpane/modules/docx-redline-js-integration/consumer-core.js`
-handles tool mapping, validation and preparation of Word's Flat OPC payload;
-supported document operations, reconciliation and package behavior come from
-the library. The integration `index.js` retains Word exports for compatibility.
-The redline runner's iterative Word loop, native insertion recovery and manual
-table synthesis were replaced by one atomic library batch on the migrated path.
-Word I/O, Flat OPC extraction/reassembly and tracking remain local.
-
-Canonical `insert_list_item` routing is verified only for bullet/decimal lists
-with tracking enabled at source/resolved levels 0–1. General `edit_list`, header
-conversion, deeper/other styles and tracking-off requests retain native or
-established legacy paths. Shared Gemini transport/outcomes, test harnesses and
-deferred taskpane startup are local improvements. See
-[package responsibilities](docs/package-boundaries.md) and the
-[library offload review](docs/library-offload-review.md) for measured reductions
-and the remaining migration.
-
-The taskpane loads editing support on first use, shares concurrent first loads,
-and can retry after an import failure. Platform setup runs before baseline
-capture, and agentic dependencies initialize once after successful loading.
-Gemini HTTP transport is shared and applies bounded retries only to transient
-transport, rate-limit and selected server failures; it never replays document
-tools. See [ARCHITECTURE.md](ARCHITECTURE.md) for the host outcome contract.
-
-The [browser demo](browser-demo/README.md) opens, edits and saves using the public document facade. Its preview retains JSZip. Serve the repository locally and open `scripts/browser-document-validation.html` for deterministic real-browser session checks without a model request.
-
-```powershell
-node tests/docx_consumer_core_tests.mjs
-node tests/browser_document_session_tests.mjs
-node tests/docx_cross_host_parity_tests.mjs
-python -m http.server 8000 --bind 127.0.0.1
-```
-
+The local Flat OPC bridge prepares one atomic library batch and preserves
+transported parts. Word APIs read/insert body OOXML and preserve tracking state.
+No complete-DOCX Word facade upgrade or binary bridge is planned. Browser and
+MCP consumers continue using the library's complete-DOCX session facade;
+JSZip remains in browser preview. See [ARCHITECTURE.md](ARCHITECTURE.md) and
+[package boundaries](docs/package-boundaries.md).
 ### OOXML performance measurements
 
 `npm run benchmark:ooxml` profiles supported workloads on the pinned library,
@@ -357,18 +307,14 @@ transport and taskpane startup have dedicated local profiling lanes; see
 [measurement instructions](docs/ooxml-performance.md). These observations do
 not replace fidelity tests or impose a universal timing threshold.
 
-### AI Eval Harness (Manual — calls the paid Gemini API)
+### Live model validation
 
-Measures how reliably each model produces a valid, on-target redline change set. This is **not** part of the default test run; it requires a real API key and makes live model calls.
-
-```bash
-GEMINI_API_KEY=... node tests/evals/run-evals.mjs --model gemini-2.5-pro --model gemini-flash-latest
-```
-
-- `--model <name>` (repeatable) selects which models to evaluate; `--case <name>` (repeatable) limits to specific cases.
-- Cases live in `tests/evals/cases/*.json`. Each loads a fixture `.docx`, runs the production prompt/schema through the model, then scores the returned change set through the same validation pipeline used in the add-in (sanitizer + anchor verification). It prints a per-model pass/fail table and exits non-zero if any case fails.
-- The prompt and schema are shared with the add-in via [`src/taskpane/modules/commands/redline-prompt.js`](src/taskpane/modules/commands/redline-prompt.js); `node tests/redline_prompt_tests.mjs` guards that the prompt text stays intact.
-
+The direct [NDA taskpane gate](scripts/README.md) replaces the retired secondary
+redline-schema eval. It checks actual provider proposals, intended edits,
+refusals, turns and host commits through the production two-tool harness.
+Running it requires an environment API key and incurs provider usage. Both
+supported configured fast/slow profiles must pass before shipping the changed
+prompt; offline replay is separate evidence.
 The add-in uses Google Gemini models. Users pick the **fast** and **think** (slow) models in Settings; the selection is saved per type. When nothing is selected, [`taskpane.js`](src/taskpane/taskpane.js) falls back to `gemini-flash-latest` (fast) and `gemini-2.5-pro` (slow):
 
 ```javascript
@@ -383,7 +329,7 @@ function loadModel(type = 'fast') {
 }
 ```
 
-Per-model behavior (token limits, temperature, retries, preview-throttle warnings) is centralized in [`src/taskpane/modules/config/model-profiles.js`](src/taskpane/modules/config/model-profiles.js); add a profile there when introducing a new model.
+Per-model behavior (token limits, retries, preview-throttle warnings) is centralized in [`src/taskpane/modules/config/model-profiles.js`](src/taskpane/modules/config/model-profiles.js); add a profile there when introducing a new model.
 
 ## Deployment to Azure
 
@@ -457,20 +403,14 @@ After deploying the web assets, upload the generated `dist/manifest.xml`:
 ### Checkpoints not saving
 - Ensure you have a valid document open
 - Checkpoints are stored in the browser's IndexedDB; make sure it isn't disabled (e.g. some private-browsing modes) or out of disk space
-- A failed checkpoint never blocks the edit — check the browser console for a "Could not save checkpoint" warning
+- A failed checkpoint blocks a new edit. Resolve storage availability and inspect again before retrying.
 
-## Future Enhancements
+## Reliability direction
 
-Potential features for future versions:
-- [ ] Conversation history persistence
-- [ ] Export chat conversations
-- [ ] Custom AI prompts/templates
-- [ ] Multi-document comparison
-- [ ] Advanced checkpoint management (named checkpoints, branching)
-- [ ] Markdown rendering in chat
-- [ ] Document analysis reports
-- [ ] Integration with other AI models
-
+Keep ordinary professional edits dependable through a small tool set, strong
+source targeting, atomic batches, preserved formatting and clear refusals.
+Broader structural editing, font/layout controls, general skills and additional
+harness dependencies are outside the approved scope.
 ## Contributing
 
 Contributions are welcome! Please:

@@ -12,8 +12,7 @@ import { acceptTrackedChangesInOoxml, configureLogger, openDocx } from '@ansonla
 import { zipDocx, unzipDocx } from '@ansonlai/docx-redline-js/document/zip-archive.js';
 import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalone-runner';
 import { createDocumentSession } from '../browser-demo/document-session.js';
-import { planRedlineBatchOperations } from '../src/taskpane/modules/docx-redline-js-integration/redline-plan.js';
-import { captureSourceBaseline } from '../src/taskpane/modules/docx-redline-js-integration/consumer-core.js';
+import { compileDocumentEdits } from '../src/taskpane/modules/chat/document-edit-intents.js';
 
 configureLogger({ info() {}, warn() {}, error() {} });
 
@@ -132,34 +131,23 @@ function findParagraph(inspection, predicate, description) {
     return paragraph;
 }
 
-function redlineRequest(operation, paragraph, extra = {}) {
+function createBenchmarkSession(paragraphs) {
+    const targets = paragraphs.map((descriptor, index) => ({
+        handle: `benchmark-target-${index + 1}`,
+        location: `Paragraph ${index + 1}`,
+        fullTextInspected: true,
+        kind: 'paragraph',
+        descriptor
+    }));
+    const byHandle = new Map(targets.map(target => [target.handle, target]));
     return {
-        operation,
-        paragraphIndex: paragraph.index,
-        ...extra
-    };
-}
-
-function makeRedlineMap(aiChanges) {
-    return paragraphs => planRedlineBatchOperations(aiChanges, paragraphs);
-}
-
-function makeCommentMap(paragraph, textToComment) {
-    return paragraphs => {
-        const target = paragraphs[paragraph.index - 1];
-        assert.equal(target?.index, paragraph.index, 'comment target remains at its inspected index');
-        return [{
-            type: 'comment',
-            target: {
-                index: target.index,
-                exactText: target.exactText,
-                ...(target.paragraphId ? { paragraphId: target.paragraphId } : {}),
-                ...(target.fingerprint ? { fingerprint: target.fingerprint } : {}),
-                inTable: target.inTable
-            },
-            textToComment,
-            commentContent: 'Performance benchmark comment.'
-        }];
+        async resolveHandles(handles, options) {
+            return {
+                status: 'ok',
+                source: options.source,
+                targets: handles.map(handle => byHandle.get(handle) || null)
+            };
+        }
     };
 }
 
@@ -188,56 +176,58 @@ for (const fixture of fixtures) {
     const inspection = sourceDoc.inspect();
     assert.equal(inspection.status, 'ok', `${fixture.name}: source document inspects`);
     const paragraphs = inspection.paragraphs;
+    let intents;
     let map;
     let description;
     let expectedChanges = true;
     let expectedText;
+    const source = { documentId: `benchmark:${fixture.name}`, revision: 1 };
+    const session = createBenchmarkSession(paragraphs);
     if (fixture.name === 'noop') {
-        map = () => [];
+        intents = [];
         description = 'Empty operation batch; no package mutation expected.';
         expectedChanges = false;
     } else if (fixture.name === 'localized_multi_edit') {
         const count = Math.min(operationCount, paragraphs.length);
-        const changes = Array.from({ length: count }, (_, i) => {
+        intents = Array.from({ length: count }, (_, i) => {
             const paragraph = paragraphs[Math.floor(i * paragraphs.length / count)];
-            return redlineRequest('modify_text', paragraph, {
-                originalText: 'thirty',
-                replacementText: 'sixty'
-            });
+            const target = `benchmark-target-${paragraph.index}`;
+            return { type: 'replace_text', target, find: 'thirty', replace: 'sixty' };
         });
-        map = makeRedlineMap(changes);
         description = `${count} distinct localized replacements across ${paragraphs.length} paragraphs.`;
         expectedText = 'sixty';
     } else if (fixture.name === 'full_paragraph_rewrite') {
         const target = findParagraph(inspection, p => p.index === 1, 'full-paragraph target');
         const replacement = Array.from({ length: 24 }, (_, i) => `The reviewing party will store returned originals in secured archive ${i + 1} until final written authorization permits their disposal.`).join(' ');
-        map = makeRedlineMap([redlineRequest('edit_paragraph', target, { content: replacement })]);
+        intents = [{ type: 'rewrite_paragraph', target: `benchmark-target-${target.index}`, text: replacement }];
         description = `Replace one ${target.exactText.length}-character paragraph in full.`;
         expectedText = 'secured archive';
     } else if (fixture.name === 'nested_list_localized_edit') {
         const target = findParagraph(inspection, p => p.exactText.includes('Bullet Insertion Anchor'), 'nested-list anchor paragraph');
         assert.ok(target.list, 'selected paragraph belongs to an existing list');
-        map = makeRedlineMap([redlineRequest('modify_text', target, {
-            originalText: 'Insertion Anchor', replacementText: 'Insertion Anchor Revised'
-        })]);
+        intents = [{ type: 'replace_text', target: `benchmark-target-${target.index}`, find: 'Insertion Anchor', replace: 'Insertion Anchor Revised' }];
         description = 'Localized text change within an existing nested list paragraph; no list structure is created or reordered.';
         expectedText = 'Insertion Anchor Revised';
     } else if (fixture.name === 'table_cell_localized_edit') {
         const target = findParagraph(inspection, p => p.exactText.includes('Existing table cell term.'), 'existing table-cell paragraph');
         assert.equal(target.inTable, true, 'selected paragraph is in an existing table cell');
-        map = makeRedlineMap([redlineRequest('modify_text', target, {
-            originalText: 'table cell term', replacementText: 'table cell phrase'
-        })]);
+        intents = [{ type: 'replace_text', target: `benchmark-target-${target.index}`, find: 'table cell term', replace: 'table cell phrase' }];
         description = 'Localized text change within an existing table cell; no table structure is created or reordered.';
         expectedText = 'table cell phrase';
     } else {
         const target = findParagraph(inspection, p => p.exactText.trim().length >= 8, 'commented-document anchor paragraph');
         const textToComment = target.exactText.trim().slice(0, Math.min(12, target.exactText.trim().length));
-        map = makeCommentMap(target, textToComment);
+        intents = [{ type: 'comment', target: `benchmark-target-${target.index}`, anchor: textToComment, text: 'Performance benchmark comment.' }];
         description = 'Add one comment to an existing Word-authored threaded-comments package.';
         expectedText = 'Performance benchmark comment.';
     }
-    const operations = map(paragraphs);
+    map = async () => {
+        if (intents.length === 0) return [];
+        const compiled = await compileDocumentEdits(intents, { session, source });
+        assert.equal(compiled.requestedCount, intents.length, `${fixture.name}: direct compiler accounts for each intent`);
+        return compiled.operations;
+    };
+    const operations = await map();
     assert.ok(Array.isArray(operations), `${fixture.name}: operation mapper returns an array`);
     const commentWorkload = fixture.name === 'commented_document_comment';
     const expectedOperationCount = operations.length;
@@ -309,14 +299,9 @@ for (const scenario of scenarios) {
     verifyPackage(scenario, packageResult, opened.toUint8Array());
 
     const measurements = {
-        consumerOperationMapping: await measure({
-            prepare: async () => inspection.paragraphs,
-            action: paragraphs => map(paragraphs),
+        directIntentCompilation: await measure({
+            action: () => map(),
             verify: operationsForCheck => verifyMapped(scenario, operationsForCheck)
-        }),
-        portableSourceBaselineCapture: await measure({
-            action: () => captureSourceBaseline(pkg.documentXml),
-            verify: baseline => assert.equal(baseline.length, inspection.paragraphs.length, 'portable baseline paragraph count')
         }),
         packageOpen: await measure({
             action: () => openDocx(fixture.bytes),
@@ -414,8 +399,7 @@ const report = {
         rawSamplesAreMilliseconds: true
     },
     methodology: {
-        mapping: 'Consumer redline operation mapping uses the production planRedlineBatchOperations helper; the comment workload maps the anchored comment intent directly to the public document operation shape.',
-        portableBaselineCapture: 'Times captureSourceBaseline(documentXml) after package-open/source fixture preparation.',
+        directIntentCompilation: 'Times the current compileDocumentEdits intent compiler resolving opaque benchmark handles against an in-memory fresh-source session; no retired redline planner is called.',
         coreApplication: 'Times applyOperationsToDocumentXml(documentXml, operations, ...) using pre-mapped operations; excludes package open/save and host transport.',
         packageOpen: 'Times openDocx(sourceBytes) only.',
         packageInspection: 'Times doc.inspect() on an already-open document.',

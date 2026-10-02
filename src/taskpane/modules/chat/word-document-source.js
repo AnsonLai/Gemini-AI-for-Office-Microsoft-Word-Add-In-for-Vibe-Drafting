@@ -34,16 +34,3 @@ export function createWordDocumentSourceReader({ loadSupport, getDocumentId, sig
     return { documentId, revisionView: 'accepted', parts, inspection, sourceOoxml, selectionText, hostParagraphCount };
   };
 }
-
-/** Same accepted text and library metadata that supply strong edit descriptors. */
-export function formatCanonicalDocumentContext(inspection) {
-  if (inspection?.status !== 'ok') throw Object.assign(new Error('Canonical document context is unavailable.'), { code: 'CANONICAL_CONTEXT_UNAVAILABLE' });
-  return inspection.paragraphs.map(paragraph => {
-    const meta = [paragraph.styleId || 'Normal'];
-    if (paragraph.list) meta.push(`L${paragraph.list.numId}:${paragraph.list.level}`);
-    if (paragraph.table) meta.push(`T:${paragraph.table.rowIndex},${paragraph.table.cellIndex}`);
-    if (paragraph.headingLevel) meta.push('§');
-    if (paragraph.hasRevisions && !paragraph.exactText) meta.push('deleted');
-    return `[P${paragraph.index}|${meta.join('|')}] ${paragraph.exactText}`;
-  }).join('\n');
-}

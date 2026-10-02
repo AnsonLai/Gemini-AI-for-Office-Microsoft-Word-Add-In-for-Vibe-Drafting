@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import { buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
 import { inspectWordSource } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
 import {
-  createWordDocumentSourceReader,
-  formatCanonicalDocumentContext
+  createWordDocumentSourceReader
 } from '../src/taskpane/modules/chat/word-document-source.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
@@ -124,13 +123,6 @@ assert.equal(comment.text, 'Confirm this party name.');
 assert.equal(comment.paragraphIndex, 1);
 assert.equal(comment.anchoredText, 'Prior retained accepted wording remains.');
 assert.deepEqual(acceptedParagraph.commentIds, ['4']);
-
-const formatted = formatCanonicalDocumentContext(source.inspection);
-assert.match(formatted, /^\[P1\|Normal\] Prior retained accepted wording remains\.$/m);
-assert.doesNotMatch(formatted, /deleted wording/);
-assert.match(formatted, /^\[P4\|Normal\|L77:0\|T:2,1\] Listed cell$/m,
-  'formatted context keeps canonical list numbering and one-based table row/cell locations');
-assert.match(formatted, /^\[P5\|Normal\|T:2,2\] Second row, second cell$/m);
 
 // Cancellation before the host call does not even load the integration bridge.
 const alreadyCancelled = new AbortController();

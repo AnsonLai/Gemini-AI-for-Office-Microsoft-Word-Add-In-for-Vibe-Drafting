@@ -6,9 +6,9 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { configureLogger } from '@ansonlai/docx-redline-js';
+import { configureLogger, inspectDocumentParts } from '@ansonlai/docx-redline-js';
 import { zipDocx } from '@ansonlai/docx-redline-js/document/zip-archive.js';
-import { captureWordSourceBaseline } from '../../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
+import { createParser, createSerializer } from '@ansonlai/docx-redline-js/adapters/xml-adapter.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const W14 = 'http://schemas.microsoft.com/office/word/2010/wordml';
@@ -42,6 +42,33 @@ const sourceBytes = zipDocx(new Map([
 ]));
 writeFileSync(sourcePath, sourceBytes);
 
+function captureCanonicalBaseline(wordOpenXml) {
+    const parser = createParser();
+    const packageDoc = parser.parseFromString(wordOpenXml, 'application/xml');
+    if (packageDoc.getElementsByTagName('parsererror').length) throw new Error('WordOpenXML package is malformed.');
+    const serializer = createSerializer();
+    const partXml = name => {
+        const part = Array.from(packageDoc.getElementsByTagNameNS('http://schemas.microsoft.com/office/2006/xmlPackage', 'part'))
+            .find(item => (item.getAttribute('pkg:name') || item.getAttribute('name')) === name);
+        const xmlData = part?.getElementsByTagNameNS('http://schemas.microsoft.com/office/2006/xmlPackage', 'xmlData')[0];
+        const root = Array.from(xmlData?.childNodes || []).find(node => node.nodeType === 1);
+        return root ? serializer.serializeToString(root) : null;
+    };
+    const documentXml = partXml('/word/document.xml');
+    if (!documentXml) throw new Error('WordOpenXML package has no /word/document.xml part.');
+    const inspection = inspectDocumentParts({
+        documentXml,
+        commentsXml: partXml('/word/comments.xml'),
+        commentsExtendedXml: partXml('/word/commentsExtended.xml'),
+        numberingXml: partXml('/word/numbering.xml'),
+        stylesXml: partXml('/word/styles.xml')
+    });
+    assert.equal(inspection.status, 'ok', JSON.stringify(inspection.error));
+    return inspection.paragraphs.map(({ index, exactText, fingerprint, paragraphId, inTable }) => ({
+        index, exactText, fingerprint, paragraphId, inTable
+    }));
+}
+
 if (!process.argv.includes('--analyze-existing')) {
     execFileSync('powershell.exe', [
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', powerShellPath,
@@ -55,9 +82,7 @@ const snapshots = report.captures.map(capture => {
     return {
         name: capture.name,
         sha256: createHash('sha256').update(xml).digest('hex'),
-        baseline: captureWordSourceBaseline(xml).map(({ index, exactText, fingerprint, paragraphId, inTable }) => ({
-            index, exactText, fingerprint, paragraphId, inTable
-        }))
+        baseline: captureCanonicalBaseline(xml)
     };
 });
 const baselineByName = Object.fromEntries(snapshots.map(snapshot => [snapshot.name, snapshot.baseline]));

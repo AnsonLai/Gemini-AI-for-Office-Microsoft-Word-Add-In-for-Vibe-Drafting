@@ -22,25 +22,15 @@ const refused = (code = 'INVALID_REQUEST', overrides = {}) => ({
   mutationOutcome: 'refused', receipts: [], operationResults: [], ...overrides,
 });
 
-function makeRegistry(executors = {}, { genericCheckpoint = false } = {}) {
-  const registry = createToolRegistry(executors);
-  if (!genericCheckpoint) return registry;
-  return {
-    ...registry,
-    describe(name) {
-      return { ...registry.describe(name), withCheckpoint: name === 'apply_document_edits' };
-    },
-  };
-}
+const makeRegistry = executors => createToolRegistry(executors);
 
 function harness(queue, executors = {}, overrides = {}) {
   const events = [], requests = [], checkpoints = [];
   let loads = 0, refreshes = 0;
   const registry = makeRegistry(executors, overrides.registryOptions);
-  const initialBaseline = [{ exactText: 'Original', fingerprint: 'first' }];
   const state = {
     history: [{ role: 'user', parts: [{ text: 'Original request' }] }],
-    docText: 'Original document context', docSourceBaseline: initialBaseline, records: [],
+    records: [],
   };
   const options = {
     state,
@@ -64,7 +54,7 @@ function harness(queue, executors = {}, overrides = {}) {
     ...overrides,
   };
   return {
-    state, events, requests, checkpoints, initialBaseline,
+    state, events, requests, checkpoints,
     run: () => runDocumentAgentLoop(options),
     get loads() { return loads; },
     get refreshes() { return refreshes; },
@@ -91,7 +81,7 @@ function responseTurn(state) {
   assert.equal(test.events.find(event => event.type === 'response').text, 'The requested work is complete.');
 }
 
-// Multiple inspections are allowed; one later apply receives the current baseline and owns its checkpoint.
+// Multiple inspections are allowed; one later apply receives opaque handles and owns its source checkpoint.
 {
   const seen = [];
   const test = harness([
@@ -190,32 +180,9 @@ function responseTurn(state) {
   assertPairedHistory(mixed.state);
 }
 
-// Generic checkpoint capture must return a usable positive id before the executor can run.
-for (const checkpointId of [-1, null]) {
-  let edits = 0, captures = 0;
-  const test = harness([model(call('apply_document_edits'))], {
-    applyDocumentEdits: async () => { edits++; return applied(); },
-  }, {
-    registryOptions: { genericCheckpoint: true },
-    createCheckpoint: async () => { captures++; return checkpointId; },
-  });
-  await test.run();
-  assert.equal(edits, 0);
-  assert.equal(captures, 1);
-  assert.equal(test.state.stopReason, 'checkpoint_failed');
-  assert.match(test.events.find(event => event.reason === 'checkpoint_failed').message, /No document edit was started/);
-  assert.match(responseTurn(test.state).parts[0].functionResponse.response.content[0].text, /recovery checkpoint/);
-  assertPairedHistory(test.state);
-}
-{
-  let edits = 0;
-  const test = harness([model(call('apply_document_edits'))], {
-    applyDocumentEdits: async () => { edits++; return applied(); },
-  }, { registryOptions: { genericCheckpoint: true } });
-  await test.run();
-  assert.equal(edits, 1);
-  assert.equal(test.events.find(event => event.type === 'tool_end').checkpointIndex, 17);
-}
+// Source-owned checkpoint failure is covered by document_tools_tests; the loop does not capture a second snapshot.
+
+
 
 // A failed mutation cannot be followed by a fabricated model claim of completion.
 {
@@ -283,7 +250,7 @@ for (const checkpointId of [-1, null]) {
   assert.equal(edits, 2);
   assert.equal(inspections, 1);
   assert.equal(test.refreshes, 1);
-  assert.notEqual(test.state.docSourceBaseline, test.initialBaseline);
+  assert.equal(Object.hasOwn(test.state, "docSourceBaseline"), false, "strong descriptors remain private to the source-bound tool session");
   assert.equal(test.state.stopReason, 'no_progress');
   assert.equal(test.requests.length, 3);
 }
@@ -318,7 +285,7 @@ for (const outcome of ['indeterminate', 'partial', 'applied_with_host_error']) {
   assert.deepEqual(test.state.history, []);
 }
 
-// Cancellation before a request, during checkpoint capture, and while a commit settles.
+// Cancellation before a request and while a commit settles.
 {
   const controller = new AbortController(); controller.abort();
   const test = harness([], {}, { signal: controller.signal });
@@ -326,20 +293,7 @@ for (const outcome of ['indeterminate', 'partial', 'applied_with_host_error']) {
   assert.equal(test.requests.length, 0);
   assert.equal(test.state.stopReason, 'cancelled');
 }
-{
-  const controller = new AbortController(); let edits = 0;
-  const test = harness([model(call('apply_document_edits'))], {
-    applyDocumentEdits: async () => { edits++; return applied(); },
-  }, {
-    signal: controller.signal,
-    registryOptions: { genericCheckpoint: true },
-    createCheckpoint: async () => { controller.abort(); return 17; },
-  });
-  await test.run();
-  assert.equal(edits, 0);
-  assert.equal(test.state.stopReason, 'cancelled');
-  assert.equal(responseTurn(test.state).parts.filter(part => part.functionResponse).length, 1);
-}
+
 {
   const controller = new AbortController();
   const test = harness([model(call('apply_document_edits'))], {

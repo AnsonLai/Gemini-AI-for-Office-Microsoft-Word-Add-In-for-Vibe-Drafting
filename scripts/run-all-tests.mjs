@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const exclusions = new Map([
   ['tests/setup-xml-provider.mjs', 'XML provider setup module; exercised by suites'],
-  ['tests/evals/run-evals.mjs', 'Live Gemini API evaluation; requires credentials and incurs provider usage'],
   ['tests/word-desktop/list-regression.mjs', 'Word Desktop fixture lane; run with the documented PowerShell harness'],
   ['tests/phase4/perf-harness.mjs', 'Observational performance lane; use npm run benchmark:ooxml']
 ]);

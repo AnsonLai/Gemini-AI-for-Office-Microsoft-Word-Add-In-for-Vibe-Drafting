@@ -1,4 +1,4 @@
-import { areRevisionTokensEqual } from '@ansonlai/docx-redline-js';
+import { areRevisionTokensEqual, inspectDocumentParts } from '@ansonlai/docx-redline-js';
 import { computeWordSourceRevisionToken } from '../docx-redline-js-integration/word-source-identity.js';
 import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalone-runner';
 import { executePureOoxmlBatch, inspectWordSource } from '../docx-redline-js-integration/word-operation-runner.js';
@@ -47,9 +47,17 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
             checkCancelled();
             hostParagraphCount = readHostCount();
             if (getDocumentId() !== documentId) throw fail('DOCUMENT_IDENTITY_CHANGED', 'The active document changed. Inspect it again.');
+            if (Array.isArray(edits) && edits.some(edit => edit?.type === 'comment')
+              && inspectDocumentParts(sourceParts(source)).comments?.length) {
+              throw fail('UNSUPPORTED_EXISTING_COMMENTS', 'Adding comments to a document that already contains comments is unsupported in Word. No part of this batch was applied.');
+            }
             compiled = await compileDocumentEdits(edits, { session, source: {
               documentId, revisionView: 'accepted', parts: sourceParts(source), hostParagraphCount,
             } });
+            if (generateRedlines === false && compiled.expectations.some(edit => edit.action !== 'comment'
+              && source.paragraphs.some(paragraph => paragraph.index === edit.target.index && paragraph.hasRevisions))) {
+              throw fail('UNTRACKED_EDIT_ON_REVISED_TARGET', "Untracked edits on a paragraph with pending revisions are unsupported. Enable the add-in's tracked-edit option or change the request. No part of this batch was applied.");
+            }
             return compiled.operations;
           }, {
             author, generateRedlines,

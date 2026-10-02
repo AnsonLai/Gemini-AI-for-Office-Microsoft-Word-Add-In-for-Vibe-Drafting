@@ -10,7 +10,6 @@ import { scenario as directScenario } from '../scripts/golden/nda-direct-scenari
 import { buildDocumentModel, evaluateCheck, evaluateDirectToolEvidence, evaluateScopeDisposition, scoreStep, semanticDocumentSnapshot } from '../scripts/golden/golden-checks.mjs';
 import { classifyRequest, createReplayQueue, extractContext, extractLatestFunctionResponse, extractLatestInspection, resolveReferences } from '../scripts/golden/golden-replay.mjs';
 import { createFunctionResponse } from '../src/taskpane/modules/chat/document-agent-loop.js';
-import { buildRedlineDiffPrompt, REDLINE_DIFF_SCHEMA } from '../src/taskpane/modules/commands/redline-prompt.js';
 
 const bytes = new Uint8Array(readFileSync(new URL(`../${scenario.fixture}`, import.meta.url)));
 const inspected = openDocx(bytes).inspect().paragraphs;
@@ -22,8 +21,8 @@ const chatPayload = {
   tools: [{ functionDeclarations: [{ name: 'apply_redlines' }] }]
 };
 const auxPayload = {
-  contents: [{ parts: [{ text: buildRedlineDiffPrompt('do it', contextText) }] }],
-  generationConfig: { responseMimeType: 'application/json', responseSchema: REDLINE_DIFF_SCHEMA }
+  contents: [{ parts: [{ text: `Document context:\n"""${contextText}"""\n\nLegacy frozen aux replay.` }] }],
+  generationConfig: { responseMimeType: 'application/json' }
 };
 
 // 1. Scenario shape: the owner's 16 prompts, each scripted and checked.

@@ -18,7 +18,7 @@ import { dirname, extname, join, resolve } from 'node:path';
 import { scenario as legacyScenario } from './golden/nda-scenario.mjs';
 import { scenario as directScenario } from './golden/nda-direct-scenario.mjs';
 import { authorAttribution, buildDocumentModel, scoreStep } from './golden/golden-checks.mjs';
-import { createReplayQueue } from './golden/golden-replay.mjs';
+import { createReplayQueue, createStepObservationCollector, resolveGoldenModelSettings } from './golden/golden-replay.mjs';
 
 const require = createRequire(import.meta.url);
 const root = resolve(import.meta.dirname, '..');
@@ -47,12 +47,9 @@ if (flag('--cleanup')) {
 
 const mode = argument('--mode', 'replay');
 if (!['replay', 'live'].includes(mode)) throw new Error('--mode must be replay or live');
-const protocol = argument('--protocol', 'legacy');
+const protocol = argument('--protocol', 'direct');
 if (!['legacy', 'direct'].includes(protocol)) throw new Error('--protocol must be legacy or direct');
 const scenario = protocol === 'direct' ? directScenario : legacyScenario;
-if (protocol === 'direct' && mode !== 'replay') {
-    throw new Error('The direct protocol currently requires deterministic replay for per-step receipt and refusal evidence.');
-}
 const captureSourceDiagnostics = flag('--source-diagnostics');
 if (captureSourceDiagnostics && (protocol !== 'direct' || mode !== 'replay'
     || scenario.fixture !== 'tests/fixtures/golden/sample-nda.docx')) {
@@ -60,7 +57,11 @@ if (captureSourceDiagnostics && (protocol !== 'direct' || mode !== 'replay'
 }
 const apiKey = mode === 'live' ? process.env.GEMINI_API_KEY : 'golden-replay-key';
 if (!apiKey) throw new Error('Live mode requires GEMINI_API_KEY in the environment.');
-const fastModel = argument('--model', null);
+const modelSettings = resolveGoldenModelSettings({
+    profile: argument('--profile', 'configured'),
+    fastModel: argument('--model', null),
+    slowModel: argument('--slow-model', null)
+});
 const stepTimeoutMs = Number(argument('--step-timeout', mode === 'live' ? '300' : '120')) * 1000;
 const lastStep = Number(argument('--until', String(scenario.steps.length)));
 const steps = scenario.steps.slice(0, lastStep);
@@ -83,18 +84,30 @@ writeFileSync(manifestPath, readFileSync(join(root, 'manifest.xml'), 'utf8')
 // Settings live in the 3001 origin's storage, isolated from the real add-in.
 const settings = {
     geminiApiKey: apiKey,
+    geminiModelFast: modelSettings.fast,
+    geminiModelSlow: modelSettings.slow,
     redlineEnabled: 'true',
     redlineAuthor: 'Golden Scenario',
-    glanceSettings: '[]',
-    ...(fastModel ? { geminiModelFast: fastModel } : {})
+    glanceSettings: '[]'
 };
 const sessionScript = `<script>(function(){var s=${JSON.stringify(settings)};for(var k in s){try{localStorage.setItem(k,s[k]);}catch(e){}}
 window.__GOLDEN_SESSION__=${JSON.stringify({ mode, stepTimeoutMs, sourceDiagnostics: captureSourceDiagnostics,
     steps: steps.map(({ id, prompt, thinking }) => ({ id, prompt, thinking: Boolean(thinking) })) })};})();</script>`;
 
-const report = { scenario: scenario.name, protocol, mode, model: fastModel, startedAt: new Date().toISOString(), status: 'running', steps: [] };
+const report = {
+    scenario: scenario.name,
+    protocol,
+    mode,
+    profile: modelSettings.profile,
+    models: { fast: modelSettings.fast, slow: modelSettings.slow },
+    model: modelSettings.fast === modelSettings.slow ? modelSettings.fast : null,
+    startedAt: new Date().toISOString(),
+    status: 'running',
+    steps: []
+};
 const passedChecks = new Set();
 const queues = new Map(steps.map(step => [step.id, createReplayQueue(step)]));
+const liveObservers = new Map(steps.map(step => [step.id, createStepObservationCollector(step.prompt)]));
 const modelLog = join(artifacts, 'model-log.jsonl');
 const sourceDiagnosticsDirectory = join(artifacts, 'source-diagnostics');
 const pendingDocx = new Map();
@@ -166,7 +179,7 @@ async function scoreCompletedStep(index, meta) {
     const bytes = pendingDocx.get(index);
     const file = `step-${String(index + 1).padStart(2, '0')}-${step.id}.docx`;
     writeFileSync(join(artifacts, file), bytes);
-    const replay = mode === 'replay' ? queues.get(step.id).summary() : null;
+    const replay = mode === 'replay' ? queues.get(step.id).summary() : liveObservers.get(step.id).summary();
     let results;
     try {
         const model = await buildDocumentModel(bytes);
@@ -185,7 +198,14 @@ async function scoreCompletedStep(index, meta) {
         results = [{ key: `${step.id}#model`, step: step.id, own: true, label: 'document model', ok: false, detail: error.message }];
     }
     for (const result of results) if (result.own && result.ok) passedChecks.add(result.key);
-    const replayProblems = replay ? [...replay.desyncs, ...(replay.remaining ? [`${replay.remaining} scripted response(s) unused`] : [])] : [];
+    const replayProblems = mode === 'replay'
+        ? [...replay.desyncs, ...(replay.remaining ? [`${replay.remaining} scripted response(s) unused`] : [])]
+        : [];
+    const modelProblems = [];
+    if (mode === 'live' && replay.exchanges === 0) modelProblems.push('no provider model exchanges were captured for this step');
+    if (mode === 'live' && replay.invalidResponses > 0) {
+        modelProblems.push(`${replay.invalidResponses} provider response(s) had no parseable candidate content`);
+    }
     const applyResponses = replay?.functionResponseHistory?.apply_document_edits || [];
     const applyCalls = (replay?.served || []).filter(item => item?.part?.functionCall?.name === 'apply_document_edits').length;
     const entry = {
@@ -195,16 +215,19 @@ async function scoreCompletedStep(index, meta) {
         scopeDisposition: step.scopeDisposition || null,
         deferredChecks: step.deferredChecks || [],
         toolEvidence: replay ? {
+            source: mode === 'replay' ? 'deterministic-replay' : 'provider-history',
             modelRequests: replay.requestCounts,
             applyDocumentEditCalls: applyCalls,
             applyDocumentEditReceipts: applyResponses,
-            latestApplyDocumentEditReceipt: replay.functionResponses?.apply_document_edits ?? null
+            latestApplyDocumentEditReceipt: replay.functionResponses?.apply_document_edits ?? null,
+            ...(mode === 'live' ? { exchanges: replay.exchanges, invalidResponses: replay.invalidResponses } : {})
         } : null,
         durationMs: meta.durationMs,
         docx: file,
         own: results.filter(result => result.own),
         regressions: results.filter(result => !result.own && !result.ok),
         replayProblems,
+        modelProblems,
         transcript: meta.transcript,
         consoleErrors: meta.console.filter(line => line.level === 'error' || line.level === 'warn').map(line => line.message)
     };
@@ -215,6 +238,7 @@ async function scoreCompletedStep(index, meta) {
     for (const result of entry.own) console.log(`  ${icon(result)} ${result.label}${result.ok ? '' : ` — ${result.detail}`}`);
     for (const result of entry.regressions) console.log(`  REGRESSION ${result.step}: ${result.label} — ${result.detail}`);
     for (const problem of replayProblems) console.log(`  REPLAY ${problem}`);
+    for (const problem of modelProblems) console.log(`  MODEL ${problem}`);
     if (entry.transcript.length) console.log(`  chat: ${entry.transcript.at(-1).replace(/\s+/g, ' ').slice(0, 200)}`);
 }
 
@@ -223,8 +247,9 @@ function finish(summary) {
     const knownFailures = report.steps.flatMap(step => step.own.filter(result => !result.ok && result.knownIssue));
     const regressions = report.steps.flatMap(step => step.regressions);
     const replayProblems = report.steps.flatMap(step => step.replayProblems);
+    const modelProblems = report.steps.flatMap(step => step.modelProblems);
     const complete = summary.status === 'completed' && report.steps.length === steps.length;
-    report.status = complete && !ownFailures.length && !regressions.length && !replayProblems.length ? 'passed' : 'failed';
+    report.status = complete && !ownFailures.length && !regressions.length && !replayProblems.length && !modelProblems.length ? 'passed' : 'failed';
     report.finishedAt = new Date().toISOString();
     report.host = summary.host || null;
     if (summary.status !== 'completed') report.abort = { error: summary.error, step: summary.step, console: summary.console };
@@ -235,13 +260,12 @@ function finish(summary) {
         knownIssueFailures: knownFailures.length,
         regressions: regressions.length,
         replayProblems: replayProblems.length,
-        ...(mode === 'replay' ? {
-            modelRequests: report.steps.reduce((total, step) => ({
-                chat: total.chat + (step.toolEvidence?.modelRequests.chat || 0),
-                aux: total.aux + (step.toolEvidence?.modelRequests.aux || 0),
-                other: total.other + (step.toolEvidence?.modelRequests.other || 0)
-            }), { chat: 0, aux: 0, other: 0 })
-        } : {})
+        modelProblems: modelProblems.length,
+        modelRequests: report.steps.reduce((total, step) => ({
+            chat: total.chat + (step.toolEvidence?.modelRequests.chat || 0),
+            aux: total.aux + (step.toolEvidence?.modelRequests.aux || 0),
+            other: total.other + (step.toolEvidence?.modelRequests.other || 0)
+        }), { chat: 0, aux: 0, other: 0 })
     };
     writeFileSync(join(artifacts, 'report.json'), JSON.stringify(report, null, 2));
     writeFileSync(join(artifacts, 'report.md'), renderMarkdown(report));
@@ -261,20 +285,25 @@ function finish(summary) {
 }
 
 function renderMarkdown(data) {
-    const lines = [`# Golden scenario: ${data.scenario} (${data.mode}${data.model ? `, ${data.model}` : ''})`, '',
+    const modelLabel = data.models
+        ? `${data.profile}: fast ${data.models.fast}, slow ${data.models.slow}`
+        : data.model ? data.model : '';
+    const lines = [`# Golden scenario: ${data.scenario} (${data.mode}${modelLabel ? `, ${modelLabel}` : ''})`, '',
         `Status: **${data.status}** — ${JSON.stringify(data.totals)}`, `Started ${data.startedAt}, finished ${data.finishedAt}.`, ''];
     if (data.abort) lines.push(`Aborted at \`${data.abort.step}\`: ${data.abort.error}`, '');
     lines.push('| Step | Result | Checks |', '| --- | --- | --- |');
     for (const step of data.steps) {
         const failed = step.own.filter(result => !result.ok);
         const unexpected = failed.filter(result => !result.knownIssue);
-        const result = failed.length === 0 && !step.regressions.length && !step.replayProblems.length ? 'pass'
-            : !unexpected.length && !step.regressions.length && !step.replayProblems.length ? 'known issue' : 'FAIL';
+        const hasExecutionProblems = step.replayProblems.length > 0 || (step.modelProblems || []).length > 0;
+        const result = failed.length === 0 && !step.regressions.length && !hasExecutionProblems ? 'pass'
+            : !unexpected.length && !step.regressions.length && !hasExecutionProblems ? 'known issue' : 'FAIL';
         const checks = step.own.map(check => `${check.ok ? '✓' : check.knownIssue ? '◐' : '✗'} ${check.label}${check.ok ? ''
             : `: ${check.detail}${check.knownIssue ? ` ([known issue](../../../${check.knownIssue}))` : ''}`}`)
             .concat(step.regressions.map(check => `✗ regression of ${check.step} ${check.label}: ${check.detail}`))
             .concat((step.deferredChecks || []).map(check => `DEFERRED, NOT SCORED: ${check.label || check.type} (${step.scopeDisposition?.reason || 'outside retained scope'})`))
-            .concat(step.replayProblems.map(problem => `✗ replay: ${problem}`));
+            .concat(step.replayProblems.map(problem => `✗ replay: ${problem}`))
+            .concat((step.modelProblems || []).map(problem => `✗ model evidence: ${problem}`));
         lines.push(`| ${step.id} | ${result} | ${checks.join('<br>').replace(/\|/g, '\\|')} |`);
     }
     return `${lines.join('\n')}\n`;
@@ -308,7 +337,10 @@ async function handle(request, response) {
             return;
         }
         if (path === '/golden/model-log' && request.method === 'POST') {
-            appendFileSync(modelLog, `${(await readBody(request)).toString('utf8')}\n`);
+            const entry = JSON.parse((await readBody(request)).toString('utf8'));
+            appendFileSync(modelLog, `${JSON.stringify(entry)}\n`);
+            const observer = liveObservers.get(entry.step);
+            if (observer) observer.record({ payload: entry.payload, response: entry.response, status: entry.status });
             response.end('ok');
             return;
         }
@@ -369,7 +401,15 @@ async function handle(request, response) {
 
 // Word's WebView resolves localhost to ::1 first; serve both loopback addresses only.
 const servers = ['127.0.0.1', '::1'].map(host => createServer(tls, handle).listen(PORT, host));
-const server = { close(callback) { let open = servers.length; for (const item of servers) item.close(() => { if (--open === 0) callback?.(); }); } };
+const server = {
+    close(callback) {
+        let open = servers.length;
+        for (const item of servers) item.close(() => { if (--open === 0) callback?.(); });
+        // Keep-alive sockets from Word's WebView can otherwise hold the runner
+        // open after scoring and the add-in registration cleanup are complete.
+        for (const item of servers) item.closeAllConnections?.();
+    }
+};
 
 servers[0].on('listening', async () => {
     console.log(`Golden scenario server ready: https://localhost:${PORT}/taskpane.html (${mode} mode)`);

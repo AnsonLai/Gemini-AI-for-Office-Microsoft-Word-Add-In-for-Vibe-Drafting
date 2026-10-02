@@ -2,6 +2,8 @@ import { computeDocumentPartsRevisionToken, inspectDocumentParts, NS_W } from '@
 import { parseXml, serializeXml } from '@ansonlai/docx-redline-js/adapters/xml-adapter.js';
 
 const NS_W14 = 'http://schemas.microsoft.com/office/word/2010/wordml';
+const NS_W15 = 'http://schemas.microsoft.com/office/word/2012/wordml';
+const NS_W16CID = 'http://schemas.microsoft.com/office/word/2016/wordml/cid';
 const VOLATILE_WORD_RSID_ATTRIBUTES = new Set([
   'rsidR', 'rsidRDefault', 'rsidRPr', 'rsidP', 'rsidDel', 'rsidSect', 'rsidTr'
 ]);
@@ -121,10 +123,6 @@ function tokenParts(parts, tailIndex) {
     derived.additionalParts = Object.fromEntries(Object.entries(parts.additionalParts)
       .map(([name, payload]) => [name, normalizedAdditionalPart(name, payload)]));
   }
-  if (parts.parts instanceof Map) {
-    derived.parts = new Map([...parts.parts.entries()]
-      .map(([name, payload]) => [name, normalizedAdditionalPart(name, payload)]));
-  }
   return derived;
 }
 
@@ -137,4 +135,52 @@ function tokenParts(parts, tailIndex) {
 export async function computeWordSourceRevisionToken(parts, options = {}) {
   const exportTail = detectExportTailIndex(parts, options);
   return computeDocumentPartsRevisionToken(tokenParts(parts, exportTail));
+}
+
+/**
+ * Compare a restored body package. Word regenerates body paragraph/text IDs
+ * during Replace, even when content is unchanged. Omit only those IDs from this
+ * verification copy; regular freshness tokens and checkpoint XML remain exact.
+ * Regenerated comment paragraph links require a separate canonical topology
+ * comparison; comment IDs/anchors, revisions and other part content still count.
+ */
+function normalizeRestoredCommentPart(xml, name, knownParagraphIds) {
+  if (typeof xml !== 'string') return xml;
+  const document = parseXml(xml);
+  for (const element of elementsIncludingRoot(document)) {
+    if (name === 'commentsXml' && element.namespaceURI === NS_W && localName(element) === 'p') {
+      element.removeAttributeNS(NS_W14, 'paraId');
+      element.removeAttributeNS(NS_W14, 'textId');
+    } else if (name === 'commentsExtendedXml' && element.namespaceURI === NS_W15 && localName(element) === 'commentEx') {
+      const id = element.getAttributeNS(NS_W15, 'paraId');
+      const parent = element.getAttributeNS(NS_W15, 'paraIdParent');
+      if (!knownParagraphIds.has(id) || (parent && !knownParagraphIds.has(parent))) throw new Error('Checkpoint thread metadata cannot be resolved to inspected comments.');
+      element.removeAttributeNS(NS_W15, 'paraId');
+      element.removeAttributeNS(NS_W15, 'paraIdParent');
+    } else if (name === 'commentsIdsXml' && element.namespaceURI === NS_W16CID && localName(element) === 'commentId') {
+      if (!knownParagraphIds.has(element.getAttributeNS(NS_W16CID, 'paraId'))) throw new Error('Checkpoint durable-comment metadata cannot be resolved to inspected comments.');
+      element.removeAttributeNS(NS_W16CID, 'paraId');
+    }
+  }
+  return serializeXml(document);
+}
+
+export async function computeWordRestorationToken(parts, options = {}) {
+  const inspection = inspectDocumentParts(parts);
+  if (inspection.status !== 'ok') throw new Error('The checkpoint comment identity could not be inspected.');
+  if (inspection.comments?.some(comment => comment.parentParaId && comment.parentCommentId == null)) throw new Error('Checkpoint reply identity cannot be resolved.');
+  const knownParagraphIds = new Set((inspection.comments || []).map(comment => comment.paraId).filter(Boolean));
+  const commentIdentity = (inspection.comments || []).map(({ paraId, parentParaId, ...comment }) => comment);
+  const derived = tokenParts(parts, detectExportTailIndex(parts, options));
+  const document = parseXml(derived.documentXml);
+  for (const paragraph of bodyParagraphNodes(document)) {
+    paragraph.removeAttributeNS(NS_W14, 'paraId');
+    paragraph.removeAttributeNS(NS_W14, 'textId');
+  }
+  derived.documentXml = serializeXml(document);
+  const commentParts = { 'word/comments.xml': 'commentsXml', 'word/commentsExtended.xml': 'commentsExtendedXml', 'word/commentsIds.xml': 'commentsIdsXml' };
+  for (const name of Object.values(commentParts)) derived[name] = normalizeRestoredCommentPart(derived[name], name, knownParagraphIds);
+  if (derived.additionalParts) derived.additionalParts = Object.fromEntries(Object.entries(derived.additionalParts)
+    .map(([name, xml]) => [name, commentParts[name.replace(/^\//, '')] ? normalizeRestoredCommentPart(xml, commentParts[name.replace(/^\//, '')], knownParagraphIds) : xml]));
+  return { ...await computeDocumentPartsRevisionToken(derived), commentIdentity };
 }

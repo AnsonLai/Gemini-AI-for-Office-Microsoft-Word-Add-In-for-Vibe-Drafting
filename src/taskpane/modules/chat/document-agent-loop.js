@@ -133,7 +133,7 @@ function completedWork(records) {
  * the taskpane can preserve history/host evidence and unlock its UI in finally.
  */
 export async function runDocumentAgentLoop({
-  state, registry, loadRegistry, requestModel, refreshContext, createCheckpoint,
+  state, registry, loadRegistry, requestModel, refreshContext,
   signal, requestStartTime, now = Date.now, maxLoops = 6,
   maxNoProgressToolLoops = 2, totalTimeoutMs = 180000, historyLimit = 10,
   onEvent = () => {},
@@ -254,32 +254,13 @@ export async function runDocumentAgentLoop({
           continue;
         }
         emit({ type: 'tool_start', name, ...description });
-        let checkpointIndex;
-        if (description.withCheckpoint === true) {
-          let checkpointError = null;
-          try { checkpointIndex = await createCheckpoint(true, name); } catch (error) { checkpointError = error; }
-          if (interrupt()) {
-            responses.push(createFunctionResponse(name, 'Tool not executed because this request stopped before editing.'));
-            continue;
-          }
-          if (!Number.isInteger(checkpointIndex) || checkpointIndex <= 0) {
-            const detail = checkpointError?.message ? ` ${checkpointError.message}` : '';
-            const message = `I could not save a recovery checkpoint.${detail} No document edit was started.`;
-            recordRefusal(state, name, description, message, 'CHECKPOINT_FAILED', true);
-            responses.push(createFunctionResponse(name, message));
-            emit({ type: 'tool_end', name, display: { show: true }, completionText: message, completionWithCheckpoint: false });
-            stop('checkpoint_failed', message);
-            continue;
-          }
-        }
-        // Cancellation during checkpoint capture must not reach an executor.
         if (interrupt()) {
           responses.push(createFunctionResponse(name, 'Tool not executed because this request stopped before editing.'));
           continue;
         }
         let execution;
         try {
-          execution = await registry.execute(name, args, { docText: state.docText, docSourceBaseline: state.docSourceBaseline });
+          execution = await registry.execute(name, args);
         } catch (error) {
           if (!cancelled() && error?.name !== 'AbortError') throw error;
           stop('cancelled', 'Request cancelled. Inspect the document if an edit was already in progress.');
@@ -312,7 +293,7 @@ export async function runDocumentAgentLoop({
             signatures.push(`${name}|${serialized}|${execution.resultText || ''}`);
           }
         }
-        emit({ type: 'tool_end', ...execution, checkpointIndex: execution.checkpointIndex ?? checkpointIndex });
+        emit({ type: 'tool_end', ...execution, checkpointIndex: execution.checkpointIndex });
         if (execution.mutating && execution.requiresInspection) {
           const outcomeText = execution.completionText || execution.rawResult?.message || execution.resultText || 'The host could not confirm the edit outcome.';
           stop('requires_inspection', `${outcomeText} Inspect the document before editing again; do not replay this operation.`);
@@ -326,11 +307,9 @@ export async function runDocumentAgentLoop({
       if ((!state.stopReason || ['timeout', 'cancelled'].includes(state.stopReason)) && (confirmed || (refreshStale && !cancelled()))) {
         try {
           const context = await refreshContext();
-          state.docText = context.formattedText;
-          state.docSourceBaseline = context.sourceBaseline;
           if (refreshStale) staleContextRefreshUsed = true;
           const reason = refreshStale ? (confirmed ? 'mixed' : 'stale-refusal') : 'confirmed-write';
-          appendRefreshedDocumentContext(responses, state.docText, reason);
+          appendRefreshedDocumentContext(responses, context.formattedText, reason);
           emit({ type: 'context_refresh', reason });
         } catch {
           state.history = [];

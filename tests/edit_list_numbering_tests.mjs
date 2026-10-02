@@ -3,8 +3,7 @@
 import './setup-xml-provider.mjs';
 
 import assert from 'node:assert/strict';
-import { applyRedlineToOxml, buildListMarkdown, normalizeListItemsWithLevels } from '@ansonlai/docx-redline-js';
-import { readPackageNumberingXml } from '../src/taskpane/modules/docx-redline-js-integration/consumer-core.js';
+import { applyRedlineToOxml, buildListMarkdown, extractReplacementNodesFromOoxml, normalizeListItemsWithLevels } from '@ansonlai/docx-redline-js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const numberingXml = `<w:numbering xmlns:w="${W}">`
@@ -21,11 +20,10 @@ const flatOpc = `<?xml version="1.0" standalone="yes"?><pkg:package xmlns:pkg="h
   + part('/word/numbering.xml', 'application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml', numberingXml)
   + '</pkg:package>';
 
-// 1. The helper reads the numbering part from a Word package (and nothing else).
-const read = readPackageNumberingXml(flatOpc);
+// 1. The public package extractor reads the numbering part without a local
+// consumer helper.
+const read = extractReplacementNodesFromOoxml(flatOpc).numberingXml;
 assert.match(read, /<w:num w:numId="1"/);
-assert.equal(readPackageNumberingXml(documentXml), null);
-assert.equal(readPackageNumberingXml(null), null);
 
 // 2. With the document numbering supplied, the generated list gets a fresh ID.
 const listMarkdown = buildListMarkdown(normalizeListItemsWithLevels(['First recital.', 'Second recital.'], { indentSpaces: 4 }), 'numbered', 'upperAlpha');

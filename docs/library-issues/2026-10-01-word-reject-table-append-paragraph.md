@@ -16,24 +16,32 @@ fixed (see `completed/2026-10-01-table-append-tracked-formatting.md`).
 
 ## Reproduction
 
-From the repository root, export the table-append fixtures and run the Word oracle:
+From the repository root, export the single public-library fixture and run the Word oracle:
 
 ```powershell
-node tests/table_append_batch_tests.mjs --export-host-dir .cache/table-append-host
+node docs/library-issues/2026-10-01-word-reject-table-append-paragraph-export.mjs `
+  --export-dir .cache/table-append-host
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-wp6-word.ps1 `
   -FixtureManifest .cache/table-append-host/manifest.json `
-  -ArtifactsDir .cache/table-append-word
+  -ArtifactsDir .cache/table-append-word `
+  -CaseName public-library-table-append-reject-all
 ```
+
+The exporter uses public library inspection, batch, revision-resolution, and DOCX
+ZIP APIs only. The Word oracle checks the tracked package, independent
+engine-resolved references, and the production adapter's insertion against
+Word's live body OOXML. This is a manual host lane and does not invoke a model.
 
 The captured run used Microsoft Word 16.0, build 16.0.20430. The oracle report and fixture set are saved at:
 
 - `.cache/table-append-word/word-report.json`
 - `.cache/table-append-word/word-stdout.log`
 - `.cache/table-append-host/manifest.json`
-- `.cache/table-append-host/table-append-tracked.docx`
-- `.cache/table-append-host/table-append-coalesced-plain-edit-native-insert.docx`
-- `.cache/table-append-host/table-append-inline-format-known-library-defect-native-insert.docx`
-- `.cache/table-append-host/table-append-rejected.docx`
+- `.cache/table-append-host/source.docx`
+- `.cache/table-append-host/tracked.docx`
+- `.cache/table-append-host/accepted.docx`
+- `.cache/table-append-host/rejected.docx`
+- `.cache/table-append-host/insertion.xml`
 
 The native `InsertXML` operation passed for both cases. The lane reads Word's live `Content.WordOpenXML`, runs the production batch bridge, inserts the resulting OOXML with Word's `InsertXML`, and saves the document. Subsequent Word revision-view checks still found the Reject All and underline issues described below. This verifies the Word-native insertion path but does not establish Office.js transport provenance.
 

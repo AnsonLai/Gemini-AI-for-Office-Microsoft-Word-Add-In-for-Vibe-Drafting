@@ -4,17 +4,20 @@ import {
   computeDocumentPartsRevisionToken,
   inspectDocumentParts
 } from '@ansonlai/docx-redline-js';
-import { buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
+import { buildDocumentCommentsPackage, buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
 import { inspectWordSource } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
 import { createWordDocumentSourceReader } from '../src/taskpane/modules/chat/word-document-source.js';
 import { createDocumentInspectionSession } from '../src/taskpane/modules/chat/document-inspection-session.js';
 import {
   computeWordSourceRevisionToken,
+  computeWordRestorationToken,
   detectExportTailIndex
 } from '../src/taskpane/modules/docx-redline-js-integration/word-source-identity.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const W14 = 'http://schemas.microsoft.com/office/word/2010/wordml';
+const W15 = 'http://schemas.microsoft.com/office/word/2012/wordml';
+const W16CID = 'http://schemas.microsoft.com/office/word/2016/wordml/cid';
 const tracked = 'w:ins w:id="71" w:author="Tracked Author" w:date="2026-10-02T00:00:00Z"';
 const bodyXml = `
   <w:p xmlns:w14="${W14}" w14:paraId="1111AAAA" w:rsidR="00000001" w:rsidRDefault="00000001">
@@ -40,6 +43,40 @@ function fixtureParts(paragraphXml = bodyXml, settingsXml = settingsA) {
 function replaceOnce(source, before, after) {
   assert.ok(source.includes(before), `fixture contains ${before}`);
   return source.replace(before, after);
+}
+
+function addFlatOpcPart(flatOpc, name, contentType, xml) {
+  const anchor = '<pkg:part pkg:name="/word/document.xml"';
+  assert.ok(flatOpc.includes(anchor), 'Flat OPC fixture has its main document part');
+  const part = `<pkg:part pkg:name="/word/${name}" pkg:contentType="${contentType}"><pkg:xmlData>${xml}</pkg:xmlData></pkg:part>`;
+  return flatOpc.replace(anchor, `${part}\n  ${anchor}`);
+}
+
+function buildThreadedCommentFixture() {
+  const documentXml = `<w:document xmlns:w="${W}" xmlns:w14="${W14}"><w:body>
+    <w:p w14:paraId="10000001"><w:commentRangeStart w:id="1"/><w:r><w:t>Root anchor text.</w:t></w:r><w:commentRangeEnd w:id="1"/><w:r><w:commentReference w:id="1"/></w:r></w:p>
+    <w:p w14:paraId="10000002"><w:commentRangeStart w:id="2"/><w:r><w:t>Reply anchor text.</w:t></w:r><w:commentRangeEnd w:id="2"/><w:r><w:commentReference w:id="2"/></w:r></w:p>
+    <w:p w14:paraId="10000003"><w:commentRangeStart w:id="3"/><w:r><w:t>Other root anchor.</w:t></w:r><w:commentRangeEnd w:id="3"/><w:r><w:commentReference w:id="3"/></w:r></w:p>
+  </w:body></w:document>`;
+  const commentsXml = `<w:comments xmlns:w="${W}" xmlns:w14="${W14}">
+    <w:comment w:id="1" w:author="Reviewer" w:date="2026-10-02T00:00:00Z"><w:p w14:paraId="AAAA0001"><w:pPr><w:pStyle w:val="CommentText"/></w:pPr><w:r><w:t>Root note.</w:t></w:r></w:p></w:comment>
+    <w:comment w:id="2" w:author="Editor" w:date="2026-10-02T00:01:00Z"><w:p w14:paraId="CCCC0003"><w:r><w:t>Reply note.</w:t></w:r></w:p></w:comment>
+    <w:comment w:id="3" w:author="Reviewer" w:date="2026-10-02T00:02:00Z"><w:p w14:paraId="BBBB0002"><w:r><w:t>Other root note.</w:t></w:r></w:p></w:comment>
+  </w:comments>`;
+  const commentsExtendedXml = `<w15:commentsEx xmlns:w15="${W15}">
+    <w15:commentEx w15:paraId="AAAA0001" w15:done="0"/>
+    <w15:commentEx w15:paraId="CCCC0003" w15:paraIdParent="AAAA0001" w15:done="0"/>
+    <w15:commentEx w15:paraId="BBBB0002" w15:done="0"/>
+  </w15:commentsEx>`;
+  const commentsIdsXml = `<w16cid:commentsIds xmlns:w16cid="${W16CID}">
+    <w16cid:commentId w16cid:paraId="AAAA0001" w16cid:durableId="11111111"/>
+    <w16cid:commentId w16cid:paraId="CCCC0003" w16cid:durableId="22222222"/>
+    <w16cid:commentId w16cid:paraId="BBBB0002" w16cid:durableId="33333333"/>
+  </w16cid:commentsIds>`;
+  let flatOpc = buildDocumentCommentsPackage(documentXml, commentsXml);
+  flatOpc = addFlatOpcPart(flatOpc, 'commentsExtended.xml', 'application/xml', commentsExtendedXml);
+  flatOpc = addFlatOpcPart(flatOpc, 'commentsIds.xml', 'application/xml', commentsIdsXml);
+  return { flatOpc, parts: inspectWordSource(flatOpc).parts, commentsXml, commentsExtendedXml, commentsIdsXml };
 }
 
 const originalParts = fixtureParts();
@@ -136,6 +173,114 @@ const changedInsertionAuthor = {
   ...originalParts,
   documentXml: replaceOnce(originalParts.documentXml, 'w:author="Tracked Author"', 'w:author="Other Author"')
 };
+const restoredOriginalToken = await computeWordRestorationToken(originalParts, { hostParagraphCount: 2 });
+assert.equal((await computeWordRestorationToken(changedRealParaId, { hostParagraphCount: 2 })).value,
+  restoredOriginalToken.value, 'restore verification tolerates only Word-regenerated body paragraph IDs');
+const changedTextId = { ...originalParts, documentXml: originalParts.documentXml.replace('w14:paraId="1111AAAA"', 'w14:paraId="1111AAAA" w14:textId="77777777"') };
+assert.equal((await computeWordRestorationToken(changedTextId, { hostParagraphCount: 2 })).value, restoredOriginalToken.value);
+assert.notEqual((await computeWordSourceRevisionToken(changedTextId, { hostParagraphCount: 2 })).value, normalizedOriginalToken.value,
+  'normal freshness keeps real paragraph text IDs');
+for (const xml of [originalParts.documentXml.replace('First real paragraph.', 'Different text.'),
+  originalParts.documentXml.replace('<w:t>First real paragraph.', '<w:rPr><w:b/></w:rPr><w:t>First real paragraph.')]) {
+  assert.notEqual((await computeWordRestorationToken({ ...originalParts, documentXml: xml })).value, restoredOriginalToken.value,
+    'restore verification retains literal content and inline formatting');
+}
+assert.deepEqual(originalParts, originalPartsCopy, 'restoration comparison never edits the saved source');
+for (const changed of [changedInsertionId, changedInsertionAuthor]) {
+  assert.notEqual((await computeWordRestorationToken(changed, { hostParagraphCount: 2 })).value,
+    restoredOriginalToken.value, 'restoration must preserve tracked-change IDs and authors');
+}
+const restoredCommentsToken = await computeWordRestorationToken(commentsBefore);
+for (const changedComments of [comments.replace('Reviewer', 'Other Reviewer'), comments.replace('Retained comment.', 'Different comment.'),
+  comments.replace('w:id="1"', 'w:id="2"')]) {
+  assert.notEqual((await computeWordRestorationToken({ ...commentsBefore, commentsXml: changedComments })).value,
+    restoredCommentsToken.value, 'comment author, text and anchor identity cannot be normalized during restore');
+}
+
+// A body Replace can remap Word-generated paragraph IDs in comments and their
+// w15/w16cid links. Restoration tolerates that remapping only when the
+// canonical comment and reply relationships stay identical.
+const threaded = buildThreadedCommentFixture();
+const threadedPartsCopy = JSON.parse(JSON.stringify(threaded.parts));
+const threadedFlatCopy = threaded.flatOpc;
+const threadedRestoreToken = await computeWordRestorationToken(threaded.parts);
+assert.deepEqual(threadedRestoreToken.commentIdentity, [
+  { id: '1', author: 'Reviewer', date: '2026-10-02T00:00:00Z', text: 'Root note.', done: false,
+    paragraphIndex: 1, targetRef: 'P1', anchoredText: 'Root anchor text.' },
+  { id: '2', author: 'Editor', date: '2026-10-02T00:01:00Z', text: 'Reply note.', done: false,
+    parentCommentId: '1', paragraphIndex: 2, targetRef: 'P2', anchoredText: 'Reply anchor text.' },
+  { id: '3', author: 'Reviewer', date: '2026-10-02T00:02:00Z', text: 'Other root note.', done: false,
+    paragraphIndex: 3, targetRef: 'P3', anchoredText: 'Other root anchor.' }
+], 'restoration projects durable comment identity and anchor fields without volatile paragraph IDs');
+
+let remappedFlatOpc = threaded.flatOpc;
+for (const [before, after] of [
+  ['10000001', '10000011'], ['10000002', '10000012'], ['10000003', '10000013'],
+  ['AAAA0001', 'AAAA0011'], ['CCCC0003', 'CCCC0013'], ['BBBB0002', 'BBBB0012']
+]) remappedFlatOpc = remappedFlatOpc.replaceAll(before, after);
+const remappedThreadParts = inspectWordSource(remappedFlatOpc).parts;
+const remappedRestoreToken = await computeWordRestorationToken(remappedThreadParts);
+assert.equal(remappedRestoreToken.value, threadedRestoreToken.value,
+  'Word-regenerated body/comment paragraph IDs and linked w15/w16cid paraIds are omitted during restore comparison');
+assert.deepEqual(remappedRestoreToken.commentIdentity, threadedRestoreToken.commentIdentity,
+  'the remapped reply still identifies the same root comment and unchanged anchor');
+assert.notEqual((await computeWordSourceRevisionToken(remappedThreadParts)).value,
+  (await computeWordSourceRevisionToken(threaded.parts)).value,
+  'ordinary source freshness tokens remain strict about all real paragraph IDs');
+
+const reparentedThreadParts = {
+  ...threaded.parts,
+  commentsExtendedXml: threaded.parts.commentsExtendedXml
+    .replace('w15:paraIdParent="AAAA0001"', 'w15:paraIdParent="BBBB0002"')
+};
+const reparentedRestoreToken = await computeWordRestorationToken(reparentedThreadParts);
+assert.equal(reparentedRestoreToken.value, threadedRestoreToken.value,
+  'comment paragraph-link normalization leaves the derived parts token unchanged');
+assert.notDeepEqual(reparentedRestoreToken.commentIdentity, threadedRestoreToken.commentIdentity,
+  'canonical comment projection detects that the reply now belongs to a different root');
+assert.equal(reparentedRestoreToken.commentIdentity.find(comment => comment.id === '2').parentCommentId, '3');
+
+const reanchoredDocument = threaded.parts.documentXml
+  .replaceAll('w:id="1"', 'w:id="TEMP"')
+  .replaceAll('w:id="2"', 'w:id="1"')
+  .replaceAll('w:id="TEMP"', 'w:id="2"');
+const changedDurableIdsXml = threaded.parts.commentsIdsXml
+  .replace('w16cid:durableId="11111111"', 'w16cid:durableId="99999999"');
+const lostCommentParts = {
+  ...threaded.parts,
+  commentsXml: threaded.parts.commentsXml.replace(/\s*<w:comment w:id="2"[^>]*>[\s\S]*?<\/w:comment>/, '')
+};
+await assert.rejects(() => computeWordRestorationToken(lostCommentParts), /metadata cannot be resolved/,
+  'lost comment metadata fails closed rather than being normalized away');
+
+const restorationMutations = [
+  ['re-anchored comment', { ...threaded.parts, documentXml: reanchoredDocument }],
+  ['changed resolution state', {
+    ...threaded.parts,
+    commentsExtendedXml: threaded.parts.commentsExtendedXml.replace('w15:done="0"', 'w15:done="1"')
+  }],
+  ['changed durable comment ID', {
+    ...threaded.parts,
+    commentsIdsXml: changedDurableIdsXml,
+    additionalParts: { ...threaded.parts.additionalParts, '/word/commentsIds.xml': changedDurableIdsXml }
+  }],
+  ['changed comment text', { ...threaded.parts, commentsXml: threaded.parts.commentsXml.replace('Root note.', 'Updated root note.') }],
+  ['changed comment style', { ...threaded.parts, commentsXml: threaded.parts.commentsXml.replace('CommentText', 'CommentAnnotation') }]
+];
+for (const [label, changedParts] of restorationMutations) {
+  const changedToken = await computeWordRestorationToken(changedParts);
+  assert.notEqual(changedToken.value, threadedRestoreToken.value, `${label} remains in the full restoration parts token`);
+  if (label !== 'changed comment style' && label !== 'changed durable comment ID') {
+    assert.notDeepEqual(changedToken.commentIdentity, threadedRestoreToken.commentIdentity,
+      `${label} changes the canonical comment identity projection`);
+  } else {
+    assert.deepEqual(changedToken.commentIdentity, threadedRestoreToken.commentIdentity,
+      `${label} is detected by the full parts token even when canonical comment fields are unchanged`);
+  }
+}
+assert.deepEqual(threaded.parts, threadedPartsCopy, 'restoration comparison never mutates saved source parts');
+assert.equal(threaded.flatOpc, threadedFlatCopy, 'restoration comparison never rewrites saved Flat OPC checkpoint XML');
+
 assert.notEqual((await computeWordSourceRevisionToken(changedInsertionAuthor, { hostParagraphCount: 2 })).value,
   (await computeWordSourceRevisionToken(originalParts, { hostParagraphCount: 2 })).value,
   'a tracked insertion author change remains detectable');

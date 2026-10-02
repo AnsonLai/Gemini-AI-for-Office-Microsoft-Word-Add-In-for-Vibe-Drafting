@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+const resolveOne = async (session, handle) => { const result = await session.resolveHandles([handle]); return { ...result, target: result.targets?.[0] }; };
 import { createDocumentInspectionSession } from '../src/taskpane/modules/chat/document-inspection-session.js';
 
 function escapeXml(text) {
@@ -63,34 +64,28 @@ assert.equal(both.source.documentId, documentId);
 assert.equal(both.source.revisionView, 'accepted');
 assert.equal(both.source.revisionToken.scope, 'document-parts');
 
-const resolvedSingle = await session.resolve(beta.handle);
+const resolvedSingle = await resolveOne(session, beta.handle);
 assert.equal(resolvedSingle.status, 'ok');
 assert.equal(resolvedSingle.target.kind, 'paragraph');
 assert.equal(resolvedSingle.target.descriptor.paragraphId, '00000003');
 
-const rangeInspection = await session.inspect({ range: { start: 1, end: 3 }, limit: 3 });
-assert.equal(rangeInspection.targets.length, 3);
-const resolvedRange = await session.resolveRange({
-  startHandle: rangeInspection.targets[0].handle,
-  endHandle: rangeInspection.targets[2].handle
-});
-assert.equal(resolvedRange.status, 'ok');
-assert.equal(resolvedRange.range.paragraphCount, 3);
-assert.equal(resolvedRange.range.start.index, 1);
-assert.equal(resolvedRange.range.end.index, 3);
 
-const incompleteRangeInspection = await session.inspect({ search: 'clause', limit: 2 });
-const incompleteRange = await session.resolveRange({
-  startHandle: incompleteRangeInspection.targets[0].handle,
-  endHandle: incompleteRangeInspection.targets[1].handle
-});
-assert.equal(incompleteRange.status, 'error');
-assert.equal(incompleteRange.error.code, 'RANGE_NOT_FULLY_INSPECTED', 'a search result cannot imply the unreturned paragraphs between matches');
+
+
+
+
+
+
+
+
+
+
+
 
 const endInspection = await session.inspect({ includeDocumentEnd: true, limit: 2 });
 assert.equal(typeof endInspection.documentEnd.handle, 'string');
 assert.equal(Object.hasOwn(endInspection.documentEnd, 'index'), false);
-const endTarget = await session.resolve(endInspection.documentEnd.handle);
+const endTarget = await resolveOne(session, endInspection.documentEnd.handle);
 assert.equal(endTarget.status, 'ok');
 assert.equal(endTarget.target.kind, 'document-end');
 assert.equal(endTarget.target.position, 'after');
@@ -104,12 +99,9 @@ assert.equal(Object.hasOwn(cursorPage1.selection, 'nextAfter'), false);
 const cursorPage2 = await session.inspect({ cursor: cursorPage1.selection.nextCursor });
 assert.equal(cursorPage2.status, 'ok', JSON.stringify(cursorPage2));
 assert.deepEqual(cursorPage2.targets.map(target => target.text), ['Beta clause', 'Final paragraph']);
-const pagedRange = await session.resolveRange({
-  startHandle: cursorPage1.targets[0].handle,
-  endHandle: cursorPage2.targets[1].handle
-});
-assert.equal(pagedRange.status, 'error');
-assert.equal(pagedRange.error.code, 'RANGE_NOT_FULLY_INSPECTED', 'pagination does not silently widen a range');
+
+
+
 
 const suppliedSource = await sourceReader();
 const readsBeforeSuppliedSource = readCount;
@@ -119,15 +111,15 @@ assert.equal(readCount, readsBeforeSuppliedSource, 'trusted Word source capture 
 
 const staleHandle = cursorPage2.targets[0].handle;
 parts = documentParts(['Alpha clause', 'Middle paragraph changed', 'Beta clause', 'Final paragraph']);
-const changedSource = await session.resolve(staleHandle);
+const changedSource = await resolveOne(session, staleHandle);
 assert.equal(changedSource.status, 'error');
 assert.equal(changedSource.error.code, 'STALE_DOCUMENT_SOURCE');
-assert.equal((await session.resolve(staleHandle)).error.code, 'STALE_OR_UNKNOWN_HANDLE');
+assert.equal((await resolveOne(session, staleHandle)).error.code, 'STALE_OR_UNKNOWN_HANDLE');
 
 const afterChange = await session.inspect({ range: { start: 1, end: 2 }, limit: 2 });
 const oldDocumentHandle = afterChange.targets[0].handle;
 documentId = 'addin:doc-2';
-const switchedDocument = await session.resolve(oldDocumentHandle);
+const switchedDocument = await resolveOne(session, oldDocumentHandle);
 assert.equal(switchedDocument.status, 'error');
 assert.equal(switchedDocument.error.code, 'DOCUMENT_IDENTITY_CHANGED');
 
@@ -135,7 +127,7 @@ documentId = 'addin:doc-1';
 const afterSwitch = await session.inspect({ range: { start: 1, end: 2 }, limit: 2 });
 const beforeRevisionChange = afterSwitch.targets[0].handle;
 revision++;
-const changedRevision = await session.resolve(beforeRevisionChange);
+const changedRevision = await resolveOne(session, beforeRevisionChange);
 assert.equal(changedRevision.status, 'error');
 assert.equal(changedRevision.error.code, 'STALE_DOCUMENT_SOURCE');
 
@@ -143,7 +135,7 @@ const afterRevision = await session.inspect({ range: { start: 1, end: 2 }, limit
 const undoSensitiveHandle = afterRevision.targets[0].handle;
 session.invalidate('undo-or-refresh');
 parts = documentParts(['Alpha clause', 'Middle paragraph changed', 'Beta clause', 'Final paragraph']);
-const restoredSnapshot = await session.resolve(undoSensitiveHandle);
+const restoredSnapshot = await resolveOne(session, undoSensitiveHandle);
 assert.equal(restoredSnapshot.status, 'error');
 assert.equal(restoredSnapshot.error.code, 'STALE_OR_UNKNOWN_HANDLE', 'explicit host invalidation prevents reusing a handle even if content is restored');
 
@@ -180,17 +172,14 @@ const boundedInspection = await boundedSession.inspect({ range: { start: 1, end:
 assert.equal(boundedInspection.status, 'ok');
 assert.ok(boundedInspection.targets.some(target => target.textTruncated));
 assert.ok(boundedInspection.targets.reduce((total, target) => total + target.text.length + target.location.length, 0) <= 24);
-const boundedResolved = await boundedSession.resolve(boundedInspection.targets[0].handle);
+const boundedResolved = await resolveOne(boundedSession, boundedInspection.targets[0].handle);
 assert.equal(boundedResolved.status, 'ok');
 assert.equal(boundedResolved.target.fullTextInspected, false, 'truncated inspection cannot authorize a rewrite of the unseen paragraph text');
-const boundedRange = await boundedSession.resolveRange({
-  startHandle: boundedInspection.targets[0].handle,
-  endHandle: boundedInspection.targets[1].handle
-});
-assert.equal(boundedRange.status, 'error');
-assert.equal(boundedRange.error.code, 'RANGE_NOT_FULLY_INSPECTED');
+
+
+
 const boundedEndInspection = await boundedSession.inspect({ includeDocumentEnd: true, limit: 1 });
-const boundedEnd = await boundedSession.resolve(boundedEndInspection.documentEnd.handle);
+const boundedEnd = await resolveOne(boundedSession, boundedEndInspection.documentEnd.handle);
 assert.equal(boundedEnd.status, 'ok');
 assert.equal(boundedEnd.target.fullTextInspected, false, 'an end handle keeps append context internally without authorizing a rewrite');
 
@@ -229,20 +218,20 @@ for (const [partName, baseline, changed] of dependencyChanges) {
   const dependencyInspection = await dependencySession.inspect({ range: { start: 1, end: 1 }, limit: 1 });
   assert.equal(dependencyInspection.status, 'ok', `${partName} baseline should inspect`);
   dependencyParts[partName] = changed;
-  const staleDependency = await dependencySession.resolve(dependencyInspection.targets[0].handle);
+  const staleDependency = await resolveOne(dependencySession, dependencyInspection.targets[0].handle);
   assert.equal(staleDependency.status, 'error', `${partName} change invalidates an existing handle`);
   assert.equal(staleDependency.error.code, 'STALE_DOCUMENT_SOURCE');
 }
 dependencyParts.additionalParts['word/commentsIds.xml'] = '<w16cid:commentsIds xmlns:w16cid="http://schemas.microsoft.com/office/word/2016/wordml/cid"/>';
 const commentsIdsInspection = await dependencySession.inspect({ range: { start: 1, end: 1 }, limit: 1 });
 dependencyParts.additionalParts['word/commentsIds.xml'] += '<!-- updated -->';
-const staleCommentsIds = await dependencySession.resolve(commentsIdsInspection.targets[0].handle);
+const staleCommentsIds = await resolveOne(dependencySession, commentsIdsInspection.targets[0].handle);
 assert.equal(staleCommentsIds.status, 'error');
 assert.equal(staleCommentsIds.error.code, 'STALE_DOCUMENT_SOURCE', 'the canonical token includes comments ID parts supplied through additionalParts');
 dependencyParts.additionalParts['word/commentsExtensible.xml'] = '<w16cex:commentsExtensible xmlns:w16cex="http://schemas.microsoft.com/office/word/2018/wordml/cex"/>';
 const commentsExtensibleInspection = await dependencySession.inspect({ range: { start: 1, end: 1 }, limit: 1 });
 dependencyParts.additionalParts['word/commentsExtensible.xml'] += '<!-- updated -->';
-const staleCommentsExtensible = await dependencySession.resolve(commentsExtensibleInspection.targets[0].handle);
+const staleCommentsExtensible = await resolveOne(dependencySession, commentsExtensibleInspection.targets[0].handle);
 assert.equal(staleCommentsExtensible.status, 'error');
 assert.equal(staleCommentsExtensible.error.code, 'STALE_DOCUMENT_SOURCE', 'the canonical token includes comments extensible parts supplied through additionalParts');
 

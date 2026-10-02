@@ -107,12 +107,12 @@ async function reportTaskpaneStartupProfile(info, officeReadyMs, usableUiMs) {
   try {
     if (info?.host !== Office.HostType.Word) throw new Error('Taskpane startup profile requires Word host.');
     const firstToolModuleLoadStart = performance.now();
-    await loadAgenticTools();
+    await loadDocumentTools();
     record.firstToolModuleLoadMs = Number((performance.now() - firstToolModuleLoadStart).toFixed(2));
-    record.toolModuleInitialized = agenticToolsInitialized;
+    record.toolModuleInitialized = documentToolsLoaded;
     record.lazyScriptResources = collectSameOriginScriptResources()
       .filter(resource => !initialScriptNames.has(resource.name));
-    record.status = agenticToolsInitialized ? 'passed' : 'failed';
+    record.status = documentToolsLoaded ? 'passed' : 'failed';
   } catch {
     record.status = 'failed';
     record.toolModuleInitialized = false;
@@ -135,14 +135,6 @@ const SAFETY_SETTINGS_BLOCK_NONE = [
   { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
 ];
 
-// Search and text limits
-const SEARCH_LIMITS = {
-  MAX_LENGTH: 100,           // Max search string length for comments/highlights
-  MAX_LENGTH_MODIFY: 80,     // Max search string length for modify_text operations
-  SUFFIX_LENGTH: 60,         // Suffix length for range expansion
-  RETRY_LENGTH: 30           // Fallback shorter search length for retries
-};
-
 // Document processing limits
 const DOCUMENT_LIMITS = {
   MAX_WORDS: 30000,          // Approx 40 pages, ~40k tokens
@@ -151,17 +143,7 @@ const DOCUMENT_LIMITS = {
   TOKEN_MULTIPLIER: 1.33     // Words to tokens conversion factor
 };
 
-// Auto-checkpoint throttle: skip a new auto-snapshot if one was taken very
-// recently (e.g. multiple tools in one turn should not each snapshot).
-const CHECKPOINT_THROTTLE_MS = 15000;
-let lastAutoCheckpointAt = 0;
-let lastAutoCheckpointId = -1;
 let checkpointMigrationDone = false;
-
-// API generation limits
-const API_LIMITS = {
-  MAX_OUTPUT_TOKENS: 48000   // Maximum tokens for AI response output
-};
 
 // Timeout limits for API calls
 const TIMEOUT_LIMITS = {
@@ -175,12 +157,9 @@ let currentRequestController = null;
 // tokens remain authoritative for edits/Undo within this taskpane instance.
 const documentInstanceId = `${Date.now()}-${Math.random()}`;
 const getDocumentId = () => `${documentInstanceId}:${Office.context.document.url || ''}`;
-const sourceBaselineFrom = inspection => inspection.paragraphs.map(({ index, exactText, fingerprint, paragraphId, inTable }) =>
-  ({ index, exactText, fingerprint, paragraphId, inTable }));
-
 async function captureRefreshedDocumentContext(readSource) {
   const source = await readSource();
-  return { formattedText: summarizeDocumentSource(source), sourceBaseline: sourceBaselineFrom(source.inspection) };
+  return { formattedText: summarizeDocumentSource(source) };
 }
 
 let chatHistory = [];
@@ -551,59 +530,7 @@ function saveRedlineAuthor(author) {
   }
 }
 
-async function setChangeTrackingForAi(context, redlineEnabled, sourceLabel = "AI") {
-  let originalMode = null;
-  let changed = false;
-  let available = false;
-
-  try {
-    const doc = context.document;
-    doc.load("changeTrackingMode");
-    await context.sync();
-
-    available = true;
-    originalMode = doc.changeTrackingMode;
-    const desiredMode = redlineEnabled ? Word.ChangeTrackingMode.trackAll : Word.ChangeTrackingMode.off;
-
-    if (originalMode !== desiredMode) {
-      doc.changeTrackingMode = desiredMode;
-      await context.sync();
-      changed = true;
-    }
-  } catch (error) {
-    console.warn(`[ChangeTracking] ${sourceLabel}: unavailable`, error);
-  }
-
-  return { available, originalMode, changed };
-}
-
-async function restoreChangeTracking(context, trackingState, sourceLabel = "AI") {
-  if (!trackingState || !trackingState.available || !trackingState.changed || trackingState.originalMode === null) {
-    return;
-  }
-
-  try {
-    context.document.changeTrackingMode = trackingState.originalMode;
-    await context.sync();
-  } catch (error) {
-    console.warn(`[ChangeTracking] ${sourceLabel}: restore failed`, error);
-  }
-}
-
-const agenticToolDependencies = {
-  getRequestSignal: () => currentRequestController?.signal,
-  loadApiKey,
-  loadModel,
-  loadSystemMessage,
-  loadRedlineSetting,
-  loadRedlineAuthor,
-  setChangeTrackingForAi,
-  restoreChangeTracking,
-  SEARCH_LIMITS,
-  SAFETY_SETTINGS_BLOCK_NONE,
-  API_LIMITS
-};
-let agenticToolsInitialized = false;
+let documentToolsLoaded = false;
 const loadWordOperationSupport = createLazyModuleLoader(
   () => Promise.all([
     import('./modules/docx-redline-js-integration/word-operation-runner.js'),
@@ -615,7 +542,7 @@ const loadWordOperationSupport = createLazyModuleLoader(
     docxLibrary.setPlatform(Office?.context?.platform);
   }
 );
-const loadAgenticTools = createLazyModuleLoader(
+const loadDocumentTools = createLazyModuleLoader(
   async () => {
     const [module] = await Promise.all([
       import('./modules/chat/document-tools.js'),
@@ -624,7 +551,7 @@ const loadAgenticTools = createLazyModuleLoader(
     return module;
   },
   module => {
-    agenticToolsInitialized = true;
+    documentToolsLoaded = true;
   }
 );
 
@@ -980,8 +907,8 @@ async function ensureCheckpointMigration() {
  * Capture the current document state as a checkpoint.
  * @param {boolean} silent - suppress chat status messages
  * @param {string|null} toolName - when set, this is an auto-checkpoint taken
- *   before a mutating tool; it is labeled `auto:<toolName>:<ISO>` and throttled.
- * @returns {Promise<number>} the new checkpoint id (>=1), or -1 on failure/skip
+ *   before its atomic batch; it is labeled `auto:<toolName>:<ISO>`.
+ * @returns {Promise<number>} the new checkpoint id (>=1), or -1 on failure
  */
 async function createCheckpoint(silent = false, toolName = null, sourceOoxml = null) {
   const isAuto = !!toolName;
@@ -1004,10 +931,6 @@ async function createCheckpoint(silent = false, toolName = null, sourceOoxml = n
     const label = isAuto ? formatAutoCheckpointLabel(toolName) : "manual";
     const id = await saveCheckpoint(label, ooxmlValue);
 
-    if (isAuto) {
-      lastAutoCheckpointAt = Date.now();
-      lastAutoCheckpointId = id;
-    }
     if (!silent) {
       addMessageToChat("System", "Checkpoint saved.");
     }
@@ -1024,51 +947,44 @@ async function createCheckpoint(silent = false, toolName = null, sourceOoxml = n
 
 async function restoreCheckpoint(id) {
   currentRequestController?.abort();
-  let record = null;
+  const restoreController = new AbortController();
+  currentRequestController = restoreController;
+  const controls = ['chat-input', 'send-button', 'think-button'].map(id => document.getElementById(id)).filter(Boolean);
+  controls.forEach(control => { control.disabled = true; });
+  let msgElement;
   try {
-    record = await getCheckpoint(id);
-  } catch (e) {
-    console.error("Error loading checkpoint:", e);
-  }
-
-  if (!record || !record.ooxml) {
-    addMessageToChat("Error", "Invalid or missing checkpoint.");
-    return;
-  }
-
-  const msgElement = addMessageToChat("System", "Reverting to checkpoint...");
-
-  try {
-    await Word.run(async (context) => {
-      // Disable Track Changes to avoid "Delete All + Insert All" redlines
-      const doc = context.document;
-      doc.load("changeTrackingMode");
-      await context.sync();
-
-      const originalMode = doc.changeTrackingMode;
-      if (originalMode !== Word.ChangeTrackingMode.off) {
-        doc.changeTrackingMode = Word.ChangeTrackingMode.off;
-        await context.sync();
+    const record = await getCheckpoint(id);
+    if (!record?.ooxml) {
+      if (currentRequestController === restoreController) addMessageToChat('Error', 'Invalid or missing checkpoint.');
+      return;
+    }
+    if (restoreController.signal.aborted) return;
+    msgElement = addMessageToChat('System', 'Reverting to checkpoint...');
+    const { restoreBodyCheckpoint } = await import('./modules/chat/checkpoint-restoration.js');
+    const result = await restoreBodyCheckpoint(record.ooxml, { getDocumentId, signal: restoreController.signal });
+    if (currentRequestController === restoreController) {
+      if (result?.success === true && result?.verified === true) {
+        chatHistory = [];
+        const chatMessages = document.getElementById('chat-messages');
+        if (chatMessages) chatMessages.innerHTML = '';
+        addMessageToChat('System', result.message || 'Reverted and verified the body checkpoint.');
+      } else {
+        updateSystemMessage(msgElement, result?.message || 'The checkpoint restore could not be verified. Inspect the document before continuing.');
       }
-
-      context.document.body.clear(); // Clear the current document body
-      context.document.body.insertOoxml(record.ooxml, "Replace");
-      await context.sync();
-
-      // Restore the original track-changes mode after reverting.
-      if (originalMode !== Word.ChangeTrackingMode.off) {
-        doc.changeTrackingMode = originalMode;
-        await context.sync();
-      }
-
-      updateSystemMessage(msgElement, "Reverted successfully.");
-    });
+    }
   } catch (error) {
-    console.error("Error reverting checkpoint:", error);
-    updateSystemMessage(msgElement, "Error: Could not revert checkpoint.");
+    console.error('Error reverting checkpoint:', error);
+    if (currentRequestController === restoreController) {
+      if (msgElement) updateSystemMessage(msgElement, 'Error: Could not revert checkpoint.');
+      else addMessageToChat('Error', 'Could not load the checkpoint.');
+    }
+  } finally {
+    if (currentRequestController === restoreController) {
+      currentRequestController = null;
+      controls.forEach(control => { control.disabled = false; });
+    }
   }
 }
-
 registerChatUiHandlers({
   onCancelRequest: () => {
     if (currentRequestController) {
@@ -1146,7 +1062,6 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
       getExcludedParagraphIndex: wordIdentity.detectExportTailIndex,
       ...(globalThis.__WORD_SOURCE_DIAGNOSTICS__ ? { onStaleSource: globalThis.__WORD_SOURCE_DIAGNOSTICS__ } : {}),
     });
-    const docSourceBaseline = sourceBaselineFrom(documentSource.inspection);
     const docSelection = documentSource.selectionText.slice(0, 2000);
     // --- Check Document Size ---
     if (currentRequestController !== requestController) return;
@@ -1200,13 +1115,13 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
     const systemInstruction = { parts: [{ text: `Owner drafting preferences:\n${loadSystemMessage()}\n\n${DOCUMENT_EDITING_GUIDE}` }] };
 
     // The portable loop owns exchanges and stop decisions; this adapter owns UI/Word I/O.
-    const loopState = { history: chatHistory, docText, docSourceBaseline, records: requestRecords };
+    const loopState = { history: chatHistory, records: requestRecords };
     try {
       await runDocumentAgentLoop({
         state: loopState,
         registry: createToolRegistry(),
         loadRegistry: async () => {
-          const toolsModule = await loadAgenticTools();
+          const toolsModule = await loadDocumentTools();
           return createToolRegistry(toolsModule.createDocumentTools({
             session: inspectionSession, getDocumentId, getAuthor: loadRedlineAuthor,
             getGenerateRedlines: loadRedlineSetting,
@@ -1224,7 +1139,6 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
         refreshContext: () => captureRefreshedDocumentContext(createWordDocumentSourceReader({
           loadSupport: () => wordOperationSupportPromise, getDocumentId,
         })),
-        createCheckpoint,
         signal: requestController.signal,
         requestStartTime,
         maxLoops: DOCUMENT_LIMITS.MAX_LOOPS,

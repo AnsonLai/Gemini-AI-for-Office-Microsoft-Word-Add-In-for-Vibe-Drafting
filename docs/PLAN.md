@@ -1,5 +1,8 @@
 # Historical Plan: Robustness & Reliability — Phase 2
 
+> Current execution record: [2026-10-02 library-first lightweight harness](plans/2026-10-02-library-first-lightweight-agent-reliability.md).
+> This July plan remains historical; its tool/native-command designs are retired.
+
 > **Migrated on 2026-08-29:** The open work in this document is consolidated
 > into [`docs/plans/completed/2026-08-29-reliability-and-quality-gates.md`](plans/completed/2026-08-29-reliability-and-quality-gates.md).
 > This file is retained for historical detail; use the dated plan as the

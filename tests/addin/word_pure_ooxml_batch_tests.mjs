@@ -3,7 +3,6 @@ import '../setup-xml-provider.mjs';
 import assert from 'node:assert/strict';
 import { buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
 import { executePureOoxmlBatch } from '../../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
-import { insertOoxmlWithRangeFallback } from '../../src/taskpane/modules/docx-redline-js-integration/word-ooxml.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const original = buildDocumentFragmentPackage(
@@ -154,15 +153,6 @@ assert.equal(noop.mutationOutcome, 'noop');
 assert.equal(noop.writeAttempted, false);
 assert.equal(noChange.writes.length, 0);
 
-let insertions = 0;
-let rangeReads = 0;
-await assert.rejects(insertOoxmlWithRangeFallback({
-    insertOoxml() { insertions++; },
-    getRange() { rangeReads++; return { insertOoxml() { insertions++; } }; }
-}, original, 'Replace', { async sync() { throw Object.assign(new Error('Unconfirmed write'), { code: 'GeneralException' }); } }));
-assert.equal(insertions, 1, 'never replay after an unconfirmed host mutation');
-assert.equal(rangeReads, 0);
-
 let trackingSyncs = 0;
 const restoreFailure = fixture();
 restoreFailure.context.document = { changeTrackingMode: 'TrackAll', load() {} };
@@ -177,6 +167,42 @@ assert.equal(afterWriteFailure.written, true);
 assert.equal(afterWriteFailure.writeAttempted, true);
 assert.equal(afterWriteFailure.mutationOutcome, 'applied_with_host_error');
 assert.equal(restoreFailure.writes.length, 1);
+delete globalThis.Word;
+
+let disableSyncs = 0;
+const disableFailure = fixture();
+disableFailure.context.document = { changeTrackingMode: 'TrackAll', load() {} };
+disableFailure.context.sync = async () => {
+    if (++disableSyncs === 2) throw Object.assign(new Error('Disable sync failed'), { code: 'DISABLE_SYNC_FAILED' });
+};
+globalThis.Word = { ChangeTrackingMode: { off: 'Off' } };
+const disableFailed = await executePureOoxmlBatch(disableFailure.context, disableFailure.body, [
+    { type: 'replace', target: { exactText: 'Alpha beta gamma.' }, modified: 'Must not be inserted.' }
+], { disableNativeTracking: true, baseTrackingMode: 'TrackAll' });
+assert.equal(disableFailed.status, 'error');
+assert.equal(disableFailed.writeAttempted, false, 'do not start the edit when disabling native tracking fails');
+assert.equal(disableFailed.hostError.code, 'DISABLE_SYNC_FAILED');
+assert.equal(disableSyncs, 3, 'attempt restoration after the disable synchronization fails');
+assert.equal(disableFailure.context.document.changeTrackingMode, 'TrackAll');
+assert.equal(disableFailure.writes.length, 0);
+
+let operationRestoreSyncs = 0;
+const operationAndRestoreFailure = fixture();
+operationAndRestoreFailure.context.document = { changeTrackingMode: 'TrackAll', load() {} };
+operationAndRestoreFailure.body.insertOoxml = () => {
+    throw Object.assign(new Error('Primary content-write failure'), { code: 'CONTENT_WRITE_FAILED' });
+};
+operationAndRestoreFailure.context.sync = async () => {
+    if (++operationRestoreSyncs === 3) throw new Error('Secondary tracking restore failure');
+};
+const primaryPreserved = await executePureOoxmlBatch(operationAndRestoreFailure.context, operationAndRestoreFailure.body, [
+    { type: 'replace', target: { exactText: 'Alpha beta gamma.' }, modified: 'Must remain uncommitted.' }
+], { disableNativeTracking: true, baseTrackingMode: 'TrackAll' });
+assert.equal(primaryPreserved.status, 'error');
+assert.equal(primaryPreserved.hostError.code, 'CONTENT_WRITE_FAILED', 'restore failure must not mask the content-write failure');
+assert.equal(primaryPreserved.error.message, 'Primary content-write failure');
+assert.equal(primaryPreserved.writeAttempted, true);
+assert.equal(operationRestoreSyncs, 3, 'restore is attempted after a content-write failure');
 delete globalThis.Word;
 
 console.log('PASS: pure OOXML batch tests');

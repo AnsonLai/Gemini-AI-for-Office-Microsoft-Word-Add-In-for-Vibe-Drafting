@@ -1,148 +1,59 @@
-# Project State: Gemini Word Add-in
+# Project state: Gemini Word add-in
 
-> Current technical posture: 2026-09-30. Detailed implementation and test
-> evidence lives in the [dated plans](docs/plans/) and
-> [validation reports](docs/validation-reports/).
+**Updated:** 2026-10-02. The [current implementation plan](docs/plans/2026-10-02-library-first-lightweight-agent-reliability.md)
+records milestone status, commits and continuation contracts. Dated evidence is
+in [validation reports](docs/validation-reports/).
 
-## Current Posture
+The Word plugin uses two tools: focused canonical inspection and one typed
+atomic edit batch. Opaque handles bind to the document, accepted revision view
+and captured parts. Every requested intent validates before preparation;
+unsupported mixed requests refuse completely. The library performs document
+transformations. Office.js reads/inserts body Flat OPC and preserves host state.
+Native paragraph/list/table editing algorithms and tool-internal AI calls are
+retired. The local Flat OPC assembly boundary remains explicit.
 
-- **Table incident (2026-10-01):** consumer changes coalesce only a compatible
-  final-paragraph edit plus one appended Markdown table, preserve the append
-  anchor, map both source changes to the operation receipt, and refuse changing
-  the text of a paragraph that carries the author's own pending formatting
-  while adding a table with `UNSUPPORTED_TABLE_FORMATTING` (the only remaining
-  0.8.4 limitation; new inline formatting with a table and appends after an
-  underlined paragraph are allowed). After a
-  confirmed mutation exchange, the next model turn receives refreshed document
-  text and baseline. History retains complete tool exchanges; read-only calls
-  do not reset the failed-mutation budget; loop exhaustion reports a terminal
-  status. The 54-suite offline aggregate and production build pass. The dated
-  2026-10-01 Word run on 0.8.3 passed 13 of 20 checks: plain accepted table
-  content and native insertion pass; tracked Reject All leaves an extra
-  paragraph, and Accept All lost underline in the formatting fixture. In 0.8.4
-  the underline loss is fixed (desktop Word Accept All keeps underline and the
-  3x3 table); Word Reject All still leaves one extra empty paragraph after a
-  final table append, which remains open. See the
-  [incident plan](docs/plans/2026-09-30-table-creation-reliability.md),
-  [host report](docs/validation-reports/2026-10-01-table-creation-reliability.md),
-  [tracked-formatting report](docs/library-issues/completed/2026-10-01-table-append-tracked-formatting.md),
-  and [Reject All paragraph report](docs/library-issues/2026-10-01-word-reject-table-append-paragraph.md).
+Retained actions are literal corrections, clause rewrites, plain paragraph
+insertion/deletion, comments, basic inline emphasis, certified same-level
+bullet/decimal insertion at levels 0–1, and table-cell text. Broader list/table
+structure, font/layout, research and revision acceptance are refused. The
+[tool contract](docs/agentic-tool-contracts.md) gives exact restrictions.
+Adding comments requires a source without existing comments; supported wording
+edits preserve existing comments and threads. The narrow refusal prevents an
+unsupported merge-delta package from replacing original comment definitions.
+Untracked changes on a paragraph with pending revisions also refuse before
+writing; they must not silently flatten prior revision history.
 
-- **Undo/stale-context follow-up (2026-10-01):** a new log records two P4
-  `STALE_DOCUMENT_CONTEXT` refusals, both with no write attempted or confirmed.
-  The P4 missing-anchor warning means anchor validation was skipped; it does not
-  identify why the baseline guard refused. A changed `w14:paraId` could change
-  the fingerprint despite unchanged text, but Word ID churn is unconfirmed and
-  the fingerprint guard remains unchanged. A one-time refreshed snapshot and
-  model replan after proven no-write stale is implemented in `54dd082`; it does
-  not replay the old batch or reset the failed-mutation budget. Safe mismatch
-  diagnostics are included. All 54 offline suites and the production build pass.
-  The bounded COM probe found stable snapshots across repeated reads, tracking
-  changes and Reject All; restart and Ctrl+Z were not exercised. The exact cause
-  of the user's refusal remains unconfirmed. The fidelity plan stays open.
+A new write requires a persisted exact-source body checkpoint and a final
+freshness check. One insertion is followed by fresh host verification. Verified
+no-ops create no write/checkpoint. Cancellation preserves settled evidence;
+uncertain writes stop for inspection and never replay. The serial harness keeps
+six model cycles, two failed mutation cycles, one proven no-write stale refresh
+and complete call/response history. The owner persona cannot override execution
+rules. There is one compact editing guide and no general skill framework.
 
-- **Library:** the Word add-in and MCP server pin exact
-  `@ansonlai/docx-redline-js@0.8.4`. Browser editing uses the same package
-  through its public document-session facade.
-- **Host boundaries:** portable mapping and OOXML preparation are separated
-  from Word transport. The library owns supported document operations,
-  reconciliation and package lifecycle; add-in `consumer-core.js` retains
-  tool mapping and Flat OPC preparation/assembly. The Word adapter owns
-  `getOoxml`, `insertOoxml`, tracking-mode changes, and confirmed/indeterminate
-  write outcomes. Browser editing uses a package document session; MCP uses
-  `DocxDocument` sessions. JSZip remains in the browser demo for preview.
-- **Redline path:** targets are checked against a canonical source snapshot;
-  supported batches execute atomically and are inserted once on confirmed
-  success. A failed or uncertain host write is not replayed.
-- **Reliability:** Gemini request transport/retry behavior and structured
-  mutation outcomes are centralized. Retries are bounded and never repeat a
-  document mutation. These, the regression/host test lanes, portable consumer
-  extraction and deferred taskpane startup remain local consumer concerns; they
-  are not new library offloads. See the [library offload review](docs/library-offload-review.md).
-- **Performance:** the dated v0.8.2 mapping, core, package, browser-projection,
-  Word-host, and startup measurements are recorded. The measured 1,000-
-  paragraph workload is accepted; there is no universal latency gate.
+The Word add-in and MCP pin exact `@ansonlai/docx-redline-js@0.8.4`. Browser and
+MCP consumers retain their complete-DOCX facade; the Word plugin keeps its Flat
+OPC transport. A complete-DOCX Word facade/binary experiment is excluded.
 
-## Completed Milestones
+The milestone reports distinguish offline suites, actual Office.js exports,
+independent desktop Word Accept All/Reject All checks and the original 16-prompt
+NDA replay. [Final WP5 validation](docs/validation-reports/2026-10-02-lightweight-harness-wp5.md)
+passes 46 offline suites, 18 actual Office.js checks, 52 independent Word checks
+and 49 replay checks across the original 16 prompts. Eleven replay batches use
+ten writes and one no-op, with zero nested AI calls, zero regressions and correct
+authors. The fixed production surface is 4,355 lines, 49.5% below WP0. Replay does not
+certify model drafting quality. Live fast/slow provider checks remain required
+before shipping; Word Online is not certified by desktop evidence.
 
-Five original plans are complete:
+Open [library issues](docs/library-issues/README.md) remain upstream dependencies:
+unsupported canonical header conversion/list styles, separate header operations
+restarting numbering, final table append leaving an extra paragraph under Reject
+All, and weak-target soft-break deletion. Those shapes are refused or avoided
+through strong supported targeting. Retirement of unsupported consumer commands
+is a scope decision, rather than proof that upstream defects were fixed.
 
-1. [September v0.8.2 upgrade](docs/plans/completed/2026-09-09-docx-redline-js-v0.5.4-upgrade.md)
-2. [Reliability and quality gates](docs/plans/completed/2026-08-29-reliability-and-quality-gates.md)
-3. [Package boundaries and integrations](docs/plans/completed/2026-08-29-package-boundaries-and-integrations.md)
-4. [OOXML performance](docs/plans/completed/2026-08-29-oxml-engine-and-performance.md)
-5. [Original agentic tools and list reliability plan](docs/plans/completed/2026-08-29-agentic-tools-and-list-reliability.md), closed with its remaining canonical migration transferred to the [new follow-up](docs/plans/2026-09-30-canonical-list-migration-follow-up.md).
-
-Their closure reports record actual Office.js and independent Word checks,
-browser open/edit/download/reopen validation, cross-host semantic parity,
-current-version performance samples, and taskpane startup measurements. These
-closures are scoped. The original list plan's remaining capability work and
-full canonical migration were transferred to the new follow-up and are not
-marked complete.
-
-## Active Work and Upstream Dependencies
-
-The [canonical list migration follow-up](docs/plans/2026-09-30-canonical-list-migration-follow-up.md)
-remains open. The original list plan is closed with deferred scope transferred
-here. Contract inventory and stale-source checks are complete. A
-bullet/decimal insertion subset with tracking enabled at source/resolved levels
-0–1 is verified, but full canonical list migration still requires
-canonical-operation capability work and later consumer/Word validation.
-Existing native or legacy paths remain for general `edit_list` and header
-conversion, deeper/other-style insertion, tracking-off requests and unsupported
-outdent contexts.
-The dated v0.8.3 validation is recorded in the
-[release report](docs/validation-reports/2026-09-30-docx-redline-v083.md); the
-0.8.4 upgrade is in the [0.8.4 validation](docs/validation-reports/2026-10-02-docx-redline-v084.md) report.
-Passing these gates alone will not close the full migration.
-
-The dated v0.8.3 list matrix covers 12 supported cases with 48 Office.js checks and
-five native routes with 20 additional checks (68 total). The independent Word
-oracle reports 92 applicable checks passed, zero failed, and five not
-applicable across 17 exports. The two original public-facade Reject All cases
-pass 12 Word checks. `npm test` passes 51 suites with zero failures and four
-exclusions; validation and production builds pass. See the [v0.8.3 report](docs/validation-reports/2026-09-30-docx-redline-v083.md)
-and its linked JSON artifacts for that evidence.
-
-The dated 2026-09-30 v0.8.2 consumer baseline records five native cases, 20 actual
-Office.js checks, 20 independent Word source/tracked/Accept All/Reject All
-checks, and an offline aggregate of 50 suites with zero failures and four
-excluded entrypoints. These are historical results, not new v0.8.3 validation
-counts.
-
-The v0.8.2 library reports documented Reject All paragraph-boundary failures
-and historical paragraph-property inspection. The v0.8.3 release notes report
-fixes for those behaviors, including all-empty list ranges, and for
-`openDocx` list numbering and explicit list starts; v0.8.3 validation confirmed
-the original two public-facade Reject All cases. The dated reports retain
-their original evidence. Known limits (open library reports) are canonical conversion of
-plain or text-changing headers to lists, canonical list-format changes, and possible
-`RECEIPT_RECONCILIATION_FAILED` for a marker-prefixed `1. Header` no-op on bare
-`document.xml`. Open library reports on 0.8.4 are listed in the
-[library issues index](docs/library-issues/README.md): canonical list
-capabilities; Word Reject All leaving one extra paragraph after a final table
-append; the 0.8.4 regression where separate list operations restart numbering
-(production `convert_headers_to_list` is native and unaffected); and weak-target
-soft-break deletion (the add-in sends strong targets). The active plan remains
-open until canonical migration and its downstream validation are complete.
-
-## Operating Decisions
-
-1. Prefer OOXML operations when the library supports the requested change and
-   its accepted/rejected views and untouched package parts are verified.
-2. Keep host reads/writes and Word-specific state in adapters; keep browser and
-   MCP consumers on public package APIs.
-3. Resolve a batch against one immutable source. Refuse ambiguous, stale, or
-   unsupported operations before writing.
-4. Preserve actual host outcomes. Do not claim rollback after an unconfirmed
-   insertion and do not retry a mutation after an uncertain write.
-5. Keep upstream library changes separate from this consumer repository.
-   Update the exact version pin only after a release and compatibility checks.
-6. Desktop Word evidence does not by itself certify Word Online behavior or
-   every document structure; use the feature-specific validation records.
-
-## Longer-Term Work
-
-Broader list migration, additional Word host decoupling, Word Online fidelity,
-and splitting the add-in, browser demo, and MCP server into separate
-repositories remain future work. See [ROADMAP.md](ROADMAP.md).
+Historical incidents and prior milestones remain in dated plans/reports. The
+[September list follow-up](docs/plans/2026-09-30-canonical-list-migration-follow-up.md)
+and [table incident](docs/plans/2026-09-30-table-creation-reliability.md) retain
+upstream evidence and cleanup conditions; their former native-command migration
+queue is superseded by the approved smaller product scope.

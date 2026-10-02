@@ -135,8 +135,13 @@ export async function saveCheckpoint(label, ooxml) {
     const id = await new Promise((resolve, reject) => {
       const t = db.transaction(STORE_NAME, "readwrite");
       const req = t.objectStore(STORE_NAME).add(record);
-      req.onsuccess = () => resolve(req.result);
+      let checkpointId;
+      req.onsuccess = () => { checkpointId = req.result; };
+      req.onerror = () => reject(req.error);
+      // A successful add request can still be rolled back by a transaction abort.
+      t.oncomplete = () => resolve(checkpointId);
       t.onerror = () => reject(t.error);
+      t.onabort = () => reject(t.error || new Error('Checkpoint persistence was aborted.'));
     });
     await enforceCapInDb(db);
     return id;

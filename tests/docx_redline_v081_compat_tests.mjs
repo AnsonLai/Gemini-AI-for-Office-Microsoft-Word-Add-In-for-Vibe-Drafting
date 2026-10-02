@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { openDocx, validateDocxPackage } from '@ansonlai/docx-redline-js';
 import { MemoryZip, zipDocx, unzipDocx } from '@ansonlai/docx-redline-js/document/zip-archive.js';
-import { assertRedlineResult, RedlineOperationError } from '../src/taskpane/modules/docx-redline-js-integration/redline-result.js';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -198,17 +197,7 @@ async function testHeaderFooterAndFailClosed() {
     assert.deepEqual(fieldDoc.toUint8Array(), fieldBefore);
 }
 
-function testConsumerErrorPassThrough() {
-    for (const code of ['COMMENT_NOT_FOUND', 'PARENT_ANCHOR_NOT_FOUND', 'COMMENT_IN_HEADER_FOOTER', 'PART_NOT_FOUND', 'PART_AMBIGUOUS', 'FIELD_EDIT_REFUSED', 'FUTURE_V081_ERROR']) {
-        assert.throws(() => assertRedlineResult({
-            status: 'error', hasChanges: false,
-            error: { code, message: 'Compatibility error' }
-        }, 'v0.8.1 compatibility test'), error => error instanceof RedlineOperationError && error.code === code);
-    }
-}
-
 await testOpenInspectBatchAndResolution();
 await testCommentedPackageAndThreadOperations();
 await testHeaderFooterAndFailClosed();
-testConsumerErrorPassThrough();
 console.log('docx-redline-js v0.8.1 compatibility tests passed');
