@@ -1,0 +1,439 @@
+{
+  "environment": {
+    "wordVersion": "16.0",
+    "wordBuild": "16.0.20430",
+    "transport": "Word COM Content.WordOpenXML; this is not proof of Office.js body.getOoxml behavior",
+    "captureLimit": "Undo probe only: tracked Range.Text edit + Undo, untracked InsertXML edit + Undo. No save, no restart.",
+    "parsedParagraphIdsAvailable": false
+  },
+  "fixture": {
+    "file": "baseline-source.docx",
+    "paragraphs": [
+      "Paragraph P1 baseline.",
+      "Paragraph P2 baseline.",
+      "Paragraph P3 baseline.",
+      "Target paragraph P4 baseline.",
+      "Paragraph P5 baseline."
+    ]
+  },
+  "snapshots": [
+    {
+      "name": "01-source-read-a",
+      "sha256": "139c245ef93401874eca824086f564787b08eecc7e2deb4a1684ca3035c0860d",
+      "baseline": [
+        {
+          "index": 1,
+          "exactText": "Paragraph P1 baseline.",
+          "fingerprint": "fnv1a32:0db7fa09",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 2,
+          "exactText": "Paragraph P2 baseline.",
+          "fingerprint": "fnv1a32:34385201",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 3,
+          "exactText": "Paragraph P3 baseline.",
+          "fingerprint": "fnv1a32:53d9ea85",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 4,
+          "exactText": "Target paragraph P4 baseline.",
+          "fingerprint": "fnv1a32:c7c51f5a",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 5,
+          "exactText": "Paragraph P5 baseline.",
+          "fingerprint": "fnv1a32:e6925369",
+          "paragraphId": null,
+          "inTable": false
+        }
+      ]
+    },
+    {
+      "name": "02-source-read-b",
+      "sha256": "b30982af8215e6da9474fa98b2e7ecb3b5e0d2c502b3b6be288a8bec6175574d",
+      "baseline": [
+        {
+          "index": 1,
+          "exactText": "Paragraph P1 baseline.",
+          "fingerprint": "fnv1a32:0db7fa09",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 2,
+          "exactText": "Paragraph P2 baseline.",
+          "fingerprint": "fnv1a32:34385201",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 3,
+          "exactText": "Paragraph P3 baseline.",
+          "fingerprint": "fnv1a32:53d9ea85",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 4,
+          "exactText": "Target paragraph P4 baseline.",
+          "fingerprint": "fnv1a32:c7c51f5a",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 5,
+          "exactText": "Paragraph P5 baseline.",
+          "fingerprint": "fnv1a32:e6925369",
+          "paragraphId": null,
+          "inTable": false
+        }
+      ]
+    },
+    {
+      "name": "05-tracked-edit",
+      "sha256": "b3b6b44e240ae91283b908ce5a9829948532d2142caa0ffa312df00c1e020ddd",
+      "baseline": [
+        {
+          "index": 1,
+          "exactText": "Paragraph P1 baseline.",
+          "fingerprint": "fnv1a32:0db7fa09",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 2,
+          "exactText": "Paragraph P2 baseline.",
+          "fingerprint": "fnv1a32:34385201",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 3,
+          "exactText": "Paragraph P3 baseline.",
+          "fingerprint": "fnv1a32:53d9ea85",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 4,
+          "exactText": "Target paragraph P4 edited under tracking.",
+          "fingerprint": "fnv1a32:5ec3f24d",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 5,
+          "exactText": "",
+          "fingerprint": "fnv1a32:ae211393",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 6,
+          "exactText": "Paragraph P5 baseline.",
+          "fingerprint": "fnv1a32:a8ec1de0",
+          "paragraphId": null,
+          "inTable": false
+        }
+      ]
+    },
+    {
+      "name": "11-after-undo",
+      "sha256": "189f9bf31dd4141183fa5e5ee04bd604f362050c22de843d622e13af5b02c1b8",
+      "baseline": [
+        {
+          "index": 1,
+          "exactText": "Paragraph P1 baseline.",
+          "fingerprint": "fnv1a32:0db7fa09",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 2,
+          "exactText": "Paragraph P2 baseline.",
+          "fingerprint": "fnv1a32:34385201",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 3,
+          "exactText": "Paragraph P3 baseline.",
+          "fingerprint": "fnv1a32:53d9ea85",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 4,
+          "exactText": "Target paragraph P4 baseline.",
+          "fingerprint": "fnv1a32:c7c51f5a",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 5,
+          "exactText": "Paragraph P5 baseline.",
+          "fingerprint": "fnv1a32:e6925369",
+          "paragraphId": null,
+          "inTable": false
+        }
+      ]
+    },
+    {
+      "name": "12-after-undo-tracking-off",
+      "sha256": "aad9c35bbc708b824d4197d61c9a3f1abdfbaa9bc5c129aee9f2c0e0b673d56d",
+      "baseline": [
+        {
+          "index": 1,
+          "exactText": "Paragraph P1 baseline.",
+          "fingerprint": "fnv1a32:0db7fa09",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 2,
+          "exactText": "Paragraph P2 baseline.",
+          "fingerprint": "fnv1a32:34385201",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 3,
+          "exactText": "Paragraph P3 baseline.",
+          "fingerprint": "fnv1a32:53d9ea85",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 4,
+          "exactText": "Target paragraph P4 baseline.",
+          "fingerprint": "fnv1a32:c7c51f5a",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 5,
+          "exactText": "Paragraph P5 baseline.",
+          "fingerprint": "fnv1a32:e6925369",
+          "paragraphId": null,
+          "inTable": false
+        }
+      ]
+    },
+    {
+      "name": "13-untracked-insertxml-edit",
+      "sha256": "17b9575c687bd54ab8a244d588ffc9653eeb070861031d782f690cb90176bb75",
+      "baseline": [
+        {
+          "index": 1,
+          "exactText": "Paragraph P1 baseline.",
+          "fingerprint": "fnv1a32:0db7fa09",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 2,
+          "exactText": "Paragraph P2 baseline.",
+          "fingerprint": "fnv1a32:34385201",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 3,
+          "exactText": "Paragraph P3 baseline.",
+          "fingerprint": "fnv1a32:53d9ea85",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 4,
+          "exactText": "Target paragraph P4 rewritten via InsertXML.",
+          "fingerprint": "fnv1a32:b7b9c467",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 5,
+          "exactText": "Paragraph P5 baseline.",
+          "fingerprint": "fnv1a32:e6925369",
+          "paragraphId": null,
+          "inTable": false
+        }
+      ]
+    },
+    {
+      "name": "14-after-untracked-undo",
+      "sha256": "7b52123ce93243dc94c3a1fc730142fe57aa8fed02451060cb8bdc01d57a55ca",
+      "baseline": [
+        {
+          "index": 1,
+          "exactText": "Paragraph P1 baseline.",
+          "fingerprint": "fnv1a32:0db7fa09",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 2,
+          "exactText": "Paragraph P2 baseline.",
+          "fingerprint": "fnv1a32:34385201",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 3,
+          "exactText": "Paragraph P3 baseline.",
+          "fingerprint": "fnv1a32:53d9ea85",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 4,
+          "exactText": "Target paragraph P4 baseline.",
+          "fingerprint": "fnv1a32:c7c51f5a",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 5,
+          "exactText": "Paragraph P5 baseline.",
+          "fingerprint": "fnv1a32:e6925369",
+          "paragraphId": null,
+          "inTable": false
+        }
+      ]
+    },
+    {
+      "name": "15-after-untracked-undo-read-b",
+      "sha256": "d131ff2afb862cc8ca2481053ac0310b3ef8dc3c9ace3842c9da87be01fa58fc",
+      "baseline": [
+        {
+          "index": 1,
+          "exactText": "Paragraph P1 baseline.",
+          "fingerprint": "fnv1a32:0db7fa09",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 2,
+          "exactText": "Paragraph P2 baseline.",
+          "fingerprint": "fnv1a32:34385201",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 3,
+          "exactText": "Paragraph P3 baseline.",
+          "fingerprint": "fnv1a32:53d9ea85",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 4,
+          "exactText": "Target paragraph P4 baseline.",
+          "fingerprint": "fnv1a32:c7c51f5a",
+          "paragraphId": null,
+          "inTable": false
+        },
+        {
+          "index": 5,
+          "exactText": "Paragraph P5 baseline.",
+          "fingerprint": "fnv1a32:e6925369",
+          "paragraphId": null,
+          "inTable": false
+        }
+      ]
+    }
+  ],
+  "comparisons": [
+    {
+      "name": "02-source-read-b",
+      "baselineMatchesInitial": true,
+      "p4": {
+        "index": 4,
+        "exactText": "Target paragraph P4 baseline.",
+        "fingerprint": "fnv1a32:c7c51f5a",
+        "paragraphId": null,
+        "inTable": false
+      },
+      "fingerprintChangedIndexes": [],
+      "paragraphIdChangedIndexes": []
+    },
+    {
+      "name": "11-after-undo",
+      "baselineMatchesInitial": true,
+      "p4": {
+        "index": 4,
+        "exactText": "Target paragraph P4 baseline.",
+        "fingerprint": "fnv1a32:c7c51f5a",
+        "paragraphId": null,
+        "inTable": false
+      },
+      "fingerprintChangedIndexes": [],
+      "paragraphIdChangedIndexes": []
+    },
+    {
+      "name": "12-after-undo-tracking-off",
+      "baselineMatchesInitial": true,
+      "p4": {
+        "index": 4,
+        "exactText": "Target paragraph P4 baseline.",
+        "fingerprint": "fnv1a32:c7c51f5a",
+        "paragraphId": null,
+        "inTable": false
+      },
+      "fingerprintChangedIndexes": [],
+      "paragraphIdChangedIndexes": []
+    },
+    {
+      "name": "14-after-untracked-undo",
+      "baselineMatchesInitial": true,
+      "p4": {
+        "index": 4,
+        "exactText": "Target paragraph P4 baseline.",
+        "fingerprint": "fnv1a32:c7c51f5a",
+        "paragraphId": null,
+        "inTable": false
+      },
+      "fingerprintChangedIndexes": [],
+      "paragraphIdChangedIndexes": []
+    },
+    {
+      "name": "15-after-untracked-undo-read-b",
+      "baselineMatchesInitial": true,
+      "p4": {
+        "index": 4,
+        "exactText": "Target paragraph P4 baseline.",
+        "fingerprint": "fnv1a32:c7c51f5a",
+        "paragraphId": null,
+        "inTable": false
+      },
+      "fingerprintChangedIndexes": [],
+      "paragraphIdChangedIndexes": []
+    }
+  ],
+  "unexecutedSteps": [
+    "save/reopen (Word restart)"
+  ],
+  "undoResults": {
+    "trackedUndoReturned": true,
+    "trackedRevisionCountAfterUndo": 0,
+    "untrackedUndoReturned": true
+  },
+  "editedP4": {
+    "index": 4,
+    "exactText": "Target paragraph P4 edited under tracking.",
+    "fingerprint": "fnv1a32:5ec3f24d",
+    "paragraphId": null,
+    "inTable": false
+  },
+  "conclusion": "After Undo, Word COM paragraph text/fingerprints matched the initial baseline. Restart was not run; Office.js was not tested."
+}

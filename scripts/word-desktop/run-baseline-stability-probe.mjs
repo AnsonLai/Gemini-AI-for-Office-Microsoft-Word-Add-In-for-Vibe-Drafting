@@ -17,9 +17,10 @@ const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const CT = 'http://schemas.openxmlformats.org/package/2006/content-types';
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '../..');
-const outputDir = join(repoRoot, '.cache', 'word-baseline-probe');
+const undoMode = process.argv.includes('--undo');
+const outputDir = join(repoRoot, '.cache', undoMode ? 'word-undo-probe' : 'word-baseline-probe');
 const sourcePath = join(outputDir, 'baseline-source.docx');
-const powerShellPath = join(here, 'capture-baseline-word-xml.ps1');
+const powerShellPath = join(here, undoMode ? 'capture-undo-word-xml.ps1' : 'capture-baseline-word-xml.ps1');
 const paragraphs = [
     'Paragraph P1 baseline.',
     'Paragraph P2 baseline.',
@@ -45,7 +46,7 @@ if (!process.argv.includes('--analyze-existing')) {
     execFileSync('powershell.exe', [
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', powerShellPath,
         '-SourcePath', sourcePath, '-OutputDir', outputDir
-    ], { stdio: 'inherit' });
+    ], { stdio: 'inherit', timeout: 120000 });
 }
 
 const report = JSON.parse(readFileSync(join(outputDir, 'word-capture-report.json'), 'utf8').replace(/^\uFEFF/, ''));
@@ -68,7 +69,7 @@ const compareNames = [
     '11-after-undo', '12-after-undo-tracking-off',
     '14-after-untracked-undo', '15-after-untracked-undo-read-b'
 ].filter(name => Object.hasOwn(baselineByName, name));
-const unexecutedSteps = [
+const unexecutedSteps = undoMode ? ['save/reopen (Word restart)'] : [
     'save/reopen after Reject All',
     'tracked edit followed by Undo',
     'untracked edit followed by Undo'
@@ -98,10 +99,11 @@ const output = {
     snapshots,
     comparisons,
     unexecutedSteps,
+    undoResults: report.undoResults ?? null,
     editedP4: baselineByName['05-tracked-edit']?.[3] ?? null,
     conclusion: comparisons.every(item => item.baselineMatchesInitial)
-        ? 'Word COM paragraph text/fingerprints stayed stable across repeated reads, tracking toggles, and Reject All. Paragraph IDs were absent from parsed source. Save/reopen and undo were not run, so this does not explain the reported restart behavior; Office.js was not tested.'
-        : 'Word COM paragraph text/fingerprints changed during the completed repeated-read, tracking-toggle, or Reject All captures.'
+        ? (undoMode ? 'After Undo, Word COM paragraph text/fingerprints matched the initial baseline. Restart was not run; Office.js was not tested.' : 'Word COM paragraph text/fingerprints stayed stable across repeated reads, tracking toggles, and Reject All. Paragraph IDs were absent from parsed source. Save/reopen and undo were not run, so this does not explain the reported restart behavior; Office.js was not tested.')
+        : 'Word COM paragraph text/fingerprints differed from the initial baseline in at least one comparison; see comparisons.'
 };
 writeFileSync(join(outputDir, 'baseline-comparison.json'), JSON.stringify(output, null, 2));
 console.log(JSON.stringify(output, null, 2));

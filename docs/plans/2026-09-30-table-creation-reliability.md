@@ -120,3 +120,5 @@ but tracked Reject All paragraph structure and tracked underline fidelity do
 not. Stale-refusal recovery passes deterministic regressions; the specific
 cause of the user's P4 refusal remains unconfirmed.
 No full live chat/model reproduction or provider call is claimed here.
+
+Undo probe (2026-10-01): a bounded Word COM run (tracked `Range.Text` edit and untracked `InsertXML` edit, each reverted with `Document.Undo()`) restored the original text and fingerprints on the five-paragraph fixture; COM output carried no `w14:paraId`, so paragraph-ID behavior after Undo is still untested and restart remains unrun. See `docs/validation-reports/2026-10-01-word-com-undo-probe.md`.
