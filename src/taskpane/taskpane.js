@@ -30,7 +30,8 @@ import {
 } from './modules/chat/chat-history.js';
 import { runDocumentAgentLoop } from './modules/chat/document-agent-loop.js';
 import { createToolRegistry, getToolDeclarations } from './modules/chat/tool-registry.js';
-import { createWordDocumentSourceReader, formatCanonicalDocumentContext } from './modules/chat/word-document-source.js';
+import { createWordDocumentSourceReader } from './modules/chat/word-document-source.js';
+import { DOCUMENT_EDITING_GUIDE, summarizeDocumentSource } from './modules/chat/document-editing-guide.js';
 import { getModelProfile } from './modules/config/model-profiles.js';
 import {
   saveCheckpoint,
@@ -179,7 +180,7 @@ const sourceBaselineFrom = inspection => inspection.paragraphs.map(({ index, exa
 
 async function captureRefreshedDocumentContext(readSource) {
   const source = await readSource();
-  return { formattedText: formatCanonicalDocumentContext(source.inspection), sourceBaseline: sourceBaselineFrom(source.inspection) };
+  return { formattedText: summarizeDocumentSource(source), sourceBaseline: sourceBaselineFrom(source.inspection) };
 }
 
 let chatHistory = [];
@@ -524,7 +525,7 @@ function loadSystemMessage() {
   if (storedMessage && storedMessage.trim() !== "") {
     return storedMessage;
   }
-  return "Example: You are assisting an undergraduate student with their academic paper. You must be specific, precise, and double-check all your advice and suggested changes. Maintain a cheerful and helpful tone.";
+  return "Assist with precise professional document wording. Preserve meaning and existing presentation unless the user requests a supported change.";
 }
 
 function loadRedlineSetting() {
@@ -606,7 +607,9 @@ let agenticToolsInitialized = false;
 const loadWordOperationSupport = createLazyModuleLoader(
   () => Promise.all([
     import('./modules/docx-redline-js-integration/word-operation-runner.js'),
-    import('@ansonlai/docx-redline-js')
+    import('@ansonlai/docx-redline-js'),
+    import('./modules/chat/document-inspection-session.js'),
+    import('./modules/docx-redline-js-integration/word-source-identity.js')
   ]),
   ([, docxLibrary]) => {
     docxLibrary.setPlatform(Office?.context?.platform);
@@ -615,13 +618,12 @@ const loadWordOperationSupport = createLazyModuleLoader(
 const loadAgenticTools = createLazyModuleLoader(
   async () => {
     const [module] = await Promise.all([
-      import('./modules/commands/agentic-tools.js'),
+      import('./modules/chat/document-tools.js'),
       loadWordOperationSupport()
     ]);
     return module;
   },
   module => {
-    module.initAgenticTools(agenticToolDependencies);
     agenticToolsInitialized = true;
   }
 );
@@ -981,15 +983,8 @@ async function ensureCheckpointMigration() {
  *   before a mutating tool; it is labeled `auto:<toolName>:<ISO>` and throttled.
  * @returns {Promise<number>} the new checkpoint id (>=1), or -1 on failure/skip
  */
-async function createCheckpoint(silent = false, toolName = null) {
+async function createCheckpoint(silent = false, toolName = null, sourceOoxml = null) {
   const isAuto = !!toolName;
-
-  // Throttle auto-checkpoints so multi-tool turns don't snapshot repeatedly.
-  // Returning the last auto id keeps per-message revert buttons pointing at a
-  // valid recent pre-edit state.
-  if (isAuto && (Date.now() - lastAutoCheckpointAt) < CHECKPOINT_THROTTLE_MS) {
-    return lastAutoCheckpointId;
-  }
 
   if (!silent) {
     addMessageToChat("System", "Saving checkpoint...");
@@ -998,9 +993,9 @@ async function createCheckpoint(silent = false, toolName = null) {
   try {
     await ensureCheckpointMigration();
 
-    // 'ooxml.value' is a base64 string of the entire document body.
-    let ooxmlValue = "";
-    await Word.run(async (context) => {
+    // Body Flat OPC, captured from the exact source prepared for an automatic batch.
+    let ooxmlValue = sourceOoxml || "";
+    if (sourceOoxml == null) await Word.run(async (context) => {
       const ooxml = context.document.body.getOoxml();
       await context.sync();
       ooxmlValue = ooxml.value;
@@ -1018,7 +1013,7 @@ async function createCheckpoint(silent = false, toolName = null) {
     }
     return id;
   } catch (error) {
-    // Never block the edit on a checkpoint failure.
+    // The direct batch executor refuses a write when this returns -1.
     console.error("Error saving checkpoint:", error);
     if (!silent) {
       addMessageToChat("Error", `Could not save checkpoint. ${error.message}`);
@@ -1028,6 +1023,7 @@ async function createCheckpoint(silent = false, toolName = null) {
 }
 
 async function restoreCheckpoint(id) {
+  currentRequestController?.abort();
   let record = null;
   try {
     record = await getCheckpoint(id);
@@ -1143,18 +1139,18 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
       signal: requestController.signal,
     });
     const documentSource = await readSource();
-    const docText = formatCanonicalDocumentContext(documentSource.inspection);
+    const docText = summarizeDocumentSource(documentSource);
+    const [, , inspectionModule, wordIdentity] = await wordOperationSupportPromise;
+    const inspectionSession = inspectionModule.createDocumentInspectionSession({ readSource, maxTextChars: 4000,
+      computeRevisionToken: wordIdentity.computeWordSourceRevisionToken,
+      getExcludedParagraphIndex: wordIdentity.detectExportTailIndex,
+      ...(globalThis.__WORD_SOURCE_DIAGNOSTICS__ ? { onStaleSource: globalThis.__WORD_SOURCE_DIAGNOSTICS__ } : {}),
+    });
     const docSourceBaseline = sourceBaselineFrom(documentSource.inspection);
-    const docSelection = documentSource.selectionText;
-    const docComments = (documentSource.inspection.comments || []).map(comment =>
-      `[Comment by ${comment.author || 'Reviewer'}]: ${comment.text || ''}`);
-    const docRedlines = documentSource.inspection.paragraphs
-      .filter(paragraph => paragraph.hasRevisions)
-      .map(paragraph => `[Tracked changes by ${(paragraph.revisionAuthors || []).join(', ')}]: "${paragraph.exactText}"`);
-
+    const docSelection = documentSource.selectionText.slice(0, 2000);
     // --- Check Document Size ---
     if (currentRequestController !== requestController) return;
-    const wordCount = docText.split(/\s+/).length;
+    const wordCount = documentSource.inspection.paragraphs.reduce((count, paragraph) => count + paragraph.exactText.split(/\s+/).length, 0);
     const estimatedTokens = Math.ceil(wordCount * DOCUMENT_LIMITS.TOKEN_MULTIPLIER);
 
     if (wordCount > DOCUMENT_LIMITS.MAX_WORDS) {
@@ -1187,13 +1183,6 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
     if (docText) {
       contextString += `Context from the current document:\n"""${docText}"""\n\n`;
     }
-    if (docComments.length > 0) {
-      contextString += `Comments in the document:\n${docComments.join("\n")}\n\n`;
-    }
-    if (docRedlines.length > 0) {
-      contextString += `Tracked Changes (Redlines) in the document:\n${docRedlines.join("\n")}\n\n`;
-    }
-
     const prompt = contextString
       ? `${contextString}User Question:\n${userMessage}`
       : userMessage;
@@ -1208,62 +1197,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
 
     const tools = getToolDeclarations();
 
-    const systemInstruction = {
-      parts: [
-        {
-          text: loadSystemMessage() + `\\n\\nDOCUMENT CONTEXT FORMAT:
-The document content uses enhanced paragraph markers with formatting metadata:
-- [P#|Style] - Normal paragraphs with their style (e.g., [P1|Normal], [P2|Heading1])
-- [P#|ListNumber|L:level|§] - Numbered list item at nesting level, § means it's a section header
-- [P#|ListBullet|L:level] - Bullet list item at nesting level
-- [P#|Normal|§N] - Normal paragraph belonging to section N (follows a section header)
-- [P#|Normal|T:row,col] - Paragraph inside a table cell at row,col position
-
-IMPORTANT: The [P#] tags, [T:row,col] tags, and other metadata are for YOUR internal reasoning and tool usage only. 
-NEVER reference "P14", "P15", "Paragraph 14", etc. in your response to the user. The user does not see these numbers and they will be confusing (especially for table cells which the user does not count as paragraphs).
-Instead, refer to locations continuously and naturally, e.g., "I updated the Introduction," "I fixed the second item in the list," "I modified the table row," or "I updated the highlighted text."
-
-TOOL SELECTION GUIDANCE:
-- Use the [P#] identifiers when calling tools, but never speak them to the user.
-- For simple text edits within a paragraph: use \`apply_redlines\`
-- For editing contiguous lists (adding/removing/reordering items): prefer \`edit_list\` to preserve formatting
-- For converting non-contiguous headers (like "1. PURPOSE", "2. DEFINITION" with body text between them) to a proper numbered list: use \`convert_headers_to_list\`
-- For editing tables: prefer \`edit_table\` to preserve structure
-- For editing legal contract sections (numbered headers + body paragraphs): prefer \`edit_section\`
-- For word count, character count, or text statistics of selection/paragraphs: use \`get_selection_stats\`
-- The § marker indicates section structure - paragraphs marked §N belong to section N
-
-IMPORTANT: You have access to tools. You can chat and respond normally to questions. However, when the user asks for an action that involves manipulating the document, you should HEAVILY FAVOR using the corresponding tool rather than just describing the action.
-
-CRITICAL: For plain text edits and inline formatting within existing paragraphs, use \`apply_redlines\`. For structural list/table/section edits, use the dedicated tools (\`edit_list\`, \`convert_headers_to_list\`, \`edit_table\`, \`edit_section\`).
-CRITICAL: When the user asks to convert normal paragraphs into a new table, use \`apply_redlines\`, not \`edit_table\` (which is only for existing tables marked with T:row,col).
-CRITICAL: For text-to-table conversions, your \`apply_redlines\` instruction MUST say which full paragraph range is being replaced and MUST require a complete multiline GitHub Markdown table. Example: "Replace P4 through P6 with this two-column markdown table: | Disclosing Party | Receiving Party |\\n|---|---|\\n| [Name of Disclosing Party] | [Name of Receiving Party] |\\n| [Address of Disclosing Party] | [Address of Receiving Party] |". Never request a single pipe-delimited line.
-CRITICAL: If the user asks to "Reply to a comment" by "changing textual content", you MUST call BOTH \`apply_redlines\` (to apply the text change) AND \`insert_comment\` (to insert the reply). Call them in the same turn.
-NEVER claim to have "added a sentence" or "changed text" if you have only called \`insert_comment\`.
-NEVER state that you have taken an action unless you have successfully invoked the corresponding tool.
-
-AFTER executing a tool, DO NOT repeat the content of the document or the changes in your text response. The user can see the changes in the document.
-
-CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal IDs in your text responses to the user. These are for your internal reasoning and tool calls only. Refer to locations naturally (e.g., "the second paragraph", "the Definitions section", "the paragraph regarding termination").
- 
- LIST HANDLING:
- When adding or modifying lists via \`apply_redlines\`, you MUST use specific Markdown syntax so the engine can format them correctly in Word:
- - Unordered: Use '* ' (asterisk space).
- - Ordered: Use '1. ', 'a. ', 'i. ', etc.
- - Multi-level / Outlines: Use exact numbering like '1.1.', '1.1.1.' or '2.1. ' if that is the intent.
- - Indentation: Sub-items MUST be indented by 4 spaces.
- - Do NOT use generic bullets ('-') if you want specific numbering. The engine relies on your markers (e.g., '1.1.') to detect the list type.
-
- TABLE HANDLING:
- - Existing table edits: use \`edit_table\` only when the target paragraph has a T:row,col marker.
- - New table creation from normal text: use \`apply_redlines\`.
- - In \`apply_redlines\` instructions for tables, name the contiguous source range and require multiline markdown table syntax.
- - Correct table shape: "| Header A | Header B |\\n|---|---|\\n| Cell A | Cell B |".
- - Incorrect table shape: "Header A|Header B|Cell A|Cell B".
- - If source blocks have multiple lines, preserve them as additional table rows. Do not use HTML tags such as <br> inside table cells.`,
-        },
-      ],
-    };
+    const systemInstruction = { parts: [{ text: `Owner drafting preferences:\n${loadSystemMessage()}\n\n${DOCUMENT_EDITING_GUIDE}` }] };
 
     // The portable loop owns exchanges and stop decisions; this adapter owns UI/Word I/O.
     const loopState = { history: chatHistory, docText, docSourceBaseline, records: requestRecords };
@@ -1273,8 +1207,11 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
         registry: createToolRegistry(),
         loadRegistry: async () => {
           const toolsModule = await loadAgenticTools();
-          return createToolRegistry(toolsModule.createAgenticTools({
-            ...agenticToolDependencies, getRequestSignal: () => requestController.signal,
+          return createToolRegistry(toolsModule.createDocumentTools({
+            session: inspectionSession, getDocumentId, getAuthor: loadRedlineAuthor,
+            getGenerateRedlines: loadRedlineSetting,
+            persistCheckpoint: source => createCheckpoint(true, 'apply_document_edits', source),
+            signal: requestController.signal,
           }));
         },
         requestModel: history => callGeminiWithRetry(apiUrl, {
@@ -1284,7 +1221,9 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
           safetySettings: SAFETY_SETTINGS_BLOCK_NONE,
           generationConfig: { maxOutputTokens: modelProfile.maxOutputTokens },
         }, modelProfile.retries, 1000, requestController.signal),
-        refreshContext: () => captureRefreshedDocumentContext(readSource),
+        refreshContext: () => captureRefreshedDocumentContext(createWordDocumentSourceReader({
+          loadSupport: () => wordOperationSupportPromise, getDocumentId,
+        })),
         createCheckpoint,
         signal: requestController.signal,
         requestStartTime,
@@ -1307,7 +1246,7 @@ CRITICAL: Do NOT use internal paragraph markers (like [P#] or P#) or internal ID
             const messages = document.getElementById('chat-messages');
             if (loadingMsg && messages) messages.appendChild(loadingMsg);
           } else if (event.type === 'response') {
-            if (requestRecords.length === 0) removeMessage(loadingMsg);
+            if (!requestRecords.some(record => record.name === 'apply_document_edits')) removeMessage(loadingMsg);
             addMessageToChat('Gemini', event.text);
           } else if (event.type === 'stop') {
             if (event.reason === 'cancelled') {

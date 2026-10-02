@@ -1,83 +1,38 @@
 import assert from 'node:assert/strict';
 import { recoverFunctionCall } from '../src/taskpane/modules/chat/function-call-recovery.js';
 
-function testTolerantObjectParsing() {
-  const result = recoverFunctionCall(
-    "insert_comment({paragraphIndex: 4, text: 'Please review this provision',})",
-    ['insert_comment']
-  );
+const editArgs = {
+  edits: [{
+    type: 'replace',
+    target: { handle: 'opaque-handle' },
+    content: { text: 'Replace {old} with the approved wording.' },
+  }],
+};
 
-  assert.deepEqual(result, {
-    name: 'insert_comment',
-    args: { paragraphIndex: 4, text: 'Please review this provision' }
-  });
-}
+assert.deepEqual(
+  recoverFunctionCall(`Diagnostic: apply_document_edits(${JSON.stringify(editArgs)})`, ['inspect_document', 'apply_document_edits']),
+  { name: 'apply_document_edits', args: editArgs },
+  'complete nested JSON arguments are recovered without flattening braces or guessing fields'
+);
 
-function testMalformedEditListRecovery() {
-  const result = recoverFunctionCall(
-    'edit_list({startParagraphIndex: 2, endParagraphIndex: 4, newItems: [Protect confidential information. , Notify the other party promptly.], listType: bullet, numberingStyle: lowerLetter})',
-    ['edit_list']
-  );
+const inspectArgs = { search: 'termination', around: 1, limit: 5 };
+assert.deepEqual(
+  recoverFunctionCall(`Malformed call inspect_document ${JSON.stringify(inspectArgs)}`, new Set(['inspect_document'])),
+  { name: 'inspect_document', args: inspectArgs }
+);
 
-  assert.deepEqual(result, {
-    name: 'edit_list',
-    args: {
-      startParagraphIndex: 2,
-      endParagraphIndex: 4,
-      listType: 'bullet',
-      numberingStyle: 'lowerLetter',
-      newItems: [
-        'Protect confidential information.',
-        'Notify the other party promptly.'
-      ]
-    }
-  });
-}
+assert.equal(
+  recoverFunctionCall('apply_document_edits({edits: [{type: replace}]})', ['apply_document_edits']),
+  null,
+  'unquoted pseudo-JSON is not repaired by guessing'
+);
+assert.equal(
+  recoverFunctionCall('apply_document_edits({"edits":[{"type":"replace"}]', ['apply_document_edits']),
+  null,
+  'incomplete JSON objects are not recovered'
+);
+assert.equal(recoverFunctionCall('legacy_edit({"instruction":"fix wording"})', ['inspect_document', 'apply_document_edits']), null);
+assert.equal(recoverFunctionCall('apply_document_edits({"edits":[]})', ['inspect_document']), null);
+assert.equal(recoverFunctionCall(undefined, ['inspect_document']), null);
 
-function testMalformedHeaderConversionRecovery() {
-  const result = recoverFunctionCall(
-    'convert_headers_to_list({paragraphIndices: [1, 3, malformed, 5], numberingFormat: upperRoman})',
-    ['convert_headers_to_list']
-  );
-
-  assert.deepEqual(result, {
-    name: 'convert_headers_to_list',
-    args: { paragraphIndices: [1, 3, 5], numberingFormat: 'upperRoman' }
-  });
-}
-
-function testOnlyKnownToolNamesAreScanned() {
-  assert.equal(
-    recoverFunctionCall('unknown_tool({instruction: "do something"})', ['apply_redlines']),
-    null
-  );
-  assert.equal(recoverFunctionCall('apply_redlines({instruction: "fix this"})', []), null);
-}
-
-function testLegacyRedlineFallbackRequiresAuthorization() {
-  const finishMessage = 'apply_redlines { instruction: Replace the misspelled clause with the approved wording. }';
-
-  assert.equal(recoverFunctionCall(finishMessage, ['insert_comment']), null);
-  assert.deepEqual(recoverFunctionCall(finishMessage, ['apply_redlines']), {
-    name: 'apply_redlines',
-    args: { instruction: 'Replace the misspelled clause with the approved wording.' }
-  });
-}
-
-function testValidCallAndUnparseableInput() {
-  assert.deepEqual(
-    recoverFunctionCall('apply_redlines({"instruction":"correct the typo"})', new Set(['apply_redlines'])),
-    { name: 'apply_redlines', args: { instruction: 'correct the typo' } }
-  );
-
-  assert.equal(recoverFunctionCall(undefined, ['apply_redlines']), null);
-  assert.equal(recoverFunctionCall('edit_list({startParagraphIndex: nope})', ['edit_list']), null);
-}
-
-testTolerantObjectParsing();
-testMalformedEditListRecovery();
-testMalformedHeaderConversionRecovery();
-testOnlyKnownToolNamesAreScanned();
-testLegacyRedlineFallbackRequiresAuthorization();
-testValidCallAndUnparseableInput();
-console.log('PASS: function call recovery');
+console.log('PASS: complete JSON recovery is limited to inspect_document and apply_document_edits');

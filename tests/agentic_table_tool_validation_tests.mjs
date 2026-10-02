@@ -7,7 +7,7 @@ import {
   executeHighlight,
   executeNavigate
 } from '../src/taskpane/modules/commands/agentic-tools.js';
-import { getToolDeclarations } from '../src/taskpane/modules/chat/tool-registry.js';
+import { createToolRegistry, getToolDeclarations } from '../src/taskpane/modules/chat/tool-registry.js';
 
 let apiKey = 'table-test-key';
 initAgenticTools({
@@ -75,19 +75,19 @@ function createTableHarness({ rowCellCounts = [2, 2] } = {}) {
 
 function testRegistrySchemaUsesNestedArraysAndOnlySupportedActions() {
   const tools = getToolDeclarations();
-  const declaration = tools[0]?.function_declarations?.find(tool => tool.name === 'edit_table');
-  assert.ok(declaration, 'edit_table function declaration must exist in the authoritative registry');
+  const declarations = tools[0]?.function_declarations || [];
+  assert.deepEqual(declarations.map(tool => tool.name), ['inspect_document', 'apply_document_edits']);
+  assert.equal(declarations.some(tool => tool.name === 'edit_table'), false,
+    'table edits are not exposed through the authoritative document protocol');
 
-  const contentSchema = declaration.parameters.properties.content;
-  const actionSchema = declaration.parameters.properties.action;
-  assert.equal(contentSchema.type, 'ARRAY');
-  assert.equal(contentSchema.items.type, 'ARRAY');
-  assert.equal(contentSchema.items.items.type, 'STRING');
-  assert.deepEqual(actionSchema.enum, [
-    'replace_content', 'add_row', 'delete_row', 'update_cell'
-  ]);
-  assert.doesNotMatch(declaration.description, /columns/i,
-    'tool description must not advertise unavailable column operations');
+  const apply = declarations.find(tool => tool.name === 'apply_document_edits');
+  const editTypes = apply.parameters.properties.edits.items.properties.type.enum;
+  assert.ok(editTypes.includes('replace_text'));
+  assert.equal(editTypes.includes('edit_table'), false);
+  assert.equal(editTypes.includes('insert_list_item'), false,
+    'structural list actions remain gated until their direct typed path is certified');
+  assert.equal(createToolRegistry({}).validate('edit_table', { action: 'add_row' }).error.code,
+    'UNSUPPORTED_TOOL', 'old structural table calls are explicitly refused by the direct registry');
 }
 
 async function testTablePreflightRejectsInvalidRequestsBeforeWord() {

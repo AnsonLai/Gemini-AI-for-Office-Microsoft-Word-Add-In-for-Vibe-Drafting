@@ -107,24 +107,26 @@ assert.match(providerWrapper, /timeoutMs:\s*TIMEOUT_LIMITS\.FETCH_TIMEOUT_MS/);
 // call is executed once; a later provider error and its transport retries must
 // stop the loop without replaying the tool.
 {
-  const originalBaseline = [{ index: 1, exactText: 'Original', fingerprint: 'first' }];
   const state = {
     history: [{ role: 'user', parts: [{ text: 'Correct the typo.' }] }],
     docText: '[P1] Original',
-    docSourceBaseline: originalBaseline,
+    docSourceBaseline: null,
     records: []
   };
   let modelRequests = 0;
   let transportCalls = 0;
   let executions = 0;
-  let capturedExecutorBaseline;
+  let capturedEdits;
+  let checkpointCalls = 0;
   const registry = createToolRegistry({
-    executeRedline: async (_instruction, _documentText, sourceBaseline) => {
+    applyDocumentEdits: async args => {
       executions++;
-      capturedExecutorBaseline = sourceBaseline;
+      capturedEdits = args.edits;
       return {
-        status: 'ok', success: true, showToUser: true, message: 'Edit applied.',
-        written: true, writeAttempted: true, mutationOutcome: 'applied'
+        status: 'ok', success: true, completion: true, verified: true,
+        message: 'Edit applied and verified.', written: true, writeAttempted: true,
+        mutationOutcome: 'applied', checkpointIndex: 99,
+        receipts: [{ operationIndex: 0, status: 'applied', verified: true }]
       };
     }
   });
@@ -136,7 +138,9 @@ assert.match(providerWrapper, /timeoutMs:\s*TIMEOUT_LIMITS\.FETCH_TIMEOUT_MS/);
       return {
         ok: true,
         json: async () => ({ candidates: [{ content: { parts: [{ functionCall: {
-          name: 'apply_redlines', args: { instruction: 'correct the typo' }
+          name: 'apply_document_edits', args: { edits: [{
+            type: 'replace_text', target: 'opaque-handle', find: 'Original', replace: 'Corrected'
+          }] }
         } }] } }] })
       };
     }
@@ -157,7 +161,7 @@ assert.match(providerWrapper, /timeoutMs:\s*TIMEOUT_LIMITS\.FETCH_TIMEOUT_MS/);
       formattedText: '[P1] Corrected',
       sourceBaseline: [{ index: 1, exactText: 'Corrected', fingerprint: 'second' }]
     }),
-    createCheckpoint: async () => 'checkpoint',
+    createCheckpoint: async () => { checkpointCalls++; return 101; },
     requestStartTime: 0,
     now: () => 1,
     totalTimeoutMs: 10000
@@ -167,7 +171,10 @@ assert.match(providerWrapper, /timeoutMs:\s*TIMEOUT_LIMITS\.FETCH_TIMEOUT_MS/);
   assert.equal(modelRequests, 2, 'the loop stops after the provider error instead of replaying the tool');
   assert.equal(transportCalls, 4, 'only the audited client retries the failed provider request');
   assert.equal(executions, 1, 'the already completed redline is never replayed');
-  assert.equal(capturedExecutorBaseline, originalBaseline, 'the executor receives the source snapshot used for the first tool call');
+  assert.equal(capturedEdits[0].replace, 'Corrected', 'the direct executor receives the typed batch once');
+  assert.equal(checkpointCalls, 0, 'the source-aligned apply executor owns checkpoint capture');
+  assert.equal(state.records[0].checkpointIndex, 99, 'the executor-owned checkpoint evidence survives the loop event');
+  assert.equal(state.records[0].result.receipts[0].verified, true, 'the direct tool receipt is retained for post-call recovery');
   assert.equal(state.records[0].written, true, 'provider failure preserves confirmed host-write evidence');
 }
 

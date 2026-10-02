@@ -15,7 +15,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, extname, join, resolve } from 'node:path';
-import { scenario } from './golden/nda-scenario.mjs';
+import { scenario as legacyScenario } from './golden/nda-scenario.mjs';
+import { scenario as directScenario } from './golden/nda-direct-scenario.mjs';
 import { authorAttribution, buildDocumentModel, scoreStep } from './golden/golden-checks.mjs';
 import { createReplayQueue } from './golden/golden-replay.mjs';
 
@@ -46,6 +47,17 @@ if (flag('--cleanup')) {
 
 const mode = argument('--mode', 'replay');
 if (!['replay', 'live'].includes(mode)) throw new Error('--mode must be replay or live');
+const protocol = argument('--protocol', 'legacy');
+if (!['legacy', 'direct'].includes(protocol)) throw new Error('--protocol must be legacy or direct');
+const scenario = protocol === 'direct' ? directScenario : legacyScenario;
+if (protocol === 'direct' && mode !== 'replay') {
+    throw new Error('The direct protocol currently requires deterministic replay for per-step receipt and refusal evidence.');
+}
+const captureSourceDiagnostics = flag('--source-diagnostics');
+if (captureSourceDiagnostics && (protocol !== 'direct' || mode !== 'replay'
+    || scenario.fixture !== 'tests/fixtures/golden/sample-nda.docx')) {
+    throw new Error('--source-diagnostics is restricted to direct replay of the repository NDA fixture.');
+}
 const apiKey = mode === 'live' ? process.env.GEMINI_API_KEY : 'golden-replay-key';
 if (!apiKey) throw new Error('Live mode requires GEMINI_API_KEY in the environment.');
 const fastModel = argument('--model', null);
@@ -77,16 +89,20 @@ const settings = {
     ...(fastModel ? { geminiModelFast: fastModel } : {})
 };
 const sessionScript = `<script>(function(){var s=${JSON.stringify(settings)};for(var k in s){try{localStorage.setItem(k,s[k]);}catch(e){}}
-window.__GOLDEN_SESSION__=${JSON.stringify({ mode, stepTimeoutMs, steps: steps.map(({ id, prompt, thinking }) => ({ id, prompt, thinking: Boolean(thinking) })) })};})();</script>`;
+window.__GOLDEN_SESSION__=${JSON.stringify({ mode, stepTimeoutMs, sourceDiagnostics: captureSourceDiagnostics,
+    steps: steps.map(({ id, prompt, thinking }) => ({ id, prompt, thinking: Boolean(thinking) })) })};})();</script>`;
 
-const report = { scenario: scenario.name, mode, model: fastModel, startedAt: new Date().toISOString(), status: 'running', steps: [] };
+const report = { scenario: scenario.name, protocol, mode, model: fastModel, startedAt: new Date().toISOString(), status: 'running', steps: [] };
 const passedChecks = new Set();
 const queues = new Map(steps.map(step => [step.id, createReplayQueue(step)]));
 const modelLog = join(artifacts, 'model-log.jsonl');
+const sourceDiagnosticsDirectory = join(artifacts, 'source-diagnostics');
 const pendingDocx = new Map();
+let sourceDiagnosticCount = 0;
 let claimed = false;
 let launchedWordPid = null;
 let previousAuthors = {};
+let previousDocumentModel = null;
 
 async function readBody(request, limit = 50 * 1024 * 1024) {
     const parts = [];
@@ -99,6 +115,50 @@ async function readBody(request, limit = 50 * 1024 * 1024) {
     return Buffer.concat(parts);
 }
 
+function summarizeTextDifference(before, after) {
+    let index = 0;
+    const sharedLength = Math.min(before.length, after.length);
+    while (index < sharedLength && before.charCodeAt(index) === after.charCodeAt(index)) index++;
+    const leftStart = Math.max(0, index - 80);
+    const rightEnd = index + 160;
+    return {
+        firstDifferentCharacter: index,
+        beforeCharacter: index < before.length ? before[index] : null,
+        beforeCodePoint: index < before.length ? before.codePointAt(index) : null,
+        afterCharacter: index < after.length ? after[index] : null,
+        afterCodePoint: index < after.length ? after.codePointAt(index) : null,
+        beforeLength: before.length,
+        afterLength: after.length,
+        beforeContext: before.slice(leftStart, rightEnd),
+        afterContext: after.slice(leftStart, rightEnd)
+    };
+}
+
+function summarizeSourcePartDifferences(before = {}, after = {}) {
+    const entries = [];
+    const compare = (name, left, right) => {
+        if (left === right) return;
+        if (typeof left === 'string' && typeof right === 'string') {
+            entries.push({ part: name, kind: 'changed-text', ...summarizeTextDifference(left, right) });
+            return;
+        }
+        entries.push({ part: name, kind: left == null ? 'added' : right == null ? 'removed' : 'changed-value',
+            beforeType: left === null ? 'null' : typeof left,
+            afterType: right === null ? 'null' : typeof right,
+            beforeValue: typeof left === 'string' || left == null ? left : JSON.stringify(left),
+            afterValue: typeof right === 'string' || right == null ? right : JSON.stringify(right) });
+    };
+    const fixedNames = new Set([...Object.keys(before), ...Object.keys(after)]);
+    fixedNames.delete('additionalParts');
+    for (const name of [...fixedNames].sort()) compare(name, before[name], after[name]);
+    const beforeAdditional = before.additionalParts || {};
+    const afterAdditional = after.additionalParts || {};
+    for (const name of [...new Set([...Object.keys(beforeAdditional), ...Object.keys(afterAdditional)])].sort()) {
+        compare(`additionalParts.${name}`, beforeAdditional[name], afterAdditional[name]);
+    }
+    return entries;
+}
+
 const icon = result => result.ok ? 'PASS' : result.knownIssue ? 'KNOWN' : 'FAIL';
 
 async function scoreCompletedStep(index, meta) {
@@ -106,24 +166,40 @@ async function scoreCompletedStep(index, meta) {
     const bytes = pendingDocx.get(index);
     const file = `step-${String(index + 1).padStart(2, '0')}-${step.id}.docx`;
     writeFileSync(join(artifacts, file), bytes);
+    const replay = mode === 'replay' ? queues.get(step.id).summary() : null;
     let results;
     try {
         const model = await buildDocumentModel(bytes);
-        results = scoreStep(model, steps, index, passedChecks);
+        results = scoreStep(model, steps, index, passedChecks, {
+            previousModel: previousDocumentModel,
+            transcript: meta.transcript,
+            replay,
+            disposition: step.scopeDisposition
+        });
         const attribution = authorAttribution(previousAuthors, model, settings.redlineAuthor);
         results.push({ key: `${step.id}#author`, step: step.id, own: true, label: 'redlines use the configured author', ...attribution,
             ...(step.authorKnownIssue ? { knownIssue: step.authorKnownIssue } : {}) });
         previousAuthors = model.revisionAuthors;
+        previousDocumentModel = model;
     } catch (error) {
         results = [{ key: `${step.id}#model`, step: step.id, own: true, label: 'document model', ok: false, detail: error.message }];
     }
     for (const result of results) if (result.own && result.ok) passedChecks.add(result.key);
-    const replay = mode === 'replay' ? queues.get(step.id).summary() : null;
     const replayProblems = replay ? [...replay.desyncs, ...(replay.remaining ? [`${replay.remaining} scripted response(s) unused`] : [])] : [];
+    const applyResponses = replay?.functionResponseHistory?.apply_document_edits || [];
+    const applyCalls = (replay?.served || []).filter(item => item?.part?.functionCall?.name === 'apply_document_edits').length;
     const entry = {
         id: step.id,
         prompt: step.prompt,
         knownIssue: step.knownIssue || null,
+        scopeDisposition: step.scopeDisposition || null,
+        deferredChecks: step.deferredChecks || [],
+        toolEvidence: replay ? {
+            modelRequests: replay.requestCounts,
+            applyDocumentEditCalls: applyCalls,
+            applyDocumentEditReceipts: applyResponses,
+            latestApplyDocumentEditReceipt: replay.functionResponses?.apply_document_edits ?? null
+        } : null,
         durationMs: meta.durationMs,
         docx: file,
         own: results.filter(result => result.own),
@@ -158,7 +234,14 @@ function finish(summary) {
         failed: ownFailures.length,
         knownIssueFailures: knownFailures.length,
         regressions: regressions.length,
-        replayProblems: replayProblems.length
+        replayProblems: replayProblems.length,
+        ...(mode === 'replay' ? {
+            modelRequests: report.steps.reduce((total, step) => ({
+                chat: total.chat + (step.toolEvidence?.modelRequests.chat || 0),
+                aux: total.aux + (step.toolEvidence?.modelRequests.aux || 0),
+                other: total.other + (step.toolEvidence?.modelRequests.other || 0)
+            }), { chat: 0, aux: 0, other: 0 })
+        } : {})
     };
     writeFileSync(join(artifacts, 'report.json'), JSON.stringify(report, null, 2));
     writeFileSync(join(artifacts, 'report.md'), renderMarkdown(report));
@@ -190,6 +273,7 @@ function renderMarkdown(data) {
         const checks = step.own.map(check => `${check.ok ? '✓' : check.knownIssue ? '◐' : '✗'} ${check.label}${check.ok ? ''
             : `: ${check.detail}${check.knownIssue ? ` ([known issue](../../../${check.knownIssue}))` : ''}`}`)
             .concat(step.regressions.map(check => `✗ regression of ${check.step} ${check.label}: ${check.detail}`))
+            .concat((step.deferredChecks || []).map(check => `DEFERRED, NOT SCORED: ${check.label || check.type} (${step.scopeDisposition?.reason || 'outside retained scope'})`))
             .concat(step.replayProblems.map(problem => `✗ replay: ${problem}`));
         lines.push(`| ${step.id} | ${result} | ${checks.join('<br>').replace(/\|/g, '\\|')} |`);
     }
@@ -226,6 +310,32 @@ async function handle(request, response) {
         if (path === '/golden/model-log' && request.method === 'POST') {
             appendFileSync(modelLog, `${(await readBody(request)).toString('utf8')}\n`);
             response.end('ok');
+            return;
+        }
+        if (path === '/golden/source-diagnostics' && request.method === 'POST') {
+            if (!captureSourceDiagnostics) { response.writeHead(404).end(); return; }
+            const payload = JSON.parse((await readBody(request)).toString('utf8'));
+            const stepIndex = steps.findIndex(step => step.id === payload.step);
+            if (stepIndex < 0 || !payload.details || typeof payload.details !== 'object') {
+                response.writeHead(400).end('Invalid source diagnostic');
+                return;
+            }
+            mkdirSync(sourceDiagnosticsDirectory, { recursive: true });
+            sourceDiagnosticCount++;
+            const file = `step-${String(stepIndex + 1).padStart(2, '0')}-stale-${String(sourceDiagnosticCount).padStart(2, '0')}.json`;
+            const before = payload.details.before || {};
+            const after = payload.details.after || {};
+            writeFileSync(join(sourceDiagnosticsDirectory, file), JSON.stringify({
+                step: payload.step,
+                capturedAt: new Date().toISOString(),
+                partDifferences: summarizeSourcePartDifferences(before, after),
+                beforeHostParagraphCount: payload.details.beforeHostParagraphCount,
+                afterHostParagraphCount: payload.details.afterHostParagraphCount,
+                excludedParagraphIndex: payload.details.excludedParagraphIndex,
+                before,
+                after
+            }, null, 2));
+            response.end(JSON.stringify({ recorded: true, file }));
             return;
         }
         const stepRoute = path.match(/^\/golden\/step\/(\d+)\/(docx|meta)$/);

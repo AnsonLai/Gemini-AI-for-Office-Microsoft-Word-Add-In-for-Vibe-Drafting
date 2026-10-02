@@ -1,7 +1,7 @@
 # Library-first editing and a lightweight document agent
 
 **Date:** 2026-10-02 (America/Vancouver)  
-**Status:** WP0–WP2 complete on 2026-10-02; WP3 is next; WP4/WP5 are queued.
+**Status:** WP0–WP3 complete locally on 2026-10-02; WP4 is in progress; WP5 is queued. Live provider and Word Online shipping gates remain explicit.
 **Baseline:** Add-in release v2.2.0.0; exact `@ansonlai/docx-redline-js@0.8.4` in the add-in and MCP.  
 **Purpose:** Make ordinary professional document changes dependable by reducing tool choices, competing execution paths, repeated AI interpretation, and Word-specific editing logic.
 
@@ -18,9 +18,10 @@
 | WP0 | Complete | [Scope matrix, route inventory, and fresh baseline](../validation-reports/2026-10-02-lightweight-harness-wp0-baseline.md): 57 offline suites pass; 16/16 desktop replay steps complete, 29/29 content checks pass; three existing native-route author failures reproduced. Frozen bundle at `.cache/reliability/wp0-baseline/dist`. Office.js read/write counters unavailable. |
 | WP1 | Complete | [Extraction, verification, and net-size report](../validation-reports/2026-10-02-lightweight-harness-wp1.md): 61 offline suites pass; development/production builds pass; completed desktop replay preserves 29/29 content checks, 43 local model requests, and the same three author failures. Request/controller/history races fixed; all executor algorithm bodies/signatures and 11 declarations preserved. Net production size: 8,632 → 8,633 lines (+1), across 24 → 27 files. |
 | WP2 | Complete | [Canonical source and handle validation](../validation-reports/2026-10-02-lightweight-harness-wp2.md): 63 milestone offline suites pass; fresh desktop replay preserves 29/29 content checks, the same three author failures and 43 requests. Duplicate Word metadata/context walk removed. |
-| WP3–WP5 | Authorized / queued | Direct batches, native-route retirement, bridge cleanup, and updated verification/documentation. Commit each milestone locally. |
+| WP3 | Complete locally | [Direct typed batch report](../validation-reports/2026-10-02-lightweight-harness-wp3.md): 66 milestone offline suites; full direct Word replay 16/16 prompts, 48/48 checks, zero regressions. Ten verified batches: nine writes + one no-op; 36 mocked chat calls, zero nested calls. Word export-only metadata stabilized without changing source/payload or meaningful revision IDs. Live models remain a shipping gate. |
+| WP4/WP5 | Authorized / queued | Narrow certified same-level list insertion, native-route retirement, bridge cleanup, and updated verification/documentation. |
 
-WP0/WP1 are committed locally as `2c179a1`; subsequent work continues in the shared working tree. No deployment or push is requested. Preserve unrelated changes. The WP0 bundle remains frozen at `.cache/reliability/wp0-baseline/dist`; the completed WP1 replay uses `.cache/reliability/wp1/completed-dist` and `golden-completed`. These artifacts are ignored and are not required to run the checked-in tests on another checkout. Package completion here covers the requested baseline/extraction, with the documented existing author failures; it is not certification of the later product direction.
+WP0/WP1 are committed locally as `2c179a1`, WP2 as `e8c9aaa`; subsequent work continues in the shared working tree. No deployment or push is requested. Preserve unrelated changes. The WP0 bundle remains frozen at `.cache/reliability/wp0-baseline/dist`; the completed WP1 replay uses `.cache/reliability/wp1/completed-dist` and `golden-completed`. These artifacts are ignored and are not required to run the checked-in tests on another checkout. Package completion here covers the requested baseline/extraction, with the documented existing author failures; it is not certification of the later product direction.
 
 ### WP1 implementation handoff
 
@@ -35,7 +36,7 @@ Preserved limits: six model turns, two failed mutation cycles, one proven no-wri
 
 Verification commands: `npm test`, `npm run build:dev`, and `npm run build`; completed replay build/launch commands and exclusions are in the WP1 report. The production build has one deferred-asset size warning; Office.js read/write counters are unavailable, and no live model or Word Online lane was run. Fresh desktop content parity does not close the three native-route author failures or the existing upstream fidelity gates. Source size is essentially flat at this extraction stage; the substantive net deletion remains required in WP3–WP5.
 
-**Continue at WP3 under the owner’s authorization.** WP2 now captures canonical context directly. The tested inspection session is ready for the direct protocol; its model-facing tool declaration arrives in WP3. All 11 current tools, nested executor AI calls, native edit routes, multiple queued mutation calls, and nonblocking checkpoint behavior remain for this extraction. Do not infer that the approved future batch/refusal/retirement policy is already implemented. Use the WP0 retained-operation matrix and upstream gates before changing capability claims. Keep the Flat OPC adapter and exact 0.8.4 pins; no upstream engine workarounds or Word binary/facade experiment.
+**Continue at WP4 under the owner’s authorization.** The production Word agent now uses exactly two tools and direct typed atomic batches. Multiple/mixed mutation exchanges refuse before execution; checkpoint failure blocks a new write; no retained executor makes a nested model call. `agentic-tools.js` and compatibility helpers remain on disk but are unwired. Migrate the four narrowly certified same-level list cases, exercise core/list/table-cell fidelity through the actual direct collector and independent Word oracle, then delete native executors and their obsolete callers/tests. Keep the Flat OPC adapter and exact 0.8.4 pins; no upstream engine workaround or Word binary/facade experiment. WP5 must remove unused compatibility/context helpers and update the current documentation.
 
 ## Approved direction
 
@@ -308,6 +309,8 @@ The owner has approved the design choices and authorized completing all packages
 **Exit:** Models inspect and target one coherent view; stale, ambiguous, cross-document, missing-baseline, and weak-target cases produce no writes.
 
 ### WP3 — Direct typed batches; remove nested AI interpretation
+
+**Completed locally 2026-10-02:** [Direct typed batch and real Word report](../validation-reports/2026-10-02-lightweight-harness-wp3.md). Release still requires live fast/slow model checks.
 
 - Introduce `apply_document_edits` for the retained core actions. Map intents to public canonical operations and the existing atomic Word adapter.
 - Move comment suggestions into the same source-bound batch. Validate every requested intent before writing and account for every result.

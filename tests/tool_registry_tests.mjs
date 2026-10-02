@@ -1,184 +1,207 @@
 import assert from 'node:assert/strict';
-import {
-  createToolRegistry,
-  getToolDeclarations
-} from '../src/taskpane/modules/chat/tool-registry.js';
+import { createToolRegistry, getToolDeclarations } from '../src/taskpane/modules/chat/tool-registry.js';
+import { runDocumentAgentLoop } from '../src/taskpane/modules/chat/document-agent-loop.js';
 
-const expectedNames = [
-  'apply_redlines',
-  'insert_comment',
-  'highlight_text',
-  'perform_research',
-  'navigate_to_section',
-  'edit_list',
-  'insert_list_item',
-  'edit_table',
-  'edit_section',
-  'convert_headers_to_list',
-  'get_selection_stats'
+const EXPECTED_NAMES = ['inspect_document', 'apply_document_edits'];
+const LEGACY_NAMES = [
+  'apply_redlines', 'insert_comment', 'highlight_text', 'perform_research',
+  'navigate_to_section', 'edit_list', 'insert_list_item', 'edit_table',
+  'edit_section', 'convert_headers_to_list', 'get_selection_stats'
 ];
 
 function testDeclarationsAndRecoveryNames() {
   const declarations = getToolDeclarations();
   assert.equal(declarations.length, 1);
-  assert.deepEqual(declarations[0].function_declarations.map(tool => tool.name), expectedNames);
-  assert.equal(declarations[0].function_declarations.length, 11);
-  assert.equal(declarations[0].function_declarations[0].parameters.required[0], 'instruction');
+  const tools = declarations[0].function_declarations;
+  assert.deepEqual(tools.map(tool => tool.name), EXPECTED_NAMES);
 
-  const registry = createToolRegistry({});
-  assert.deepEqual(registry.recoveryToolNames, expectedNames);
-  assert.equal(Object.isFrozen(registry.recoveryToolNames), true);
-  declarations[0].function_declarations.pop();
-  assert.equal(getToolDeclarations()[0].function_declarations.length, 11, 'caller mutations must not alter static definitions');
-  assert.equal(registry.describe('edit_table', { paragraphIndex: 1, action: 'add_row' }).withCheckpoint, true);
-  assert.equal(registry.describe('get_selection_stats', {}).withCheckpoint, false);
-}
-
-function testStructuralValidationKeepsExecutorNormalization() {
-  const registry = createToolRegistry({});
-  assert.equal(registry.validate('apply_redlines', { instruction: 'Fix a typo' }).valid, true);
-  assert.equal(registry.validate('apply_redlines', {}).valid, false);
-  assert.equal(registry.validate('edit_list', {
-    startParagraphIndex: '2', endParagraphIndex: 3, newItems: ['one'], listType: 'bullet'
-  }).valid, false);
-  assert.equal(registry.validate('edit_table', {
-    paragraphIndex: 4, action: 'add_row', content: ['cell 1', 'cell 2']
-  }).valid, true, 'flat add-row content must reach the existing table validator');
-  assert.equal(registry.validate('edit_table', {
-    paragraphIndex: 4, action: 'update_cell', content: 'replacement', targetRow: 0, targetColumn: 1
-  }).valid, true, 'scalar update-cell content must reach the existing table validator');
-  assert.equal(registry.validate('edit_list', {
-    startParagraphIndex: 1, endParagraphIndex: 1, newItems: [3], listType: 'bullet'
-  }).valid, false, 'ordinary array fields still receive structural validation');
-  assert.equal(registry.validate('edit_table', {
-    paragraphIndex: 4, action: 'unknown_action'
-  }).valid, false);
-  assert.equal(registry.validate('edit_list', {
-    startParagraphIndex: 1, endParagraphIndex: 1, newItems: ['x'], listType: 'bullet', extra: 'legacy extra'
-  }).valid, true, 'undeclared optional arguments remain tolerated');
-  assert.equal(registry.validate('missing_tool', {}).error.code, 'UNKNOWN_TOOL');
-}
-
-async function testExecutorArgumentMappingAndNormalization() {
-  const calls = [];
-  const partialMutation = {
-    status: 'error', success: false, message: 'Check the document.',
-    written: false, writeAttempted: true, mutationOutcome: 'partial',
-    receipts: [{ id: 'r1' }], operationResults: [{ status: 'error' }],
-    error: { code: 'HOST_WRITE_PARTIAL' }, showToUser: true
-  };
-  const results = {
-    executeRedline: { status: 'ok', message: 'Redline complete.', written: true, writeAttempted: true, mutationOutcome: 'applied', showToUser: true },
-    executeComment: { status: 'ok', message: 'Comment result.', written: true, showToUser: false },
-    executeHighlight: { status: 'error', message: 'Highlight refused.', written: false, showToUser: false },
-    executeResearch: 'Research results',
-    executeNavigate: { status: 'ok', success: true, message: 'Found the section.' },
-    executeEditList: partialMutation,
-    executeInsertListItem: { success: true, message: 'List item inserted.' },
-    executeEditTable: { success: true, message: 'Table updated.' },
-    executeEditSection: { success: false, message: 'Section refused.' },
-    executeConvertHeadersToList: { success: true, message: 'Headers converted.' },
-    executeGetSelectionStats: { success: true, message: 'Statistics calculated.' }
-  };
-  const executors = Object.fromEntries(Object.entries(results).map(([name, result]) => [
-    name,
-    async (...args) => {
-      calls.push({ name, args });
-      return result;
-    }
-  ]));
-  const registry = createToolRegistry(executors);
-  const sourceBaseline = [{ index: 1, exactText: 'source' }];
-  const context = { docText: 'DOCUMENT', docSourceBaseline: sourceBaseline };
-  const input = [
-    ['apply_redlines', { instruction: 'Edit it' }],
-    ['insert_comment', { instruction: 'Comment on it' }],
-    ['highlight_text', { instruction: 'Highlight it' }],
-    ['perform_research', { instruction: 'Find facts' }],
-    ['navigate_to_section', { instruction: 'Go to the end' }],
-    ['edit_list', { startParagraphIndex: 2, endParagraphIndex: 3, newItems: ['a'], listType: 'bullet' }],
-    ['insert_list_item', { afterParagraphIndex: 5, text: 'new item' }],
-    ['edit_table', { paragraphIndex: 6, action: 'add_row', content: ['a', 'b'] }],
-    ['edit_section', { sectionHeaderIndex: 7 }],
-    ['convert_headers_to_list', { paragraphIndices: [8] }],
-    ['get_selection_stats', { text: 'count this' }]
-  ];
-  const normalized = [];
-  for (const [name, args] of input) normalized.push(await registry.execute(name, args, context));
-
-  assert.deepEqual(calls, [
-    { name: 'executeRedline', args: ['Edit it', 'DOCUMENT', sourceBaseline] },
-    { name: 'executeComment', args: ['Comment on it', 'DOCUMENT'] },
-    { name: 'executeHighlight', args: ['Highlight it', 'DOCUMENT', 'yellow'] },
-    { name: 'executeResearch', args: ['Find facts'] },
-    { name: 'executeNavigate', args: ['Go to the end', 'DOCUMENT'] },
-    { name: 'executeEditList', args: [2, 3, ['a'], 'bullet', undefined] },
-    { name: 'executeInsertListItem', args: [5, 'new item', undefined, sourceBaseline] },
-    { name: 'executeEditTable', args: [6, 'add_row', ['a', 'b'], undefined, undefined] },
-    { name: 'executeEditSection', args: [7, undefined, undefined, undefined] },
-    { name: 'executeConvertHeadersToList', args: [[8], undefined, undefined] },
-    { name: 'executeGetSelectionStats', args: [{ text: 'count this' }, 'DOCUMENT'] }
+  const inspect = tools.find(tool => tool.name === 'inspect_document');
+  assert.deepEqual(Object.keys(inspect.parameters.properties), [
+    'search', 'around', 'limit', 'cursor', 'includeDocumentEnd'
   ]);
+  const apply = tools.find(tool => tool.name === 'apply_document_edits');
+  assert.deepEqual(apply.parameters.required, ['edits']);
+  assert.deepEqual(Object.keys(apply.parameters.properties), ['edits']);
+  const edit = apply.parameters.properties.edits.items;
+  assert.deepEqual(edit.required, ['type', 'target']);
+  assert.deepEqual(edit.properties.type.enum, [
+    'replace_text', 'rewrite_paragraph', 'delete_paragraph', 'insert_paragraph',
+    'append_paragraph', 'comment', 'format_text'
+  ]);
+  assert.deepEqual(Object.keys(edit.properties), [
+    'type', 'target', 'find', 'replace', 'text', 'occurrence', 'position', 'anchor', 'properties'
+  ]);
+  assert.deepEqual(Object.keys(edit.properties.properties.properties), [
+    'bold', 'italic', 'underline', 'strikethrough', 'highlight'
+  ]);
+  assert.deepEqual(edit.properties.properties.properties.highlight.enum, ['yellow', 'none']);
+  assert.doesNotMatch(JSON.stringify(tools), /font|rawOp|modelIndex|transport|options/i,
+    'the model protocol must not expose font styling or host/transport internals');
 
-  assert.equal(normalized[0].success, true);
-  assert.equal(registry.describe('apply_redlines', { instruction: 'Edit it' }).withCheckpoint, true);
-  assert.equal(normalized[0].hostWriteEvidence.written, true);
-  assert.equal(normalized[0].mutation, results.executeRedline);
-  assert.equal(normalized[0].completionText, 'Redline complete.');
-  assert.equal(normalized[0].completionWithCheckpoint, true);
-
-  assert.equal(normalized[1].success, true, 'comment success follows status plus confirmed write');
-  assert.equal(normalized[1].recordSuccess, false, 'legacy comment recovery record follows showToUser');
-  assert.equal(normalized[1].display.show, false);
-  assert.equal(normalized[1].hostWriteEvidence.written, true);
-  assert.equal(normalized[2].success, false);
-  assert.equal(normalized[3].success, true, 'research dispatch historically treats returned text as success');
-  assert.equal(normalized[3].completionText, 'Found search results for: "Find facts"');
-  assert.equal(normalized[3].display.show, true);
-  assert.equal(normalized[4].recordResult, results.executeNavigate, 'navigation preserves its raw result in recovery records');
-  assert.equal(normalized[4].completionText, 'Navigated to: "Go to the end"');
-  assert.equal(normalized[5].requiresInspection, true);
-  assert.equal(normalized[5].hostWriteEvidence.mutationOutcome, 'partial');
-  assert.deepEqual(normalized[5].hostWriteEvidence.receipts, [{ id: 'r1' }]);
-  assert.equal(normalized[5].recordResult, 'Check the document.');
-  assert.equal(normalized[6].success, true);
-  assert.equal(normalized[7].success, true);
-  assert.equal(normalized[8].success, false);
-  assert.equal(normalized[9].success, true);
-  assert.equal(normalized[10].success, true);
-  assert.equal(normalized[10].completionText, 'Calculated statistics.');
-
-  const description = registry.describe('edit_table', { paragraphIndex: 6, action: 'add_row' });
-  assert.equal(description.withCheckpoint, true);
-  assert.equal(description.progressText, 'Editing table (add_row)...');
-}
-
-async function testStructuredFailuresAndThrownExecutors() {
   const registry = createToolRegistry({});
-  const unknown = await registry.execute('invented_tool', {}, {});
-  assert.equal(unknown.success, false);
-  assert.equal(unknown.rawResult.error.code, 'UNKNOWN_TOOL');
-  assert.match(unknown.resultText, /Unknown tool/);
-
-  const invalid = await registry.execute('edit_list', { startParagraphIndex: 'bad' }, {});
-  assert.equal(invalid.rawResult.error.code, 'INVALID_TOOL_ARGUMENTS');
-  assert.equal(invalid.mutating, true);
-
-  const malformedStats = await registry.execute('get_selection_stats', { text: 42 }, {});
-  assert.equal(malformedStats.rawResult.error.code, 'INVALID_TOOL_ARGUMENTS');
-
-  const unavailable = await registry.execute('apply_redlines', { instruction: 'edit' }, {});
-  assert.equal(unavailable.rawResult.error.code, 'TOOL_EXECUTOR_UNAVAILABLE');
-
-  const failing = createToolRegistry({ executeRedline: async () => { throw new Error('executor transport failure'); } });
-  await assert.rejects(
-    failing.execute('apply_redlines', { instruction: 'edit' }, {}),
-    /executor transport failure/
-  );
+  assert.deepEqual(registry.recoveryToolNames, EXPECTED_NAMES);
+  assert.equal(Object.isFrozen(registry.recoveryToolNames), true);
+  tools.pop();
+  assert.equal(getToolDeclarations()[0].function_declarations.length, 2,
+    'caller mutations must not alter the authoritative definitions');
+  assert.equal(registry.describe('inspect_document').mutating, false);
+  assert.equal(registry.describe('apply_document_edits').mutating, true);
+  assert.equal(registry.describe('apply_document_edits').withCheckpoint, false,
+    'the adapter persists a source-guarded checkpoint inside the atomic batch');
 }
 
-await testDeclarationsAndRecoveryNames();
-testStructuralValidationKeepsExecutorNormalization();
-await testExecutorArgumentMappingAndNormalization();
-await testStructuredFailuresAndThrownExecutors();
+async function testDirectArgumentValidationAndExecutorMapping() {
+  const calls = [];
+  const registry = createToolRegistry({
+    inspectDocument: async args => {
+      calls.push({ executor: 'inspectDocument', args });
+      return { status: 'ok', matches: [{ handle: 'h:1', text: 'A sentence.' }] };
+    },
+    applyDocumentEdits: async args => {
+      calls.push({ executor: 'applyDocumentEdits', args });
+      return {
+        status: 'ok', success: true, completion: true, verified: true,
+        written: true, writeAttempted: true, mutationOutcome: 'applied',
+        requestedCount: args.edits.length, message: 'Applied and verified 1 requested edit(s).'
+      };
+    }
+  });
+  const inspectArgs = { search: 'sentence', around: 1, limit: 2 };
+  const editArgs = { edits: [{ type: 'replace_text', target: 'h:1', find: 'sentence', replace: 'statement' }] };
+
+  assert.equal(registry.validate('inspect_document', inspectArgs).valid, true);
+  assert.equal(registry.validate('inspect_document', { ...inspectArgs, instruction: 'legacy' }).error.code, 'INVALID_TOOL_ARGUMENTS');
+  for (const invalidInspectArgs of [
+    { search: 42 }, { cursor: false }, { around: 1.5 }, { limit: '3' }, { includeDocumentEnd: 1 }
+  ]) {
+    assert.equal(registry.validate('inspect_document', invalidInspectArgs).error.code, 'INVALID_TOOL_ARGUMENTS',
+      'inspection arguments must match their declared primitive types');
+  }
+  assert.equal(registry.validate('apply_document_edits', editArgs).valid, true);
+  assert.equal(registry.validate('apply_document_edits', {}).error.code, 'INVALID_DOCUMENT_EDIT_BATCH');
+  assert.equal(registry.validate('apply_document_edits', { edits: [] }).error.code, 'INVALID_DOCUMENT_EDIT_BATCH');
+  assert.equal(registry.validate('apply_document_edits', { ...editArgs, options: {} }).error.code, 'INVALID_TOOL_ARGUMENTS');
+  assert.equal(registry.validate('apply_document_edits', { edits: Array(41).fill(editArgs.edits[0]) }).error.code,
+    'INVALID_DOCUMENT_EDIT_BATCH');
+
+  const inspection = await registry.execute('inspect_document', inspectArgs);
+  const applied = await registry.execute('apply_document_edits', editArgs);
+  assert.deepEqual(calls, [
+    { executor: 'inspectDocument', args: inspectArgs },
+    { executor: 'applyDocumentEdits', args: editArgs }
+  ], 'the direct protocol forwards its declared argument records without legacy normalization');
+  assert.equal(inspection.success, true);
+  assert.deepEqual(inspection.recordResult.matches, [{ handle: 'h:1', text: 'A sentence.' }]);
+  assert.equal(applied.success, true);
+  assert.equal(applied.mutation, applied.rawResult);
+  assert.equal(applied.recordResult, applied.rawResult);
+  assert.equal(applied.hostWriteEvidence.written, true);
+  assert.equal(applied.hostWriteEvidence.mutationOutcome, 'applied');
+  assert.equal(applied.completionText, applied.rawResult.message);
+
+  const unavailable = await createToolRegistry({}).execute('inspect_document', {});
+  assert.equal(unavailable.rawResult.error.code, 'TOOL_UNAVAILABLE');
+  assert.equal(unavailable.success, false);
+}
+
+async function runApplyReceipt(rawReceipt) {
+  const registry = createToolRegistry({ applyDocumentEdits: async () => rawReceipt });
+  const state = {
+    history: [{ role: 'user', parts: [{ text: 'Make the requested edit.' }] }],
+    docText: '[P1] Original', docSourceBaseline: [], records: []
+  };
+  const events = [];
+  const replies = [
+    { candidates: [{ content: { parts: [{ functionCall: {
+      name: 'apply_document_edits', args: { edits: [{ type: 'replace_text', target: 'h:1', find: 'Old', replace: 'New' }] }
+    } }] } }] },
+    { candidates: [{ content: { parts: [{ text: 'The request is complete.' }] } }] }
+  ];
+  let refreshes = 0;
+  await runDocumentAgentLoop({
+    state, registry, loadRegistry: async () => registry,
+    requestModel: async () => replies.shift(),
+    refreshContext: async () => {
+      refreshes++;
+      return { formattedText: '[P1] New', sourceBaseline: [] };
+    },
+    createCheckpoint: async () => assert.fail('direct apply uses its source-guarded atomic batch checkpoint'),
+    requestStartTime: 0, now: () => 1, onEvent: event => events.push(event)
+  });
+  const toolEnd = events.find(event => event.type === 'tool_end' && event.name === 'apply_document_edits');
+  assert.ok(toolEnd, 'the tool receipt reaches the taskpane event/UI boundary');
+  assert.deepEqual(state.records[0].result, rawReceipt, 'recovery history preserves the structured host receipt');
+  assert.equal(toolEnd.completionText, rawReceipt.message);
+  assert.equal(toolEnd.display.show, true, 'the direct mutation receipt remains visible to the user');
+  assert.equal(state.records[0].written, rawReceipt.written === true);
+  assert.equal(state.records[0].writeAttempted, rawReceipt.writeAttempted === true);
+  assert.equal(state.records[0].mutationOutcome, rawReceipt.mutationOutcome);
+  return { state, events, toolEnd, refreshes };
+}
+
+async function testVerifiedNoopRefusedAndUncertainReceiptsReachUi() {
+  const complete = {
+    status: 'ok', success: true, completion: true, verified: true,
+    written: true, writeAttempted: true, mutationOutcome: 'applied',
+    message: 'Applied and verified 1 requested edit(s).'
+  };
+  const applied = await runApplyReceipt(complete);
+  assert.equal(applied.state.records[0].success, true);
+  assert.equal(applied.state.records[0].requiresInspection, false);
+  assert.equal(applied.refreshes, 1, 'confirmed writes refresh document context before another provider turn');
+
+  const noop = {
+    status: 'ok', success: true, completion: true, verified: true,
+    written: false, writeAttempted: false, mutationOutcome: 'noop',
+    message: 'The requested state is already satisfied; no document write was needed.'
+  };
+  const noOpRun = await runApplyReceipt(noop);
+  assert.equal(noOpRun.state.records[0].success, true, 'verified no-op counts as complete without a host write');
+  assert.equal(noOpRun.state.records[0].written, false);
+  assert.equal(noOpRun.refreshes, 0, 'a verified no-op does not trigger a needless source refresh');
+
+  const refused = {
+    status: 'error', success: false, completion: false, verified: false,
+    written: false, writeAttempted: false, mutationOutcome: 'refused',
+    message: 'No changes made. The selected text was not found.'
+  };
+  const refusedRun = await runApplyReceipt(refused);
+  assert.equal(refusedRun.state.records[0].success, false);
+  assert.equal(refusedRun.state.records[0].requiresInspection, false);
+  assert.equal(refusedRun.toolEnd.completionText, refused.message);
+
+  const uncertain = {
+    status: 'error', success: false, completion: false, verified: false,
+    written: false, writeAttempted: true, mutationOutcome: 'indeterminate',
+    message: 'An edit was attempted but completion could not be verified. Inspect the document before continuing; do not replay it.'
+  };
+  const uncertainRun = await runApplyReceipt(uncertain);
+  assert.equal(uncertainRun.state.records[0].success, false);
+  assert.equal(uncertainRun.state.records[0].requiresInspection, true);
+  assert.equal(uncertainRun.state.stopReason, 'requires_inspection');
+  assert.equal(uncertainRun.refreshes, 0, 'uncertain outcomes are never presented as confirmed writes');
+}
+
+async function testLegacyCapabilitiesRefuseBeforeExecutor() {
+  let executorCalls = 0;
+  const registry = createToolRegistry({
+    inspectDocument: async () => { executorCalls++; },
+    applyDocumentEdits: async () => { executorCalls++; }
+  });
+  for (const name of LEGACY_NAMES) {
+    const validation = registry.validate(name, {});
+    assert.equal(validation.valid, false, `${name} is not in the new authoritative protocol`);
+    assert.equal(validation.error.code, 'UNSUPPORTED_TOOL');
+    const result = await registry.execute(name, {});
+    assert.equal(result.rawResult.error.code, 'UNSUPPORTED_TOOL');
+    assert.equal(result.hostWriteEvidence.writeAttempted, false);
+    assert.equal(result.hostWriteEvidence.written, false);
+  }
+  assert.equal(executorCalls, 0, 'unsupported legacy tools are refused before reaching any document executor');
+}
+
+testDeclarationsAndRecoveryNames();
+await testDirectArgumentValidationAndExecutorMapping();
+await testVerifiedNoopRefusedAndUncertainReceiptsReachUi();
+await testLegacyCapabilitiesRefuseBeforeExecutor();
 console.log('Tool registry tests passed.');

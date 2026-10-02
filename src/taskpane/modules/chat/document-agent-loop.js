@@ -19,13 +19,103 @@ function candidateParts(candidate, names, emit) {
     }
   }
   if (parts.length || malformed) return { parts, malformed };
-  if (candidate?.finishReason === 'STOP') return { parts: [{ text: 'Task completed successfully.' }], malformed: false };
+  if (candidate?.finishReason === 'STOP') return { parts: [], malformed: false };
   let diagnostic = `Finish Reason: ${candidate?.finishReason || 'NOT_FOUND'}`;
   const ratings = (Array.isArray(candidate?.safetyRatings) ? candidate.safetyRatings : []).filter(rating => rating?.probability !== 'NEGLIGIBLE');
   if (ratings.length) diagnostic += ` | Safety: ${ratings.map(rating => `${rating.category}:${rating.probability}`).join(', ')}`;
   if (candidate?.finishReason === 'SAFETY') diagnostic += ' | Content blocked by safety filters.';
   if (candidate?.finishReason === 'RECITATION') diagnostic += ' | Content blocked due to copyright/recitation filters.';
   throw new Error(`Gemini response was missing content.parts. ${diagnostic}`);
+}
+
+function recordText(record) {
+  if (!record) return '';
+  if (typeof record?.completionText === 'string' && record.completionText.trim()) return record.completionText;
+  if (typeof record?.result?.message === 'string' && record.result.message.trim()) return record.result.message;
+  if (typeof record?.resultText === 'string' && record.resultText.trim()) return record.resultText;
+  if (typeof record?.result === 'string' && record.result.trim()) return record.result;
+  return record?.success === true
+    ? 'The last document operation was confirmed.'
+    : 'The last document operation was not confirmed. Inspect the document before retrying.';
+}
+
+function latestMutationRecord(records) {
+  return [...records].reverse().find(record => record.mutating === true);
+}
+
+function unresolvedFailureRecord(records) {
+  let latestSuccessfulMutation = -1;
+  let latestFailure = -1;
+  for (let index = 0; index < records.length; index++) {
+    const record = records[index];
+    if (record.mutating === true && record.success === true) latestSuccessfulMutation = index;
+    if (record.success !== true) latestFailure = index;
+  }
+  return latestFailure > latestSuccessfulMutation ? records[latestFailure] : null;
+}
+
+function withResponseText(parts, text) {
+  let replaced = false;
+  const next = parts.map(part => {
+    if (!part?.thought && typeof part?.text === 'string') {
+      replaced = true;
+      return { ...part, text };
+    }
+    return part;
+  });
+  if (!replaced) next.push({ text });
+  return next;
+}
+
+function exchangeRefusal(calls, descriptions) {
+  if (descriptions.some(description => description.known === false) && calls.length > 1) {
+    return {
+      code: 'UNKNOWN_TOOL_IN_EXCHANGE',
+      message: 'This exchange includes an unsupported tool call, so none of its calls were run. Use only the available tools and retry.'
+    };
+  }
+  const mutationCount = descriptions.filter(description => description.mutating === true).length;
+  if (mutationCount > 1) {
+    return {
+      code: 'MULTIPLE_MUTATION_CALLS',
+      message: 'Only one document edit call is allowed in a model exchange. None of these calls were run; combine the requested edits into one apply_document_edits call.'
+    };
+  }
+  if (mutationCount === 1 && calls.length > 1) {
+    return {
+      code: 'MIXED_MUTATION_EXCHANGE',
+      message: 'An edit cannot share an exchange with inspection or another tool. None of these calls were run; inspect first, then send one apply_document_edits call.'
+    };
+  }
+  return null;
+}
+
+function recordRefusal(state, name, description, message, code, mutating = false) {
+  state.records.push({
+    name,
+    instruction: description?.instruction,
+    result: message,
+    resultText: message,
+    success: false,
+    mutating,
+    refused: true,
+    written: false,
+    writeAttempted: false,
+    status: 'error',
+    error: { code, message },
+    mutationOutcome: 'refused'
+  });
+}
+
+function emitRefusalEvent(name, description, message, emit) {
+  emit({ type: 'tool_start', name, ...description });
+  emit({
+    type: 'tool_end',
+    name,
+    display: { show: true },
+    completionText: message,
+    completionWithCheckpoint: false
+  });
 }
 
 /** Only describe observed work; a failed tool record is not a successful edit. */
@@ -38,10 +128,9 @@ function completedWork(records) {
 }
 
 /**
- * Small serial loop over the existing tool protocol. All provider, host and UI
+ * Small serial loop over the inspect/apply protocol. All provider, host and UI
  * work is injected. State stays observable even when a dependency throws, so
  * the taskpane can preserve history/host evidence and unlock its UI in finally.
- * WP1 deliberately retains the 11-tool protocol and existing edit executors.
  */
 export async function runDocumentAgentLoop({
   state, registry, loadRegistry, requestModel, refreshContext, createCheckpoint,
@@ -107,29 +196,82 @@ export async function runDocumentAgentLoop({
       const calls = parts.filter(part => part?.functionCall);
       if (!calls.length) {
         if (interrupt()) break;
-        state.history.push({ role: 'model', parts });
-        emit({ type: 'response', text: parts.find(part => part?.text && !part.thought)?.text || 'Response generated (see document for changes).' });
+        const modelText = parts.find(part => typeof part?.text === 'string' && part.text.trim() && !part.thought)?.text;
+        const lastMutation = latestMutationRecord(state.records);
+        const unresolvedFailure = unresolvedFailureRecord(state.records);
+        const responseText = unresolvedFailure
+          ? recordText(unresolvedFailure)
+          : modelText || recordText(lastMutation) || 'The model stopped without a final response.';
+        const responseParts = unresolvedFailure || !modelText ? withResponseText(parts, responseText) : parts;
+        state.history.push({ role: 'model', parts: responseParts });
+        emit({ type: 'response', text: responseText });
         state.stopReason = 'response';
         break;
       }
 
       registry = await loadRegistry();
       const responses = [];
+      const plannedCalls = calls.map(({ functionCall }) => ({
+        functionCall,
+        description: registry.describe(functionCall.name, functionCall.args || {})
+      }));
+      const refusal = exchangeRefusal(calls, plannedCalls.map(item => item.description));
+      if (refusal) {
+        for (const { functionCall, description } of plannedCalls) {
+          emitRefusalEvent(functionCall.name, description, refusal.message, emit);
+          recordRefusal(state, functionCall.name, description, refusal.message, refusal.code, description.mutating === true);
+          responses.push(createFunctionResponse(functionCall.name, refusal.message));
+        }
+        appendFunctionExchange(state.history, { role: 'model', parts }, { role: 'user', parts: responses });
+        if (plannedCalls.some(({ description }) => description.mutating === true)) {
+          const signature = `preflight-refusal:${refusal.code}:${plannedCalls.map(({ functionCall }) => functionCall.name).join(',')}`;
+          const progress = advanceMutationLoopGuard(guard, {
+            attemptedMutatingTools: 1,
+            successfulMutatingTools: 0,
+            signature,
+            maxNoProgressToolLoops,
+          });
+          guard = progress.state;
+          if (progress.countedFailure) emit({ type: 'mutation_failure', failures: guard.consecutiveNoProgressToolLoops, signatureChanged: progress.signatureChanged });
+          if (progress.shouldStop) {
+            stop('no_progress', 'Stopped after repeated document edit proposals were refused before execution. No host edit was attempted; send one supported apply_document_edits call after inspection.');
+          }
+        }
+        if (state.stopReason) break;
+        continue;
+      }
+
       let attempted = 0;
       let successful = 0;
       let confirmed = false;
       let stale = false;
       const signatures = [];
-      for (const { functionCall } of calls) {
+      for (const { functionCall, description } of plannedCalls) {
         const { name } = functionCall;
         const args = functionCall.args || {};
         if (state.stopReason || interrupt()) {
           responses.push(createFunctionResponse(name, 'Tool not executed because this request stopped. No replay was attempted.'));
           continue;
         }
-        const description = registry.describe(name, args);
         emit({ type: 'tool_start', name, ...description });
-        const checkpointIndex = description.withCheckpoint ? await createCheckpoint(true, name) : undefined;
+        let checkpointIndex;
+        if (description.withCheckpoint === true) {
+          let checkpointError = null;
+          try { checkpointIndex = await createCheckpoint(true, name); } catch (error) { checkpointError = error; }
+          if (interrupt()) {
+            responses.push(createFunctionResponse(name, 'Tool not executed because this request stopped before editing.'));
+            continue;
+          }
+          if (!Number.isInteger(checkpointIndex) || checkpointIndex <= 0) {
+            const detail = checkpointError?.message ? ` ${checkpointError.message}` : '';
+            const message = `I could not save a recovery checkpoint.${detail} No document edit was started.`;
+            recordRefusal(state, name, description, message, 'CHECKPOINT_FAILED', true);
+            responses.push(createFunctionResponse(name, message));
+            emit({ type: 'tool_end', name, display: { show: true }, completionText: message, completionWithCheckpoint: false });
+            stop('checkpoint_failed', message);
+            continue;
+          }
+        }
         // Cancellation during checkpoint capture must not reach an executor.
         if (interrupt()) {
           responses.push(createFunctionResponse(name, 'Tool not executed because this request stopped before editing.'));
@@ -146,8 +288,17 @@ export async function runDocumentAgentLoop({
         }
         const mutation = execution.mutation;
         state.records.push({
-          name, instruction: execution.instruction, result: execution.recordResult,
-          success: execution.recordSuccess, ...execution.hostWriteEvidence,
+          name,
+          instruction: execution.instruction,
+          result: execution.recordResult,
+          completionText: execution.completionText,
+          resultText: execution.resultText,
+          checkpointIndex: execution.checkpointIndex,
+          success: execution.success === true,
+          recordSuccess: execution.recordSuccess,
+          mutating: execution.mutating === true,
+          requiresInspection: execution.requiresInspection === true,
+          ...execution.hostWriteEvidence,
         });
         responses.push(createFunctionResponse(name, execution.resultText));
         if (execution.mutating) {
@@ -161,9 +312,10 @@ export async function runDocumentAgentLoop({
             signatures.push(`${name}|${serialized}|${execution.resultText || ''}`);
           }
         }
-        emit({ type: 'tool_end', ...execution, checkpointIndex });
+        emit({ type: 'tool_end', ...execution, checkpointIndex: execution.checkpointIndex ?? checkpointIndex });
         if (execution.mutating && execution.requiresInspection) {
-          stop('requires_inspection', `${execution.resultText || ''} Inspect the document before editing again; do not replay this operation.`);
+          const outcomeText = execution.completionText || execution.rawResult?.message || execution.resultText || 'The host could not confirm the edit outcome.';
+          stop('requires_inspection', `${outcomeText} Inspect the document before editing again; do not replay this operation.`);
         }
         // A settled executor's write evidence is retained even if Cancel arrived
         // while Word was committing. Never interpret cancellation as rollback.
@@ -197,7 +349,6 @@ export async function runDocumentAgentLoop({
       guard = progress.state;
       if (progress.countedFailure) emit({ type: 'mutation_failure', failures: guard.consecutiveNoProgressToolLoops, signatureChanged: progress.signatureChanged });
       if (progress.shouldStop) {
-        state.history = [];
         stop('no_progress', 'Stopped to prevent a retry loop: repeated document edit attempts are failing with no applied changes.');
       }
     }

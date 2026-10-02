@@ -93,6 +93,10 @@ async function executePureOoxmlBatchInternal(context, targetScope, operations, o
         throw new TypeError('A Word request context is required');
     }
     const resolved = resolveWordOperationScope(targetScope);
+    const checkCancelled = () => {
+        if (options.signal?.aborted) throw Object.assign(new Error('Request cancelled before document commit.'), { name: 'AbortError', code: 'REQUEST_CANCELLED' });
+    };
+    checkCancelled();
     let ooxmlResult;
     const sourceStartedAt = timing?.now();
     try {
@@ -113,6 +117,8 @@ async function executePureOoxmlBatchInternal(context, targetScope, operations, o
     }
     const publicSource = preparation.source;
     const result = preparation.result;
+    checkCancelled();
+    if (typeof options.onPrepared === 'function') await options.onPrepared(preparation);
     if (preparation.status === 'noop') {
         if (preparation.operations.length === 0) {
             return { status: 'ok', hasChanges: false, written: false, writeAttempted: false, mutationOutcome: 'noop', results: [], receipts: [], source: publicSource };
@@ -125,10 +131,20 @@ async function executePureOoxmlBatchInternal(context, targetScope, operations, o
     if (preparation.status === 'error') {
         return failedBatchWrite(result, publicSource, 'WORD_OOXML_PACKAGE_FAILED', preparation.error);
     }
+    let checkpointIndex;
+    try {
+        if (typeof options.beforeWrite === 'function') {
+            checkpointIndex = await options.beforeWrite({ ...preparation, sourceOoxml: ooxmlResult.value });
+        }
+        checkCancelled();
+    } catch (error) {
+        return { ...failedBatchWrite(result, publicSource, error.code || 'PRECOMMIT_FAILED', error), mutationOutcome: 'refused', checkpointIndex };
+    }
     const insertionPayload = preparation.insertionPayload;
     let writeAttempted = false;
     let written = false;
     const writeBatch = async () => {
+        checkCancelled();
         const insertionStartedAt = timing?.now();
         try {
             writeAttempted = true;
@@ -162,9 +178,10 @@ async function executePureOoxmlBatchInternal(context, targetScope, operations, o
             await writeBatch();
         }
     } catch (error) {
-        return failedBatchWrite(result, publicSource, 'WORD_OOXML_WRITE_FAILED', error, writeAttempted, written);
+        return { ...failedBatchWrite(result, publicSource, 'WORD_OOXML_WRITE_FAILED', error, writeAttempted, written), checkpointIndex,
+            requiresInspection: options.disableNativeTracking === true && error.code !== 'REQUEST_CANCELLED' };
     }
-    return { ...result, written: true, writeAttempted: true, mutationOutcome: 'applied', source: publicSource };
+    return { ...result, written: true, writeAttempted: true, mutationOutcome: 'applied', source: publicSource, checkpointIndex };
 }
 
 /**

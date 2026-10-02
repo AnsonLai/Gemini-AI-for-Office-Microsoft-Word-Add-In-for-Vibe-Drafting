@@ -23,65 +23,9 @@ visit(taskpaneAst, node => {
 });
 assert.ok(sendChatMessage, 'sendChatMessage must remain an inspectable host adapter');
 
-async function runNavigationRoundTrip(rawResult, expectedSuccess, expectedResponseText) {
-  const registry = createToolRegistry({
-    executeNavigate: async (instruction, documentText) => {
-      assert.equal(instruction, 'go to the requested section');
-      assert.equal(documentText, '[P1] Section heading');
-      return rawResult;
-    }
-  });
-  const state = {
-    history: [{ role: 'user', parts: [{ text: 'Go to the requested section.' }] }],
-    docText: '[P1] Section heading',
-    docSourceBaseline: [],
-    records: []
-  };
-  const replies = [
-    { candidates: [{ content: { parts: [{ functionCall: {
-      name: 'navigate_to_section', args: { instruction: 'go to the requested section' }
-    } }] } }] },
-    { candidates: [{ content: { parts: [{ text: 'Finished.' }] } }] }
-  ];
-
-  await runDocumentAgentLoop({
-    state,
-    registry,
-    loadRegistry: async () => registry,
-    requestModel: async () => replies.shift(),
-    refreshContext: async () => assert.fail('navigation must not refresh document context'),
-    createCheckpoint: async () => assert.fail('navigation must not create an edit checkpoint'),
-    requestStartTime: 0,
-    now: () => 1
-  });
-
-  assert.equal(state.records[0].success, expectedSuccess);
-  assert.deepEqual(state.records[0].result, rawResult, 'the recovery record retains the structured navigation result');
-
-  const responseTurn = state.history.find(turn => turn.role === 'user'
-    && turn.parts.some(part => part.functionResponse?.name === 'navigate_to_section'));
-  assert.ok(responseTurn, 'the model tool call must have a paired function response');
-  const responseText = responseTurn.parts.find(part => part.functionResponse)
-    .functionResponse.response.content[0].text;
-  assert.equal(typeof responseText, 'string', 'Gemini function response text must be a string');
-  assert.equal(responseText, expectedResponseText);
-}
-
-await runNavigationRoundTrip(
-  { status: 'ok', success: true, message: 'Selected the target section.' },
-  true,
-  'Selected the target section.'
-);
-await runNavigationRoundTrip(
-  {
-    status: 'error',
-    success: false,
-    error: { code: 'MISSING_API_KEY', message: 'Error: Please set your Gemini API key in the Settings.' },
-    message: 'Error: Please set your Gemini API key in the Settings.'
-  },
-  false,
-  'Error: Please set your Gemini API key in the Settings.'
-);
+// The direct protocol inspects through a read-only tool, then applies a batch
+// with opaque handles and arguments only. The locally captured baseline stays
+// in loop state for source identity; it is not a legacy executor parameter.
 
 // The exact canonical source baseline is derived from the same library
 // inspection that formats model context, then handed to the loop before any
@@ -156,34 +100,80 @@ const state = makeLoopState(
 );
 assert.deepEqual(state.docSourceBaseline, capturedBaseline);
 
-let executeRedlineArguments = null;
-const redlineRegistry = createToolRegistry({
-  executeRedline: async (...args) => {
-    executeRedlineArguments = args;
+const expectedEdits = {
+  edits: [{ type: 'replace_text', target: 'opaque:source-handle', find: 'Source', replace: 'Updated' }]
+};
+let inspectedArgs = null;
+let appliedArgs = null;
+let applyArgumentCount = null;
+let providerTurns = 0;
+const directRegistry = createToolRegistry({
+  inspectDocument: async (...args) => {
+    inspectedArgs = args[0];
+    assert.equal(args.length, 1, 'inspection executor receives its direct model arguments only');
+    return { status: 'ok', matches: [{ handle: 'opaque:source-handle', text: 'Source paragraph' }] };
+  },
+  applyDocumentEdits: async (...args) => {
+    appliedArgs = args[0];
+    applyArgumentCount = args.length;
     return {
-      status: 'ok', success: true, showToUser: true, message: 'Edit applied.',
-      written: true, writeAttempted: true, mutationOutcome: 'applied'
+      status: 'ok', success: true, completion: true, verified: true,
+      written: true, writeAttempted: true, mutationOutcome: 'applied',
+      message: 'Applied and verified 1 requested edit(s).'
     };
   }
 });
 const replies = [
   { candidates: [{ content: { parts: [{ functionCall: {
-    name: 'apply_redlines', args: { instruction: 'revise the source paragraph' }
+    name: 'inspect_document', args: { search: 'Source paragraph', around: 1, limit: 2 }
+  } }] } }] },
+  { candidates: [{ content: { parts: [{ functionCall: {
+    name: 'apply_document_edits', args: expectedEdits
   } }] } }] },
   { candidates: [{ content: { parts: [{ text: 'Done.' }] } }] }
 ];
+const refreshedBaseline = [{ index: 1, exactText: 'Updated paragraph', fingerprint: 'fnv1a32:updated' }];
+let refreshCount = 0;
 await runDocumentAgentLoop({
   state,
-  registry: redlineRegistry,
-  loadRegistry: async () => redlineRegistry,
-  requestModel: async () => replies.shift(),
-  refreshContext: async () => ({ formattedText: '[P1] Updated paragraph', sourceBaseline: [] }),
-  createCheckpoint: async () => 'checkpoint',
+  registry: directRegistry,
+  loadRegistry: async () => directRegistry,
+  requestModel: async () => {
+    providerTurns++;
+    if (providerTurns === 2) {
+      assert.deepEqual(state.docSourceBaseline, capturedBaseline,
+        'the source baseline remains attached to loop state through read-only inspection and into edit dispatch');
+    }
+    return replies.shift();
+  },
+  refreshContext: async () => {
+    refreshCount++;
+    return { formattedText: '[P1] Updated paragraph', sourceBaseline: refreshedBaseline };
+  },
+  createCheckpoint: async () => assert.fail('the direct edit batch checkpoints inside its atomic source-guarded adapter'),
   requestStartTime: 0,
   now: () => 1
 });
-assert.deepEqual(executeRedlineArguments[2], capturedBaseline,
-  'the exact baseline projected from canonical inspection must reach executeRedline through loop state and registry');
+assert.deepEqual(inspectedArgs, { search: 'Source paragraph', around: 1, limit: 2 });
+assert.deepEqual(appliedArgs, expectedEdits,
+  'the loop forwards the inspected opaque handle and direct edit argument record unchanged');
+assert.equal(applyArgumentCount, 1, 'the executor no longer receives document text or a separate baseline');
+assert.equal(providerTurns, 3, 'inspection, one atomic apply batch, and the final response each use one model turn');
+assert.equal(state.records.filter(record => record.mutating).length, 1);
+assert.deepEqual(state.docSourceBaseline, refreshedBaseline, 'a confirmed batch installs the fresh post-write baseline');
+assert.equal(refreshCount, 1);
+
+const unsupportedRegistry = createToolRegistry({
+  inspectDocument: async () => assert.fail('legacy navigation cannot execute inspection'),
+  applyDocumentEdits: async () => assert.fail('legacy navigation cannot execute a write')
+});
+assert.equal(unsupportedRegistry.recoveryToolNames.includes('navigate_to_section'), false,
+  'the former navigation capability is not advertised or accepted for malformed-call recovery');
+assert.equal(unsupportedRegistry.validate('navigate_to_section', { instruction: 'go to section' }).error.code,
+  'UNSUPPORTED_TOOL');
+const unsupportedNavigation = await unsupportedRegistry.execute('navigate_to_section', { instruction: 'go to section' });
+assert.equal(unsupportedNavigation.rawResult.error.code, 'UNSUPPORTED_TOOL');
+assert.equal(unsupportedNavigation.hostWriteEvidence.writeAttempted, false);
 
 // Execute the taskpane's identity guards directly so refresh/new-request races
 // cannot let a superseded request restore history, overwrite UI, or unlock the
@@ -245,21 +235,46 @@ assert.equal(runPostContextGuard(null, activeController), undefined, 'refresh-cl
 
 const onEventProperty = loopInvocation.arguments[0].properties.find(property => property.key?.name === 'onEvent');
 assert.equal(onEventProperty?.value?.type, 'FunctionExpression', 'the loop UI callback must stay request-scoped');
-function invokeResponseEvent(currentController, requestController) {
+function invokeEvent(currentController, requestController, event, requestRecords = []) {
   const effects = [];
   const callback = new Function(
-    'currentRequestController', 'requestController', 'requestRecords', 'loadingMsg', 'removeMessage', 'addMessageToChat', 'event',
+    'currentRequestController', 'requestController', 'requestRecords', 'loadingMsg', 'removeMessage', 'addMessageToChat',
+    'updateSystemMessage', 'document', 'event',
     `${taskpaneSource.slice(onEventProperty.value.body.start + 1, onEventProperty.value.body.end - 1)}`
   );
-  callback(currentController, requestController, [], 'loading', value => effects.push(['remove', value]),
-    (...args) => effects.push(['add', ...args]), { type: 'response', text: 'Fresh response.' });
+  callback(currentController, requestController, requestRecords, 'loading', value => effects.push(['remove', value]),
+    (...args) => effects.push(['add', ...args]),
+    (...args) => effects.push(['update', ...args]),
+    { getElementById: id => ({ appendChild: node => effects.push(['append', id, node]) }) }, event);
   return effects;
 }
-assert.deepEqual(invokeResponseEvent(activeController, activeController), [
+assert.deepEqual(invokeEvent(activeController, activeController, { type: 'response', text: 'Fresh response.' }), [
   ['remove', 'loading'], ['add', 'Gemini', 'Fresh response.']
 ], 'the active request may update its response UI');
-assert.deepEqual(invokeResponseEvent({}, activeController), [], 'a superseded request cannot write response UI');
-assert.deepEqual(invokeResponseEvent(null, activeController), [], 'a cleared request cannot write response UI');
+assert.deepEqual(invokeEvent(activeController, activeController, { type: 'response', text: 'Inspection complete.' }, [
+  { name: 'inspect_document' }
+]), [
+  ['remove', 'loading'], ['add', 'Gemini', 'Inspection complete.']
+], 'read-only inspection does not leave a completed progress banner behind');
+assert.deepEqual(invokeEvent(activeController, activeController, { type: 'response', text: 'Edit complete.' }, [
+  { name: 'apply_document_edits' }
+]), [
+  ['add', 'Gemini', 'Edit complete.']
+], 'an edit result remains visible after a direct apply tool call');
+assert.deepEqual(invokeEvent(activeController, activeController, {
+  type: 'tool_end', name: 'inspect_document', display: { show: false }, completionText: 'Inspection complete.'
+}, [{ name: 'inspect_document' }]), [
+  ['append', 'chat-messages', 'loading']
+], 'successful inspection does not replace the progress text with a result banner');
+assert.deepEqual(invokeEvent(activeController, activeController, {
+  type: 'tool_end', name: 'apply_document_edits', display: { show: true }, completionText: 'Applied and verified.', completionWithCheckpoint: false
+}, [{ name: 'apply_document_edits' }]), [
+  ['update', 'loading', 'Applied and verified.', undefined], ['append', 'chat-messages', 'loading']
+], 'a verified edit result is surfaced through the existing progress UI');
+assert.deepEqual(invokeEvent({}, activeController, { type: 'response', text: 'Fresh response.' }), [],
+  'a superseded request cannot write response UI');
+assert.deepEqual(invokeEvent(null, activeController, { type: 'response', text: 'Fresh response.' }), [],
+  'a cleared request cannot write response UI');
 
 const historySyncGuard = identityConditionals.find(node =>
   isControllerComparison(node.test, '===')

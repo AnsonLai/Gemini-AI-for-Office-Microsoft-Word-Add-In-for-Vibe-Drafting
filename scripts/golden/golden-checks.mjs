@@ -224,6 +224,106 @@ export function authorAttribution(previousAuthors, model, configuredAuthor) {
     };
 }
 
+/** Semantic accepted-view fields used to prove an explicitly refused step made no change. */
+export function semanticDocumentSnapshot(model) {
+    const revisionAuthors = Object.fromEntries(Object.entries(model?.revisionAuthors || {}).sort(([left], [right]) => left.localeCompare(right)));
+    const semanticRuns = runs => {
+        const result = [];
+        for (const run of Array.isArray(runs) ? runs : []) {
+            const format = run?.format ?? {};
+            const formatKey = JSON.stringify(Object.entries(format).sort(([left], [right]) => left.localeCompare(right)));
+            const previous = result.at(-1);
+            if (previous?.formatKey === formatKey) {
+                previous.text += run?.text ?? '';
+            } else {
+                result.push({ text: run?.text ?? '', format, formatKey });
+            }
+        }
+        return result.map(({ text, format }) => ({ text, format }));
+    };
+    return JSON.stringify({
+        paragraphs: (model?.paragraphs || []).map(paragraph => ({
+            text: paragraph.text,
+            runs: semanticRuns(paragraph.runs),
+            list: paragraph.list,
+            table: paragraph.table ? {
+                table: paragraph.table.table,
+                row: paragraph.table.row,
+                column: paragraph.table.column
+            } : null
+        })),
+        tables: (model?.tables || []).map(table => ({ rows: table.rows })),
+        comments: (model?.comments || []).map(comment => ({ id: comment.id, text: comment.text })),
+        commentAnchors: model?.commentAnchors || [],
+        revisionCount: model?.revisionCount ?? 0,
+        revisionAuthors
+    });
+}
+
+/** Verify a refused request is said explicitly, invokes no write tool, and leaves the full document semantics unchanged. */
+export function evaluateScopeDisposition(previousModel, model, transcript, replay, disposition) {
+    if (disposition?.status !== 'unsupported') {
+        return { ok: false, detail: 'scopeDisposition must identify an unsupported request.' };
+    }
+    const assistantText = [...(Array.isArray(transcript) ? transcript : [])].reverse()
+        .find(message => /^(?:Gemini|Assistant):/i.test(String(message || '').trim())) || '';
+    let explicitRefusal = false;
+    try { explicitRefusal = new RegExp(disposition.refusalPattern, 'i').test(assistantText); } catch { /* Invalid scenario pattern remains a failed check. */ }
+    const noWriteCall = Array.isArray(replay?.served)
+        && replay.served.every(item => item?.part?.functionCall?.name !== 'apply_document_edits');
+    const noNestedCalls = replay?.requestCounts?.aux === 0 && replay?.requestCounts?.other === 0;
+    const unchanged = Boolean(previousModel)
+        && semanticDocumentSnapshot(previousModel) === semanticDocumentSnapshot(model);
+    const ok = explicitRefusal && noWriteCall && noNestedCalls && unchanged;
+    return {
+        ok,
+        detail: `explicit refusal=${explicitRefusal}; no apply_document_edits call=${noWriteCall}; no nested model calls=${noNestedCalls}; semantic document unchanged=${unchanged}`
+            + (assistantText ? `; response=${JSON.stringify(assistantText.replace(/^Gemini:\s*/i, '').trim().slice(0, 180))}` : '; assistant response missing')
+    };
+}
+
+/** Gate each direct edit call on one fully accounted host batch and zero nested model requests. */
+export function evaluateDirectToolEvidence(replay) {
+    const calls = (Array.isArray(replay?.served) ? replay.served : [])
+        .filter(item => item?.part?.functionCall?.name === 'apply_document_edits');
+    const receipts = replay?.functionResponseHistory?.apply_document_edits;
+    const requestCounts = replay?.requestCounts;
+    if (!Array.isArray(receipts) || calls.length === 0) {
+        return { ok: false, detail: `edit calls=${calls.length}; receipts=${Array.isArray(receipts) ? receipts.length : 0}` };
+    }
+    const nested = requestCounts?.aux !== 0 || requestCounts?.other !== 0;
+    const receiptChecks = receipts.map((receipt, index) => {
+        const accounted = Number.isInteger(receipt?.requestedCount)
+            && receipt.requestedCount > 0
+            && receipt.accountedCount === receipt.requestedCount
+            && receipt.success === true
+            && receipt.completion === true
+            && receipt.verified === true
+            && receipt.status === 'ok';
+        const counters = receipt?.counters;
+        const committedOnce = receipt?.written === true
+            && receipt?.writeAttempted === true
+            && Number.isInteger(receipt?.checkpointIndex)
+            && receipt.checkpointIndex > 0
+            && counters?.sourceReads >= 2
+            && counters?.contentWrites === 1
+            && counters?.verificationReads === 1;
+        const verifiedNoop = receipt?.written === false
+            && receipt?.writeAttempted === false
+            && receipt?.mutationOutcome === 'noop'
+            && counters?.contentWrites === 0
+            && counters?.verificationReads === 0;
+        return { ok: accounted && (committedOnce || verifiedNoop), committedOnce, verifiedNoop, accounted, index };
+    });
+    const paired = calls.length === receipts.length;
+    const allAccounted = receiptChecks.every(check => check.ok);
+    const ok = paired && allAccounted && !nested;
+    return {
+        ok,
+        detail: `edit calls=${calls.length}; receipts=${receipts.length}; every batch accounted=${allAccounted}; one verified commit per write=${receiptChecks.filter(check => check.committedOnce).length}; verified no-ops=${receiptChecks.filter(check => check.verifiedNoop).length}; nested model calls=${nested}`
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Matching helpers
 // ---------------------------------------------------------------------------
@@ -271,6 +371,14 @@ function occurrenceFormats(paragraph, text) {
 // ---------------------------------------------------------------------------
 
 const CHECKS = {
+    /** A gated operation must be explicitly refused without a write or any accepted-view change. */
+    scopeDisposition(model, _check, context = {}) {
+        return evaluateScopeDisposition(context.previousModel, model, context.transcript, context.replay, context.disposition);
+    },
+    directToolEvidence(_model, _check, context = {}) {
+        return evaluateDirectToolEvidence(context.replay);
+    },
+
     /** A paragraph (optionally at an exact accepted-view index) matches text. */
     paragraph(model, check) {
         if (check.index != null) {
@@ -440,11 +548,11 @@ const CHECKS = {
 };
 
 /** Evaluate one declarative check against a model. */
-export function evaluateCheck(model, check) {
+export function evaluateCheck(model, check, context = {}) {
     const evaluate = CHECKS[check.type];
     if (!evaluate) return { ok: false, detail: `unknown check type ${check.type}` };
     try {
-        return evaluate(model, check);
+        return evaluate(model, check, context);
     } catch (error) {
         return { ok: false, detail: `check threw: ${error.message}` };
     }
@@ -460,7 +568,7 @@ export function evaluateCheck(model, check) {
  *   step; earlier checks are regressed only when they once passed (a failing
  *   step is reported once, not repeated at every later step)
  */
-export function scoreStep(model, steps, stepIndex, passedBefore = null) {
+export function scoreStep(model, steps, stepIndex, passedBefore = null, context = {}) {
     const results = [];
     steps.slice(0, stepIndex + 1).forEach((step, index) => {
         step.checks.forEach((check, checkIndex) => {
@@ -468,7 +576,7 @@ export function scoreStep(model, steps, stepIndex, passedBefore = null) {
             const key = checkKey(step, checkIndex);
             if (!own && (check.persist === false || step.persist === false)) return;
             if (!own && passedBefore && !passedBefore.has(key)) return;
-            const outcome = evaluateCheck(model, check);
+            const outcome = evaluateCheck(model, check, context);
             results.push({
                 key,
                 step: step.id,

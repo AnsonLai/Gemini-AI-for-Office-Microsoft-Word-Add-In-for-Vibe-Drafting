@@ -13,6 +13,20 @@ const session = window.__GOLDEN_SESSION__;
 const nativeFetch = globalThis.fetch.bind(globalThis);
 const consoleLines = [];
 let currentStep = null;
+let pendingSourceDiagnostics = Promise.resolve();
+
+// Source snapshots can be enabled only by an explicit deterministic golden
+// replay flag. The caller restricts this to the local NDA fixture and stores
+// them under ignored .cache output; ordinary add-in builds have no driver.
+if (session?.sourceDiagnostics === true) {
+    globalThis.__WORD_SOURCE_DIAGNOSTICS__ = details => {
+        if (!currentStep) return;
+        const step = currentStep;
+        pendingSourceDiagnostics = pendingSourceDiagnostics.then(() =>
+            post('/golden/source-diagnostics', { step, details })
+        );
+    };
+}
 
 const stringify = value => {
     if (value instanceof Error) return `${value.name}: ${value.message}`;
@@ -105,6 +119,7 @@ async function runStep(step, index) {
     await waitFor(() => input.disabled, 5000, `step ${step.id} to start`);
     await waitFor(() => !input.disabled, session.stepTimeoutMs, `step ${step.id} to finish`);
     await delay(500);
+    await pendingSourceDiagnostics;
 
     const transcript = chatMessages().slice(before);
     const bytes = await exportDocx();

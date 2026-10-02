@@ -11,7 +11,8 @@ import {
     getDefaultAuthor,
     acceptTrackedChangesInOoxml,
     inspectDocumentParts,
-    mergeNumberingXmlBySchemaOrder
+    mergeNumberingXmlBySchemaOrder,
+    computeDocumentPartsRevisionToken
 } from '@ansonlai/docx-redline-js';
 import {
     createParser,
@@ -205,6 +206,14 @@ function readBatchSource(scopeOoxml) {
             numberingXml: packagePartXml(packageDoc, '/word/numbering.xml'),
             stylesXml: packagePartXml(packageDoc, '/word/styles.xml')
         };
+        // Bind every remaining transported dependency through the public token API.
+        // Package assembly preserves these parts, so freshness must cover them too.
+        const covered = new Set(['/word/document.xml', '/word/comments.xml', '/word/commentsExtended.xml', '/word/numbering.xml', '/word/styles.xml']);
+        parts.additionalParts = Object.fromEntries(Array.from(packageDoc.getElementsByTagNameNS(NS_PKG, 'part'))
+            .map(part => [part.getAttribute('pkg:name'), part])
+            .filter(([name]) => name && !covered.has(name))
+            .map(([name, part]) => [name, packagePartXml(packageDoc, name)
+                || part.getElementsByTagNameNS(NS_PKG, 'binaryData')[0]?.textContent || '']));
         const inspection = inspectDocumentParts(parts);
         if (inspection.status === 'error') throw new Error(inspection.error?.message || 'Cannot inspect Word scope');
         return { ...parts, paragraphs: inspection.paragraphs, packageDoc };
@@ -248,10 +257,7 @@ export function inspectWordSource(scopeOoxml, options = {}) {
         'documentXml', 'commentsXml', 'commentsExtendedXml', 'commentsIdsXml',
         'commentsExtensibleXml', 'numberingXml', 'stylesXml'
     ].map(name => [name, source[name] || null]));
-    parts.additionalParts = Object.fromEntries([
-        ['word/commentsIds.xml', parts.commentsIdsXml],
-        ['word/commentsExtensible.xml', parts.commentsExtensibleXml]
-    ].filter(([, xml]) => xml));
+    parts.additionalParts = source.additionalParts || {};
     const inspection = inspectDocumentParts(parts, { ...options, revisionView: 'accepted' });
     if (inspection.status !== 'ok') throw Object.assign(new Error(inspection.error?.message || 'Canonical inspection failed.'), { code: inspection.error?.code || 'CANONICAL_CONTEXT_UNAVAILABLE' });
     return { parts, inspection };
@@ -271,9 +277,13 @@ export async function prepareCanonicalBatch(scopeOoxml, operations, options = {}
         documentXml: source.documentXml,
         paragraphs: source.paragraphs,
         commentsXml: source.commentsXml || null,
+        commentsExtendedXml: source.commentsExtendedXml || null,
+        commentsIdsXml: source.commentsIdsXml || null,
+        commentsExtensibleXml: source.commentsExtensibleXml || null,
         numberingXml: source.numberingXml || null,
         stylesXml: source.stylesXml || null
     };
+    publicSource.additionalParts = source.additionalParts || {};
     const batch = typeof operations === 'function'
         ? await operations(publicSource)
         : operations;
@@ -306,6 +316,10 @@ export async function prepareCanonicalBatch(scopeOoxml, operations, options = {}
             generateRedlines: options.generateRedlines !== false,
             existingRevisions: options.existingRevisions,
             sanitizeInput: options.sanitizeInput === true,
+            strictTargets: options.strictTargets !== false,
+            expectedRevision: options.expectedRevision === true
+                ? await computeDocumentPartsRevisionToken(runtimeContext ? { documentXml: source.documentXml, ...runtimeContext } : publicSource)
+                : options.expectedRevision,
             onInfo: options.onInfo,
             onWarn: options.onWarn
         }

@@ -68,11 +68,98 @@ function resolveParagraph(context, spec, nth = 1) {
     return paragraph;
 }
 
-/** Deep-resolve { $p }, { $all }, { $anchor } placeholders against a context. */
-export function resolveReferences(value, context) {
-    if (Array.isArray(value)) return value.map(item => resolveReferences(item, context));
+function currentStepMessages(payload, requestPrompt) {
+    const messages = Array.isArray(payload?.contents) ? payload.contents : [];
+    if (typeof requestPrompt !== 'string' || !requestPrompt) return messages;
+    let requestIndex = -1;
+    for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+        const message = messages[messageIndex];
+        if (message?.role !== 'user') continue;
+        const text = (Array.isArray(message.parts) ? message.parts : [])
+            .filter(part => typeof part?.text === 'string')
+            .map(part => part.text)
+            .join('\n');
+        if (text.includes(requestPrompt)) requestIndex = messageIndex;
+    }
+    return requestIndex < 0 ? [] : messages.slice(requestIndex);
+}
+
+function latestFunctionResponse(payload, toolName, requestPrompt = null) {
+    const messages = currentStepMessages(payload, requestPrompt);
+    for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
+        const parts = Array.isArray(messages[messageIndex]?.parts) ? messages[messageIndex].parts : [];
+        for (let partIndex = parts.length - 1; partIndex >= 0; partIndex--) {
+            const functionResponse = parts[partIndex]?.functionResponse;
+            if (functionResponse?.name === toolName) return functionResponse;
+        }
+    }
+    return null;
+}
+
+function parseFunctionResponse(functionResponse) {
+    const content = functionResponse?.response?.content;
+    const text = Array.isArray(content)
+        ? content.map(part => typeof part?.text === 'string' ? part.text : '').join('\n').trim()
+        : '';
+    if (!text) return null;
+    try { return JSON.parse(text); } catch { return text; }
+}
+
+/** Parse the latest function result after this request's prompt, ignoring prior request history. */
+export function extractLatestFunctionResponse(payload, toolName, requestPrompt = null) {
+    return parseFunctionResponse(latestFunctionResponse(payload, toolName, requestPrompt));
+}
+
+/** All parsed function results after a request's own prompt, in history order. */
+export function extractFunctionResponses(payload, toolName, requestPrompt = null) {
+    const results = [];
+    for (const message of currentStepMessages(payload, requestPrompt)) {
+        for (const part of Array.isArray(message?.parts) ? message.parts : []) {
+            if (part?.functionResponse?.name === toolName) results.push(parseFunctionResponse(part.functionResponse));
+        }
+    }
+    return results;
+}
+
+/** The latest inspection result actually present in Gemini's function-response history. */
+export function extractLatestInspection(payload, requestPrompt = null) {
+    const response = extractLatestFunctionResponse(payload, 'inspect_document', requestPrompt);
+    return response && typeof response === 'object' ? response : null;
+}
+
+function inspectionForHandle(payload, requestPrompt) {
+    const functionResponse = latestFunctionResponse(payload, 'inspect_document', requestPrompt);
+    if (!functionResponse) throw new Error('$handle/$end requires an inspect_document response in the current model history');
+    const inspection = parseFunctionResponse(functionResponse);
+    if (!inspection || inspection.status !== 'ok') {
+        throw new Error('The latest inspect_document response did not contain a successful JSON result');
+    }
+    return inspection;
+}
+
+function resolveHandle(inspection, spec, nth = 1) {
+    const matches = (Array.isArray(inspection.targets) ? inspection.targets : [])
+        .filter(target => typeof target?.handle === 'string' && matcher(spec)(target.text));
+    const target = matches[nth - 1];
+    if (!target) {
+        throw new Error(`Replay handle reference ${JSON.stringify(spec)}${nth > 1 ? ` (#${nth})` : ''} matched ${matches.length} inspected target(s)`);
+    }
+    return target.handle;
+}
+
+function resolveDocumentEnd(inspection) {
+    const handle = inspection.documentEnd?.handle;
+    if (typeof handle !== 'string' || !handle) throw new Error('Replay $end reference requires an inspected document-end handle');
+    return handle;
+}
+
+/** Deep-resolve legacy { $p }, { $all }, { $anchor } and direct { $handle }/{ $end } references. */
+export function resolveReferences(value, context, payload = null, requestPrompt = null) {
+    if (Array.isArray(value)) return value.map(item => resolveReferences(item, context, payload, requestPrompt));
     if (!value || typeof value !== 'object') return value;
     if ('$p' in value) return resolveParagraph(context, value.$p, value.nth).index;
+    if ('$handle' in value) return resolveHandle(inspectionForHandle(payload, requestPrompt), value.$handle, value.nth);
+    if ('$end' in value) return resolveDocumentEnd(inspectionForHandle(payload, requestPrompt));
     // Copy the anchor verbatim (whitespace collapsed only), as the prompt instructs.
     if ('$anchor' in value) return resolveParagraph(context, value.$anchor, value.nth).text.replace(/\s+/g, ' ').trim().slice(0, ANCHOR_LENGTH);
     if ('$all' in value) {
@@ -80,12 +167,12 @@ export function resolveReferences(value, context) {
         if (indices.length === 0) throw new Error(`Replay reference $all ${JSON.stringify(value.$all)} matched no paragraphs`);
         return indices;
     }
-    return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, resolveReferences(nested, context)]));
+    return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, resolveReferences(nested, context, payload, requestPrompt)]));
 }
 
 /** Wrap a scripted entry as a Gemini generateContent response body. */
-export function buildResponse(entry, context) {
-    const resolved = resolveReferences(entry.chat ?? entry.aux, context);
+export function buildResponse(entry, context, payload = null, requestPrompt = null) {
+    const resolved = resolveReferences(entry.chat ?? entry.aux, context, payload, requestPrompt);
     const part = entry.chat != null ? resolved : { text: JSON.stringify(resolved) };
     return { candidates: [{ content: { role: 'model', parts: [part] }, finishReason: 'STOP', index: 0 }] };
 }
@@ -99,10 +186,27 @@ export function createReplayQueue(step) {
     const queue = [...(step.replay || [])];
     const desyncs = [];
     const served = [];
+    const requestCounts = { chat: 0, aux: 0, other: 0 };
+    let functionResponses = {};
+    let functionResponseHistory = {};
     let lastContext = [];
     return {
         next(payload) {
             const kind = classifyRequest(payload);
+            requestCounts[kind] = (requestCounts[kind] || 0) + 1;
+            functionResponses = {};
+            functionResponseHistory = {};
+            for (const message of currentStepMessages(payload, step.prompt)) {
+                for (const part of Array.isArray(message?.parts) ? message.parts : []) {
+                    const functionResponse = part?.functionResponse;
+                    if (typeof functionResponse?.name === 'string') {
+                        const name = functionResponse.name;
+                        const result = parseFunctionResponse(functionResponse);
+                        functionResponses[name] = result;
+                        (functionResponseHistory[name] ||= []).push(result);
+                    }
+                }
+            }
             const context = extractContext(payload);
             if (context.length) lastContext = context;
             if (kind === 'other') {
@@ -118,7 +222,7 @@ export function createReplayQueue(step) {
             }
             queue.shift();
             try {
-                const response = buildResponse(entry, context.length ? context : lastContext);
+                const response = buildResponse(entry, context.length ? context : lastContext, payload, step.prompt);
                 served.push({ kind, part: response.candidates[0].content.parts[0] });
                 return { kind, entry, response };
             } catch (error) {
@@ -128,7 +232,7 @@ export function createReplayQueue(step) {
             }
         },
         summary() {
-            return { remaining: queue.length, desyncs, served };
+            return { remaining: queue.length, desyncs, served, requestCounts, functionResponses, functionResponseHistory };
         }
     };
 }

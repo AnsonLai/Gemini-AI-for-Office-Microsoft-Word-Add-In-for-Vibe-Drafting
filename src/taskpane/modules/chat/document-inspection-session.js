@@ -186,7 +186,10 @@ export function createDocumentInspectionSession({
   revisionView = 'accepted',
   maxResults = DEFAULT_MAX_RESULTS,
   maxTextChars = DEFAULT_MAX_TEXT_CHARS,
-  maxTotalTextChars = DEFAULT_MAX_TOTAL_TEXT_CHARS
+  maxTotalTextChars = DEFAULT_MAX_TOTAL_TEXT_CHARS,
+  computeRevisionToken = computeDocumentPartsRevisionToken,
+  getExcludedParagraphIndex = () => null,
+  onStaleSource = null
 } = {}) {
   if (typeof readSource !== 'function') throw new TypeError('createDocumentInspectionSession requires readSource().');
   if (!['accepted', 'rejected'].includes(revisionView)) throw new TypeError('revisionView must be accepted or rejected.');
@@ -206,12 +209,16 @@ export function createDocumentInspectionSession({
   const coverage = new Map();
   let generation = 0;
   let currentSnapshot = null;
+  let diagnosticParts = null;
+  let diagnosticHostParagraphCount;
   let nextHandleNumber = 0;
   let nextCoverageNumber = 0;
 
   function invalidate() {
     generation += 1;
     currentSnapshot = null;
+    diagnosticParts = null;
+    diagnosticHostParagraphCount = undefined;
     handles.clear();
     cursors.clear();
     coverage.clear();
@@ -227,7 +234,7 @@ export function createDocumentInspectionSession({
       throw sessionError('REVISION_VIEW_MISMATCH', `The host source is not in the ${revisionView} revision view.`);
     }
 
-    const revisionToken = await computeDocumentPartsRevisionToken(raw.parts);
+    const revisionToken = await computeRevisionToken(raw.parts, raw);
     if (!revisionToken?.coveredParts?.includes('word/document.xml')) {
       throw sessionError('MISSING_CANONICAL_SOURCE', 'The canonical source token does not cover word/document.xml.');
     }
@@ -238,6 +245,7 @@ export function createDocumentInspectionSession({
       revision: raw.revision,
       revisionView,
       parts: raw.parts,
+      excludedParagraphIndex: getExcludedParagraphIndex(raw.parts, raw),
       revisionToken
     };
   }
@@ -245,6 +253,7 @@ export function createDocumentInspectionSession({
   function activateSnapshot(snapshot) {
     if (currentSnapshot && !sameSnapshot(currentSnapshot, snapshot)) invalidate();
     if (!currentSnapshot) currentSnapshot = snapshotIdentity(snapshot);
+    if (onStaleSource) { diagnosticParts = snapshot.parts; diagnosticHostParagraphCount = snapshot.raw.hostParagraphCount; }
     return currentSnapshot;
   }
 
@@ -384,7 +393,8 @@ export function createDocumentInspectionSession({
         throw sessionError(selectedInspection?.error?.code || 'CANONICAL_INSPECTION_FAILED', selectedInspection?.error?.message || 'The Word source could not be inspected.');
       }
 
-      const strongParagraphs = (selectedInspection.paragraphs || []).filter(hasStrongDescriptor);
+      const editableParagraphs = (selectedInspection.paragraphs || []).filter(paragraph => paragraph.index !== snapshot.excludedParagraphIndex);
+      const strongParagraphs = editableParagraphs.filter(hasStrongDescriptor);
       if (handles.size + strongParagraphs.length + (normalized.includeDocumentEnd ? 1 : 0) > MAX_STORED_HANDLES) {
         invalidate();
         throw sessionError('HANDLE_STORE_LIMIT', 'This inspection session reached its handle limit. Start a fresh inspection session.');
@@ -395,9 +405,9 @@ export function createDocumentInspectionSession({
       }
 
       const issued = [];
-      const unresolvedCount = (selectedInspection.paragraphs || []).length;
+      const unresolvedCount = editableParagraphs.length;
       const handleByIndex = new Map();
-      for (const paragraph of selectedInspection.paragraphs || []) {
+      for (const paragraph of editableParagraphs) {
         if (!hasStrongDescriptor(paragraph)) continue;
         const handle = makeHandle('paragraph', paragraph, snapshot);
         issued.push({ paragraph, handle });
@@ -457,7 +467,7 @@ export function createDocumentInspectionSession({
           revisionView,
           excerptLength: Math.min(maxTextChars, 240)
         });
-        const lastParagraph = fullInspection.paragraphs?.at(-1);
+        const lastParagraph = fullInspection.paragraphs?.filter(paragraph => paragraph.index !== snapshot.excludedParagraphIndex).at(-1);
         if (fullInspection.status === 'ok' && hasStrongDescriptor(lastParagraph)) {
           endHandle = makeHandle('document-end', lastParagraph, snapshot, {
             coverageId,
@@ -507,6 +517,10 @@ export function createDocumentInspectionSession({
       }
       if (snapshot.revisionView !== expected.revisionView || !sameToken(snapshot.revisionToken, expected.revisionToken)
         || !Object.is(snapshot.revision, expected.revision)) {
+        try { onStaleSource?.({ before: diagnosticParts, after: snapshot.parts,
+          beforeHostParagraphCount: diagnosticHostParagraphCount, afterHostParagraphCount: snapshot.raw.hostParagraphCount,
+          excludedParagraphIndex: snapshot.excludedParagraphIndex,
+        }); } catch { /* Diagnostics only. */ }
         invalidate();
         throw sessionError('STALE_DOCUMENT_SOURCE', 'The Word source changed after inspection. Inspect the current document again before editing.');
       }
@@ -528,6 +542,7 @@ export function createDocumentInspectionSession({
           kind: entry.kind,
           ...(entry.kind === 'document-end' ? { position: 'after' } : {}),
           fullTextInspected: entry.fullTextInspected === true,
+          location: describeLocation(current),
           descriptor: clonePlain(current)
         };
       });
