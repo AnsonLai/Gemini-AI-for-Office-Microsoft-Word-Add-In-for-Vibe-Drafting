@@ -1,11 +1,15 @@
 import './setup-xml-provider.mjs';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   acceptTrackedChangesInOoxml,
-  inspectDocumentParts
+  inspectDocumentParts,
+  openDocx,
+  rejectTrackedChangesInOoxml
 } from '@ansonlai/docx-redline-js';
 import { buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
-import { prepareCanonicalBatch, captureSourceBaseline } from '../src/taskpane/modules/docx-redline-js-integration/consumer-core.js';
+import { prepareCanonicalBatch, inspectWordSource } from '../src/taskpane/modules/docx-redline-js-integration/consumer-core.js';
 import {
   compileDocumentEdits,
   DocumentEditIntentError
@@ -16,13 +20,30 @@ function makePackage(paragraphAndTableXml) {
 }
 
 function targetsFrom(packageXml) {
-  return captureSourceBaseline(packageXml).map((paragraph, index) => ({
+  return inspectWordSource(packageXml).inspection.paragraphs.map((paragraph, index) => ({
     ...paragraph,
     handle: `handle-${index + 1}`,
     location: `Paragraph ${index + 1}`,
     fullTextInspected: true,
     kind: 'paragraph'
   }));
+}
+
+const LIST_FIXTURE_PATH = fileURLToPath(new URL('./fixtures/agentic-lists/nested-lists-source.docx', import.meta.url));
+const listFixture = openDocx(readFileSync(LIST_FIXTURE_PATH));
+function flatOpcFromListFixture() {
+  const part = (name, contentType) => {
+    const bytes = listFixture.entries.get(name);
+    assert.ok(bytes, `Word-authored list fixture is missing ${name}`);
+    const xml = new TextDecoder().decode(bytes).replace(/<\?xml[^>]*\?>/g, '');
+    return `<pkg:part pkg:name="/${name}" pkg:contentType="${contentType}"><pkg:xmlData>${xml}</pkg:xmlData></pkg:part>`;
+  };
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">
+      ${part('word/document.xml', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml')}
+      ${part('word/numbering.xml', 'application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml')}
+      ${part('word/styles.xml', 'application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml')}
+    </pkg:package>`;
 }
 
 function createSession(targets, { endHandle = null } = {}) {
@@ -190,6 +211,137 @@ assert.deepEqual(inspectDocumentParts({ documentXml: insertAccepted.oxml }).para
   'Existing clause.', 'Additional plain paragraph.'
 ]);
 assert.match(insertAccepted.oxml, /<w:b(?:\s|\/|>)/, 'plain paragraph insertion retains existing paragraph character formatting');
+
+const listSourcePackage = flatOpcFromListFixture();
+const listSourceTargets = targetsFrom(listSourcePackage);
+for (const [targetText, expectedFormat, expectedLevel, expectedSiblingLabels = {}] of [
+  ['Bullet Root A', 'bullet', 0],
+  ['Bullet Root B', 'bullet', 0],
+  ['Bullet Insertion Anchor', 'bullet', 1],
+  ['Number Root A', 'decimal', 0, {
+    'Number Nested Anchor': '2.1.', 'Number Root B': '3.', 'Number Continued Item': '4.'
+  }],
+  ['Number Root B', 'decimal', 0, { 'Number Continued Item': '4.' }],
+  ['Number Restart Root', 'decimal', 0, { 'Number Restart Nested': '2.1.' }],
+  ['Number Nested Anchor', 'decimal', 1]
+]) {
+  const target = listSourceTargets.find(item => item.exactText === targetText);
+  assert.ok(target, `Word-authored fixture contains ${targetText}`);
+  assert.deepEqual(target.list && { format: target.list.format, level: target.list.level },
+    { format: expectedFormat, level: expectedLevel }, `${targetText} is a certified list target`);
+  const listSession = createSession(listSourceTargets);
+  const listCompiled = await compileDocumentEdits([
+    { type: 'insert_list_item', target: target.handle, text: `Added at level ${expectedLevel}.` }
+  ], { session: listSession, source });
+  assert.equal(listSession.calls.length, 1, 'list insertion resolves one strong target against a fresh snapshot');
+  const insertedText = `Added at level ${expectedLevel}.`;
+  const markerPair = expectedFormat === 'bullet'
+    ? ['-', '-']
+    : expectedLevel === 0 ? ['1.', '2.'] : ['1.1.', '1.2.'];
+  const operation = listCompiled.operations[0];
+  assert.equal(operation.type, 'list-change', 'list edits use the documented complete-list operation');
+  assert.equal(operation.structuredContent, true);
+  assert.equal(operation.modified, `${markerPair[0]} ${target.exactText}\n${markerPair[1]} ${insertedText}`,
+    'the redline describes the complete affected list block with structural markers');
+  const listPrepared = await prepareCanonicalBatch(listSourcePackage, listCompiled.operations, { author: 'Intent Compiler Test' });
+  assert.equal(listPrepared.status, 'ready', JSON.stringify(listPrepared.result?.error || listPrepared.result?.results));
+  const listAccepted = acceptTrackedChangesInOoxml(listPrepared.insertionPayload, { allAuthors: true });
+  const acceptedParagraphs = inspectWordSource(listAccepted.oxml).inspection.paragraphs;
+  const inserted = acceptedParagraphs.find(item => item.exactText === insertedText);
+  const targetAfter = acceptedParagraphs.find(item => item.exactText === targetText);
+  assert.ok(inserted && targetAfter, `${targetText}: accepted output keeps text and adds the requested item`);
+  assert.equal(inserted.index, targetAfter.index + 1, 'the inserted item immediately follows its anchor');
+  assert.deepEqual(inserted.list && { format: inserted.list.format, level: inserted.list.level },
+    { format: expectedFormat, level: expectedLevel }, "the source-format marker preserves the inserted item's format and level");
+  assert.deepEqual(targetAfter.list && { format: targetAfter.list.format, level: targetAfter.list.level },
+    { format: expectedFormat, level: expectedLevel }, 'the complete-list recipe preserves the source anchor list binding');
+  assert.equal(inserted.list?.numId, targetAfter.list?.numId, 'the inserted item remains in the source numbering sequence');
+  assert.equal(targetAfter.list?.label, target.list.label, 'the anchor retains its original visible label');
+  if (expectedFormat === 'decimal') {
+    const labelSegments = target.list.label.replace(/\.$/, '').split('.').map(Number);
+    labelSegments[labelSegments.length - 1] += 1;
+    assert.equal(inserted.list?.label, `${labelSegments.join('.')}.`, 'the inserted decimal label follows the source numbering context');
+  } else {
+    assert.equal(inserted.list?.label, target.list.label, 'the inserted bullet retains the source level glyph');
+  }
+  for (const sourceItem of listSourceTargets.filter(item => item.list)) {
+    const actual = acceptedParagraphs.find(item => item.exactText === sourceItem.exactText);
+    assert.deepEqual(actual.list && { numId: actual.list.numId, level: actual.list.level, format: actual.list.format }, {
+      numId: sourceItem.list.numId, level: sourceItem.list.level, format: sourceItem.list.format
+    }, `${sourceItem.exactText} keeps its source list identity and level`);
+    assert.equal(actual.list.label, expectedSiblingLabels[sourceItem.exactText] ?? sourceItem.list.label,
+      `${sourceItem.exactText} retains its visible number unless naturally renumbered by the inserted sibling`);
+  }
+  const expectedTexts = [];
+  for (const item of listSourceTargets) {
+    expectedTexts.push(item.exactText);
+    if (item.handle === target.handle) expectedTexts.push(insertedText);
+  }
+  assert.deepEqual(acceptedParagraphs.map(item => item.exactText), expectedTexts,
+    'Accept All adds exactly the requested same-level list item');
+  const rejected = rejectTrackedChangesInOoxml(listPrepared.insertionPayload, { allAuthors: true });
+  assert.equal(rejected.status, undefined, JSON.stringify(rejected.error));
+  const rejectedParagraphs = inspectWordSource(rejected.oxml).inspection.paragraphs;
+  assert.deepEqual(rejectedParagraphs.map(item => item.exactText), listSourceTargets.map(item => item.exactText),
+    'Reject All restores the source text exactly');
+  assert.deepEqual(rejectedParagraphs.map(item => item.list && { numId: item.list.numId, level: item.list.level, format: item.list.format, label: item.list.label }),
+    listSourceTargets.map(item => item.list && { numId: item.list.numId, level: item.list.level, format: item.list.format, label: item.list.label }),
+    'Reject All restores every original paragraph list binding');
+}
+
+const plainTarget = listSourceTargets.find(item => item.exactText === 'Plain paragraph before bullet list.');
+await assert.rejects(
+  () => compileDocumentEdits([{ type: 'insert_list_item', target: plainTarget.handle, text: 'Must not create a list.' }], {
+    session: createSession(listSourceTargets), source
+  }),
+  error => error instanceof DocumentEditIntentError && error.code === 'UNSUPPORTED_DOCUMENT_EDIT_TARGET',
+  'list insertion refuses a plain paragraph instead of creating list structure'
+);
+const levelTwoTargets = listSourceTargets.map(item => item.exactText === 'Bullet Insertion Anchor'
+  ? { ...item, list: { ...item.list, level: 2 } } : item);
+await assert.rejects(
+  () => compileDocumentEdits([{ type: 'insert_list_item', target: 'handle-4', text: 'Unsupported deeper item.' }], {
+    session: createSession(levelTwoTargets), source
+  }),
+  error => error instanceof DocumentEditIntentError && error.code === 'UNSUPPORTED_DOCUMENT_EDIT_TARGET',
+  'list insertion refuses levels beyond the certified 0/1 subset'
+);
+const unsupportedFormatTargets = listSourceTargets.map(item => item.exactText === 'Number Root A'
+  ? { ...item, list: { ...item.list, format: 'upperRoman' } } : item);
+await assert.rejects(
+  () => compileDocumentEdits([{ type: 'insert_list_item', target: 'handle-8', text: 'Unsupported Roman item.' }], {
+    session: createSession(unsupportedFormatTargets), source
+  }),
+  error => error instanceof DocumentEditIntentError && error.code === 'UNSUPPORTED_DOCUMENT_EDIT_TARGET',
+  'list insertion refuses numbered formats outside bullet and decimal'
+);
+await assert.rejects(
+  () => compileDocumentEdits([{ type: 'insert_list_item', target: 'handle-3', text: 'A\nsecond paragraph.' }], {
+    session: createSession(listSourceTargets), source
+  }),
+  error => error instanceof DocumentEditIntentError && error.code === 'UNSUPPORTED_DOCUMENT_EDIT',
+  'list item text must remain one plain line'
+);
+await assert.rejects(
+  () => compileDocumentEdits(Array.from({ length: 41 }, () => ({
+    type: 'rewrite_paragraph', target: 'handle-1', text: 'Beyond the batch limit.'
+  })), { session: createSession(listSourceTargets), source }),
+  error => error instanceof DocumentEditIntentError && error.code === 'INVALID_DOCUMENT_EDIT_BATCH',
+  'the compiler defends the 40-intent protocol limit independently of registry validation'
+);
+
+const deleteListSession = createSession(listSourceTargets);
+await assert.rejects(
+  () => compileDocumentEdits([{ type: 'delete_paragraph', target: 'handle-3' }], { session: deleteListSession, source }),
+  error => error instanceof DocumentEditIntentError && error.code === 'UNSUPPORTED_DOCUMENT_EDIT_TARGET',
+  'paragraph deletion refuses list items until list deletion fidelity is certified'
+);
+const deleteTableSession = createSession(sourceParagraphs);
+await assert.rejects(
+  () => compileDocumentEdits([{ type: 'delete_paragraph', target: 'handle-2' }], { session: deleteTableSession, source }),
+  error => error instanceof DocumentEditIntentError && error.code === 'UNSUPPORTED_DOCUMENT_EDIT_TARGET',
+  'paragraph deletion refuses table cells'
+);
 
 const formatCommentPackage = makePackage('<w:p><w:r><w:t>Format and comment this.</w:t></w:r></w:p>');
 const formatComment = await compileFor(formatCommentPackage, [

@@ -36,7 +36,7 @@ for (const step of scenario.steps) {
 assert.equal(directScenario.steps.length, scenario.steps.length, 'the direct scenario keeps all 16 original steps');
 assert.deepEqual(directScenario.steps.map(step => step.prompt), scenario.steps.map(step => step.prompt), 'direct prompts are byte-for-byte preserved');
 const unsupportedDirectStepIds = [
-  '03-recitals-list', '04-parties-table', '06-signature-date-row', '07-confidential-bullet',
+  '03-recitals-list', '04-parties-table', '06-signature-date-row',
   '09-archival-subbullet', '11-required-disclosure-rewrite', '12-headers-to-list'
 ];
 for (const [index, directStep] of directScenario.steps.entries()) {
@@ -57,6 +57,14 @@ for (const [index, directStep] of directScenario.steps.entries()) {
     assert.equal(Object.hasOwn(directStep, 'deferredChecks'), false);
   }
 }
+const confidentialBulletStep = directScenario.steps.find(step => step.id === '07-confidential-bullet');
+const confidentialBulletCall = confidentialBulletStep.replay.find(entry => entry.chat?.functionCall?.name === 'apply_document_edits');
+assert.deepEqual(confidentialBulletCall.chat.functionCall.args.edits[0], {
+  type: 'insert_list_item',
+  target: { $handle: { startsWith: 'Technical data, specifications' } },
+  text: 'Photographs, videos, and other recordings of prototypes and physical hardware.'
+}, 'the direct overlay retains the original request with a same-level typed list insertion');
+assert.equal(confidentialBulletStep.checks[0].type, 'list', 'step 7 is checked against the resulting actual list sequence');
 const purposeStep = directScenario.steps.find(step => step.id === '15-bold-purpose-phrase');
 const titanStep = directScenario.steps.find(step => step.id === '16-titan-rewrite');
 assert.equal(purposeStep.checks.find(check => check.label === 'purpose phrase is bold').persist, false,

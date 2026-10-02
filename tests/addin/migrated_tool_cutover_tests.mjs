@@ -1,105 +1,60 @@
-import assert from 'assert';
-import fs from 'fs';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { parse } from 'acorn';
 
-const agenticToolsPath = 'src/taskpane/modules/commands/agentic-tools.js';
-const source = fs.readFileSync(agenticToolsPath, 'utf8');
-const program = parse(source, { ecmaVersion: 'latest', sourceType: 'module' });
+const read = path => readFileSync(path, 'utf8');
+const typedPaths = [
+  'src/taskpane/taskpane.js',
+  'src/taskpane/modules/chat/document-agent-loop.js',
+  'src/taskpane/modules/chat/tool-registry.js',
+  'src/taskpane/modules/chat/document-tools.js',
+  'src/taskpane/modules/chat/document-edit-intents.js',
+  'src/taskpane/modules/chat/document-inspection-session.js',
+  'src/taskpane/modules/chat/word-document-source.js',
+];
+const retiredImports = /(?:commands\/)?(?:agentic-tools|table-request-validation|mutation-outcome)\.js|utils\/(?:markdown-utils|text-statistics)\.js/;
+const noProviderPaths = typedPaths.slice(1);
+const purePaths = [
+  'src/taskpane/modules/chat/document-agent-loop.js',
+  'src/taskpane/modules/chat/tool-registry.js',
+  'src/taskpane/modules/chat/document-edit-intents.js',
+  'src/taskpane/modules/chat/document-inspection-session.js',
+];
 
-function extractFunctionBody(functionName) {
-    function findDeclaration(node) {
-        if (!node || typeof node !== 'object') return null;
-        if (node.type === 'FunctionDeclaration' && node.id?.name === functionName) return node;
-        for (const value of Object.values(node)) {
-            if (Array.isArray(value)) {
-                for (const child of value) {
-                    const found = findDeclaration(child);
-                    if (found) return found;
-                }
-            } else if (value && typeof value === 'object') {
-                const found = findDeclaration(value);
-                if (found) return found;
-            }
-        }
-        return null;
-    }
-    const declaration = findDeclaration(program);
-    assert.ok(declaration, `Missing function: ${functionName}`);
-    return source.slice(declaration.body.start + 1, declaration.body.end - 1);
+for (const path of typedPaths) {
+  const source = read(path);
+  const imports = parse(source, { ecmaVersion: 'latest', sourceType: 'module' }).body
+    .filter(node => node.type === 'ImportDeclaration')
+    .map(node => node.source.value);
+  assert.equal(source.includes('modules/commands/agentic-tools.js'), false,
+    `${path}: the retired general executor must not be in the typed production path`);
+  assert.equal(imports.some(specifier => retiredImports.test(specifier)), false,
+    `${path}: obsolete executor helpers must not be imported by the typed production path`);
 }
 
-function assertContains(text, token, message) {
-    assert.strictEqual(text.includes(token), true, message);
+for (const path of noProviderPaths) {
+  const source = read(path);
+  const imports = parse(source, { ecmaVersion: 'latest', sourceType: 'module' }).body
+    .filter(node => node.type === 'ImportDeclaration')
+    .map(node => node.source.value);
+  assert.equal(imports.some(specifier => /gemini|generative-language|googleapis/i.test(specifier)), false,
+    `${path}: typed document tools receive the model request through the injected boundary`);
+  assert.doesNotMatch(source, /\bfetch\s*\(/, `${path}: provider transport belongs to the shared client`);
 }
 
-function assertNotContains(text, token, message) {
-    assert.strictEqual(text.includes(token), false, message);
+for (const path of purePaths) {
+  const source = read(path);
+  assert.doesNotMatch(source, /\bWord\.run\s*\(|\bOffice\./,
+    `${path}: pure dispatch/compiler/session code must not call Word or Office.js`);
+  assert.doesNotMatch(source, /\.insertParagraph\s*\(|\.insertText\s*\(|\.insertOoxml\s*\(|\.addRows\s*\(/,
+    `${path}: document mutations belong to the document-tools host boundary`);
 }
 
-function testRedlineCutover() {
-    const body = extractFunctionBody('executeRedline');
-    const applyBody = extractFunctionBody('applyRedlineChangeSet');
-    assertContains(
-        body,
-        'applyRedlineChangeSet(',
-        'executeRedline should route through applyRedlineChangeSet'
-    );
-    assertContains(
-        applyBody,
-        'applyRedlineChangesToWordContext(',
-        'applyRedlineChangeSet should route through shared redline runner'
-    );
-    assertNotContains(
-        body,
-        'routeChangeOperation(',
-        'executeRedline should not route through legacy command-level routeChangeOperation logic'
-    );
-}
+const documentTools = read('src/taskpane/modules/chat/document-tools.js');
+assert.doesNotMatch(documentTools, /\.insertParagraph\s*\(|\.insertText\s*\(|\.addRows\s*\(|\.insertComment\s*\(/,
+  'typed edits must not use the retired per-object native Word mutation routes');
+const sourceReader = read('src/taskpane/modules/chat/word-document-source.js');
+assert.doesNotMatch(sourceReader, /\.insertParagraph\s*\(|\.insertText\s*\(|\.insertOoxml\s*\(/,
+  'the Office.js source reader must remain read-only');
 
-function testCommentCutover() {
-    const body = extractFunctionBody('executeComment');
-    assertContains(
-        body,
-        'applyObservedParagraphOperation(',
-        'executeComment should route through the observed shared Word operation bridge'
-    );
-    assertNotContains(
-        body,
-        'insertComment(',
-        'executeComment should not use legacy Word search/insertComment path'
-    );
-}
-
-function testHighlightCutover() {
-    const body = extractFunctionBody('executeHighlight');
-    assertContains(
-        body,
-        'applyObservedParagraphOperation(',
-        'executeHighlight should route through the observed shared Word operation bridge'
-    );
-    assertNotContains(
-        body,
-        'applyHighlightToOoxml(',
-        'executeHighlight should not call legacy local OOXML highlight helper'
-    );
-}
-
-function testNoLegacyBridgeImport() {
-    const observedBody = extractFunctionBody('applyObservedParagraphOperation');
-    assertContains(observedBody, 'executePureOoxmlBatch(', 'Observed operations should use the atomic production batch runner');
-    assertNotContains(
-        source,
-        'shared-operation-bridge',
-        'agentic tools should not import legacy command shared-operation bridge module'
-    );
-}
-
-function run() {
-    testRedlineCutover();
-    testCommentCutover();
-    testHighlightCutover();
-    testNoLegacyBridgeImport();
-    console.log('PASS: migrated tool cutover tests');
-}
-
-run();
+console.log('PASS: typed document path excludes retired executors, provider bypasses and per-object native edits');

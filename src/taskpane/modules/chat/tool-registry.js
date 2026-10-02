@@ -1,5 +1,5 @@
 // One authoritative model protocol. Action-specific validation belongs to the intent compiler.
-const EDIT_TYPES = ['replace_text', 'rewrite_paragraph', 'delete_paragraph', 'insert_paragraph', 'append_paragraph', 'comment', 'format_text'];
+const EDIT_TYPES = ['replace_text', 'rewrite_paragraph', 'delete_paragraph', 'insert_paragraph', 'append_paragraph', 'insert_list_item', 'comment', 'format_text'];
 const DECLARATIONS = [{ function_declarations: [
   { name: 'inspect_document', description: 'Inspect accepted document text and obtain fresh opaque target handles. Search and surrounding context are library-backed; use cursor to continue a page.', parameters: {
     type: 'OBJECT', properties: {
@@ -11,7 +11,7 @@ const DECLARATIONS = [{ function_declarations: [
   { name: 'apply_document_edits', description: 'Validate and apply every independent requested intent as one atomic batch using previously inspected handles. Unsupported or invalid mixed batches make no changes.', parameters: {
     type: 'OBJECT', required: ['edits'], properties: { edits: { type: 'ARRAY', items: {
       type: 'OBJECT', required: ['type', 'target'], properties: {
-        type: { type: 'STRING', enum: EDIT_TYPES }, target: { type: 'STRING', description: 'Current opaque inspected paragraph handle; append requires the document-end handle.' },
+        type: { type: 'STRING', enum: EDIT_TYPES, description: 'insert_list_item adds one plain-text item at the same level as a fully inspected level 0/1 bullet or decimal target outside a table.' }, target: { type: 'STRING', description: 'Current opaque inspected paragraph handle; append requires the document-end handle.' },
         find: { type: 'STRING' }, replace: { type: 'STRING' }, text: { type: 'STRING' },
         occurrence: { type: 'INTEGER', description: '1-based exact text occurrence.' },
         position: { type: 'STRING', enum: ['before', 'after'] }, anchor: { type: 'STRING' },

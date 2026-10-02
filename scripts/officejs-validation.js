@@ -1,33 +1,163 @@
 /* global Office, Word */
-// Development-only entry point; never included in ordinary taskpane builds.
-import { executePureOoxmlBatch, captureWordSourceBaseline } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
-import { applyRedlineChangesToWordContext } from '../src/taskpane/modules/docx-redline-js-integration/word-redline-runner.js';
-import { planAgenticListOperations } from '../src/taskpane/modules/commands/list-operation-plan.js';
-import { initAgenticTools, executeInsertListItem } from '../src/taskpane/modules/commands/agentic-tools.js';
+// Development-only transport collector. Mutations go through the same typed
+// document tools and source-bound handles used by the task pane.
+import * as docxLibrary from '@ansonlai/docx-redline-js';
+import * as wordOperationRunner from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
+import { computeWordSourceRevisionToken, detectExportTailIndex } from '../src/taskpane/modules/docx-redline-js-integration/word-source-identity.js';
+import { createDocumentInspectionSession } from '../src/taskpane/modules/chat/document-inspection-session.js';
+import { createDocumentTools } from '../src/taskpane/modules/chat/document-tools.js';
+import { createWordDocumentSourceReader } from '../src/taskpane/modules/chat/word-document-source.js';
 
 const status = message => { document.getElementById('status').textContent = message; };
 function assert(condition, message) { if (!condition) throw new Error(message); }
-function createTimingSamples() {
-    const phases = {};
+function describeTrackingMode(mode) {
+    if (mode === Word.ChangeTrackingMode.off) return 'off';
+    if (mode === Word.ChangeTrackingMode.trackAll) return 'trackAll';
+    return String(mode);
+}
+function trackingMode(name) {
+    if (name === 'off') return Word.ChangeTrackingMode.off;
+    if (name === 'trackAll') return Word.ChangeTrackingMode.trackAll;
+    throw new Error(`Unsupported fixture tracking mode: ${name}`);
+}
+function createTransportCounters() {
     return {
-        record({ phase, durationMs }) { phases[phase] = durationMs; },
-        snapshot() { return { sampleCount: 1, ...phases }; }
+        sourceReads: 0,
+        contentWrites: 0,
+        nativeBodyTextWrites: 0,
+        nativeParagraphInsertCalls: [],
+        nativeListLevelWrites: [],
+        nativeListMethodCalls: [],
+        trackingTransitions: [],
+        inspectionSourceSnapshots: 0,
     };
 }
-function officeCall(action) {
-    return new Promise((resolve, reject) => action(result => {
+function instrumentedRun(stats) {
+    return callback => Word.run(async nativeContext => {
+        const nativeDocument = nativeContext.document;
+        const nativeBody = nativeDocument.body;
+        const instrumentListItem = item => item && new Proxy(item, {
+            get(raw, property) {
+                const value = Reflect.get(raw, property, raw);
+                return typeof value === 'function' ? value.bind(raw) : value;
+            },
+            set(raw, property, value) {
+                if (property === 'level') stats.nativeListLevelWrites.push(value);
+                return Reflect.set(raw, property, value, raw);
+            }
+        });
+        const instrumentList = list => list && new Proxy(list, {
+            get(raw, property) {
+                const value = Reflect.get(raw, property, raw);
+                if (['setLevelNumbering', 'startNewList', 'attachToList'].includes(String(property)) && typeof value === 'function') {
+                    return (...args) => {
+                        stats.nativeListMethodCalls.push(String(property));
+                        return value.apply(raw, args);
+                    };
+                }
+                return typeof value === 'function' ? value.bind(raw) : value;
+            }
+        });
+        const instrumentParagraph = paragraph => new Proxy(paragraph, {
+            get(raw, property) {
+                if (property === 'insertParagraph') return (...args) => {
+                    stats.nativeParagraphInsertCalls.push({ text: args[0], location: args[1] });
+                    return instrumentParagraph(raw.insertParagraph(...args));
+                };
+                if (property === 'listItem') return instrumentListItem(Reflect.get(raw, property, raw));
+                if (property === 'list') return instrumentList(Reflect.get(raw, property, raw));
+                const value = Reflect.get(raw, property, raw);
+                return typeof value === 'function' ? value.bind(raw) : value;
+            },
+            set(raw, property, value) { return Reflect.set(raw, property, value, raw); }
+        });
+        const nativeParagraphs = nativeBody.paragraphs;
+        const paragraphCollection = new Proxy(nativeParagraphs, {
+            get(raw, property) {
+                if (property === 'items') {
+                    const items = Reflect.get(raw, property, raw);
+                    return new Proxy(items, {
+                        get(collection, index) {
+                            const item = Reflect.get(collection, index, collection);
+                            return typeof index === 'string' && /^\d+$/.test(index) ? instrumentParagraph(item) : item;
+                        }
+                    });
+                }
+                const value = Reflect.get(raw, property, raw);
+                return typeof value === 'function' ? value.bind(raw) : value;
+            }
+        });
+        const body = new Proxy(nativeBody, {
+            get(raw, property) {
+                if (property === 'paragraphs') return paragraphCollection;
+                if (property === 'getOoxml') return (...args) => {
+                    stats.sourceReads++;
+                    return raw.getOoxml(...args);
+                };
+                if (property === 'insertOoxml') return (...args) => {
+                    stats.contentWrites++;
+                    return raw.insertOoxml(...args);
+                };
+                if (property === 'insertText' || property === 'insertFileFromBase64') return (...args) => {
+                    stats.nativeBodyTextWrites++;
+                    return raw[property](...args);
+                };
+                const value = Reflect.get(raw, property, raw);
+                return typeof value === 'function' ? value.bind(raw) : value;
+            }
+        });
+        const nativeDocumentProxy = new Proxy(nativeDocument, {
+            get(raw, property) {
+                if (property === 'body') return body;
+                const value = Reflect.get(raw, property, raw);
+                return typeof value === 'function' ? value.bind(raw) : value;
+            },
+            set(raw, property, value) {
+                if (property === 'changeTrackingMode') {
+                    stats.trackingTransitions.push({
+                        from: describeTrackingMode(Reflect.get(raw, property, raw)),
+                        to: describeTrackingMode(value)
+                    });
+                }
+                return Reflect.set(raw, property, value, raw);
+            }
+        });
+        const context = new Proxy(nativeContext, {
+            get(raw, property) {
+                if (property === 'document') return nativeDocumentProxy;
+                const value = Reflect.get(raw, property, raw);
+                return typeof value === 'function' ? value.bind(raw) : value;
+            }
+        });
+        return callback(context);
+    });
+}
+
+async function getTrackingMode(run = callback => Word.run(callback)) {
+    return run(async context => {
+        context.document.load('changeTrackingMode');
+        await context.sync();
+        return describeTrackingMode(context.document.changeTrackingMode);
+    });
+}
+async function setTrackingMode(mode) {
+    await Word.run(async context => {
+        context.document.changeTrackingMode = trackingMode(mode);
+        await context.sync();
+    });
+}
+async function exportDocx() {
+    const officeCall = action => new Promise((resolve, reject) => action(result => {
         if (result.status === Office.AsyncResultStatus.Succeeded) resolve(result.value);
         else reject(new Error(result.error?.code || 'OFFICE_ASYNC_FAILED'));
     }));
-}
-async function exportDocx() {
     const file = await officeCall(cb => Office.context.document.getFileAsync(Office.FileType.Compressed, { sliceSize: 65536 }, cb));
     try {
         const slices = [];
-        for (let i = 0; i < file.sliceCount; i++) {
-            slices.push(new Uint8Array((await officeCall(cb => file.getSliceAsync(i, cb))).data));
+        for (let index = 0; index < file.sliceCount; index++) {
+            slices.push(new Uint8Array((await officeCall(cb => file.getSliceAsync(index, cb))).data));
         }
-        const bytes = new Uint8Array(slices.reduce((n, s) => n + s.length, 0));
+        const bytes = new Uint8Array(slices.reduce((length, slice) => length + slice.length, 0));
         let offset = 0;
         for (const slice of slices) { bytes.set(slice, offset); offset += slice.length; }
         return bytes;
@@ -37,33 +167,120 @@ async function post(route, body, type = 'application/json') {
     const response = await fetch(route, { method: 'POST', headers: { 'Content-Type': type }, body });
     if (!response.ok) throw new Error(`Local evidence server HTTP ${response.status}`);
 }
-async function runBatch(operations) {
-    return Word.run(async context => {
-        const body = context.document.body;
-        let reads = 0, writes = 0;
-        const timing = createTimingSamples();
-        // Count actual calls while forwarding to genuine Word proxies.
-        const scope = {
-            getOoxml() { reads++; return body.getOoxml(); },
-            insertOoxml(...args) { writes++; return body.insertOoxml(...args); }
-        };
-        const result = await executePureOoxmlBatch(context, scope, operations, {
-            author: 'WP6 reviewer', onTiming: timing.record
-        });
-        return { status: result.status, written: result.written, hasChanges: result.hasChanges,
-            writeAttempted: result.writeAttempted, mutationOutcome: result.mutationOutcome,
-            errorCode: result.error?.code, reads, writes, timing: timing.snapshot() };
+
+async function createDirectDocumentTools(testCase, stats) {
+    const run = instrumentedRun(stats);
+    const documentId = `${testCase.name}:${Office.context.document.url || 'disposable-word-document'}`;
+    const readWordSource = createWordDocumentSourceReader({
+        loadSupport: async () => [wordOperationRunner, docxLibrary, { createDocumentInspectionSession }],
+        getDocumentId: () => documentId,
+        run,
     });
+    // Cache the one initial capture so the session's first inspection uses this
+    // exact Word source, including its scalar host paragraph count.
+    let initialSource = await readWordSource();
+    const capturedSource = initialSource;
+    const readSource = async () => {
+        stats.inspectionSourceSnapshots++;
+        if (initialSource) {
+            const source = initialSource;
+            initialSource = null;
+            return source;
+        }
+        return readWordSource();
+    };
+    const session = createDocumentInspectionSession({
+        readSource,
+        maxTextChars: 4000,
+        computeRevisionToken: computeWordSourceRevisionToken,
+        getExcludedParagraphIndex: detectExportTailIndex,
+    });
+    let checkpointCount = 0;
+    const receipts = [];
+    const tools = createDocumentTools({
+        session,
+        getDocumentId: () => documentId,
+        getAuthor: () => 'WP4 reviewer',
+        getGenerateRedlines: () => testCase.productionOptions?.generateRedlines !== false,
+        async persistCheckpoint(sourceOoxml) {
+            checkpointCount++;
+            await post(`/checkpoint/${testCase.name}`, sourceOoxml, 'application/xml');
+            return checkpointCount;
+        },
+        run,
+        onReceipt: receipt => receipts.push(receipt),
+    });
+    return { tools, session, capturedSource, stats, receipts, get checkpointCount() { return checkpointCount; } };
 }
-function getChangeTrackingMode(name) {
-    if (name === 'off') return Word.ChangeTrackingMode.off;
-    if (name === 'trackAll') return Word.ChangeTrackingMode.trackAll;
-    throw new Error(`Unsupported test change-tracking mode: ${name}`);
+
+function requestedEdits(testCase) {
+    if (testCase.agenticRequest?.type === 'insert_list_item') {
+        assert(Number.isInteger(testCase.agenticRequest.afterParagraphIndex), 'List oracle metadata requires the observed Word index.');
+        return [{ type: 'insert_list_item', targetText: testCase.agenticRequest.targetText, text: testCase.agenticRequest.text }];
+    }
+    assert(Array.isArray(testCase.edits) && testCase.edits.length > 0, `${testCase.name}: direct edits are missing.`);
+    return testCase.edits;
 }
-function describeChangeTrackingMode(mode) {
-    if (mode === Word.ChangeTrackingMode.off) return 'off';
-    if (mode === Word.ChangeTrackingMode.trackAll) return 'trackAll';
-    return String(mode);
+async function handleFor(tools, targetText) {
+    const inspected = await tools.inspectDocument({ search: targetText, limit: 8 });
+    assert(inspected.status === 'ok', `Inspection failed for ${targetText}: ${JSON.stringify(inspected.error)}`);
+    const matches = inspected.targets.filter(target => target.text === targetText && !target.textTruncated);
+    assert(matches.length === 1, `Expected one fully inspected target for ${targetText}, found ${matches.length}.`);
+    return matches[0].handle;
+}
+async function applyRequestedEdits(tools, testCase) {
+    const edits = [];
+    const handles = new Map();
+    for (const proposal of requestedEdits(testCase)) {
+        let handle = handles.get(proposal.targetText);
+        if (!handle) {
+            handle = await handleFor(tools, proposal.targetText);
+            handles.set(proposal.targetText, handle);
+        }
+        const { targetText, ...edit } = proposal;
+        edits.push({ ...edit, target: handle });
+    }
+    return tools.applyDocumentEdits({ edits });
+}
+function assertCommitted(receipt, testCase, stats, checkpointCount) {
+    assert(receipt?.success === true && receipt.verified === true && receipt.completion === true,
+        `${testCase.name}: document tools did not return a confirmed receipt: ${JSON.stringify(receipt)}`);
+    assert(receipt.accountedCount === requestedEdits(testCase).length,
+        `${testCase.name}: the receipt did not account for every requested edit: ${JSON.stringify(receipt)}`);
+    assert(receipt.written === true && receipt.writeAttempted === true,
+        `${testCase.name}: expected a single confirmed body write: ${JSON.stringify(receipt)}`);
+    assert(Number.isInteger(receipt.checkpointIndex) && receipt.checkpointIndex > 0 && checkpointCount === 1,
+        `${testCase.name}: the same-source recovery checkpoint was not persisted.`);
+    assert(receipt.counters?.contentWrites === 1 && receipt.counters?.verificationReads === 1
+        && receipt.counters?.sourceReads >= 2,
+    `${testCase.name}: unexpected direct-tool receipt counters: ${JSON.stringify(receipt.counters)}`);
+    assert(stats.contentWrites === 1, `${testCase.name}: expected one OOXML body write, got ${stats.contentWrites}.`);
+    assert(stats.nativeBodyTextWrites === 0 && stats.nativeParagraphInsertCalls.length === 0
+        && stats.nativeListLevelWrites.length === 0 && stats.nativeListMethodCalls.length === 0,
+    `${testCase.name}: a native edit route was invoked.`);
+}
+function tableStructureFromSource(source, tableFixture) {
+    assert(Number.isInteger(source.hostParagraphCount), 'Word source did not capture the body paragraph membership count.');
+    const excludedTailIndex = detectExportTailIndex(source.parts, { hostParagraphCount: source.hostParagraphCount });
+    const paragraphs = source.inspection.paragraphs.filter(paragraph => paragraph.inTable !== true
+        && paragraph.index !== excludedTailIndex).map(paragraph => paragraph.exactText);
+    const state = cells => ({
+        paragraphs,
+        tables: [{ rows: tableFixture.rows, columns: tableFixture.columns, cells }]
+    });
+    return {
+        source: state(tableFixture.source),
+        accepted: state(tableFixture.accepted),
+        rejected: state(tableFixture.rejected),
+    };
+}
+
+async function seedFixture(fixture) {
+    await Word.run(async context => {
+        context.document.changeTrackingMode = Word.ChangeTrackingMode.off;
+        context.document.body.insertFileFromBase64(fixture, Word.InsertLocation.replace);
+        await context.sync();
+    });
 }
 async function prepareProductionSource(testCase) {
     const preparation = testCase.sourcePreparation || [];
@@ -90,265 +307,122 @@ async function prepareProductionSource(testCase) {
                 assert(numbering, `Unknown Word list numbering style: ${step.numbering}`);
                 paragraph.list.setLevelNumbering(step.level, numbering);
                 await context.sync();
-            } else {
-                throw new Error(`Unsupported production fixture preparation: ${step.type}`);
-            }
+            } else throw new Error(`Unsupported production fixture preparation: ${step.type}`);
             applied.push({ type: step.type, paragraphText: step.paragraphText, level: step.level, numbering: step.numbering });
         }
         return applied;
     });
 }
-async function runProductionListInsertion(request, productionOptions = {}) {
-    let reads = 0, writes = 0;
-    const nativeParagraphInserts = [];
-    const nativeListLevelWrites = [];
-    const timing = createTimingSamples();
-    const nativeRun = Word.run;
-    if (productionOptions.priorTrackingMode) {
-        const desired = getChangeTrackingMode(productionOptions.priorTrackingMode);
-        await nativeRun.call(Word, async context => {
-            context.document.changeTrackingMode = desired;
-            await context.sync();
-        });
-    }
-    const trackingModeBefore = await nativeRun.call(Word, async context => {
-        context.document.load('changeTrackingMode');
+async function readInterveningEdit() {
+    await Word.run(async context => {
+        context.document.body.insertText('Intervening user edit. ', Word.InsertLocation.start);
         await context.sync();
-        return describeChangeTrackingMode(context.document.changeTrackingMode);
     });
-    const trackingTransitions = [];
-    const instrumentParagraph = paragraph => new Proxy(paragraph, {
-        get(target, property) {
-            if (property === 'insertParagraph') {
-                return (...args) => {
-                    nativeParagraphInserts.push({ text: args[0], location: args[1] });
-                    return instrumentParagraph(target.insertParagraph(...args));
-                };
-            }
-            if (property === 'listItem') {
-                const listItem = Reflect.get(target, property, target);
-                return new Proxy(listItem, {
-                    set(item, key, value) {
-                        if (key === 'level') nativeListLevelWrites.push(value);
-                        return Reflect.set(item, key, value, item);
-                    }
-                });
-            }
-            const value = Reflect.get(target, property, target);
-            return typeof value === 'function' ? value.bind(target) : value;
-        },
-        set(target, property, value) { return Reflect.set(target, property, value, target); }
-    });
-    const instrumentParagraphCollection = paragraphs => new Proxy(paragraphs, {
-        get(target, property) {
-            if (property === 'items') {
-                const items = Reflect.get(target, property, target);
-                return new Proxy(items, {
-                    get(collection, index) {
-                        const item = Reflect.get(collection, index, collection);
-                        return typeof index === 'string' && /^\d+$/.test(index) ? instrumentParagraph(item) : item;
-                    }
-                });
-            }
-            const value = Reflect.get(target, property, target);
-            return typeof value === 'function' ? value.bind(target) : value;
-        }
-    });
-    initAgenticTools({
-        getRequestSignal: () => null, loadRedlineSetting: () => productionOptions.redlineEnabled !== false,
-        loadRedlineAuthor: () => 'WP6 reviewer',
-        setChangeTrackingForAi: async (context, redlineEnabled) => {
-            const document = context.document;
-            document.load('changeTrackingMode');
-            await context.sync();
-            const originalMode = document.changeTrackingMode;
-            const desiredMode = redlineEnabled ? Word.ChangeTrackingMode.trackAll : Word.ChangeTrackingMode.off;
-            const changed = originalMode !== desiredMode;
-            if (changed) {
-                document.changeTrackingMode = desiredMode;
-                await context.sync();
-            }
-            trackingTransitions.push({ phase: 'set', redlineEnabled, from: describeChangeTrackingMode(originalMode), to: describeChangeTrackingMode(desiredMode), changed });
-            return { available: true, originalMode, changed };
-        },
-        restoreChangeTracking: async (context, state) => {
-            if (!state?.available || !state.changed || state.originalMode === null) return;
-            context.document.changeTrackingMode = state.originalMode;
-            await context.sync();
-            trackingTransitions.push({ phase: 'restore', to: describeChangeTrackingMode(state.originalMode) });
-        }
-    });
-    try {
-        const sourceBaseline = await nativeRun.call(Word, async context => {
-            const source = context.document.body.getOoxml();
-            await context.sync();
-            return captureWordSourceBaseline(source.value);
-        });
-        // Forward production tool execution to genuine Word proxies while counting transport.
-        Word.run = callback => nativeRun.call(Word, async context => {
-            const documentProxy = context.document;
-            const body = documentProxy.body;
-            let adapterStartedAt = null;
-            let sourceSyncPending = false;
-            let preparationStartedAt = null;
-            let insertStartedAt = null;
-            let insertSyncPending = false;
-            const now = () => performance.now();
-            const recordAdapterSync = async () => {
-                try {
-                    return await context.sync();
-                } finally {
-                    const finishedAt = now();
-                    if (sourceSyncPending) {
-                        timing.record({ phase: 'sourceReadSync', durationMs: finishedAt - adapterStartedAt });
-                        preparationStartedAt = finishedAt;
-                        sourceSyncPending = false;
-                    }
-                    if (insertSyncPending) {
-                        timing.record({ phase: 'portablePreparation', durationMs: Math.max(0, insertStartedAt - preparationStartedAt) });
-                        timing.record({ phase: 'insertSync', durationMs: finishedAt - insertStartedAt });
-                        timing.record({ phase: 'adapterTotal', durationMs: finishedAt - adapterStartedAt });
-                        insertSyncPending = false;
-                    }
-                }
-            };
-            return callback({ sync: recordAdapterSync, document: {
-                load: properties => documentProxy.load(properties),
-                get changeTrackingMode() { return documentProxy.changeTrackingMode; },
-                set changeTrackingMode(value) { documentProxy.changeTrackingMode = value; },
-                body: { paragraphs: instrumentParagraphCollection(body.paragraphs),
-                    getOoxml() {
-                        reads++;
-                        adapterStartedAt = now();
-                        sourceSyncPending = true;
-                        return body.getOoxml();
-                    },
-                    insertOoxml(...args) {
-                        writes++;
-                        const startedAt = adapterStartedAt !== null && preparationStartedAt !== null ? now() : null;
-                        const result = body.insertOoxml(...args);
-                        if (startedAt !== null) {
-                            insertStartedAt = startedAt;
-                            insertSyncPending = true;
-                        }
-                        return result;
-                    }
-                }
-            } });
-        });
-        const toolStartedAt = performance.now();
-        const result = await executeInsertListItem(request.afterParagraphIndex, request.text, request.indentLevel, sourceBaseline);
-        timing.record({ phase: 'agenticToolTotal', durationMs: performance.now() - toolStartedAt });
-        const trackingModeAfter = await nativeRun.call(Word, async context => {
-            context.document.load('changeTrackingMode');
-            await context.sync();
-            return describeChangeTrackingMode(context.document.changeTrackingMode);
-        });
-        const route = nativeParagraphInserts.length ? 'native' : writes ? 'canonical' : 'none';
-        if (productionOptions.expectedRoute) assert(route === productionOptions.expectedRoute,
-            `Expected ${productionOptions.expectedRoute} insertion route, observed ${route}`);
-        if (productionOptions.expectedParagraphInsertCalls != null) assert(nativeParagraphInserts.length === productionOptions.expectedParagraphInsertCalls,
-            `Expected ${productionOptions.expectedParagraphInsertCalls} native paragraph inserts, got ${nativeParagraphInserts.length}`);
-        if (productionOptions.expectedBodyInsertCalls != null) assert(writes === productionOptions.expectedBodyInsertCalls,
-            `Expected ${productionOptions.expectedBodyInsertCalls} OOXML body inserts, got ${writes}`);
-        if (productionOptions.expectedListLevel != null) assert(nativeListLevelWrites.at(-1) === productionOptions.expectedListLevel,
-            `Expected native list level ${productionOptions.expectedListLevel}, got ${nativeListLevelWrites.at(-1)}`);
-        if (productionOptions.expectedTrackingModeAfter) assert(trackingModeAfter === productionOptions.expectedTrackingModeAfter,
-            `Expected restored change-tracking mode ${productionOptions.expectedTrackingModeAfter}, got ${trackingModeAfter}`);
-        return { status: result.status, written: result.written, writeAttempted: result.writeAttempted,
-            mutationOutcome: result.mutationOutcome, errorCode: result.error?.code, reads, writes,
-            route, nativeParagraphInserts, nativeListLevelWrites, trackingModeBefore, trackingModeAfter, trackingTransitions,
-            timing: timing.snapshot() };
-    } finally { Word.run = nativeRun; }
 }
+async function runStaleHandleProbe(testCase, fixture, targetText) {
+    const stats = createTransportCounters();
+    const harness = await createDirectDocumentTools(testCase, stats);
+    const handle = await handleFor(harness.tools, targetText);
+    await readInterveningEdit();
+    const receipt = await harness.tools.applyDocumentEdits({ edits: [{ type: 'rewrite_paragraph', target: handle, text: targetText }] });
+    assert(receipt.success === false && receipt.written === false && receipt.writeAttempted === false,
+        `Stale handle wrote to Word: ${JSON.stringify(receipt)}`);
+    assert(harness.checkpointCount === 0 && stats.contentWrites === 0,
+        'Stale handle must refuse before checkpoint persistence and OOXML insertion.');
+    await seedFixture(fixture);
+    return { status: receipt.status, errorCode: receipt.error?.code, written: receipt.written, writeAttempted: receipt.writeAttempted, checkpointCount: harness.checkpointCount };
+}
+async function runNoopAndRefusalControls(testCase, harness) {
+    const targetText = harness.capturedSource.inspection.paragraphs.find(paragraph => paragraph.inTable !== true && paragraph.exactText)?.exactText;
+    assert(targetText, 'No-op control needs a non-empty source paragraph.');
+    const target = await handleFor(harness.tools, targetText);
+    const noop = await harness.tools.applyDocumentEdits({ edits: [{ type: 'rewrite_paragraph', target, text: targetText }] });
+    assert(noop.success === true && noop.verified === true && noop.written === false && noop.writeAttempted === false,
+        `Direct-tool no-op was not verified: ${JSON.stringify(noop)}`);
+    assert(noop.counters?.contentWrites === 0 && harness.checkpointCount === 1,
+        'A verified no-op must not create a checkpoint or content write.');
+    const refusal = await harness.tools.applyDocumentEdits({ edits: [{ type: 'rewrite_paragraph', target: 'expired-handle', text: 'Must not appear.' }] });
+    assert(refusal.success === false && refusal.written === false && refusal.writeAttempted === false
+        && refusal.counters?.contentWrites === 0 && harness.checkpointCount === 1,
+    `Invalid target was not refused before a host write: ${JSON.stringify(refusal)}`);
+    return [
+        { case: testCase.name, view: 'direct-tool-verified-noop', receipt: noop },
+        { case: testCase.name, view: 'direct-tool-invalid-handle-refusal', receipt: refusal },
+    ];
+}
+
 Office.onReady(async info => {
     if (info.host !== Office.HostType.Word) { status('This lane requires desktop Word.'); return; }
     try {
+        docxLibrary.setPlatform(Office.context.platform);
         const response = await fetch('/claim', { method: 'POST' });
         if (response.status === 409) { status('This run has already been claimed; no edits performed.'); return; }
         assert(response.ok, 'Could not claim local run');
         const cases = await response.json();
         const checks = [];
+        const fixtureExpectations = {};
         for (const testCase of cases) {
             status(`Running ${testCase.name}`);
             const fixture = await (await fetch(`/source/${testCase.name}`)).text();
-            // Seed only this disposable test document; not a production edit path.
-            await Word.run(async context => {
-                context.document.changeTrackingMode = Word.ChangeTrackingMode.off;
-                context.document.body.insertFileFromBase64(fixture, Word.InsertLocation.replace);
-                await context.sync();
-            });
+            await seedFixture(fixture);
             const sourcePreparation = await prepareProductionSource(testCase);
             if (testCase.usesPreparedSource) {
                 assert(sourcePreparation.length > 0, `${testCase.name}: prepared source was declared but no preparation ran`);
                 await post(`/prepared-source/${testCase.name}`, await exportDocx(), 'application/octet-stream');
             }
-            if (testCase.name === 'word-addin-plain-replacement') {
-                const stale = await Word.run(async context => {
-                    const body = context.document.body;
-                    const initialOoxml = body.getOoxml();
-                    await context.sync();
-                    const sourceBaseline = captureWordSourceBaseline(initialOoxml.value);
-                    // Simulate an intervening user edit in this disposable fixture.
-                    body.insertText('An intervening edit.', Word.InsertLocation.replace);
-                    await context.sync();
-                    let writes = 0;
-                    const result = await applyRedlineChangesToWordContext(context,
-                        [{ operation: 'edit_paragraph', paragraphIndex: 1, newContent: 'Must not overwrite.' }],
-                        { sourceBaseline, batchRunner: (ctx, scope, operations, options) => executePureOoxmlBatch(ctx, {
-                            getOoxml: () => scope.getOoxml(),
-                            insertOoxml(...args) { writes++; return scope.insertOoxml(...args); }
-                        }, operations, options), onWarn() {} });
-                    body.load('text');
-                    await context.sync();
-                    assert(result.error?.code === 'STALE_DOCUMENT_CONTEXT' && !result.writeAttempted && writes === 0
-                        && body.text.replace(/[\r\n]+$/, '') === 'An intervening edit.', 'Stale context overwrote the intervening edit');
-                    body.insertFileFromBase64(fixture, Word.InsertLocation.replace);
-                    await context.sync();
-                    return { errorCode: result.error.code, writes, written: result.written, writeAttempted: result.writeAttempted };
-                });
-                checks.push({ case: testCase.name, view: 'stale-context-refusal', ...stale });
-                const unchanged = await runBatch([{ type: 'replace', target: { exactText: 'Alpha beta gamma.' }, modified: 'Alpha beta gamma.' }]);
-                assert(unchanged.status === 'ok' && !unchanged.hasChanges && !unchanged.written && unchanged.reads === 1 && unchanged.writes === 0,
-                    `Unchanged paragraph was not a successful no-op: ${JSON.stringify(unchanged)}`);
-                checks.push({ case: testCase.name, view: 'unchanged-paragraph', ...unchanged });
+
+            if (testCase.name === cases[0]?.name) {
+                const anchorText = requestedEdits(testCase)[0].targetText;
+                const staleProbe = await runStaleHandleProbe(testCase, fixture, anchorText);
+                checks.push({ case: testCase.name, view: 'stale-handle-refusal', ...staleProbe });
             }
-            const applied = testCase.agenticRequest?.tool === 'insert_list_item'
-                ? await runProductionListInsertion(testCase.agenticRequest, testCase.productionInsert)
-                : await runBatch(testCase.agenticRequest
-                    ? source => planAgenticListOperations(source, testCase.agenticRequest)
-                    : testCase.nativeOperations);
-            if (testCase.productionInsert?.expectedRoute === 'native') {
-                assert(applied.status === 'ok' && applied.written && applied.reads === 1,
-                    `${testCase.name}: expected one successful source read and native mutation: ${JSON.stringify(applied)}`);
-                assert(applied.route === 'native' && applied.writes === 0 && applied.nativeParagraphInserts.length === 1,
-                    `${testCase.name}: expected one native paragraph insert and no OOXML body write`);
-                checks.push({ case: testCase.name, view: 'actual-officejs-native-insertion', ...applied });
-            } else {
-                assert(applied.status === 'ok' && applied.written && applied.reads === 1 && applied.writes === 1,
-                    `${testCase.name}: expected one successful read/write: ${JSON.stringify(applied)}`);
-                checks.push({ case: testCase.name, view: 'actual-officejs-insertion', ...applied });
+
+            await setTrackingMode(testCase.productionOptions?.priorTrackingMode || 'off');
+            const trackingModeBefore = await getTrackingMode();
+            const stats = createTransportCounters();
+            const harness = await createDirectDocumentTools(testCase, stats);
+            const source = harness.capturedSource;
+            assert(source.inspection?.status === 'ok', `${testCase.name}: canonical source inspection failed.`);
+            const receipt = await applyRequestedEdits(harness.tools, testCase);
+            const trackingModeAfter = await getTrackingMode();
+            assert(trackingModeAfter === trackingModeBefore,
+                `${testCase.name}: change-tracking state was not restored (${trackingModeBefore} → ${trackingModeAfter}).`);
+            assertCommitted(receipt, testCase, stats, harness.checkpointCount);
+            const item = {
+                case: testCase.name,
+                view: 'actual-officejs-direct-document-tools',
+                author: 'WP4 reviewer',
+                receipt,
+                hostTransport: {
+                    sourceReads: stats.sourceReads,
+                    inspectionSourceSnapshots: stats.inspectionSourceSnapshots,
+                    hostParagraphCount: source.hostParagraphCount,
+                    contentWrites: stats.contentWrites,
+                    nativeBodyTextWrites: stats.nativeBodyTextWrites,
+                    nativeParagraphInsertCalls: stats.nativeParagraphInsertCalls,
+                    nativeListLevelWrites: stats.nativeListLevelWrites,
+                    nativeListMethodCalls: stats.nativeListMethodCalls,
+                    trackingTransitions: stats.trackingTransitions,
+                    checkpointCount: harness.checkpointCount
+                },
+                trackingState: { before: trackingModeBefore, after: trackingModeAfter },
+            };
+            checks.push(item);
+            if (sourcePreparation.length) item.sourcePreparation = sourcePreparation;
+            if (testCase.tableStructure) {
+                fixtureExpectations[testCase.name] = {
+                    expectedBodyStructure: tableStructureFromSource(source, testCase.tableStructure),
+                    hostParagraphCount: source.hostParagraphCount,
+                    excludedExportTailIndex: detectExportTailIndex(source.parts, { hostParagraphCount: source.hostParagraphCount })
+                };
             }
-            const noOp = await runBatch([]);
-            assert(!noOp.written && noOp.reads === 1 && noOp.writes === 0, 'No-op inserted into Word');
-            checks.push({ case: testCase.name, view: 'no-op', ...noOp });
-            const refused = await runBatch([{ type: 'replace', target: { paragraphIndex: 999999 }, modified: 'must not appear' }]);
-            assert(refused.status === 'error' && !refused.written && refused.reads === 1 && refused.writes === 0,
-                'Failed preparation inserted into Word');
-            checks.push({ case: testCase.name, view: 'preparation-refusal', ...refused });
-            if (testCase.agenticRequest) {
-                const mixed = await runBatch(source => [
-                    { type: 'replace', target: { index: 1, exactText: source.paragraphs[0].exactText }, modified: 'Must roll back.' },
-                    { type: 'replace', target: { index: 999999 }, modified: 'Must not appear.' }
-                ]);
-                assert(mixed.status === 'error' && !mixed.written && !mixed.writeAttempted && mixed.writes === 0,
-                    'Mixed valid/invalid list-host batch inserted into Word');
-                checks.push({ case: testCase.name, view: 'mixed-batch-refusal', ...mixed });
-            }
+            if (testCase.name === cases[0]?.name) checks.push(...await runNoopAndRefusalControls(testCase, harness));
             await post(`/artifact/${testCase.name}`, await exportDocx(), 'application/octet-stream');
         }
-        await post('/result', JSON.stringify({ status: 'passed', host: info, diagnostics: Office.context.diagnostics, checks }));
-        status('Office.js transport checks passed. Exported documents require independent Word verification.');
+        await post('/result', JSON.stringify({
+            status: 'passed', host: info, diagnostics: Office.context.diagnostics, checks, fixtureExpectations
+        }));
+        status('Direct document-tool transport checks passed. Exported documents require independent Word verification.');
     } catch (error) {
         status(`Failed: ${error.message}`);
         await post('/result', JSON.stringify({ status: 'failed', error: error.message })).catch(() => {});

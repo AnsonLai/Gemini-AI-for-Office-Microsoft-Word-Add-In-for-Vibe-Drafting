@@ -1,7 +1,7 @@
 # Library-first editing and a lightweight document agent
 
 **Date:** 2026-10-02 (America/Vancouver)  
-**Status:** WP0–WP3 complete locally on 2026-10-02; WP4 is in progress; WP5 is queued. Live provider and Word Online shipping gates remain explicit.
+**Status:** WP0–WP4 complete locally on 2026-10-02; WP5 is in progress. Live provider and Word Online shipping gates remain explicit.
 **Baseline:** Add-in release v2.2.0.0; exact `@ansonlai/docx-redline-js@0.8.4` in the add-in and MCP.  
 **Purpose:** Make ordinary professional document changes dependable by reducing tool choices, competing execution paths, repeated AI interpretation, and Word-specific editing logic.
 
@@ -19,25 +19,37 @@
 | WP1 | Complete | [Extraction, verification, and net-size report](../validation-reports/2026-10-02-lightweight-harness-wp1.md): 61 offline suites pass; development/production builds pass; completed desktop replay preserves 29/29 content checks, 43 local model requests, and the same three author failures. Request/controller/history races fixed; all executor algorithm bodies/signatures and 11 declarations preserved. Net production size: 8,632 → 8,633 lines (+1), across 24 → 27 files. |
 | WP2 | Complete | [Canonical source and handle validation](../validation-reports/2026-10-02-lightweight-harness-wp2.md): 63 milestone offline suites pass; fresh desktop replay preserves 29/29 content checks, the same three author failures and 43 requests. Duplicate Word metadata/context walk removed. |
 | WP3 | Complete locally | [Direct typed batch report](../validation-reports/2026-10-02-lightweight-harness-wp3.md): 66 milestone offline suites; full direct Word replay 16/16 prompts, 48/48 checks, zero regressions. Ten verified batches: nine writes + one no-op; 36 mocked chat calls, zero nested calls. Word export-only metadata stabilized without changing source/payload or meaningful revision IDs. Live models remain a shipping gate. |
-| WP4/WP5 | Authorized / queued | Narrow certified same-level list insertion, native-route retirement, bridge cleanup, and updated verification/documentation. |
+| WP4 | Complete locally | [Native-route retirement and fidelity report](../validation-reports/2026-10-02-lightweight-harness-wp4.md): 11/11 actual Office.js cases, 44/44 independent Word checks, 49/49 NDA replay checks. Documented complete list-change preserves existing numbering. Net fixed production surface 7,004 lines, 1,628 fewer than WP0. |
+| WP5 | In progress | Thin unused compatibility/context helpers and the Flat OPC bridge; verify checkpoint restoration, update documentation and measure net production deletion. |
 
-WP0/WP1 are committed locally as `2c179a1`, WP2 as `e8c9aaa`; subsequent work continues in the shared working tree. No deployment or push is requested. Preserve unrelated changes. The WP0 bundle remains frozen at `.cache/reliability/wp0-baseline/dist`; the completed WP1 replay uses `.cache/reliability/wp1/completed-dist` and `golden-completed`. These artifacts are ignored and are not required to run the checked-in tests on another checkout. Package completion here covers the requested baseline/extraction, with the documented existing author failures; it is not certification of the later product direction.
+WP0/WP1 are committed locally as `2c179a1`, WP2 as `e8c9aaa`, and WP3 as `d282255`; subsequent work continues in the shared working tree. No deployment or push is requested. Preserve unrelated changes. The WP0 bundle remains frozen at `.cache/reliability/wp0-baseline/dist`; the completed WP1 replay uses `.cache/reliability/wp1/completed-dist` and `golden-completed`. These artifacts are ignored and are not required to run the checked-in tests on another checkout. Package completion here covers the requested baseline/extraction, with the documented existing author failures; it is not certification of the later product direction.
 
-### WP1 implementation handoff
+### Current continuation seam — start WP5
 
-- `src/taskpane/modules/chat/document-agent-loop.js`: Node-importable serial loop. Inject `requestModel`, `loadRegistry`, `refreshContext`, `createCheckpoint`, signal/time budgets, and a synchronous `onEvent` callback. Mutable state holds history, formatted context, the canonical baseline, tool records, turn count, and stop reason, including when a dependency throws. Reuses existing history, mutation-budget, and refreshed-context helpers.
-- `src/taskpane/modules/chat/tool-registry.js`: `getToolDeclarations()` returns isolated copies of the unchanged 11 declarations; `createToolRegistry(executors)` exposes derived frozen recovery names, `validate`, `describe`, and `execute`. Metadata maps the existing executor signatures and keeps progress/display decisions distinct from completion/write evidence. Table content still reaches the existing action-specific validator for supported legacy scalar/flat forms.
-- `src/taskpane/modules/chat/function-call-recovery.js`: legacy malformed-call recovery extracted unchanged in intent, with names supplied by the registry. No model tool names are duplicated in the loop/taskpane. Remove these recovery branches with their retired tools in WP4/WP5.
-- `src/taskpane/modules/commands/agentic-tools.js`: `createAgenticTools(deps)` closes over request-bound dependencies, preserving every existing helper/executor algorithm body and signature. Production uses a local signal getter for each request; do not revert to the mutable global getter. Existing `initAgenticTools` and exported live executor bindings retain the default-instance compatibility surface for current callers/tests and startup profiling.
-- `src/taskpane/taskpane.js`: retains Word context capture, provider configuration, lazy initialization, checkpoints, UI, and cleanup. Each request owns its controller and records. Identity guards prevent a refreshed or superseded request from restoring cleared history, updating a new conversation, or unlocking/clearing the next request's controller. Module import/platform initialization remains lazy and shared; request instances do not repeat the import.
-- Added deterministic loop, registry, recovery, and executor-request-scope suites; updated navigation/baseline, table-schema, Gemini, and migrated-tool boundary suites to exercise the extracted implementation. Tests have no dependency on ignored `.cache` artifacts and are discovered by `npm test`.
+WP3 is committed as `d282255`; WP4 is complete locally and ready for its milestone
+commit. Production uses exactly two tools and no native editing executor.
+`document-tools.js` depends on `executePureOoxmlBatch` and `inspectWordSource`;
+keep those interfaces while thinning the integration. `consumer-core.js` retains
+Flat OPC extraction/assembly and public comment/numbering helpers, including
+all untouched transported parts. No library upgrade or binary/facade experiment.
 
-Preserved limits: six model turns, two failed mutation cycles, one proven no-write stale-context replan, confirmed-write context refresh, and no tool replay after provider failure or an uncertain host result. Cancel/timeout blocks queued writes; a settled successful host write stays in the records and is refreshed before returning. Uncertain outcomes stop for inspection. A refresh failure clears stale history and stops. Remaining queued calls receive blocked responses so interruption cannot produce orphaned function-call history.
+WP5 ownership: baseline agent handles compatibility integration/command deletion,
+public-library regression/reproducer ports and direct benchmark mapping; recovery
+agent prepares runnable direct live golden evidence capture; root handles
+unused taskpane/loop/context/session code, shared body checkpoint restoration,
+current documentation and final net measurement. Registry agent owns genuine
+Office.js collection, independent Word and checkpoint restoration evidence.
+Unwired `checkpoint-restoration.js` and its tests are WP5 work, excluded from
+WP4 production measurement. Other early current-doc rewrites remain unstaged
+until WP5. Keep this handoff current; commit each milestone without pushing.
 
-Verification commands: `npm test`, `npm run build:dev`, and `npm run build`; completed replay build/launch commands and exclusions are in the WP1 report. The production build has one deferred-asset size warning; Office.js read/write counters are unavailable, and no live model or Word Online lane was run. Fresh desktop content parity does not close the three native-route author failures or the existing upstream fidelity gates. Source size is essentially flat at this extraction stage; the substantive net deletion remains required in WP3–WP5.
-
-**Continue at WP4 under the owner’s authorization.** The production Word agent now uses exactly two tools and direct typed atomic batches. Multiple/mixed mutation exchanges refuse before execution; checkpoint failure blocks a new write; no retained executor makes a nested model call. `agentic-tools.js` and compatibility helpers remain on disk but are unwired. Migrate the four narrowly certified same-level list cases, exercise core/list/table-cell fidelity through the actual direct collector and independent Word oracle, then delete native executors and their obsolete callers/tests. Keep the Flat OPC adapter and exact 0.8.4 pins; no upstream engine workaround or Word binary/facade experiment. WP5 must remove unused compatibility/context helpers and update the current documentation.
-
+Final gates: offline suite and builds; fresh retained direct Office.js/independent
+Word after bridge thinning; full direct taskpane replay after loop cleanup;
+actual production checkpoint save/load/restore and tracking evidence. Live
+fast/slow model validation remains a shipping gate when credentials are absent;
+make its command runnable without claiming it was performed. Desktop coverage
+does not certify Word Online. Preserve independent upstream issue reproducers
+when retiring their old consumer fixture exporters.
 ## Approved direction
 
 Build around two document tools: **inspect the document** and **apply a batch of edits**. Keep navigation as an optional third tool. Let the model draft concrete edits against inspected targets; let the library perform document transformations; let a small Word adapter read, commit, and confirm the result.
@@ -323,6 +335,8 @@ The owner has approved the design choices and authorized completing all packages
 
 ### WP4 — Retire native edit routes or migrate the retained subset
 
+**Completed locally 2026-10-02:** [Retirement and Word fidelity report](../validation-reports/2026-10-02-lightweight-harness-wp4.md). The initially unsafe ordinary redline recipe was replaced with the documented complete list-change; all retained cases pass. Broader capabilities are retired/refused rather than represented as completed upstream migration.
+
 - Follow the existing upstream list/table reports for the approved retained scope. Bump both exact pins only after a published release and downstream checks; a library fix does not authorize expanding the product's scope.
 - Migrate one retained operation family at a time; accepted/rejected text, list identity/continuation, table structure, author attribution, comments, and preserved formatting must pass before deleting the native route.
 - Refuse unsupported requests before preparation. An engine/host failure must never trigger native replay.
@@ -410,10 +424,3 @@ No font-family tooling, page-layout assistant, arbitrary formatting engine, gene
 
 The design choices are approved and recorded. The owner has authorized execution through WP5; use the execution status and handoff above for current progress. Commit each milestone and keep external validation limitations explicit.
 
-### WP2 continuation seam
-
-`word-document-source.js` reads body OOXML and selection in one sync; `inspectWordSource` extracts the same Flat OPC parts used for preparation. The model context and source baseline now come from the library inspector, without a Word paragraph/list/table proxy walk or silent text fallback. The document identity includes a taskpane instance and host URL; fresh canonical part tokens remain authoritative when Undo/external-change events are unavailable.
-
-`createDocumentInspectionSession({readSource,maxResults,maxTextChars,maxTotalTextChars})` returns inspect/resolve/resolveHandles/resolveRange/invalidate. `inspect` provides opaque handles/cursors and compact human locations; `resolveHandles(handles,{source})` accepts only a trusted internal fresh capture and returns `{status,source,targets:[{handle,kind,descriptor,fullTextInspected}]}`. All handles in a batch resolve against that one snapshot. Truncated paragraph text cannot authorize a full rewrite; the explicit end handle preserves the final paragraph internally for append composition. Comment sibling parts are supplied through the public token API’s additional-parts input.
-
-The session is tested but is deliberately not yet declared to the model alongside the old tools. WP3 replaces the old protocol in one cutover. Production size at WP2 is 9,022 physical lines / 29 files (+389 versus WP1); this preparatory increase must be offset by the planned executor/compatibility deletion, not called a net simplification.

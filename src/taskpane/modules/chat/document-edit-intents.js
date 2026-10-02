@@ -1,6 +1,6 @@
 import { analyzeStructuredContent, preprocessMarkdown } from '@ansonlai/docx-redline-js';
 
-const TEXT_ACTIONS = new Set(['replace_text', 'rewrite_paragraph', 'delete_paragraph', 'insert_paragraph', 'append_paragraph']);
+const TEXT_ACTIONS = new Set(['replace_text', 'rewrite_paragraph', 'delete_paragraph', 'insert_paragraph', 'append_paragraph', 'insert_list_item']);
 const FORMAT_KEYS = new Set(['bold', 'italic', 'underline', 'strikethrough', 'highlight']);
 const FIELDS = {
   replace_text: ['target', 'find', 'replace', 'occurrence'],
@@ -8,6 +8,7 @@ const FIELDS = {
   delete_paragraph: ['target'],
   insert_paragraph: ['target', 'text', 'position'],
   append_paragraph: ['target', 'text'],
+  insert_list_item: ['target', 'text'],
   comment: ['target', 'text', 'anchor'],
   format_text: ['target', 'find', 'occurrence', 'properties']
 };
@@ -67,7 +68,7 @@ function validateEdit(edit, index) {
   } else if (edit.type === 'rewrite_paragraph') {
     value.text = text(edit.text, index, 'text');
     if (/[\r\n]/.test(value.text)) fail('UNSUPPORTED_DOCUMENT_EDIT', 'A paragraph rewrite must contain one paragraph. Use a paragraph insertion for a new paragraph.', index, 'text');
-  } else if (edit.type === 'insert_paragraph' || edit.type === 'append_paragraph') {
+  } else if (edit.type === 'insert_paragraph' || edit.type === 'append_paragraph' || edit.type === 'insert_list_item') {
     value.text = text(edit.text, index, 'text');
     plainParagraph(value.text, index, 'text');
     if (edit.type === 'insert_paragraph' && !['before', 'after'].includes(edit.position)) {
@@ -133,6 +134,33 @@ function checkedInsertionTarget(descriptor, index) {
     fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'This target has spacing, soft breaks, or structural/formatting markers that cannot be safely preserved by plain insertion.', index, 'target');
   }
 }
+function checkedListInsertionTarget(descriptor, index) {
+  const list = descriptor.list;
+  if (descriptor.inTable || descriptor.table || !record(list) || !['bullet', 'decimal'].includes(list.format)
+    || typeof list.numId !== 'string' || !/^[1-9]\d*$/.test(list.numId)
+    || !Number.isInteger(list.level) || ![0, 1].includes(list.level)
+    || descriptor.headingLevel || (descriptor.styleId && /^heading\b/i.test(String(descriptor.styleId)))) {
+    fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'List insertion is supported only beside a fully inspected level 0 or 1 bullet/decimal list item outside tables and headings.', index, 'target');
+  }
+  const processed = preprocessMarkdown(descriptor.exactText);
+  const analysis = analyzeStructuredContent(descriptor.exactText);
+  if (!descriptor.exactText || descriptor.exactText !== descriptor.exactText.trim() || /[\r\n]/.test(descriptor.exactText)
+    || analysis.blocks.length !== 1 || analysis.blocks.some(block => block.type !== 'paragraph')
+    || processed.formatHints.length || processed.cleanText !== descriptor.exactText) {
+    fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'List insertion requires one non-empty plain-text list paragraph without soft breaks or inline formatting markers.', index, 'target');
+  }
+  return list;
+}
+function listInsertionMarkers(list, index) {
+  if (list.format === 'bullet') return { current: '-', next: '-' };
+  const segments = typeof list.label === 'string' ? list.label.trim().replace(/\.$/, '').split('.') : [];
+  if (segments.length !== list.level + 1 || segments.some(segment => !/^\d+$/.test(segment))) {
+    fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'Decimal list insertion requires a simple inspected decimal label at the target level.', index, 'target');
+  }
+  return list.level === 0
+    ? { current: '1.', next: '2.' }
+    : { current: '1.1.', next: '1.2.' };
+}
 function resolvedTargets(result, handles) {
   if (result?.status !== 'ok' || !Array.isArray(result.targets) || result.targets.length !== handles.length) {
     refuse(result?.error?.code || 'DOCUMENT_TARGET_RESOLUTION_FAILED', result?.error?.message || 'Targets could not be resolved against the current source. Inspect again.', { requiresReinspection: true });
@@ -187,6 +215,7 @@ function combinations(items, targets) {
 /** Resolve opaque handles from one fresh source and compile one all-or-nothing library batch. */
 export async function compileDocumentEdits(edits, { session, source } = {}) {
   if (!Array.isArray(edits) || !edits.length) refuse('INVALID_DOCUMENT_EDIT_BATCH', 'edits must be a non-empty array.');
+  if (edits.length > 40) refuse('INVALID_DOCUMENT_EDIT_BATCH', 'A document edit batch may contain at most 40 edits.');
   if (!session || typeof session.resolveHandles !== 'function') refuse('INVALID_DOCUMENT_EDIT_SESSION', 'A document inspection session is required.');
   const items = edits.map(validateEdit);
   const handles = [...new Set(items.map(({ edit }) => edit.target))];
@@ -202,6 +231,10 @@ export async function compileDocumentEdits(edits, { session, source } = {}) {
     if (!append && target.fullTextInspected !== true) fail('TARGET_TEXT_NOT_FULLY_INSPECTED', 'This target was only partially shown. Inspect the complete paragraph before editing it.', actionIndex, 'target', true);
     if (append && target.position !== 'after') fail('INVALID_DOCUMENT_EDIT_TARGET', 'The document-end handle does not describe an append position.', actionIndex, 'target', true);
     if (edit.type === 'append_paragraph' || edit.type === 'insert_paragraph') checkedInsertionTarget(descriptor, actionIndex);
+    if (edit.type === 'insert_list_item') listInsertionMarkers(checkedListInsertionTarget(descriptor, actionIndex), actionIndex);
+    if (edit.type === 'delete_paragraph' && (descriptor.inTable || descriptor.table || descriptor.list)) {
+      fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'Deleting a paragraph is supported only for plain non-list paragraphs outside tables.', actionIndex, 'target');
+    }
     if (edit.type === 'insert_paragraph' && !descriptor.exactText) fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'Insert before or after a blank paragraph is ambiguous; choose a non-empty paragraph.', actionIndex, 'target');
     if (edit.type === 'comment') {
       const anchor = edit.anchor ?? descriptor.exactText;
@@ -230,6 +263,17 @@ export async function compileDocumentEdits(edits, { session, source } = {}) {
         operation = { type: 'delete', target };
         expected.expectedDeleted = true;
         break;
+      case 'insert_list_item': {
+        const markers = listInsertionMarkers(checkedListInsertionTarget(descriptor, actionIndex), actionIndex);
+        operation = {
+          type: 'list-change', target,
+          modified: `${markers.current} ${descriptor.exactText}\n${markers.next} ${edit.text}`,
+          structuredContent: true
+        };
+        expected.expectedParagraphs = [descriptor.exactText, edit.text];
+        expected.expectedListInsertion = { format: descriptor.list.format, level: descriptor.list.level };
+        break;
+      }
       case 'insert_paragraph': {
         const current = descriptor.exactText;
         operation = { type: 'redline', target, modified: edit.position === 'before' ? `${edit.text}\n${current}` : `${current}\n${edit.text}`, structuredContent: true };

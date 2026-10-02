@@ -26,7 +26,7 @@ function testDeclarationsAndRecoveryNames() {
   assert.deepEqual(edit.required, ['type', 'target']);
   assert.deepEqual(edit.properties.type.enum, [
     'replace_text', 'rewrite_paragraph', 'delete_paragraph', 'insert_paragraph',
-    'append_paragraph', 'comment', 'format_text'
+    'append_paragraph', 'insert_list_item', 'comment', 'format_text'
   ]);
   assert.deepEqual(Object.keys(edit.properties), [
     'type', 'target', 'find', 'replace', 'text', 'occurrence', 'position', 'anchor', 'properties'

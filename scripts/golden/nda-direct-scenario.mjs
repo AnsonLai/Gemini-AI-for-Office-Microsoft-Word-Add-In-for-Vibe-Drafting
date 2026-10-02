@@ -72,12 +72,12 @@ const plans = [
     refusal: 'I can’t add a row to that table in this editing workflow. Table row changes are unsupported, so I left the document unchanged.'
   },
   {
-    scopeDisposition: {
-      status: 'unsupported',
-      reason: 'Inserting a new list item is outside the retained direct-edit scope.',
-      refusalPattern: '(?:cannot|can’t|can\'t|unsupported|outside).*(?:list|bullet|item|insert)'
-    },
-    refusal: 'I can’t insert a new list item in this editing workflow. List insertion is unsupported, so I left the document unchanged.'
+    replay: [
+      inspect('Technical data, specifications'),
+      apply([{ type: 'insert_list_item', target: handle({ startsWith: 'Technical data, specifications' }),
+        text: 'Photographs, videos, and other recordings of prototypes and physical hardware.' }]),
+      done
+    ]
   },
   {
     replay: [

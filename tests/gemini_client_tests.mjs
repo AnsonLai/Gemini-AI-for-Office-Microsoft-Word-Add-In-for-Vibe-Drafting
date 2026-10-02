@@ -86,9 +86,9 @@ assert.equal(listeners, 0);
 // Keep every known caller on the audited boundary and avoid raw request diagnostics.
 for (const file of [
   'src/taskpane/taskpane.js',
-  'src/taskpane/modules/commands/agentic-tools.js',
   'src/taskpane/modules/chat/document-agent-loop.js',
   'src/taskpane/modules/chat/tool-registry.js',
+  'src/taskpane/modules/chat/document-tools.js',
   'browser-demo/demo.js',
   'tests/evals/run-evals.mjs'
 ]) {

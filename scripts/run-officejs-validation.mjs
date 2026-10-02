@@ -1,9 +1,9 @@
 // Local-only evidence collector. Uses existing certificates; never installs trust.
 import { createServer } from 'node:https';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, copyFileSync } from 'node:fs';
 import { resolve, join, extname, dirname } from 'node:path';
 import { homedir } from 'node:os';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const root = resolve(import.meta.dirname, '..');
@@ -26,24 +26,34 @@ mkdirSync(directory, { recursive: true });
 const startedAt = new Date().toISOString();
 writeFileSync(join(directory, startupProfile ? 'startup-report.json' : 'officejs-report.json'), JSON.stringify({ status: 'pending', startedAt }));
 writeFileSync(join(directory, 'officejs-fixtures.json'), JSON.stringify({ cases: [], controls: [] }));
-if (!fixtureManifest && !startupProfile) execFileSync(process.execPath, [join(root, 'tests/ooxml_formatting_visual_tests.mjs'), '--export-dir', directory], { stdio: 'inherit' });
+if (!fixtureManifest && !startupProfile) execFileSync(process.execPath, [
+    join(root, 'tests/direct_document_fidelity_manifest_tests.mjs'), '--export-dir', directory
+], { stdio: 'inherit' });
 const inputManifest = fixtureManifest ? resolve(root, fixtureManifest) : join(directory, 'manifest.json');
 const sourceDirectory = dirname(inputManifest);
 const manifest = startupProfile ? { cases: [] } : JSON.parse(readFileSync(inputManifest, 'utf8'));
-const cases = fixtureManifest ? manifest.cases : manifest.cases.filter(c => ['word-addin-plain-replacement', 'word-addin-sibling-reply'].includes(c.name));
-if (!startupProfile && (!cases.length || (!fixtureManifest && cases.length !== 2))) throw new Error('Expected runnable native fixtures');
+const cases = manifest.cases;
+if (!startupProfile && !cases.length) throw new Error('Expected runnable direct document-tool fixtures');
+for (const testCase of cases) {
+    if (!/^[a-z0-9-]+$/.test(testCase.name)) throw new Error(`Invalid fixture case name: ${testCase.name}`);
+    copyFileSync(resolve(sourceDirectory, testCase.source), join(directory, `${testCase.name}-source.docx`));
+}
 const certs = join(homedir(), '.office-addin-dev-certs');
 const cert = readFileSync(join(certs, 'localhost.crt'));
 const key = readFileSync(join(certs, 'localhost.key'));
-const port = 3000;
+const port = Number(argument('--port') || '3002');
 const id = startupProfile ? 'a81aa9d8-d01b-4196-b79d-e4b92030fc83' : 'a81aa9d8-d01b-4196-b79d-e4b92030fc82';
 const manifestPath = join(directory, 'officejs-manifest.xml');
 writeFileSync(manifestPath, readFileSync(join(root, 'manifest.xml'), 'utf8')
     .replaceAll('3dcfdb34-70c3-4bfe-8d5e-85089afcf673', id)
     .replaceAll('Gemini AI for Office', 'Local Word transport validation')
-    .replaceAll('https://localhost:3000/taskpane.html', `https://localhost:3000/${startupProfile ? 'taskpane' : 'officejs-validation'}.html`));
+    .replaceAll('https://localhost:3000/taskpane.html', `https://localhost:${port}/${startupProfile ? 'taskpane' : 'officejs-validation'}.html`));
 let claimed = false;
-const server = createServer({ cert, key }, async (request, response) => {
+let launchedWordPid = null;
+let addInRegistered = false;
+let shuttingDown = false;
+let timeLimit;
+const requestHandler = async (request, response) => {
     try {
         const path = new URL(request.url, `https://localhost:${port}`).pathname;
         response.setHeader('Cache-Control', 'no-store');
@@ -53,7 +63,9 @@ const server = createServer({ cert, key }, async (request, response) => {
             const result = JSON.parse(Buffer.concat(parts).toString('utf8'));
             writeFileSync(join(directory, 'startup-report.json'), JSON.stringify({ ...result, startedAt, checkedAt: new Date().toISOString() }, null, 2));
             console.log(`Taskpane startup result: ${result.status}`);
-            response.end('ok'); return;
+            response.end('ok');
+            setImmediate(() => { void finishRunner(); });
+            return;
         }
         if (path === '/claim' && request.method === 'POST') {
             if (claimed) { response.writeHead(409).end(); return; }
@@ -65,7 +77,7 @@ const server = createServer({ cert, key }, async (request, response) => {
         if (path.startsWith('/source/') && testCase) {
             response.end(readFileSync(resolve(sourceDirectory, testCase.source)).toString('base64')); return;
         }
-        if (((path.startsWith('/artifact/') || path.startsWith('/prepared-source/')) && testCase || path === '/result') && request.method === 'POST') {
+        if (((path.startsWith('/artifact/') || path.startsWith('/prepared-source/') || path.startsWith('/checkpoint/')) && testCase || path === '/result') && request.method === 'POST') {
             const parts = []; let size = 0;
             for await (const part of request) { size += part.length; if (size > 20 * 1024 * 1024) throw new Error('Artifact too large'); parts.push(part); }
             const payload = Buffer.concat(parts);
@@ -74,16 +86,32 @@ const server = createServer({ cert, key }, async (request, response) => {
                 if (result.status === 'passed' && cases.some(c => c.usesPreparedSource && !existsSync(join(directory, `${c.name}-prepared-source.docx`)))) {
                     throw new Error('Passing host result is missing a prepared source package');
                 }
+                if (result.status === 'passed' && cases.some(c => !existsSync(join(directory, `${c.name}-officejs.docx`)))) {
+                    throw new Error('Passing host result is missing an exported Word document');
+                }
+                if (result.status === 'passed' && cases.some(c => !existsSync(join(directory, `${c.name}-checkpoint.xml`)))) {
+                    throw new Error('Passing host result is missing a source checkpoint');
+                }
                 writeFileSync(join(directory, 'officejs-report.json'), JSON.stringify({ ...result, startedAt, checkedAt: new Date().toISOString() }, null, 2));
                 if (result.status === 'passed') {
-                    writeFileSync(join(directory, 'officejs-fixtures.json'), JSON.stringify({ cases: cases.map(c => ({ ...c,
-                        source: c.usesPreparedSource ? join(directory, `${c.name}-prepared-source.docx`) : resolve(sourceDirectory, c.source),
+                    writeFileSync(join(directory, 'officejs-fixtures.json'), JSON.stringify({ cases: cases.map(c => ({
+                        ...c,
+                        ...(result.fixtureExpectations?.[c.name] || {}),
+                        source: c.usesPreparedSource ? join(directory, `${c.name}-prepared-source.docx`) : join(directory, `${c.name}-source.docx`),
+                        checkpoint: join(directory, `${c.name}-checkpoint.xml`),
                         ...(c.accepted ? { accepted: resolve(sourceDirectory, c.accepted) } : {}),
                         ...(c.rejected ? { rejected: resolve(sourceDirectory, c.rejected) } : {}),
                         tracked: `${c.name}-officejs.docx` })), controls: [] }, null, 2));
                 }
                 console.log(`Office.js result: ${result.status}`);
-            } else writeFileSync(join(directory, `${testCase.name}-${path.startsWith('/prepared-source/') ? 'prepared-source' : 'officejs'}.docx`), payload);
+                response.end('ok');
+                setImmediate(() => { void finishRunner(); });
+                return;
+            } else {
+                const artifact = path.startsWith('/checkpoint/') ? `${testCase.name}-checkpoint.xml`
+                    : `${testCase.name}-${path.startsWith('/prepared-source/') ? 'prepared-source' : 'officejs'}.docx`;
+                writeFileSync(join(directory, artifact), payload);
+            }
             response.end('ok'); return;
         }
         const file = resolve(distDirectory, '.' + path);
@@ -95,20 +123,73 @@ const server = createServer({ cert, key }, async (request, response) => {
             response.end(readFileSync(file, 'utf8').replace('<head>', '<head>' + diagnostics));
         } else response.end(readFileSync(file));
     } catch (error) { console.error(error.message); response.writeHead(500).end('Local collector failed'); }
-});
-server.listen(port, '127.0.0.1', async () => {
+};
+const listeners = ['127.0.0.1', '::1'].map(host => createServer({ cert, key }, requestHandler).listen(port, host));
+const server = { close(callback) {
+    const openListeners = listeners.filter(listener => listener.listening);
+    let remaining = openListeners.length;
+    if (!remaining) { callback?.(); return; }
+    for (const listener of openListeners) {
+        listener.close(() => { if (--remaining === 0) callback?.(); });
+        // Word's WebView can retain HTTP keep-alive sockets after the final
+        // evidence post; shutdown owns these connections, so close them too.
+        listener.closeAllConnections?.();
+    }
+} };
+async function finishRunner({ failure = null } = {}) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    clearTimeout(timeLimit);
+    if (failure) writeFileSync(join(directory, startupProfile ? 'startup-report.json' : 'officejs-report.json'), JSON.stringify({
+        status: 'failed', error: failure, startedAt, checkedAt: new Date().toISOString()
+    }, null, 2));
+    if (launchedWordPid) {
+        try { process.kill(launchedWordPid); } catch { /* the isolated Word process already exited */ }
+    }
+    if (addInRegistered) {
+        try { await require('office-addin-dev-settings').unregisterAddIn(manifestPath); }
+        catch (error) { console.error(`Validation add-in unregister failed: ${error.message}`); }
+        addInRegistered = false;
+    }
+    server.close();
+}
+
+listeners.forEach(listener => listener.on('error', error => {
+    console.error(`Validation server bind failed: ${error.message}`);
+    process.exitCode = 1;
+    void finishRunner({ failure: error.message });
+}));
+listeners[0].on('listening', async () => {
     console.log(`Local validation collector ready: https://localhost:${port}/${startupProfile ? 'taskpane' : 'officejs-validation'}.html`);
     if (process.argv.includes('--launch')) {
         try {
+            // Read the developer registration at startup in a separate Word
+            // instance. This leaves any existing user Word session untouched.
             const settings = require('office-addin-dev-settings');
+            const { generateSideloadFile } = require('office-addin-dev-settings/lib/sideload.js');
+            const { OfficeAddinManifest } = require('office-addin-manifest');
             await settings.registerAddIn(manifestPath);
-            await settings.sideloadAddIn(manifestPath, 'word', true, 'desktop');
+            addInRegistered = true;
+            const sideloadFile = await generateSideloadFile('word', await OfficeAddinManifest.readManifestFile(manifestPath));
+            const wordExe = argument('--word-exe') || 'C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE';
+            const word = spawn(wordExe, ['/x', sideloadFile], { detached: true, stdio: 'ignore' });
+            word.unref();
+            launchedWordPid = word.pid;
+            word.once('error', error => {
+                console.error(`Validation Word launch failed: ${error.message}`);
+                process.exitCode = 1;
+                void finishRunner({ failure: error.message });
+            });
+            console.log(`Started a separate Word instance (PID ${word.pid}) with the validation add-in.`);
         } catch (error) {
             console.error(`Validation launch failed: ${error.message}`);
             process.exitCode = 1;
-            server.close();
+            await finishRunner({ failure: error.message });
         }
     }
 });
 // Bound the collector lifetime; evidence stays available on timeout.
-setTimeout(() => { console.log('Collector time limit reached'); server.close(); }, 10 * 60 * 1000).unref();
+timeLimit = setTimeout(() => {
+    console.log('Collector time limit reached.');
+    void finishRunner({ failure: 'Local validation collector timed out.' });
+}, 10 * 60 * 1000).unref();
