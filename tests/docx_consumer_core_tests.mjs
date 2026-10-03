@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
     acceptTrackedChangesInOoxml,
+    openDocx,
     rejectTrackedChangesInOoxml
 } from '@ansonlai/docx-redline-js';
 import { createParser, createSerializer } from '@ansonlai/docx-redline-js/adapters/xml-adapter.js';
@@ -57,10 +58,35 @@ function mockBatchResult(documentXml, commentsXml, commentsXmlMode = 'merge') {
     };
 }
 
+const packageName = node => node.getAttribute('pkg:name') || node.getAttribute('name');
+function flatOpcFromDocxEntries(entries) {
+    const packageParts = [...entries].filter(([name]) => name !== '[Content_Types].xml').map(([name, bytes]) => {
+        const value = new TextDecoder().decode(bytes);
+        const contentType = name.endsWith('.rels')
+            ? 'application/vnd.openxmlformats-package.relationships+xml'
+            : 'application/xml';
+        if (/^\s*</.test(value)) {
+            return `<pkg:part pkg:name="/${name}" pkg:contentType="${contentType}"><pkg:xmlData>${value.replace(/^\s*<\?xml[^?]*\?>\s*/, '')}</pkg:xmlData></pkg:part>`;
+        }
+        return `<pkg:part pkg:name="/${name}" pkg:contentType="application/octet-stream"><pkg:binaryData>${Buffer.from(bytes).toString('base64')}</pkg:binaryData></pkg:part>`;
+    }).join('');
+    return `<pkg:package xmlns:pkg="${packageNamespace}">${packageParts}</pkg:package>`;
+}
+function countXmlElements(xml, localName) {
+    return createParser().parseFromString(xml, 'application/xml').getElementsByTagNameNS('*', localName).length;
+}
+function commentSiblingIds(xml) {
+    const doc = createParser().parseFromString(xml, 'application/xml');
+    return Array.from(doc.getElementsByTagNameNS('*', 'commentId')).map(node => ({
+        paraId: node.getAttribute('w16cid:paraId') || node.getAttribute('paraId'),
+        durableId: node.getAttribute('w16cid:durableId') || node.getAttribute('durableId')
+    }));
+}
+
 const existingCommentPackage = withCommentsPart(packageXml, sourceCommentsXml);
 const existingCommentInspection = consumer.inspectWordSource(existingCommentPackage);
 assert.equal(existingCommentInspection.inspection.comments.length, 1);
-const deltaRefusal = await consumer.prepareCanonicalBatch(existingCommentPackage, [{
+const deltaMerge = await consumer.prepareCanonicalBatch(existingCommentPackage, [{
     type: 'comment',
     target: { exactText: 'Source sentence.' },
     textToComment: 'Source',
@@ -68,11 +94,16 @@ const deltaRefusal = await consumer.prepareCanonicalBatch(existingCommentPackage
 }], {
     runner: async documentXml => mockBatchResult(documentXml, newCommentXml, 'merge')
 });
-assert.equal(deltaRefusal.status, 'refused');
-assert.equal(deltaRefusal.error?.code, 'UNSUPPORTED_EXISTING_COMMENTS');
-assert.equal(deltaRefusal.result.commentsXmlMode, 'merge');
-assert.equal(deltaRefusal.insertionPayload, undefined,
-    'a comments delta cannot be emitted as a replacement package when source comments exist');
+assert.equal(deltaMerge.status, 'ready', JSON.stringify(deltaMerge.error));
+assert.equal(deltaMerge.result.commentsXmlMode, 'merge');
+assert.deepEqual(
+    consumer.inspectWordSource(deltaMerge.insertionPayload).inspection.comments.map(({ id, author, text }) => ({ id, author, text })),
+    [
+        { id: '7', author: 'Existing reviewer', text: 'Existing feedback stays.' },
+        { id: '8', author: 'New reviewer', text: 'New feedback.' }
+    ],
+    'merge-mode comments append the delta while retaining existing comment content'
+);
 
 const threadedTextEdit = await consumer.prepareCanonicalBatch(existingCommentPackage, [{
     type: 'replace',
@@ -112,6 +143,113 @@ const firstCommentOnly = await consumer.prepareCanonicalBatch(packageXml, [{
 assert.equal(firstCommentOnly.status, 'ready', JSON.stringify(firstCommentOnly.result?.error));
 assert.equal(consumer.inspectWordSource(firstCommentOnly.insertionPayload).inspection.comments.length, 1,
     'a delta can be assembled safely when the source has no existing comments');
+const firstCommentPackage = createParser().parseFromString(firstCommentOnly.insertionPayload, 'application/xml');
+const firstCommentRelsPart = Array.from(firstCommentPackage.getElementsByTagNameNS(packageNamespace, 'part'))
+    .find(part => packageName(part) === '/word/_rels/document.xml.rels');
+const firstCommentRelsRoot = Array.from(firstCommentRelsPart.getElementsByTagNameNS(packageNamespace, 'xmlData')[0].childNodes)
+    .find(node => node.nodeType === 1);
+assert.ok(Array.from(firstCommentRelsRoot.getElementsByTagNameNS('*', 'Relationship'))
+    .some(relationship => relationship.getAttribute('Type')?.endsWith('/comments')),
+'new comments receive their package relationship');
+
+const packageWithoutDocumentRels = createParser().parseFromString(packageXml, 'application/xml');
+const documentRelsPart = Array.from(packageWithoutDocumentRels.getElementsByTagNameNS(packageNamespace, 'part'))
+    .find(part => packageName(part) === '/word/_rels/document.xml.rels');
+documentRelsPart.parentNode.removeChild(documentRelsPart);
+const noRelsSource = createSerializer().serializeToString(packageWithoutDocumentRels.documentElement);
+const noRelsComment = await consumer.prepareCanonicalBatch(noRelsSource, [{
+    type: 'comment',
+    target: { exactText: 'Source sentence.' },
+    textToComment: 'Source',
+    commentContent: 'First comment without source relationships.'
+}], {
+    runner: async documentXml => mockBatchResult(documentXml, newCommentXml, 'merge')
+});
+assert.equal(noRelsComment.status, 'ready', JSON.stringify(noRelsComment.error));
+const noRelsOutput = createParser().parseFromString(noRelsComment.insertionPayload, 'application/xml');
+assert.ok(Array.from(noRelsOutput.getElementsByTagNameNS(packageNamespace, 'part'))
+    .some(part => packageName(part) === '/word/_rels/document.xml.rels'),
+    'the package adapter creates document relationships when the source omitted the part');
+assert.equal(consumer.inspectWordSource(noRelsComment.insertionPayload).inspection.comments.length, 1);
+
+// Exercise the public batch result against a Word-authored source with a threaded reply,
+// a resolved thread, commentsExtended metadata, and optional durable-ID sibling parts.
+const threadedBytes = new Uint8Array(readFileSync(new URL('./fixtures/wp6/threaded-comments.docx', import.meta.url)));
+const threadedDoc = openDocx(threadedBytes);
+const threadedBefore = threadedDoc.inspect();
+const threadedPackageXml = flatOpcFromDocxEntries(threadedDoc.entries);
+const threadedSourceParts = consumer.inspectWordSource(threadedPackageXml);
+const governed = threadedBefore.paragraphs.find(paragraph => paragraph.exactText === 'This agreement is governed by local law.');
+assert.ok(governed, 'Word-authored threaded source contains the tracked paragraph target');
+const threadedPrepared = await consumer.prepareCanonicalBatch(threadedPackageXml, source => {
+        const target = source.paragraphs.find(paragraph => paragraph.paragraphId === governed.paragraphId);
+        return [
+            {
+                type: 'comment',
+                target: { index: target.index, exactText: target.exactText, paragraphId: target.paragraphId, fingerprint: target.fingerprint },
+                textToComment: 'governed by local law',
+                commentContent: 'Confirm this transition remains intentionally between the headings.'
+            },
+            {
+                type: 'replace',
+                target: { index: target.index, exactText: target.exactText, paragraphId: target.paragraphId, fingerprint: target.fingerprint },
+                replacements: [{ find: 'local', replace: 'national' }]
+            }
+        ];
+    }, { author: 'Portable Core Test', generateRedlines: false });
+assert.equal(threadedPrepared.status, 'ready', JSON.stringify(threadedPrepared.error || threadedPrepared.result?.error));
+assert.equal(threadedPrepared.result.commentsXmlMode, 'merge');
+assert.equal(countXmlElements(threadedPrepared.result.commentsXml, 'comment'), 1,
+    'the standalone runner still returns its one-comment delta');
+const threadedAfter = consumer.inspectWordSource(threadedPrepared.insertionPayload);
+assert.equal(threadedAfter.inspection.comments.length, 4, 'full package contains all three existing comments plus the addition');
+const commentIdentity = ({ id, author, text, parentCommentId, done }) => ({
+    id,
+    author,
+    text,
+    parentCommentId: parentCommentId ?? null,
+    done: done === true
+});
+assert.deepEqual(
+    threadedAfter.inspection.comments.slice(0, threadedBefore.comments.length).map(commentIdentity),
+    threadedBefore.comments.map(commentIdentity),
+    'existing root, reply, author, text, parent, and resolved state are preserved'
+);
+assert.equal(threadedAfter.inspection.comments.at(-1).text,
+    'Confirm this transition remains intentionally between the headings.');
+assert.ok(threadedAfter.inspection.paragraphs.some(paragraph => paragraph.exactText === 'This agreement is governed by national law.'),
+    'the same batch keeps its requested paragraph edit');
+assert.equal(threadedAfter.parts.commentsExtendedXml, threadedSourceParts.parts.commentsExtendedXml,
+    'a new root comment leaves existing thread metadata unchanged');
+const beforeDurableIds = commentSiblingIds(threadedSourceParts.parts.commentsIdsXml);
+const afterDurableIds = commentSiblingIds(threadedAfter.parts.commentsIdsXml);
+assert.equal(afterDurableIds.length, 4, 'the merged comments part receives a sibling ID for the new comment');
+for (const original of beforeDurableIds) {
+    assert.ok(afterDurableIds.some(item => item.paraId === original.paraId && item.durableId === original.durableId),
+        `existing durable ID ${original.durableId} is preserved`);
+}
+assert.equal(countXmlElements(threadedAfter.parts.commentsExtensibleXml, 'commentExtensible'), 4,
+    'optional extensible metadata is reconciled against the complete merged comments part');
+
+const threadedReply = await consumer.prepareCanonicalBatch(threadedPackageXml, [{
+    type: 'comment_reply',
+    parentCommentId: '0',
+    commentContent: 'Add a reply while retaining this Word thread.'
+}], { author: 'Portable Core Test' });
+assert.equal(threadedReply.status, 'ready', JSON.stringify(threadedReply.error || threadedReply.result?.error));
+assert.equal(threadedReply.result.commentsXmlMode, 'replace');
+assert.equal(threadedReply.result.commentsExtendedXmlMode, 'replace');
+assert.equal(typeof threadedReply.result.commentsExtendedXml, 'string',
+    'the thread operation supplies complete replacement metadata');
+const threadedReplyAfter = consumer.inspectWordSource(threadedReply.insertionPayload);
+assert.equal(threadedReplyAfter.inspection.comments.length, 4);
+assert.deepEqual(
+    threadedReplyAfter.inspection.comments.slice(0, threadedBefore.comments.length).map(commentIdentity),
+    threadedBefore.comments.map(commentIdentity),
+    'replace-mode thread output retains existing comments and resolved state'
+);
+assert.equal(threadedReplyAfter.inspection.comments.at(-1).parentCommentId, '0');
+assert.equal(threadedReplyAfter.inspection.comments.at(-1).text, 'Add a reply while retaining this Word thread.');
 
 const inspected = consumer.inspectWordSource(packageXml);
 assert.equal(inspected.inspection.status, 'ok');

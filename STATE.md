@@ -17,11 +17,16 @@ insertion/deletion, comments, basic inline emphasis, certified same-level
 bullet/decimal insertion at levels 0–1, and table-cell text. Broader list/table
 structure, font/layout, research and revision acceptance are refused. The
 [tool contract](docs/agentic-tool-contracts.md) gives exact restrictions.
-Adding comments requires a source without existing comments; supported wording
-edits preserve existing comments and threads. The narrow refusal prevents an
-unsupported merge-delta package from replacing original comment definitions.
-Untracked changes on a paragraph with pending revisions also refuse before
-writing; they must not silently flatten prior revision history.
+WP5 was reopened after owner review rejected blanket restrictions on adding
+comments to comment-bearing documents and untracked edits on revised paragraphs.
+The repair restores comment delta merging through public helpers and delegates
+revision-aware edits to the library's supported carrier-preserving policy.
+Capability-preservation tests, rather than expected refusals, govern completion.
+The expanded Word gate found an in-scope 0.8.4 surgical-insertion defect: new text
+can become tracked despite tracking being disabled. A precise prepared-output
+check blocks that write; ordinary revised-target replacement and formatting
+remain supported. WP5 stays open until a published fix passes the original
+insertion gate. This limitation is not an approved capability retirement.
 
 A new write requires a persisted exact-source body checkpoint and a final
 freshness check. One insertion is followed by fresh host verification. Verified
@@ -37,13 +42,18 @@ OPC transport. A complete-DOCX Word facade/binary experiment is excluded.
 
 The milestone reports distinguish offline suites, actual Office.js exports,
 independent desktop Word Accept All/Reject All checks and the original 16-prompt
-NDA replay. [Final WP5 validation](docs/validation-reports/2026-10-02-lightweight-harness-wp5.md)
-passes 46 offline suites, 18 actual Office.js checks, 52 independent Word checks
-and 49 replay checks across the original 16 prompts. Eleven replay batches use
-ten writes and one no-op, with zero nested AI calls, zero regressions and correct
-authors. The fixed production surface is 4,355 lines, 49.5% below WP0. Replay does not
-certify model drafting quality. Live fast/slow provider checks remain required
-before shipping; Word Online is not certified by desktop evidence.
+NDA replay. The [WP5 correction report](docs/validation-reports/2026-10-02-lightweight-harness-wp5-correction.md)
+records 46 passing offline suites, passing builds and 49 replay checks across
+the original 16 prompts. Eleven replay batches use ten writes and one no-op,
+with zero nested AI calls, zero regressions and correct authors. Actual Office.js
+passes 13 supported edits with 19 checks and three checkpoint restores;
+independent desktop Word passes 64 applicable checks with 16 not applicable.
+A separate zero-write safety control does not satisfy the remaining insertion
+capability in the default 14-case manifest. WP5 remains open. The fixed production surface
+is 4,402 lines, 49.0% below WP0. The original WP5 report remains historical
+evidence for the rejected blanket guards. Replay does not certify model drafting
+quality. Live fast/slow provider checks remain required before shipping; Word
+Online is not certified by desktop evidence.
 
 Open [library issues](docs/library-issues/README.md) remain upstream dependencies:
 unsupported canonical header conversion/list styles, separate header operations

@@ -230,7 +230,9 @@ function Check-Document($case, [string]$file, [string]$view, [bool]$render, [boo
                 $boldFlag = if ($format.bold) { -1 } else { 0 }
                 $italicFlag = if ($format.italic) { -1 } else { 0 }
                 if ($formatRange.Font.Bold -ne $boldFlag -or $formatRange.Font.Italic -ne $italicFlag -or ($format.font -and $formatRange.Font.Name -cne $format.font) -or ($format.size -and $formatRange.Font.Size -ne $format.size)) { throw "Word $view formatting differs for $formatText." }
-                $underlineExpected = if ($view -eq 'source' -or $view -eq 'rejected') { $format.underlineRejected } else { $format.underlineAccepted }
+                $underlineExpected = if ($view -eq 'source' -and $null -ne $format.underlineSource) { $format.underlineSource }
+                    elseif ($view -eq 'source' -or $view -eq 'rejected') { $format.underlineRejected }
+                    else { $format.underlineAccepted }
                 if ($null -ne $underlineExpected) {
                     $underlineValue = if ($underlineExpected) { 1 } else { 0 } # wdUnderlineSingle / wdUnderlineNone
                     if ($formatRange.Font.Underline -ne $underlineValue) { throw "Word $view underline differs for $formatText." }

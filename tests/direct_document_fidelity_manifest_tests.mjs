@@ -133,31 +133,126 @@ assert.equal(commentSourceInspection.comments.length, 3, 'the Word-authored rest
 assert.deepEqual(commentSourceInspection.paragraphs.map(paragraph => paragraph.exactText), commentSourceTexts);
 const commentRevisionSentinel = 'Existing tracked checkpoint revision sentinel.';
 const commentPreparedTexts = insertParagraph(commentSourceTexts, commentSourceTexts[2], commentRevisionSentinel);
-const commentLiteralSource = commentSourceTexts[0];
-const commentLiteralAccepted = 'The Supplier shall deliver the goods within forty days.';
+const commentLiteralSource = commentSourceTexts[2];
+const commentLiteralAccepted = 'This agreement is governed by applicable local law.';
 const literalCase = textCase('direct-literal-replacement-preserves-comment-threads', [
-  { type: 'replace_text', targetText: commentLiteralSource, find: 'within thirty days', replace: 'within forty days' }
-], insertParagraph(replaceParagraph(commentSourceTexts, commentLiteralSource, commentLiteralAccepted), commentSourceTexts[2], commentRevisionSentinel), {
+  { type: 'replace_text', targetText: commentLiteralSource, find: 'governed by local law', replace: 'governed by applicable local law' }
+], insertParagraph(replaceParagraph(commentSourceTexts, commentLiteralSource, commentLiteralAccepted), commentLiteralAccepted, commentRevisionSentinel), {
   source: commentSource,
   usesPreparedSource: true,
-  sourcePreparation: [{ type: 'tracked-append', afterText: commentSourceTexts[2], text: commentRevisionSentinel, trackingMode: 'trackAll' }],
+  sourcePreparation: [{ type: 'tracked-append', afterText: commentSourceTexts[2], text: commentRevisionSentinel,
+    trackingMode: 'trackAll', author: 'Other reviewer' }],
   productionOptions: { generateRedlines: false, priorTrackingMode: 'trackAll' },
   expectedSourceText: commentPreparedTexts.join('\n'),
   expectedRejectedText: replaceParagraph(commentSourceTexts, commentLiteralSource, commentLiteralAccepted).join('\n'),
   expectedRestoredAcceptedText: commentPreparedTexts.join('\n'),
   expectedRestoredRejectedText: commentSourceTexts.join('\n'),
   expectedComments: 3,
-  expectedMinimumBodyRevisions: 1,
+  expectedExactBodyRevisions: 1,
   expectedRestoredBodyRevisions: 1,
   expectedFormatting: [],
   expectedNumbering: { source: [], accepted: [], rejected: [] },
-  pendingRevisionRefusalControl: {
-    targetText: commentRevisionSentinel,
-    replacementText: 'This edit must be refused while tracked revisions are pending.',
-    expectedErrorCode: 'UNTRACKED_EDIT_ON_REVISED_TARGET'
-  },
-  commentRefusalControl: { text: 'Add a new note to this existing threaded document.' },
+  revisionIdentityCheck: { author: 'Other reviewer' },
   restorationHandleText: commentLiteralAccepted
+});
+assert.equal(literalCase.expectedPrewriteRefusal, undefined,
+  'the default manifest keeps the untracked literal-replacement capability gate as an applied edit expectation');
+
+const supportedRevisionReplacement = textCase('direct-untracked-replacement-preserves-pending-revision', [
+  { type: 'replace_text', targetText: commentLiteralSource, find: 'local', replace: 'national' }
+], insertParagraph(replaceParagraph(commentSourceTexts, commentLiteralSource,
+  'This agreement is governed by national law.'), 'This agreement is governed by national law.', commentRevisionSentinel), {
+  source: commentSource,
+  usesPreparedSource: true,
+  sourcePreparation: [{ type: 'tracked-append', afterText: commentSourceTexts[2], text: commentRevisionSentinel,
+    trackingMode: 'trackAll', author: 'Other reviewer' }],
+  productionOptions: { generateRedlines: false, priorTrackingMode: 'trackAll' },
+  expectedSourceText: commentPreparedTexts.join('\n'),
+  expectedRejectedText: replaceParagraph(commentSourceTexts, commentLiteralSource,
+    'This agreement is governed by national law.').join('\n'),
+  expectedRestoredAcceptedText: commentPreparedTexts.join('\n'),
+  expectedRestoredRejectedText: commentSourceTexts.join('\n'),
+  expectedComments: 3,
+  expectedExactBodyRevisions: 1,
+  expectedRestoredBodyRevisions: 1,
+  expectedEngineReferencePackages: false,
+  expectedNumbering: { source: [], accepted: [], rejected: [] },
+  expectedFormatting: [],
+  revisionIdentityCheck: { author: 'Other reviewer' },
+  restorationHandleText: 'This agreement is governed by national law.'
+});
+
+const untrackedFormatCase = {
+  name: 'direct-untracked-format-with-foreign-pending-revision',
+  source: commentSource,
+  usesPreparedSource: true,
+  sourcePreparation: [{ type: 'tracked-append', afterText: commentSourceTexts[2], text: commentRevisionSentinel,
+    trackingMode: 'trackAll', author: 'Other reviewer' }],
+  edits: [{ type: 'format_text', targetText: commentSourceTexts[2], find: 'governed by local law', properties: { underline: true } }],
+  productionOptions: { generateRedlines: false, priorTrackingMode: 'trackAll' },
+  expectedSourceText: commentPreparedTexts.join('\n'),
+  expectedAcceptedText: commentPreparedTexts.join('\n'),
+  expectedRejectedText: commentSourceTexts.join('\n'),
+  expectedComments: 3,
+  expectedExactBodyRevisions: 1,
+  expectedEngineReferencePackages: false,
+  expectedNumbering: { source: [], accepted: [], rejected: [] },
+  expectedFormatting: [{ sourceText: 'governed by local law', acceptedText: 'governed by local law',
+    bold: false, italic: false, underlineSource: false, underlineRejected: true, underlineAccepted: true }],
+  revisionIdentityCheck: { author: 'Other reviewer' },
+  formatReadback: { text: 'governed by local law', before: 'None', after: 'Single' }
+};
+
+const sourceThreadIdentities = commentSourceInspection.comments.map(comment => {
+  const parent = comment.parentCommentId == null ? null
+    : commentSourceInspection.comments.find(candidate => candidate.id === comment.parentCommentId);
+  return {
+    author: comment.author,
+    text: comment.text,
+    parent: parent ? { author: parent.author, text: parent.text } : null,
+    done: comment.done === true
+  };
+});
+const firstWorkflowComment = 'Please confirm the requested delivery timing.';
+const secondWorkflowComment = 'Please confirm this revised governing-law sentence.';
+const workflowFinalParagraph = 'This agreement is governed by applicable local law.';
+const workflowExpectedThreadIdentities = [
+  ...sourceThreadIdentities,
+  { author: 'WP4 reviewer', text: firstWorkflowComment, parent: null, done: false },
+  { author: 'WP4 reviewer', text: secondWorkflowComment, parent: null, done: false }
+];
+const workflowRestoredThreadIdentities = [
+  ...sourceThreadIdentities,
+  { author: 'WP4 reviewer', text: firstWorkflowComment, parent: null, done: false }
+];
+const commentWorkflowCase = textCase('direct-threaded-comments-sequential-merge-and-restore', [
+  { type: 'rewrite_paragraph', targetText: commentSourceTexts[2], text: workflowFinalParagraph },
+  { type: 'comment', targetText: commentSourceTexts[2], anchor: 'This agreement is governed by', text: secondWorkflowComment }
+], replaceParagraph(commentSourceTexts, commentSourceTexts[2], workflowFinalParagraph), {
+  source: commentSource,
+  expectedSourceText: commentSourceTexts.join('\n'),
+  expectedRejectedText: commentSourceTexts.join('\n'),
+  expectedComments: 5,
+  expectedMinimumBodyRevisions: 1,
+  expectedNumbering: { source: [], accepted: [], rejected: [] },
+  expectedFormatting: [],
+  expectedThreadIdentities: workflowExpectedThreadIdentities,
+  expectedRestoredThreadIdentities: workflowRestoredThreadIdentities,
+  expectedRestoredAcceptedText: commentSourceTexts.join('\n'),
+  expectedRestoredRejectedText: commentSourceTexts.join('\n'),
+  expectedRestoredBodyRevisions: 0,
+  restorationHandleText: workflowFinalParagraph,
+  commentWorkflow: {
+    expectedOriginalComments: 3,
+    expectedFirstAnchorAfterRewrite: 'applicable local law',
+    first: { targetText: commentSourceTexts[2], anchor: 'local law', text: firstWorkflowComment },
+    secondBatch: [
+      { type: 'rewrite_paragraph', targetText: commentSourceTexts[2], text: workflowFinalParagraph },
+      { type: 'comment', targetText: commentSourceTexts[2], anchor: 'This agreement is governed by', text: secondWorkflowComment }
+    ],
+    secondCommentText: secondWorkflowComment,
+    expectedFinalParagraph: workflowFinalParagraph
+  }
 });
 
 const rewriteSource = 'Plain paragraph between headers.';
@@ -230,12 +325,17 @@ const tableCase = {
   productionOptions: { generateRedlines: true, priorTrackingMode: 'off' }
 };
 
-const cases = [...listCases, noRedlineListCase, literalCase, rewriteCommentCase, insertionCase, deletionCase, formatCase, tableCase];
+const cases = [...listCases, noRedlineListCase, literalCase, supportedRevisionReplacement, untrackedFormatCase, commentWorkflowCase,
+  rewriteCommentCase, insertionCase, deletionCase, formatCase, tableCase];
 assert.equal(listCases.length, 4);
 assert.deepEqual(listCases.map(testCase => testCase.agenticRequest.afterParagraphIndex), [6, 10, 12, 14]);
 assert.ok(listCases.every(testCase => testCase.agenticRequest.type === 'insert_list_item'));
 assert.ok(listCases.every(testCase => testCase.expectedSourceText && testCase.expectedAcceptedText && testCase.expectedRejectedText));
 assert.equal(rewriteCommentCase.edits.length, 2);
+assert.equal(commentWorkflowCase.commentWorkflow.secondBatch.length, 2);
+assert.equal(untrackedFormatCase.sourcePreparation[0].author, 'Other reviewer');
+assert.equal(commentWorkflowCase.expectedThreadIdentities.length, 5);
+assert.equal(commentWorkflowCase.expectedRestoredThreadIdentities.length, 4);
 assert.equal(tableCase.tableStructure.source.length, tableCase.tableStructure.rows);
 assert.equal(tableCase.tableStructure.source[0].length, tableCase.tableStructure.columns);
 

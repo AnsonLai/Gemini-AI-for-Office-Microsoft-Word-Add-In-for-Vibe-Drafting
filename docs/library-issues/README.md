@@ -30,12 +30,13 @@ requests now refuse altogether. Scope retirement does not close these reports.
 | [Word Reject All leaves an extra paragraph after a final table append](2026-10-01-word-reject-table-append-paragraph.md) | 0.8.3 | Table removal on Reject All now works in Word, but one empty paragraph remains after the original text. |
 | [Separate list operations restart numbering](2026-10-02-separate-list-operations-restart-numbering.md) | **0.8.4 regression** | Non-adjacent headers converted in one batch land in different lists ("A.", "A."). Header conversion is retired/refused; canonical migration remains gated. |
 | [Weak-target soft-break replacement deletes the paragraph](2026-10-02-weak-target-soft-break-deletion.md) | 0.8.4 | Data loss with `ok` status when targeting by index + text only. The add-in always sends strong targets and is not exposed. |
+| [`generateRedlines: false` still tracks cross-author insertions](2026-10-02-generate-redlines-false-cross-author-insertion.md) | 0.8.4 | Surgical insertion ignores disabled tracking; Reject All removes the intended clean text. A precise prepared-output check prevents writing it. The required capability keeps WP5 open pending a published fix. |
 
-## Consumer transport/API gaps (not library defects)
+## Consumer transport incidents (not library defects)
 
 | Report | Since | Effect on the add-in |
 | --- | --- | --- |
-| [Existing comments need a safe merge-delta transport](2026-10-02-word-existing-comments-delta-transport.md) | 0.8.4 | New comments are refused when canonical source inspection finds existing comments; ordinary text edits remain available. |
+| [Existing comments delta assembly](2026-10-02-word-existing-comments-delta-transport.md) | 0.8.4 | Repaired through published merge/sibling helpers at the existing Flat OPC boundary. Actual Office.js and independent Word verify successive additions, rewrite/comment batching, thread preservation and checkpoint restoration. |
 
 The library's proposed `docs/plans/2026-09-30-canonical-list-operations.md`
 covers the canonical list capabilities; it is not implemented. Remaining

@@ -41,7 +41,7 @@ Tailor the AI's personality and expertise. Make it a helpful tutor, a strict leg
 
 ### Safety & Versioning
 Each new edit requires a saved body checkpoint. Revert restores that transported body package; it is not a complete-document backup.
-Adding comments currently requires a document without existing comments. Supported wording edits preserve existing comments and threads; mixed requests outside this restriction are refused before writing.
+Existing comments and pending revisions do not by themselves prevent ordinary editing. Comment additions preserve prior comments and threads; revision-aware edits respect the tracked-edit setting and preserve other reviewers' review marks. Specific unsupported shapes still refuse before writing.
 
 Transform how you write today with Gemini AI for Office.
 

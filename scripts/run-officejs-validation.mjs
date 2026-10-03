@@ -56,6 +56,7 @@ let timeLimit;
 const requestHandler = async (request, response) => {
     try {
         const path = new URL(request.url, `https://localhost:${port}`).pathname;
+        const workflowArtifact = path.match(/^\/workflow-artifact\/([a-z0-9-]+)\/([a-z0-9-]+)$/);
         response.setHeader('Cache-Control', 'no-store');
         if (startupProfile && path === '/startup-result' && request.method === 'POST') {
             const parts = []; let size = 0;
@@ -73,12 +74,13 @@ const requestHandler = async (request, response) => {
             response.setHeader('Content-Type', 'application/json');
             response.end(JSON.stringify(cases)); return;
         }
-        const testCase = cases.find(c => path.endsWith('/' + c.name));
+        const testCase = cases.find(c => path.endsWith('/' + c.name) || workflowArtifact?.[1] === c.name);
         if (path.startsWith('/source/') && testCase) {
             response.end(readFileSync(resolve(sourceDirectory, testCase.source)).toString('base64')); return;
         }
         if (((path.startsWith('/artifact/') || path.startsWith('/prepared-source/') || path.startsWith('/checkpoint/') || path.startsWith('/restored/')
-            || path.startsWith('/restored-source/') || path.startsWith('/restore-diagnostics/')) && testCase || path === '/result') && request.method === 'POST') {
+            || workflowArtifact || path.startsWith('/restored-source/') || path.startsWith('/restore-diagnostics/')
+            || path.startsWith('/revision-diagnostics/')) && testCase || path === '/result') && request.method === 'POST') {
             const parts = []; let size = 0;
             for await (const part of request) { size += part.length; if (size > 20 * 1024 * 1024) throw new Error('Artifact too large'); parts.push(part); }
             const payload = Buffer.concat(parts);
@@ -87,15 +89,17 @@ const requestHandler = async (request, response) => {
                 const restorationControls = Array.isArray(result.restorationControls) ? result.restorationControls : [];
                 const requiredRestorationCases = [
                     'same-level-insert-redlines-disabled-restores-tracking',
-                    'direct-literal-replacement-preserves-comment-threads'
-                ];
+                    'direct-untracked-replacement-preserves-pending-revision',
+                    'direct-threaded-comments-sequential-merge-and-restore'
+                ].filter(name => cases.some(testCase => testCase.name === name));
                 if (result.status === 'passed' && cases.some(c => c.usesPreparedSource && !existsSync(join(directory, `${c.name}-prepared-source.docx`)))) {
                     throw new Error('Passing host result is missing a prepared source package');
                 }
                 if (result.status === 'passed' && cases.some(c => !existsSync(join(directory, `${c.name}-officejs.docx`)))) {
                     throw new Error('Passing host result is missing an exported Word document');
                 }
-                if (result.status === 'passed' && cases.some(c => !existsSync(join(directory, `${c.name}-checkpoint.xml`)))) {
+                if (result.status === 'passed' && cases.some(c => !c.expectedPrewriteRefusal
+                    && !existsSync(join(directory, `${c.name}-checkpoint.xml`)))) {
                     throw new Error('Passing host result is missing a source checkpoint');
                 }
                 if (result.status === 'passed' && (restorationControls.length !== requiredRestorationCases.length
@@ -106,7 +110,7 @@ const requestHandler = async (request, response) => {
                 }
                 writeFileSync(join(directory, 'officejs-report.json'), JSON.stringify({ ...result, startedAt, checkedAt: new Date().toISOString() }, null, 2));
                 if (result.status === 'passed') {
-                    const oracleCases = cases.map(c => ({
+                    const oracleCases = cases.filter(c => !c.expectedPrewriteRefusal).map(c => ({
                         ...c,
                         ...(result.fixtureExpectations?.[c.name] || {}),
                         source: c.usesPreparedSource ? join(directory, `${c.name}-prepared-source.docx`) : join(directory, `${c.name}-source.docx`),
@@ -134,6 +138,9 @@ const requestHandler = async (request, response) => {
                             expectedRejectedText: restoredCase.expectedRestoredRejectedText || restoredCase.expectedSourceText,
                             expectedComments: Number.isInteger(control.checkpointCommentCount)
                                 ? control.checkpointCommentCount : restoredCase.expectedComments ?? 0,
+                            ...(Array.isArray(restoredCase.expectedRestoredThreadIdentities)
+                                ? { expectedThreadIdentities: restoredCase.expectedRestoredThreadIdentities }
+                                : {}),
                             ...(originalNumbering ? { expectedNumbering: {
                                 source: originalNumbering, accepted: originalNumbering, rejected: originalNumbering
                             } } : {})
@@ -146,8 +153,10 @@ const requestHandler = async (request, response) => {
                 setImmediate(() => { void finishRunner(); });
                 return;
             } else {
-                const artifact = path.startsWith('/checkpoint/') ? `${testCase.name}-checkpoint.xml`
+                const artifact = workflowArtifact ? `${testCase.name}-${workflowArtifact[2]}-officejs.docx`
+                    : path.startsWith('/checkpoint/') ? `${testCase.name}-checkpoint.xml`
                     : path.startsWith('/restore-diagnostics/') ? `${testCase.name}-restore-diagnostics.json`
+                        : path.startsWith('/revision-diagnostics/') ? `${testCase.name}-revision-diagnostics.json`
                         : path.startsWith('/restored-source/') ? `${testCase.name}-restored-source.xml`
                             : `${testCase.name}-${path.startsWith('/prepared-source/') ? 'prepared-source' : path.startsWith('/restored/') ? 'restored' : 'officejs'}.docx`;
                 writeFileSync(join(directory, artifact), payload);

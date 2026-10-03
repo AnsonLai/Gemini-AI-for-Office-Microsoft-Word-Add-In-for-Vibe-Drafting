@@ -11,11 +11,14 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   ensureCommentsArtifactsInZip,
+  ensureCommentsExtendedArtifactsInZip,
   injectCommentsIntoPackage,
   openDocx,
+  validateDocxPackage,
 } from '@ansonlai/docx-redline-js';
 import { createParser } from '@ansonlai/docx-redline-js/adapters/xml-adapter.js';
-import { MemoryZip } from '@ansonlai/docx-redline-js/document/zip-archive.js';
+import { MemoryZip, zipDocx } from '@ansonlai/docx-redline-js/document/zip-archive.js';
+import { reconcileCommentSiblingParts } from '@ansonlai/docx-redline-js/services/comment-thread-parts.js';
 import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalone-runner';
 
 const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
@@ -64,6 +67,7 @@ const batch = await applyOperationsToDocumentXml(documentXml, [
 }, { atomic: true, strictTargets: true, generateRedlines: false });
 assert.equal(batch.status, 'ok', JSON.stringify(batch.error || batch.results));
 assert.equal(batch.commentsXmlMode, 'merge', 'ordinary comment output is explicitly a merge delta');
+assert.equal(batch.commentsExtendedXml, null, 'an ordinary new root comment does not replace thread metadata');
 assert.equal(batch.results.length, 2, 'the text rewrite and comment are both accounted');
 
 const parser = createParser();
@@ -83,17 +87,61 @@ const injectedDoc = parser.parseFromString(injected, 'application/xml');
 const commentPartCount = [...injectedDoc.getElementsByTagNameNS(NS_PACKAGE, 'part')]
   .filter(part => part.getAttribute('pkg:name') === '/word/comments.xml').length;
 
-// The public ZIP helper does merge the comments.xml part, but its package
-// boundary is a .docx ZIP, not the Flat OPC string passed to body.insertOoxml.
-const encoder = new TextEncoder();
-const zip = new MemoryZip(new Map([
-  ['word/comments.xml', encoder.encode(commentsXml)],
-  ['[Content_Types].xml', encoder.encode('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>')],
-  ['word/_rels/document.xml.rels', encoder.encode('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>')],
-]));
-await ensureCommentsArtifactsInZip(zip, batch.commentsXml);
+// Compose the published part helpers on a MemoryZip over the source DOCX. The
+// complete merged parts can then be carried into the Office.js Flat OPC payload.
+const zip = new MemoryZip(new Map([...original.entries].map(([name, bytes]) => [name, new Uint8Array(bytes)])));
+zip.file('word/document.xml', batch.documentXml);
+await ensureCommentsArtifactsInZip(zip, batch.commentsXml, {
+  replaceExisting: batch.commentsXmlMode === 'replace',
+});
+if (batch.commentsExtendedXml) {
+  await ensureCommentsExtendedArtifactsInZip(zip, batch.commentsExtendedXml);
+}
 const zipMergedComments = await zip.file('word/comments.xml').async('string');
-const zipMergedCommentCount = countComments(zipMergedComments);
+const zipMergedIds = await zip.file('word/commentsIds.xml').async('string');
+const zipMergedExtensible = await zip.file('word/commentsExtensible.xml').async('string');
+const reconciled = reconcileCommentSiblingParts({
+  commentsXml: zipMergedComments,
+  commentsIdsXml: zipMergedIds,
+  commentsExtensibleXml: zipMergedExtensible,
+});
+if (reconciled.commentsIdsXml) zip.file('word/commentsIds.xml', reconciled.commentsIdsXml);
+if (reconciled.commentsExtensibleXml) zip.file('word/commentsExtensible.xml', reconciled.commentsExtensibleXml);
+await validateDocxPackage(zip);
+const mergedDoc = openDocx(zipDocx(zip.entries));
+const mergedInspection = mergedDoc.inspect();
+const zipMergedCommentCount = mergedInspection.comments.length;
+const identity = ({ id, author, text, parentCommentId, done }) => ({
+  id, author, text, parentCommentId: parentCommentId ?? null, done: done === true,
+});
+assert.deepEqual(
+  mergedInspection.comments.slice(0, sourceInspection.comments.length).map(identity),
+  sourceInspection.comments.map(identity),
+  'the original root, reply, authors, texts, and resolved-thread state remain unchanged',
+);
+assert.equal(mergedInspection.comments.at(-1).text,
+  'Confirm this transition remains intentionally between the headings.');
+assert.equal(getPartText(mergedDoc, 'word/commentsExtended.xml'), commentsExtendedXml,
+  'the existing extended-thread part is preserved for an ordinary new root comment');
+assert.ok(mergedInspection.paragraphs.some(paragraph => paragraph.exactText === 'This agreement remains governed by local law.'),
+  'the requested paragraph edit remains in the assembled DOCX');
+const siblingIds = xml => {
+  const parsed = parser.parseFromString(xml, 'application/xml');
+  return [...parsed.getElementsByTagNameNS('*', 'commentId')].map(node => ({
+    paraId: node.getAttribute('w16cid:paraId') || node.getAttribute('paraId'),
+    durableId: node.getAttribute('w16cid:durableId') || node.getAttribute('durableId'),
+  }));
+};
+const originalSiblingIds = siblingIds(getPartText(original, 'word/commentsIds.xml'));
+const mergedSiblingIds = siblingIds(getPartText(mergedDoc, 'word/commentsIds.xml'));
+assert.equal(mergedSiblingIds.length, 4, 'the new comment receives a sibling ID');
+for (const existing of originalSiblingIds) {
+  assert.ok(mergedSiblingIds.some(item => item.paraId === existing.paraId && item.durableId === existing.durableId),
+    `existing durable ID ${existing.durableId} remains unchanged`);
+}
+const extensibleDoc = parser.parseFromString(getPartText(mergedDoc, 'word/commentsExtensible.xml'), 'application/xml');
+assert.equal(extensibleDoc.getElementsByTagNameNS('*', 'commentExtensible').length, 4,
+  'optional extensible records are reconciled for all four comments');
 
 // Existing-thread text edits remain supported through the complete public DOCX API.
 const textOnlyDoc = openDocx(sourceBytes);
@@ -112,7 +160,14 @@ const observations = {
   commentsInReturnedDelta: deltaCommentCount,
   commentAnchorsInReturnedDocument: bodyStarts,
   commentsPartsAfterPublishedInjector: commentPartCount,
-  commentsAfterPublicZipHelperMerge: zipMergedCommentCount,
+  commentsAfterComposedPublicMerge: zipMergedCommentCount,
+  preservedOriginalThreadState: mergedInspection.comments.slice(0, 3).every((comment, index) =>
+    JSON.stringify(identity(comment)) === JSON.stringify(identity(sourceInspection.comments[index]))),
+  preservedOriginalDurableIds: originalSiblingIds.every(existing =>
+    mergedSiblingIds.some(item => item.paraId === existing.paraId && item.durableId === existing.durableId)),
+  reconciledExtensibleRecords: extensibleDoc.getElementsByTagNameNS('*', 'commentExtensible').length,
+  sameBatchParagraphEdit: mergedInspection.paragraphs.some(paragraph =>
+    paragraph.exactText === 'This agreement remains governed by local law.'),
   textOnlyEditStatus: textOnly.status,
   textOnlyEditPreservedComments: textOnlyDoc.inspect().comments.length === sourceInspection.comments.length,
 };
@@ -120,4 +175,5 @@ console.log(JSON.stringify(observations, null, 2));
 assert.equal(deltaCommentCount, 1, 'the returned comment XML is a delta');
 assert.equal(bodyStarts, 4, 'the returned document retains three existing anchors and adds one');
 assert.equal(commentPartCount, 2, 'the published injector appends instead of merging the comments part');
-console.log('REPRODUCED: consumer transport must handle merge-mode comments deltas without replacing existing comments.');
+assert.equal(zipMergedCommentCount, 4, 'the composed public helpers produce one complete four-comment part');
+console.log('REPRODUCED AND FIXED IN CONSUMER: composed public helpers preserve threaded comments while merging the delta.');

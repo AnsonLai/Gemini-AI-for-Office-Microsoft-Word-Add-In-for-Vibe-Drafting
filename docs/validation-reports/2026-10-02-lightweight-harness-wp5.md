@@ -1,8 +1,17 @@
 # WP5: final bridge thinning and checkpoint reliability
 
-**Date:** 2026-10-02 (America/Vancouver). Local implementation and verification complete.
+**Date:** 2026-10-02 (America/Vancouver). Evidence for commit `2aa6aca`; WP5 reopened.
 **Scope:** Final package of the [approved reliability plan](../plans/2026-10-02-library-first-lightweight-agent-reliability.md).
 **Library:** Both consumers remain exact-pinned to `@ansonlai/docx-redline-js@0.8.4`.
+
+**Owner review correction:** The two blanket restrictions below are unacceptable
+day-to-day capability regressions. Passing refusal checks does not establish
+feature preservation. This report records the committed behavior and its tests;
+it does not certify WP5 completion. The [plan](../plans/2026-10-02-library-first-lightweight-agent-reliability.md)
+now tracks repairs for ordinary comments and revision-aware editing. The separate
+[correction report](2026-10-02-lightweight-harness-wp5-correction.md) supersedes
+these blanket guards and retains the original failed artifacts and conclusions
+here as historical evidence.
 
 The Word plugin retains two document tools, a bounded local harness and Flat OPC
 transport. The library owns transformations. All orphan native command modules,

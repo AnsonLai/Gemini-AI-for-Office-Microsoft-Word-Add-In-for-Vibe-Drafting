@@ -1,4 +1,4 @@
-import { areRevisionTokensEqual, inspectDocumentParts } from '@ansonlai/docx-redline-js';
+import { areRevisionTokensEqual } from '@ansonlai/docx-redline-js';
 import { computeWordSourceRevisionToken } from '../docx-redline-js-integration/word-source-identity.js';
 import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalone-runner';
 import { executePureOoxmlBatch, inspectWordSource } from '../docx-redline-js-integration/word-operation-runner.js';
@@ -13,13 +13,33 @@ function sourceParts(source) {
   ].filter(([, xml]) => xml));
   return parts;
 }
+const commentIdentity = comment => [comment.author, comment.text, comment.anchoredText || ''];
+function reviewSegments(segments = []) {
+  return segments.filter(segment => segment.kind !== 'baseline').reduce((result, segment) => {
+    const next = { kind: segment.kind, author: segment.author || null, text: segment.text,
+      acceptedStart: segment.acceptedStart, rejectedStart: segment.rejectedStart };
+    const previous = result.at(-1);
+    const adjacent = key => previous[key] == null && next[key] == null
+      || previous[key] != null && previous[key] + previous.text.length === next[key];
+    if (previous && previous.kind === next.kind && previous.author === next.author
+      && adjacent('acceptedStart') && adjacent('rejectedStart')) previous.text += next.text;
+    else result.push(next);
+    return result;
+  }, []);
+}
 const acceptedShape = inspection => ({
   paragraphs: inspection.paragraphs.map(paragraph => ({
     text: paragraph.exactText, inTable: paragraph.inTable,
     table: paragraph.table ? [paragraph.table.rowIndex, paragraph.table.cellIndex] : null,
     list: paragraph.list ? [paragraph.list.format, paragraph.list.level, paragraph.list.label] : null,
+    review: { present: paragraph.hasRevisions, authors: [...paragraph.revisionAuthors].sort(),
+      segments: reviewSegments(paragraph.segments) },
   })),
-  comments: (inspection.comments || []).map(comment => [comment.author, comment.text, comment.anchoredText || '']).sort(),
+  comments: (inspection.comments || []).map(comment => {
+    const parent = (inspection.comments || []).find(item => comment.parentCommentId != null && String(item.id) === String(comment.parentCommentId));
+    return [...commentIdentity(comment), comment.done === true,
+      parent ? commentIdentity(parent) : comment.parentCommentId != null || comment.parentParaId ? 'unresolved parent' : null];
+  }).sort(),
 });
 
 /** Direct document tools. Word is only a source/commit/state transport. */
@@ -35,6 +55,7 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
         checkCancelled();
         const documentId = getDocumentId();
         const author = getAuthor(), generateRedlines = getGenerateRedlines();
+        const ownAuthor = String(author).trim().toLowerCase();
         result = await run(async context => {
           const body = context.document.body;
           let hostParagraphCount;
@@ -47,17 +68,15 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
             checkCancelled();
             hostParagraphCount = readHostCount();
             if (getDocumentId() !== documentId) throw fail('DOCUMENT_IDENTITY_CHANGED', 'The active document changed. Inspect it again.');
-            if (Array.isArray(edits) && edits.some(edit => edit?.type === 'comment')
-              && inspectDocumentParts(sourceParts(source)).comments?.length) {
-              throw fail('UNSUPPORTED_EXISTING_COMMENTS', 'Adding comments to a document that already contains comments is unsupported in Word. No part of this batch was applied.');
-            }
             compiled = await compileDocumentEdits(edits, { session, source: {
               documentId, revisionView: 'accepted', parts: sourceParts(source), hostParagraphCount,
             } });
-            if (generateRedlines === false && compiled.expectations.some(edit => edit.action !== 'comment'
-              && source.paragraphs.some(paragraph => paragraph.index === edit.target.index && paragraph.hasRevisions))) {
-              throw fail('UNTRACKED_EDIT_ON_REVISED_TARGET', "Untracked edits on a paragraph with pending revisions are unsupported. Enable the add-in's tracked-edit option or change the request. No part of this batch was applied.");
-            }
+            compiled.operations = compiled.operations.map(operation =>
+              operation.structuredContent === false && ['replace', 'redline'].includes(operation.type)
+                && source.paragraphs.some(paragraph => paragraph.index === operation.target.index && paragraph.hasRevisions
+                  && (!paragraph.revisionAuthors.length
+                    || paragraph.revisionAuthors.some(name => name.trim().toLowerCase() !== ownAuthor)))
+                ? { ...operation, existingRevisions: 'slice-cross-author' } : operation);
             return compiled.operations;
           }, {
             author, generateRedlines,
@@ -70,10 +89,20 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
                   || new Set(preparation.result.results.map(item => item.index)).size !== compiled.operations.length)) {
                 throw fail('INCOMPLETE_ENGINE_RESULT', 'The engine did not account for every prepared operation. No write was attempted.');
               }
+              if (preparation.status === 'ready') {
+                expected = inspectWordSource(preparation.insertionPayload);
+                const createdIds = new Set(preparation.result.receipts.flatMap(receipt => receipt.revisionItems || [])
+                  .map(item => String(item.id)));
+                if (generateRedlines === false && expected.inspection.paragraphs.some(paragraph =>
+                  paragraph.segments.some(segment => segment.kind !== 'baseline'
+                    && String(segment.author || '').trim().toLowerCase() === ownAuthor
+                    && createdIds.has(String(segment.revisionId))))) {
+                  throw fail('TRACKING_POLICY_MISMATCH', 'The library prepared new tracked text despite tracked edits being disabled. This operation requires a library fix; no part of the batch was written.');
+                }
+              }
             },
             async beforeWrite(preparation) {
               checkCancelled();
-              expected = inspectWordSource(preparation.insertionPayload);
               let checkpointIndex;
               try { checkpointIndex = await persistCheckpoint(preparation.sourceOoxml); }
               catch { throw fail('CHECKPOINT_FAILED', 'The recovery checkpoint could not be saved. No edit was attempted.'); }
@@ -99,7 +128,7 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
               const actual = inspectWordSource(fresh.value);
               if (getDocumentId() !== documentId
                 || JSON.stringify(acceptedShape(actual.inspection)) !== JSON.stringify(acceptedShape(expected.inspection))) {
-                throw fail('HOST_VERIFICATION_FAILED', 'The committed document does not match the prepared accepted text, structure or comments.');
+                throw fail('HOST_VERIFICATION_FAILED', 'The committed document does not match the prepared text, structure, review marks or comments.');
               }
               // Reapplying a requested format to the actual source must be a pure no-op.
               // This checks Word's fresh state without issuing another host write.
@@ -120,7 +149,7 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
               }
               return { ...batch, verified: true };
             } catch (error) {
-              return { ...batch, status: 'error', verified: false, mutationOutcome: 'applied_with_host_error', error: { code: error.code || 'HOST_VERIFICATION_FAILED', message: error.message } };
+              return { ...batch, status: 'error', verified: false, requiresInspection: true, mutationOutcome: 'applied_with_host_error', error: { code: error.code || 'HOST_VERIFICATION_FAILED', message: error.message } };
             }
           }
           return { ...batch, verified: batch.mutationOutcome === 'noop' && batch.status === 'ok' };

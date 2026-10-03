@@ -38,13 +38,29 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-wp6-word.ps1 
 ```
 
 The default generator is `tests/direct_document_fidelity_manifest_tests.mjs`.
-It creates eleven retained cases from Word-authored sources with independent
+It creates fourteen required cases from Word-authored sources with independent
 expected text, list identity/continuation/restart, formatting and table cells.
 The collector runs production inspect/apply, records real transport counters,
 verified/no-op/stale/refusal outcomes, and saves/reads the exact body checkpoint
 through the production IndexedDB store. A separate restored export tests the
 production checkpoint helper, tracking restoration and expiry of a handle
 issued after the edit. Its restoration write is separate from edit counts.
+Capability cases include sequential new comments on an existing root/reply/
+resolved-thread source, a combined rewrite/comment batch after fresh inspection,
+and untracked wording/formatting changes alongside another reviewer's pending
+revision. These assert expected comment counts and original thread identities,
+rather than treating refusal as a passing preservation check. The sequential
+case uses two checkpoints/two edit writes and restores the latest checkpoint;
+single-stage edit cases retain one checkpoint/one write.
+
+The default success gate for untracked pure insertion on a revised target is
+currently blocked by the published 0.8.4 surgical-insertion defect. Its original
+applied-text, Reject All and exact native-revision expectations remain required;
+a refusal is not a capability pass. `--fixture-manifest PATH` permits an explicit
+diagnostic subset. A separate manifest can request the prewrite tracking-policy
+safety control, which is excluded from capability/COM totals. Always record
+excluded capability gates; a passing subset does not close WP5. See the
+[correction report](../docs/validation-reports/2026-10-02-lightweight-harness-wp5-correction.md).
 
 Read `officejs-report.json`, then verify `officejs-fixtures.json` exports with
 the independent Word oracle. Each applicable source/tracked/accepted/rejected

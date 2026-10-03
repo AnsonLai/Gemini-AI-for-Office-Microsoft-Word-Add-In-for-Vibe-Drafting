@@ -22,7 +22,7 @@ Word regenerates session attributes and an export-only empty tail ID. These conf
 | `insert_paragraph` | `text`, `position:before` or `after` | One plain paragraph beside an inspected nonempty plain paragraph. |
 | `append_paragraph` | `text` | End handle; one paragraph at a supported plain end. |
 | `insert_list_item` | `text` | Same-level insertion after an active bullet/decimal item at library levels 0–1, outside tables. |
-| `comment` | `text`, optional `anchor` | One comment on exact original inspected text; adding comments requires a source without existing comments. |
+| `comment` | `text`, optional `anchor` | One comment on exact original inspected text; existing comments and threads are preserved when adding more. |
 | `format_text` | `find`, optional `occurrence`, `properties` | Boolean bold/italic/underline/strikethrough; highlight `yellow` or `none`. |
 
 Inserted content is one plain paragraph. Literal replacements/rewrites use `structuredContent:false`; paragraph/list insertion uses explicit canonical structured recipes. No font family/size, layout, table creation/rows, list conversion/style/depth, revision acceptance, arbitrary OOXML, research or navigation executor is exposed.
@@ -31,20 +31,40 @@ Each source paragraph has one text-bearing desired state per batch. Combine word
 
 ## Commit and completion
 
-All handles resolve from one fresh source. The tool prepares one atomic library batch, verifies complete operation accounting, persists the exact-source checkpoint, checks freshness again, and makes at most one body OOXML insertion. Native tracking is disabled for transport and its prior state restored. Fresh canonical accepted text/structure/comments must match preparation; requested formatting must reapply as a pure no-op.
+All handles resolve from one fresh source. The tool prepares one atomic library batch, verifies complete operation accounting, persists the exact-source checkpoint, checks freshness again, and makes at most one body OOXML insertion. Native tracking is disabled for transport and its prior state restored. Fresh canonical text/structure, pending review segments/authors and comments (including reply relationships and resolved state) must match preparation; requested formatting must reapply as a pure no-op. Review-segment comparison tolerates Word revision-ID renumbering and equivalent adjacent carrier splitting while requiring the same text and view offsets.
 
 Receipts include requested/accounted counts, status/success/completion/verification, write evidence, mutation outcome, checkpoint identity, counters and useful errors. Preparation/freshness source reads and verification reads are separate from content writes. Checkpoint failure blocks a new write. Verified no-ops succeed without writing or checkpoint capture. Identity literal replacements refuse; an already-satisfied complete rewrite is the supported no-op confirmation.
 
 Checkpoint save resolves only after its IndexedDB transaction commits. Manual restore replaces the body once with native tracking disabled, restores its prior mode, and compares all transported parts. The restoration comparison omits confirmed Word session metadata and regenerated body/comment paragraph IDs. It additionally requires identical public canonical comment identity, including replies, resolved flags, authors, dates, text and anchors. Metadata references must resolve to inspected comments; durable comment IDs and all remaining part content stay covered. Normal source freshness still covers real IDs; stored XML is untouched. Failed or uncertain restoration preserves chat history and requires inspection. Verified restoration resets model history and the visible transcript together.
 
-New-comment output from 0.8.4 is a merge delta. The current Word transport cannot safely merge it into an existing comments part through a supported public helper, so any such mixed batch refuses before checkpoint/write. Supported wording edits preserve existing comments/threads. See the [dated transport limitation](library-issues/2026-10-02-word-existing-comments-delta-transport.md); it does not change browser/MCP facade behavior.
+New-comment output from 0.8.4 is a merge delta. The Word transport composes the
+published comments merge and sibling reconciliation helpers over in-memory
+parts, then assembles the existing Flat OPC insertion payload. It does not
+replace existing comment definitions with the delta or switch to a full-DOCX
+Word facade. The [dated transport report](library-issues/2026-10-02-word-existing-comments-delta-transport.md)
+records the regression and correction evidence.
 
-With the add-in's tracked-edit option disabled, non-comment changes targeting a
-paragraph with pending revisions refuse with `UNTRACKED_EDIT_ON_REVISED_TARGET`
-before checkpoint/write. This prevents an untracked rewrite from flattening
-prior revision history. Whole mixed batches refuse; enable the add-in's tracked
-editing or change the request. Edits on other unrevised paragraphs can preserve
-existing revisions elsewhere.
+Pending revisions alone do not prohibit an edit. For single-paragraph wording
+changes on targets with foreign or unattributed revisions, the adapter selects
+the library's `slice-cross-author` policy per operation to preserve those review
+carriers. Own-only targets retain the documented same-author baseline merge.
+Structural/list actions
+keep their established library policies. The add-in's tracked-edit setting is
+respected. Localized
+replacements and formatting preserve unaffected revisions. Changes inside
+reviewed text use the library's surgical slice semantics; the affected span can
+change while unrelated review marks remain pending. Whole same-author rewrites retain the library's
+established merge policy: re-diff against that author's prior baseline, producing
+clean text when tracking is disabled. Specific unsupported revision structures
+still produce library refusals. No accept-all-first policy is selected.
+
+Published 0.8.4 has an untracked surgical-insertion defect: a pure insertion
+can create new own tracked text despite tracking being disabled. The tool
+compares prepared public revision segments with receipt-created IDs and refuses
+that output as `TRACKING_POLICY_MISMATCH` before checkpoint/write. Foreign
+review carriers are allowed. This is a library dependency for an in-scope edit,
+not a blanket restriction on revised paragraphs or an approved retirement. WP5
+remains open until the original capability gate passes on a published fix.
 
 Uncertain writes, verification errors, tracking restoration errors and cancellation preserve observed host evidence and require inspection. There is no native fallback or automatic mutation replay. The loop pairs every function response, rejects multiple mutation calls and mixed inspect/mutate exchanges before execution, and retains six model turns, two failed mutation cycles and one no-write stale refresh. Read-only calls do not reset mutation failures. Malformed recovery accepts only complete JSON calls for declared names. An unresolved refusal overrides a fabricated final success.
 
