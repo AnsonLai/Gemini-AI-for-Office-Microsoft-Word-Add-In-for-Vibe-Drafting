@@ -1,4 +1,5 @@
 import { requestGemini, requestGeminiJson, geminiEndpoint } from './modules/chat/gemini-client.js';
+import { populateModelSetting, readModelSetting } from './modules/config/model-settings.js';
 import { createLazyModuleLoader } from './modules/utils/lazy-module-loader.js';
 import { postTaskpaneStartupProfile } from './modules/diagnostics/startup-profile-reporter.js';
 /*
@@ -602,11 +603,11 @@ function showSettingsView() {
   // Load current models
   const currentFastModel = loadModel('fast');
   if (currentFastModel) {
-    document.getElementById("model-select-fast").value = currentFastModel;
+    populateModelSetting('fast', currentFastModel);
   }
   const currentSlowModel = loadModel('slow');
   if (currentSlowModel) {
-    document.getElementById("model-select-slow").value = currentSlowModel;
+    populateModelSetting('slow', currentSlowModel);
   }
   // Load current system message
   const currentSystemMessage = loadSystemMessage();
@@ -675,8 +676,14 @@ function refreshChat() {
 
 function saveApiKey() {
   const apiKey = document.getElementById("api-key-input").value;
-  const fastModel = document.getElementById("model-select-fast").value;
-  const slowModel = document.getElementById("model-select-slow").value;
+  let fastModel, slowModel;
+  try {
+    fastModel = readModelSetting('fast');
+    slowModel = readModelSetting('slow');
+  } catch (error) {
+    addMessageToChat('System', error.message);
+    return;
+  }
   const systemMessage = document.getElementById("system-message-input").value;
   const redlineEnabled = document.getElementById("redline-toggle").checked;
   const redlineAuthor = document.getElementById("redline-author-input").value;
