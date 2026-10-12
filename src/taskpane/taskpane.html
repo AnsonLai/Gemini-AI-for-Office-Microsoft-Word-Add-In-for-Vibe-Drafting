@@ -96,11 +96,15 @@
     <label for="model-select-fast">Fast Model:</label>
     <select id="model-select-fast" class="ms-TextField-field">
       <option value="gemini-flash-lite-latest">Gemini 2.5 Flash Lite</option>
-      <option value="gemini-2.5-flash" selected>Gemini 2.5 Flash</option>
-      <option value="gemini-3.8-flash">Gemini 3.8 Flash (Default)</option>
+      <option value="gemini-flash-latest" selected>Gemini Flash Latest (Default)</option>
+      <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+      <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
       <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
       <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
+      <option value="custom">Custom model ID...</option>
     </select>
+    <input id="model-custom-fast" class="ms-TextField-field" aria-label="Custom Fast model ID" placeholder="Model ID from Google AI Studio" hidden>
+    <p class="settings-hint">If a model is busy, choose another preset or enter an available model ID. Availability depends on your API key.</p>
     <br />
     <label for="model-select-slow">Slow Model:</label>
     <select id="model-select-slow" class="ms-TextField-field">
@@ -109,7 +113,9 @@
       <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
       <option value="gemini-2.5-pro" selected>Gemini 2.5 Pro (Default)</option>
       <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
+      <option value="custom">Custom model ID...</option>
     </select>
+    <input id="model-custom-slow" class="ms-TextField-field" aria-label="Custom Slow model ID" placeholder="Model ID from Google AI Studio" hidden>
     <br />
     <br />
 
