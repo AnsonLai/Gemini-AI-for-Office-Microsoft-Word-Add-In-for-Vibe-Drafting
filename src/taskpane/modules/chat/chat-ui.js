@@ -1,6 +1,28 @@
 /* global document */
 
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
+
+function renderMarkdown(element, message, inline = false) {
+  // Legacy hosts without sanitizer support must fail closed to plain text.
+  if (!DOMPurify.isSupported) {
+    element.textContent = message;
+    return;
+  }
+  element.innerHTML = DOMPurify.sanitize(inline ? marked.parseInline(message) : marked.parse(message), {
+    USE_PROFILES: { html: true },
+    FORBID_TAGS: ['style', 'form', 'input', 'button', 'textarea', 'select', 'img'],
+    FORBID_ATTR: ['style', 'id', 'name'],
+  });
+}
+
+function renderSender(element, sender) {
+  element.textContent = '';
+  const label = document.createElement('strong');
+  label.textContent = `${sender}:`;
+  element.appendChild(label);
+  element.appendChild(document.createTextNode(' '));
+}
 
 let onCancelRequest = null;
 let onRestoreCheckpoint = null;
@@ -99,7 +121,10 @@ function addMessageToChat(sender, message, checkpointIndex = -1) {
     renderSystemMessageContent(messageElement, sender, message);
   } else {
     // Render Markdown for user/gemini
-    messageElement.innerHTML = `<strong>${sender}:</strong> <div>${marked.parse(message)}</div>`;
+    renderSender(messageElement, sender);
+    const content = document.createElement('div');
+    renderMarkdown(content, message);
+    messageElement.appendChild(content);
   }
 
   // Add Revert button if a valid checkpoint index is provided
@@ -138,7 +163,7 @@ function renderSystemMessageContent(element, sender, message) {
     const shortText = message.substring(0, maxLength) + "...";
     const fullText = message;
 
-    element.innerHTML = `<strong>${sender}:</strong> `;
+    renderSender(element, sender);
 
     const textSpan = document.createElement("span");
     textSpan.innerText = shortText;
@@ -159,7 +184,10 @@ function renderSystemMessageContent(element, sender, message) {
     element.appendChild(toggleBtn);
   } else {
     // Render Markdown inline for System messages
-    element.innerHTML = `<strong>${sender}:</strong> <span>${marked.parseInline(message)}</span>`;
+    renderSender(element, sender);
+    const content = document.createElement('span');
+    renderMarkdown(content, message, true);
+    element.appendChild(content);
   }
 }
 
