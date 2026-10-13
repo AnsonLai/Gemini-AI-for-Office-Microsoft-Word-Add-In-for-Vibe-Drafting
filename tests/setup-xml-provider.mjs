@@ -40,7 +40,14 @@ function ensureRemove(node) {
     });
 }
 
-try {
+// The provider is chosen explicitly, never by whichever DOM package happens to be installed.
+// Default lane: xmldom. Browser-like lane: DOCX_TEST_XML_PROVIDER=jsdom (fails loudly if jsdom is missing).
+const XML_PROVIDER = (process.env.DOCX_TEST_XML_PROVIDER || 'xmldom').toLowerCase();
+if (XML_PROVIDER !== 'xmldom' && XML_PROVIDER !== 'jsdom') {
+    throw new Error(`Unknown DOCX_TEST_XML_PROVIDER "${XML_PROVIDER}"; use "xmldom" or "jsdom".`);
+}
+
+if (XML_PROVIDER === 'jsdom') {
     const { JSDOM } = await import('jsdom');
     const dom = new JSDOM('');
     DOMParserCtor = dom.window.DOMParser;
@@ -48,7 +55,7 @@ try {
     doc = dom.window.document;
     win = dom.window;
     nodeCtor = dom.window.Node;
-} catch {
+} else {
     const xmldom = await import('@xmldom/xmldom');
     DOMParserCtor = xmldom.DOMParser;
     XMLSerializerCtor = xmldom.XMLSerializer;

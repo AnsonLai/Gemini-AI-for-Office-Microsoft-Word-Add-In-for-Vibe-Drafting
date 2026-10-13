@@ -75,14 +75,34 @@ Library defects still go in [`../library-issues/`](../library-issues/README.md),
 - **Exit condition:** a published library fix, with the reproducer exiting 1. Then remove the known-defect gate from "Add Date Row" (the `squash`/`knownDefect` logic and the marker). Consider a guard that compares the requested `rewrite_paragraph` text with the prepared text before the interim period ends.
 - **Related observation (not filed):** a `list-change` whose kept item carries `-` markers on a decimal list converts the list to a new bullet list (new `numId`, bullet labels). The only diagnostic is "Paragraph expanded to list fragment". The 0.9.0 README ("List operations") and `AGENT_KNOWLEDGE_BASE.md` say retyped markers keep the old numbering and warn `LIST_FORMAT_NOT_APPLIED`. Checked on the sample's decimal list with a single-paragraph target. This looks like a gap against the documented contract, probably on the single-paragraph or fragment path. It is not filed because Reject All and the multi-paragraph target form were not checked. The add-in avoids it by deriving markers from the target list's kind (`listInsertionMarkers`).
 
-### KB-8: Test XML provider switches silently when `jsdom` is installed
+### KB-8: Test XML provider was chosen silently; the `jsdom` lane fails 5 suites (all provider-specific, none a user defect)
 
-- **Where:** [`tests/setup-xml-provider.mjs`](../../tests/setup-xml-provider.mjs) prefers `jsdom` whenever it is importable and falls back to `@xmldom/xmldom` otherwise. `d5809b9` (the issue #2 fix) added `jsdom` as a dev dependency.
-- **Evidence (2026-10-12):**
-  - With `jsdom` installed: 43 suites pass and 5 fail. The failures are `browser_document_session_tests` (`PACKAGE_OPERATION_FAILED`, a generated `ns1` namespace prefix that is never declared), `docx_cross_host_parity_tests`, `ooxml_formatting_visual_tests`, `golden-guardrail` and `integration_tests`.
-  - With `jsdom` moved aside, all 46 library suites pass. Only the two new `jsdom` UI tests fail.
-- **User impact:** unknown. Word runs the add-in in a browser DOM, which is closer to `jsdom`. The Office.js and golden host lanes pass on 0.9.0.
-- **Exit condition:** [phase-2 plan](2026-10-12-library-first-simplification-phase-2.md) WP0. Choose the provider explicitly, and either explain each `jsdom` failure or file it upstream with a reproducer.
+- **Where:** [`tests/setup-xml-provider.mjs`](../../tests/setup-xml-provider.mjs). `d5809b9` (the issue #2 fix) added `jsdom` as a dev dependency, and the setup then preferred it whenever it was importable.
+- **Resolved (2026-10-12):** the provider is now explicit. The default is `@xmldom/xmldom` (48/48 suites pass). `DOCX_TEST_XML_PROVIDER=jsdom` selects `jsdom` and fails loudly if it is missing. Unknown values throw. [`TESTING.md`](../TESTING.md) documents it.
+- **Production environment:** the add-in never calls `configureXmlProvider`, so the library uses the host's native `DOMParser`/`XMLSerializer`. In Word that is the WebView2 (Chromium) DOM. Every failure below was re-run against real Chromium (Microsoft Edge 155, headless) through the library's browser bundle (`dist/docx-redline.bundle.js`, 0.9.0), alongside xmldom and `jsdom` in Node. Same scenarios, same inputs.
+- **Root cause of 4 of 5 failures (class B, `jsdom` deviation):**
+  - When `jsdom` serializes a subtree, an attribute whose namespace is not declared on that subtree gets a generated prefix (`w14:paraId` becomes `ns1:paraId`, `r:id` becomes `ns1:id`). Chromium and xmldom keep the original prefix.
+  - The library serializes paragraph, `pPr`, `rPr` and run fragments and strips every `xmlns:` declaration with a regex before re-embedding them (`pipeline/serialization.js` `stripNamespaceDeclarations`, `pipeline/patching.js`, `engine/rpr-helpers.js`, `engine/table-cell-context.js`). That is only safe when the serializer keeps the prefixes the surrounding document declares, as Chromium does.
+  - Under `jsdom` the stripped `ns1` is unbound (parse error), or `r:id` stops being found (see below).
+  - Proof that this is the only cause: a scratch shim that maps generated prefixes back to `w14`/`r` makes all four suites pass under `jsdom`.
+- **Per-failure classification:**
+
+| Suite | Class | Evidence |
+| --- | --- | --- |
+| `browser_document_session_tests` | B | A 2-op batch (redline + comment) on the Word-authored fixture, whose paragraphs carry `w14:paraId`, fails with `PACKAGE_OPERATION_FAILED` / unbound `ns1` under `jsdom`. xmldom and Chromium: `ok`, output well-formed, `w14:paraId` preserved. |
+| `docx_cross_host_parity_tests` ("portable core") | B | A localized replace in a paragraph with `<w:hyperlink r:id>` is refused with `REVISION_FIDELITY_VIOLATION` under `jsdom` (`r:id` serialized as `ns1:id`, so the rel id reads back empty: `hyperlink:rIdLink` vs `hyperlink:`). xmldom and Chromium: `ok`, `r:id="rIdLink"` kept. The guard fails closed, so no corruption results. |
+| `ooxml_formatting_visual_tests` | B | Same hyperlink `r:id` refusal, in the tab/line-break/hyperlink paragraph (`combined`, line 186). |
+| `addin/integration_tests` ("Parties to Table") | B | Text-to-table over two NDA paragraphs: `PACKAGE_OPERATION_FAILED`, unbound `ns1` (the later `w:p` elements use `ns1:paraId` without a declaration). xmldom and Chromium: `ok`, Accept All resolves. |
+| `phase4/golden-guardrail` | C | Correct output, provider-specific bytes. `table_reconcile`: xmldom and Chromium emit redundant `xmlns:w` on imported children, and their output is byte-identical after id/date normalization (3085 chars). `jsdom` omits them (2304). `comment_package_injection`: xmldom keeps the XML declaration plus a newline, Chromium keeps the declaration without the newline (1 char shorter), and `jsdom` drops the declaration. All are equivalent XML. The baseline is an xmldom-byte baseline, so any other provider (Chromium included) mismatches on `comment_package_injection`. Hashes were not changed. |
+
+- **Class A (library defects that also occur in Chromium):** none found. No `docs/library-issues` report was filed.
+- **Library robustness (optional, not a defect):** the `xmlns:` strip regexes assume the provider keeps prefixes. Re-using the original prefixes explicitly, or checking that every prefix in a stripped fragment is bound in the target context, would make the library tolerant of spec-style serializers such as `jsdom`'s. Only worth doing if a `jsdom`/Node-based consumer matters. It is not a user issue.
+- **User impact:** none observed. Production runs on Chromium, where all five scenarios pass. Not tested: Word hosts that fall back to the legacy IE11/EdgeHTML webview, which this add-in does not target.
+- **Exit condition (recommendation):**
+  - Do not make the `jsdom` lane a required gate. It reports false failures, and a fix would force either a library change that no user needs or a prefix shim in the tests.
+  - Keep xmldom as the required gate. Replace `jsdom` as the browser-like signal with a real-browser lane: headless Chromium or Edge loading `dist/docx-redline.bundle.js` and running the isomorphic scenarios (multi-op batch on a `w14:paraId` fixture, hyperlink `r:id` edit, text-to-table on the NDA sample, accept/reject). [`scripts/browser-document-validation.html`](../../scripts/browser-document-validation.html) is a manual starting point. Make it advisory first, then required once stable in CI.
+  - Until that lane exists, keep `DOCX_TEST_XML_PROVIDER=jsdom` as an opt-in, non-gating diagnostic. Its 5 known failures are classified above.
+  - Keep `jsdom` as a devDependency: `chat_ui_security_tests` and `model_settings_tests` use it for UI DOM tests, independent of the XML provider.
 
 ## Word JS API usage (host boundary)
 
