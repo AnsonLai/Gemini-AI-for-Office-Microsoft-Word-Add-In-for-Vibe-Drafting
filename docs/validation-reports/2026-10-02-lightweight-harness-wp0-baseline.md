@@ -1,6 +1,6 @@
 # Lightweight document agent WP0 baseline (2026-10-02)
 
-This is the implementation baseline for the approved [library-first reliability plan](../plans/2026-10-02-library-first-lightweight-agent-reliability.md). It records current tracked production code, a fresh offline run, a fresh deterministic desktop Word replay, and the boundaries that constrain the retained operation set. The plan owns the product decisions; this report maps them to current code and evidence. The baseline source was Git HEAD 23cbb33c3ed5bdeb6e8f28bc64317cc2647bbf03, before the cutover edits.
+This is the implementation baseline for the approved [library-first reliability plan](../plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md). It records current tracked production code, a fresh offline run, a fresh deterministic desktop Word replay, and the boundaries that constrain the retained operation set. The plan owns the product decisions; this report maps them to current code and evidence. The baseline source was Git HEAD 23cbb33c3ed5bdeb6e8f28bc64317cc2647bbf03, before the cutover edits.
 
 ## Version and source-size baseline
 

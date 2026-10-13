@@ -1,13 +1,13 @@
 # WP5: final bridge thinning and checkpoint reliability
 
 **Date:** 2026-10-02 (America/Vancouver). Evidence for commit `2aa6aca`; WP5 reopened.
-**Scope:** Final package of the [approved reliability plan](../plans/2026-10-02-library-first-lightweight-agent-reliability.md).
+**Scope:** Final package of the [approved reliability plan](../plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md).
 **Library:** Both consumers remain exact-pinned to `@ansonlai/docx-redline-js@0.8.4`.
 
 **Owner review correction:** The two blanket restrictions below are unacceptable
 day-to-day capability regressions. Passing refusal checks does not establish
 feature preservation. This report records the committed behavior and its tests;
-it does not certify WP5 completion. The [plan](../plans/2026-10-02-library-first-lightweight-agent-reliability.md)
+it does not certify WP5 completion. The [plan](../plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md)
 now tracks repairs for ordinary comments and revision-aware editing. The separate
 [correction report](2026-10-02-lightweight-harness-wp5-correction.md) supersedes
 these blanket guards and retains the original failed artifacts and conclusions
@@ -75,7 +75,7 @@ all thread siblings. No private helper or consumer XML merge was copied.
 The retained Word path now refuses adding comments whenever existing comments
 are present, including whole mixed batches, before checkpoint/write. Text edits
 preserving existing threads remain supported. The versioned guide and source
-summary explain this restriction. The [dated transport report and public repro](../library-issues/2026-10-02-word-existing-comments-delta-transport.md)
+summary explain this restriction. The [dated transport report and public repro](../library-issues/completed/2026-10-02-word-existing-comments-delta-transport.md)
 preserve the evidence and API dependency. This is a consumer transport limitation,
 rather than a claimed library mutation defect or an upstream fix.
 

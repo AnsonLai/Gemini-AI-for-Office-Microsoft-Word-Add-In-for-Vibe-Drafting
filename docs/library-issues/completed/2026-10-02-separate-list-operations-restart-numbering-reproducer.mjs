@@ -4,8 +4,8 @@
 // docx-redline-js 0.8.3 gave both the same numId ("A.", "B.").
 // Exits 0 while the defect reproduces.
 //
-//   node docs/library-issues/2026-10-02-separate-list-operations-restart-numbering-reproducer.mjs
-import '../../tests/setup-xml-provider.mjs';
+//   node docs/library-issues/completed/2026-10-02-separate-list-operations-restart-numbering-reproducer.mjs
+import '../../../tests/setup-xml-provider.mjs';
 import { readFileSync } from 'node:fs';
 import { mergeNumberingXmlBySchemaOrder, openDocx } from '@ansonlai/docx-redline-js';
 import { unzipDocx, zipDocx } from '@ansonlai/docx-redline-js/document/zip-archive.js';
@@ -13,7 +13,7 @@ import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalo
 
 // Word-authored fixture with "1. Supported Header First", a body paragraph, and
 // "2. Supported Header Second" (paragraphs 21-23).
-const bytes = new Uint8Array(readFileSync(new URL('../../tests/fixtures/agentic-lists/nested-lists-source.docx', import.meta.url)));
+const bytes = new Uint8Array(readFileSync(new URL('../../../tests/fixtures/agentic-lists/nested-lists-source.docx', import.meta.url)));
 const source = openDocx(bytes);
 const decode = name => new TextDecoder().decode(source.entries.get(name));
 const paragraphs = source.inspect().paragraphs;

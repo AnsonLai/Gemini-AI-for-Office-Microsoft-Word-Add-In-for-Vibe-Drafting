@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-02. **Library:** exact 0.8.4, unchanged in add-in/MCP.
 **Status:** complete locally; live model and Word Online shipping limits remain.
-See the [approved plan](../plans/2026-10-02-library-first-lightweight-agent-reliability.md).
+See the [approved plan](../plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md).
 
 The supported Word path now has no native paragraph/list/table edit executor or
 fallback. Removed `agentic-tools.js`, mutation-outcome/converter/table validators,

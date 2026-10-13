@@ -3,8 +3,8 @@
 // engine defect: the batch returns a merge delta, while injectCommentsIntoPackage
 // appends a part instead of merging an existing comments part.
 //
-//   node docs/library-issues/2026-10-02-word-existing-comments-delta-reproducer.mjs
-import '../../tests/setup-xml-provider.mjs';
+//   node docs/library-issues/completed/2026-10-02-word-existing-comments-delta-reproducer.mjs
+import '../../../tests/setup-xml-provider.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -21,7 +21,7 @@ import { MemoryZip, zipDocx } from '@ansonlai/docx-redline-js/document/zip-archi
 import { reconcileCommentSiblingParts } from '@ansonlai/docx-redline-js/services/comment-thread-parts.js';
 import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalone-runner';
 
-const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
+const root = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const fixturePath = resolve(root, 'tests/fixtures/wp6/threaded-comments.docx');
 const sourceBytes = new Uint8Array(readFileSync(fixturePath));
 const decoder = new TextDecoder();

@@ -2,7 +2,7 @@
 
 The Word plugin uses two document tools: `inspect_document` and
 `apply_document_edits`. A small serial harness lets Gemini propose concrete
-source-bound edits. `@ansonlai/docx-redline-js@0.8.4` owns the transformations;
+source-bound edits. `@ansonlai/docx-redline-js@0.9.0` owns the transformations;
 Office.js transports the current Word body and preserves host state. Root and
 MCP dependencies keep the same exact library pin.
 
@@ -59,7 +59,7 @@ binary bridge. The browser's `document-session.js` and MCP's
 `docx-document-service.mjs` continue using the library's complete-DOCX facade.
 JSZip remains in browser preview. These consumers were not redesigned here.
 
-The [dated implementation plan](docs/plans/2026-10-02-library-first-lightweight-agent-reliability.md)
+The [dated implementation plan](docs/plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md)
 and linked reports distinguish offline checks, real Office.js, independent Word
 Accept All/Reject All, and taskpane replay. Live fast/slow provider checks remain
 a shipping gate. Desktop evidence does not certify Word Online. Checkpoints

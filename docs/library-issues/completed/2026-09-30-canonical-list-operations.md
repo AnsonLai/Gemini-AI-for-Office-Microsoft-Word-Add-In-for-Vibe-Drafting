@@ -1,10 +1,12 @@
 # 0.8.2 standalone list operation gaps
 
+> **Resolved in 0.9.0 (2026-10-12):** The capabilities were released in 0.9.0 as `list-format` (`convert-plain`, `change-format`, `join`) and `paragraph-format.numbering`. The old `reproduce-plain-header-conversion.mjs` is obsolete: it is now refused (`BATCH_OPERATION_FAILED`, strict list conversion) because the capability moved to `list-format` `convert-plain`. Consumer adoption is tracked in the [list migration follow-up](../../plans/2026-09-30-canonical-list-migration-follow-up.md) and KB-4 in [`KNOWN_BUGS.md`](../../plans/KNOWN_BUGS.md). The text below is the historical 0.8.2 report. See the [0.9.0 validation](../../validation-reports/2026-10-12-docx-redline-v090.md).
+
 **0.8.3 status:** Plain-to-list conversion and list-format changes remain
 unsupported, as the release's Known Limitations explicitly records. The
 fragment-parser/start-value defect described below is fixed. The original
 0.8.2 observations remain historical evidence; see the
-[release validation](../validation-reports/2026-09-30-docx-redline-v083.md).
+[release validation](../../validation-reports/2026-09-30-docx-redline-v083.md).
 
 **Package:** `@ansonlai/docx-redline-js@0.8.2`  
 **Checked:** 2026-09-30  

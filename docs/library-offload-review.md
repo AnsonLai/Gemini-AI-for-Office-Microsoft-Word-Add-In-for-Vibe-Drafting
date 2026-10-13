@@ -1,12 +1,12 @@
 # Library offload review — August plans and September upgrade
 
 **Historical review:** 2026-09-30
-**Installed library:** Exact `@ansonlai/docx-redline-js@0.8.4` in root and MCP.
+**Installed library:** Exact `@ansonlai/docx-redline-js@0.9.0` in root and MCP (upgraded from 0.8.4 on 2026-10-12; see the [0.9.0 validation](validation-reports/2026-10-12-docx-redline-v090.md)).
 **Purpose:** Internal ownership and maintenance review, separate from release notes.
 
 ## Current scope update — 2026-10-02
 
-The [lightweight-harness plan](plans/2026-10-02-library-first-lightweight-agent-reliability.md)
+The [lightweight-harness plan](plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md)
 retires native editing commands and nested AI interpretation, replaces eleven
 tools with two, and thins orphan compatibility/planning code. Its WP4/WP5 reports
 measure the whole affected production surface against the frozen WP0 baseline.

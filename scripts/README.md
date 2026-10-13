@@ -2,7 +2,7 @@
 
 See [consumer testing](../docs/TESTING.md), the
 [tool contract](../docs/agentic-tool-contracts.md) and
-[current plan](../docs/plans/2026-10-02-library-first-lightweight-agent-reliability.md).
+[current plan](../docs/plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md).
 Offline, genuine Office.js, independent Word and provider evidence cover
 different boundaries. Unsupported native routes are retired.
 
@@ -53,13 +53,15 @@ rather than treating refusal as a passing preservation check. The sequential
 case uses two checkpoints/two edit writes and restores the latest checkpoint;
 single-stage edit cases retain one checkpoint/one write.
 
-The default success gate for untracked pure insertion on a revised target is
-currently blocked by the published 0.8.4 surgical-insertion defect. Its original
-applied-text, Reject All and exact native-revision expectations remain required;
+The default success gate for untracked pure insertion on a revised target was
+blocked by the 0.8.4 surgical-insertion defect and passes on 0.9.0 (verified
+2026-10-12: all 14 default cases, 20/20 host checks, 3 checkpoint restores). Its
+original applied-text, Reject All and exact native-revision expectations remain
+required;
 a refusal is not a capability pass. `--fixture-manifest PATH` permits an explicit
 diagnostic subset. A separate manifest can request the prewrite tracking-policy
 safety control, which is excluded from capability/COM totals. Always record
-excluded capability gates; a passing subset does not close WP5. See the
+excluded capability gates; a passing subset is not a full-manifest pass. See the
 [correction report](../docs/validation-reports/2026-10-02-lightweight-harness-wp5-correction.md).
 
 Read `officejs-report.json`, then verify `officejs-fixtures.json` exports with
@@ -69,6 +71,14 @@ the legacy oracle's generic reason mentioning native operations is not a claim
 that the current tool uses native edits. Save/reopen, recognized revisions,
 original list labels/bindings, unaffected formatting/comments and table cells
 must be checked independently of prepared engine output.
+
+Since 2026-10-12 the oracle (`scripts/verify-wp6-word.ps1`) resolves revisions
+with `Document.Revisions.AcceptAll()/RejectAll()`, which is what the ribbon does,
+instead of `Document.AcceptAllRevisions()/RejectAllRevisions()`. The latter leave
+a body-final table append's tracked mark behind, a Word API quirk (KB-3 in
+[`KNOWN_BUGS.md`](../docs/plans/KNOWN_BUGS.md)). Oracle reports from before that
+date used the `Document.*` methods. See the
+[0.9.0 validation](../docs/validation-reports/2026-10-12-docx-redline-v090.md).
 
 For explicit cleanup after an interrupted launch:
 

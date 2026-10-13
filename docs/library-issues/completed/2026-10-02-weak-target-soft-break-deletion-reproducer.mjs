@@ -3,8 +3,8 @@
 // WHOLE paragraph as deleted and inserts nothing. With the full strong target
 // the same edit is correct. Exits 0 while the defect reproduces.
 //
-//   node docs/library-issues/2026-10-02-weak-target-soft-break-deletion-reproducer.mjs
-import '../../tests/setup-xml-provider.mjs';
+//   node docs/library-issues/completed/2026-10-02-weak-target-soft-break-deletion-reproducer.mjs
+import '../../../tests/setup-xml-provider.mjs';
 import { acceptTrackedChangesInOoxml, inspectDocumentParts } from '@ansonlai/docx-redline-js';
 import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalone-runner';
 

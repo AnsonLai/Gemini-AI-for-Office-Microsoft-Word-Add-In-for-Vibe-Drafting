@@ -41,7 +41,7 @@ New-comment output from 0.8.4 is a merge delta. The Word transport composes the
 published comments merge and sibling reconciliation helpers over in-memory
 parts, then assembles the existing Flat OPC insertion payload. It does not
 replace existing comment definitions with the delta or switch to a full-DOCX
-Word facade. The [dated transport report](library-issues/2026-10-02-word-existing-comments-delta-transport.md)
+Word facade. The [dated transport report](./library-issues/completed/2026-10-02-word-existing-comments-delta-transport.md)
 records the regression and correction evidence.
 
 Pending revisions alone do not prohibit an edit. For single-paragraph wording
@@ -58,14 +58,15 @@ established merge policy: re-diff against that author's prior baseline, producin
 clean text when tracking is disabled. Specific unsupported revision structures
 still produce library refusals. No accept-all-first policy is selected.
 
-Published 0.8.4 has an untracked surgical-insertion defect: a pure insertion
-can create new own tracked text despite tracking being disabled. The tool
-compares prepared public revision segments with receipt-created IDs and refuses
-that output as `TRACKING_POLICY_MISMATCH` before checkpoint/write. Foreign
-review carriers are allowed. This is a library dependency for an in-scope edit,
-not a blanket restriction on revised paragraphs or an approved retirement. WP5
-remains open until the original capability gate passes on a published fix.
+Published 0.8.4 had an untracked surgical-insertion defect: a pure insertion
+could create new own tracked text despite tracking being disabled. It is fixed in
+0.9.0, and untracked pure insertion beside a foreign revision now succeeds (the
+original capability gate passes, 2026-10-12). The tool still compares prepared
+public revision segments with receipt-created IDs and refuses a mismatching
+output as `TRACKING_POLICY_MISMATCH` before checkpoint/write, kept as a backstop
+(KB-5 in [KNOWN_BUGS.md](plans/KNOWN_BUGS.md)). Foreign review carriers are
+allowed. WP5 is closed.
 
 Uncertain writes, verification errors, tracking restoration errors and cancellation preserve observed host evidence and require inspection. There is no native fallback or automatic mutation replay. The loop pairs every function response, rejects multiple mutation calls and mixed inspect/mutate exchanges before execution, and retains six model turns, two failed mutation cycles and one no-write stale refresh. Read-only calls do not reset mutation failures. Malformed recovery accepts only complete JSON calls for declared names. An unresolved refusal overrides a fabricated final success.
 
-See the [plan and milestone evidence](plans/2026-10-02-library-first-lightweight-agent-reliability.md). Historical native/library reports remain dated evidence; retiring a route does not certify its former structural edits or close an upstream issue. Live fast/slow model checks are required before shipping the prompt. Desktop is the initial target; Word Online editing is unverified.
+See the [plan and milestone evidence](plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md). Historical native/library reports remain dated evidence; retiring a route does not certify its former structural edits or close an upstream issue. Live fast/slow model checks are required before shipping the prompt. Desktop is the initial target; Word Online editing is unverified.

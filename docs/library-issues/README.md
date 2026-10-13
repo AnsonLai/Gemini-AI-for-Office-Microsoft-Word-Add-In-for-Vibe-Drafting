@@ -8,44 +8,36 @@ reports move to [`completed/`](completed/); once every report is resolved, the
 [canonical list follow-up](../plans/2026-09-30-canonical-list-migration-follow-up.md)
 deletes this folder.
 
-## Current status: installed 0.8.4 (verified 2026-10-02)
+## Current status: installed 0.9.0 (verified 2026-10-12)
 
-The root and MCP consumers pin exact 0.8.4. Every 2026-10-01 report except
-Word's table Reject All paragraph is fixed in 0.8.4, and all earlier 0.8.2/0.8.3
-fixes still hold; those reports are in [`completed/`](completed/) with dated
-resolution notes.
-
-The current Word agent uses two typed tools and retains the 0.8.4 occurrence
-contract for narrow formatting and complete-list changes for certified
-same-level insertion. Legacy `edit_list`, header conversion and table creation
-commands are retired; there is no native fallback. The earlier
-`UNSUPPORTED_TABLE_FORMATTING` command guard is historical. Structural table
-requests now refuse altogether. Scope retirement does not close these reports.
+The root and MCP consumers pin exact 0.9.0. Every report that was open on
+0.8.4 is resolved in 0.9.0 (see the
+[0.9.0 validation](../validation-reports/2026-10-12-docx-redline-v090.md)), and
+all earlier 0.8.2 to 0.8.4 fixes still hold. Resolved reports are in
+[`completed/`](completed/) with dated resolution notes. Their original bodies are
+historical records of the version they were filed against.
 
 ## Open
 
-| Report | Since | Effect on the add-in |
+| Report | Installed | Reproducer |
 | --- | --- | --- |
-| [Canonical list capabilities](2026-09-30-canonical-list-operations.md) | 0.8.2 | Header conversion and list-format changes are refused by the Word agent; no native route remains. `reproduce-plain-header-conversion.mjs` still exits 0 on 0.8.4. |
-| [Word Reject All leaves an extra paragraph after a final table append](2026-10-01-word-reject-table-append-paragraph.md) | 0.8.3 | Table removal on Reject All now works in Word, but one empty paragraph remains after the original text. |
-| [Separate list operations restart numbering](2026-10-02-separate-list-operations-restart-numbering.md) | **0.8.4 regression** | Non-adjacent headers converted in one batch land in different lists ("A.", "A."). Header conversion is retired/refused; canonical migration remains gated. |
-| [Weak-target soft-break replacement deletes the paragraph](2026-10-02-weak-target-soft-break-deletion.md) | 0.8.4 | Data loss with `ok` status when targeting by index + text only. The add-in always sends strong targets and is not exposed. |
-| [`generateRedlines: false` still tracks cross-author insertions](2026-10-02-generate-redlines-false-cross-author-insertion.md) | 0.8.4 | Surgical insertion ignores disabled tracking; Reject All removes the intended clean text. A precise prepared-output check prevents writing it. The required capability keeps WP5 open pending a published fix. |
+| [Markdown pre-processor collapses literal underscore runs](2026-10-12-table-reconciliation-underscore-collapse.md) | 0.8.4 and 0.9.0 | [`2026-10-12-table-reconciliation-underscore-collapse-reproducer.mjs`](2026-10-12-table-reconciliation-underscore-collapse-reproducer.mjs) |
+
+Consumer-side bugs, host-boundary exceptions and the Word JavaScript API
+inventory are tracked in [`KNOWN_BUGS.md`](../plans/KNOWN_BUGS.md); this defect is KB-7.
 
 ## Consumer transport incidents (not library defects)
 
-| Report | Since | Effect on the add-in |
-| --- | --- | --- |
-| [Existing comments delta assembly](2026-10-02-word-existing-comments-delta-transport.md) | 0.8.4 | Repaired through published merge/sibling helpers at the existing Flat OPC boundary. Actual Office.js and independent Word verify successive additions, rewrite/comment batching, thread preservation and checkpoint restoration. |
+None open. The existing-comments delta assembly incident is resolved and moved to
+[`completed/`](completed/2026-10-02-word-existing-comments-delta-transport.md) (2026-10-11).
 
-The library's proposed `docs/plans/2026-09-30-canonical-list-operations.md`
-covers the canonical list capabilities; it is not implemented. Remaining
-canonical work is tracked in the
+Consumer adoption of the released canonical list capabilities is tracked in the
 [Canonical List Migration Follow-up](../plans/2026-09-30-canonical-list-migration-follow-up.md).
+That plan owns the cleanup of this folder.
 
 ## After an upstream release
 
-Update both exact pins together, rerun every open reproducer (expect exit 1),
+Update both exact pins together, rerun every open reproducer (expect exit 1; a few resolved reproducers print NOT REPRODUCED),
 the offline suite, the [golden scenario](../../scripts/README.md#original-sixteen-prompt-nda-taskpane-gate)
 and the affected Word lanes with independent Accept All/Reject All checks.
 Move fixed reports to `completed/` with a dated resolution note and update
@@ -67,3 +59,9 @@ the links to them.
 | [Soft-break localized replacements](completed/2026-10-01-soft-break-localized-replacements.md) | 0.8.4 |
 | [Generated bullet numbering collision](completed/2026-10-01-generated-bullet-numbering-collision.md) | 0.8.4 |
 | [Format occurrence targeting](completed/2026-10-01-format-occurrence-targeting.md) | 0.8.4 (`textOccurrence`) |
+| [Existing comments delta assembly](completed/2026-10-02-word-existing-comments-delta-transport.md) | Consumer fix (not a library defect); moved 2026-10-11 |
+| [Separate list operations restart numbering](completed/2026-10-02-separate-list-operations-restart-numbering.md) | 0.9.0 (0.8.4 regression) |
+| [Weak-target soft-break replacement deletes the paragraph](completed/2026-10-02-weak-target-soft-break-deletion.md) | 0.9.0 |
+| [`generateRedlines: false` cross-author insertion](completed/2026-10-02-generate-redlines-false-cross-author-insertion.md) | 0.9.0 |
+| [Word Reject All extra paragraph after a final table append](completed/2026-10-01-word-reject-table-append-paragraph.md) | 0.9.0 at package level; live-insert residual is KB-1 |
+| [Canonical list capabilities](completed/2026-09-30-canonical-list-operations.md) | 0.9.0 (`list-format`, `paragraph-format.numbering`); consumer adoption tracked in the list plan and KB-4 |

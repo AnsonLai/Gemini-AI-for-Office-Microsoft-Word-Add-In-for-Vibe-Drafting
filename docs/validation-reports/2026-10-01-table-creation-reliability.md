@@ -50,7 +50,7 @@ The incident plan remains open for the unresolved library requirements.
 ## Reproduction
 
 ```powershell
-node docs/library-issues/2026-10-01-word-reject-table-append-paragraph-export.mjs `
+node docs/library-issues/completed/2026-10-01-word-reject-table-append-paragraph-export.mjs `
   --export-dir .cache/table-append-host
 node docs/library-issues/completed/2026-10-01-table-append-tracked-formatting-reproducer.mjs
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-wp6-word.ps1 -FixtureManifest .cache/table-append-host/manifest.json -ArtifactsDir .cache/table-append-word -CaseName public-library-table-append-reject-all -TimeoutSeconds 180
@@ -63,6 +63,6 @@ Reject All paragraph expectation. Generated documents and JSON reports are under
 the specified `.cache` directories. No live Gemini request or PDF export is part
 of this incident validation.
 
-See the [incident plan](../plans/2026-09-30-table-creation-reliability.md) and the
+See the [incident plan](../plans/completed/2026-09-30-table-creation-reliability.md) and the
 [separate formatting report](../library-issues/completed/2026-10-01-table-append-tracked-formatting.md)
-and [Word Reject All paragraph report](../library-issues/2026-10-01-word-reject-table-append-paragraph.md).
+and [Word Reject All paragraph report](../library-issues/completed/2026-10-01-word-reject-table-append-paragraph.md).

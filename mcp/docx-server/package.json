@@ -10,7 +10,7 @@
     "test": "node tests/server-workflow.mjs"
   },
   "dependencies": {
-    "@ansonlai/docx-redline-js": "0.8.4",
+    "@ansonlai/docx-redline-js": "0.9.0",
     "@modelcontextprotocol/sdk": "^1.17.3"
   }
 }

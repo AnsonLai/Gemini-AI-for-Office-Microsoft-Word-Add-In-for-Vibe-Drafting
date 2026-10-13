@@ -1,6 +1,6 @@
 # Lightweight document agent WP1 validation (2026-10-02)
 
-WP1 is complete: **61 offline suites pass**, development/production builds pass, and the completed desktop Word replay passes **29/29 content checks** with the same three native-route author failures as WP0. This report compares the extracted loop and registry against the frozen [WP0 baseline](2026-10-02-lightweight-harness-wp0-baseline.md) and the approved [reliability plan](../plans/2026-10-02-library-first-lightweight-agent-reliability.md). All executor algorithm bodies/signatures, 11 declarations, the system instruction, exact library pins, and Word transport are preserved; executor dependencies now belong to each request.
+WP1 is complete: **61 offline suites pass**, development/production builds pass, and the completed desktop Word replay passes **29/29 content checks** with the same three native-route author failures as WP0. This report compares the extracted loop and registry against the frozen [WP0 baseline](2026-10-02-lightweight-harness-wp0-baseline.md) and the approved [reliability plan](../plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md). All executor algorithm bodies/signatures, 11 declarations, the system instruction, exact library pins, and Word transport are preserved; executor dependencies now belong to each request.
 
 ## Run
 

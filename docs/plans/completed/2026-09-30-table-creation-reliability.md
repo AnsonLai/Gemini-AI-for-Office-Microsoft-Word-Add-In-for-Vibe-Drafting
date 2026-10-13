@@ -9,7 +9,7 @@
 > independent library reproducers below, including issue cleanup conditions.
 
 **Date:** 2026-09-30  
-**Status:** Open — consumer recovery is implemented; tracked Word fidelity remains blocked by separate upstream issues.
+**Status:** Closed 2026-10-12. The library half is resolved in `@ansonlai/docx-redline-js@0.9.0` (see [0.9.0 validation](../../validation-reports/2026-10-12-docx-redline-v090.md)); the live-insert residual moved to KB-1 in [`KNOWN_BUGS.md`](../KNOWN_BUGS.md). Table append remains a refused capability.
 
 **Updated:** 2026-10-01. Consumer regressions and the production build pass.
 Compatible edit-plus-append mapping, append-anchor preservation, receipt mapping,
@@ -18,9 +18,9 @@ and visible loop termination are implemented. Offline coverage passes 54 suites.
 The final Word run passed 13 of 20 checks: plain accepted table content and
 both native insertions pass; tracked Reject All paragraph structure and
 underline fidelity fail. See the
-[validation report](../validation-reports/2026-10-01-table-creation-reliability.md),
-[tracked-formatting report](../library-issues/completed/2026-10-01-table-append-tracked-formatting.md),
-and [Reject All paragraph report](../library-issues/2026-10-01-word-reject-table-append-paragraph.md).
+[validation report](../../validation-reports/2026-10-01-table-creation-reliability.md),
+[tracked-formatting report](../../library-issues/completed/2026-10-01-table-append-tracked-formatting.md),
+and [Reject All paragraph report](../../library-issues/completed/2026-10-01-word-reject-table-append-paragraph.md).
 
 **2026-10-01 follow-up:** A later pasted log shows two successive P4 proposals
 without `anchorText`, each refused as `STALE_DOCUMENT_CONTEXT` with
@@ -33,7 +33,7 @@ The fingerprint guard remains unchanged. A bounded COM probe found stable
 captures across repeated reads, tracking toggles and Reject All. Captured
 paragraph IDs were absent; restart and Ctrl+Z were not exercised. This does
 not establish Office.js `body.getOoxml()` behavior or the cause of the user's log.
-See the [baseline probe report](../validation-reports/2026-10-01-word-com-baseline-stability.md).
+See the [baseline probe report](../../validation-reports/2026-10-01-word-com-baseline-stability.md).
 
 The consumer recovery is implemented in `54dd082`: after a proven no-write
 stale refusal, take one fresh document snapshot and baseline per request, then
@@ -63,9 +63,9 @@ Ocean/Valley/Canyon and Meadow/Desert/Island.
   Both native COM `InsertXML` insertions pass. Tracked Reject All leaves an eighth
   empty paragraph after the seven source paragraphs. The formatting fixture's
   Accept All loses underline, and its Reject All also leaves an extra empty
-  paragraph. See the [host report](../validation-reports/2026-10-01-table-creation-reliability.md)
-  and [tracked-formatting report](../library-issues/completed/2026-10-01-table-append-tracked-formatting.md)
-  and [Reject All paragraph report](../library-issues/2026-10-01-word-reject-table-append-paragraph.md).
+  paragraph. See the [host report](../../validation-reports/2026-10-01-table-creation-reliability.md)
+  and [tracked-formatting report](../../library-issues/completed/2026-10-01-table-append-tracked-formatting.md)
+  and [Reject All paragraph report](../../library-issues/completed/2026-10-01-word-reject-table-append-paragraph.md).
 - When one proposal edits P7 and another appends at P8, the consumer maps both
   to P7. The library refuses overlapping source targets atomically with
   `OVERLAPPING_SOURCE_TARGETS`. Compatible requests need one consumer operation.
@@ -94,7 +94,7 @@ incident did not include a full live chat/model reproduction. The consumer
 regressions explain reproduced failure modes but do not prove every cause in
 the user's document. The separate 0.8.3 library issue concerned tracked inline
 formatting preservation; it was not repaired by the consumer changes and is
-fixed in 0.8.4 (see the [0.8.4 validation](../validation-reports/2026-10-02-docx-redline-v084.md)).
+fixed in 0.8.4 (see the [0.8.4 validation](../../validation-reports/2026-10-02-docx-redline-v084.md)).
 Word Reject All still leaves one extra empty paragraph after a final table
 append (open library report).
 
@@ -110,11 +110,7 @@ append (open library report).
   the bounded history window; read-only tools do not reset mutation failures.
 - [x] WP4: log failure codes, operation indexes and write outcomes without
   logging source text, generated content or raw errors.
-- [ ] WP5: offline regressions (54 suites) and production build pass. The final
-  Word run executed 20 checks: 13 passed and 7 failed. Plain accepted table
-  content and both native insertions pass; tracked Reject All paragraph
-  structure and underline fidelity remain blocked. Full host scope is recorded
-  in the validation report.
+- [x] WP5 (closed 2026-10-12): the library half is resolved in 0.9.0. The tracked underline was already fixed in 0.8.4, and the Reject All extra paragraph is fixed at package level: the public-library package passes source, tracked, Accept All and Reject All in Word with `Revisions.RejectAll()`. The residual live-insert behaviour (the production adapter's payload inserted into a live document still leaves an extra paragraph) is KB-1 in [`KNOWN_BUGS.md`](../KNOWN_BUGS.md); the oracle API correction is KB-3. Historical record: offline regressions (54 suites) and production build passed; the final 2026-10-01 Word run executed 20 checks, 13 passed and 7 failed (tracked Reject All paragraph structure and underline fidelity). Full host scope is in the validation report.
 - [x] WP6: current contracts/state/summary and library-issue notes are updated.
   Source/history and consumer/harness changes are committed as `7012fed` and
   `d3e315f`; these documentation updates accompany the validation checkpoint.

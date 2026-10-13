@@ -38,7 +38,7 @@ and range replacement. Plain insertion passes all six checks.
 Running the same facade operation with published 0.8.2 produces a
 `word/numbering.xml` byte-identical to the unpublished facade output; both differ
 from the source numbering part. The existing
-[canonical capabilities report](../2026-09-30-canonical-list-operations.md)
+[canonical capabilities report](./2026-09-30-canonical-list-operations.md)
 already tracks numbering-definition allocation/remapping limitations. Extend
 its tests to preserve unrelated numbering on same-kind edits and restore source
 numbering on Reject All through the complete DOCX facade. Do not compensate by

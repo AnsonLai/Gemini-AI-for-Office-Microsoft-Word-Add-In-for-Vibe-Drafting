@@ -56,7 +56,7 @@ Evidence: `tests/agentic_list_generation_tests.mjs`, `tests/insert_list_item_lev
 - WP3 verification: frozen Word-authored fixtures pass seven supported cases and 42 independent Word checks, including numbering identity, indentation and restart/continuation.
 - WP3 host harness: the Office.js collector supports external manifests and separate artifact directories. Its production insertion lane passes 28 checks; exported packages pass 42 independent Word checks. Ordinary builds omit the validation entry.
 - WP1 actual Word evidence: Office.js context validation passes 8 checks, including zero-write stale-context refusal after an intervening edit; independent Word reopening passes 12 checks.
-- Library capability gap: unmarked/text-changing header conversion has no verified canonical mapping in 0.8.2. [Separate library report](../../library-issues/2026-09-30-canonical-list-operations.md); native header conversion remains active.
+- Library capability gap: unmarked/text-changing header conversion has no verified canonical mapping in 0.8.2. [Separate library report](../../library-issues/completed/2026-09-30-canonical-list-operations.md); native header conversion remains active.
 - Final checkpoint includes the verified insertion migration, 44 passing offline suites, successful builds and durable Word evidence. Remaining work is recorded below for resumption.
 - WP3 follow-up: expanded the frozen-source matrix to ten cases, adding bullet root insertion and decimal insertion at continuation/restart anchors. Static packages pass 60 independent Word checks; actual Office.js passes 40 checks across eight production insertion routes and two candidate routes. Export verification is recorded in the execution report.
 - The September upgrade closure was clarified in `1680349`; all of its acceptance criteria remain complete. Current agentic work does not reopen that plan.
@@ -99,7 +99,7 @@ Separately reported library dependencies:
 
 - [Plain insertion Reject All leaves an empty paragraph](../../library-issues/completed/2026-09-30-list-insertion-rejection.md), independently confirmed in Word.
 - [List range Reject All merges source paragraphs](../../library-issues/completed/2026-09-30-list-range-rejection.md), independently confirmed in Word.
-- [Unmarked/text-changing header conversion lacks a canonical mapping](../../library-issues/2026-09-30-canonical-list-operations.md).
+- [Unmarked/text-changing header conversion lacks a canonical mapping](../../library-issues/completed/2026-09-30-canonical-list-operations.md).
 - [Historical list properties are inspected as active numbering](../../library-issues/completed/2026-09-30-historical-list-inspection.md), reproduced offline; the operation refuses without a write or native replay.
 
 - Identify commands still using paragraph/scope adapters and native list metadata.

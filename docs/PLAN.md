@@ -1,6 +1,6 @@
 # Historical Plan: Robustness & Reliability — Phase 2
 
-> Current execution record: [2026-10-02 library-first lightweight harness](plans/2026-10-02-library-first-lightweight-agent-reliability.md).
+> Current execution record: [2026-10-02 library-first lightweight harness](./plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md).
 > This July plan remains historical; its tool/native-command designs are retired.
 
 > **Migrated on 2026-08-29:** The open work in this document is consolidated
@@ -20,7 +20,7 @@
 > covered by 0.8.3 (and the 0.8.4 follow-up fixes) are fixed and validated; canonical header conversion and
 > list-format operations remain unsupported and are tracked by the follow-up.
 > Current consumers pin exact
-> `@ansonlai/docx-redline-js@0.8.4`; see [ROADMAP.md](../ROADMAP.md) and
+> `@ansonlai/docx-redline-js@0.9.0`; see [ROADMAP.md](../ROADMAP.md) and
 > [STATE.md](../STATE.md) for the current posture.
 > For the current file-level ownership split, including the local Flat OPC
 > bridge and consumer-owned reliability/startup work, see the

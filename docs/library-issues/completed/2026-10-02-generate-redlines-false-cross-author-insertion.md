@@ -1,5 +1,7 @@
 # `generateRedlines: false` still tracks surgical insertions
 
+> **Resolved in 0.9.0 (2026-10-12):** Fixed in `@ansonlai/docx-redline-js@0.9.0`. Reject All now keeps the clean text, and the reproducer's defect assertion throws, so it exits 1. The unchanged default 14-case Office.js manifest, including untracked pure insertion on a revised target, passes. The body below is the historical 0.8.4 report. See the [0.9.0 validation](../../validation-reports/2026-10-12-docx-redline-v090.md).
+
 ## Status
 
 Unresolved upstream issue reproduced against the installed
@@ -16,7 +18,7 @@ instead wraps an interior insertion in a new tracked insertion when
 The portable public-only reproducer is:
 
 ```powershell
-node docs/library-issues/2026-10-02-generate-redlines-false-cross-author-insertion-reproducer.mjs
+node docs/library-issues/completed/2026-10-02-generate-redlines-false-cross-author-insertion-reproducer.mjs
 ```
 
 It calls both the public `applyRedlineToOxml` facade and
@@ -57,7 +59,7 @@ identified by public preparation segments and receipt-created IDs before
 checkpoint/write. It preserves supported untracked replacement/formatting and
 existing foreign carriers. This is safety evidence; the failed insertion remains
 a required capability gate in the
-[WP5 correction report](../validation-reports/2026-10-02-lightweight-harness-wp5-correction.md).
+[WP5 correction report](../../validation-reports/2026-10-02-lightweight-harness-wp5-correction.md).
 
 The synthetic reproduction removes document-specific factors and invokes only
 published library APIs. No installed package files were changed. Keep the exact

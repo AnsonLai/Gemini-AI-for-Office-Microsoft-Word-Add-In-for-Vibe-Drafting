@@ -19,8 +19,8 @@
       "hasChanges": true,
       "hasInsertion": true,
       "hasDeletion": true,
-      "length": 740,
-      "hash": "91a22568953ab6ea39126d9a99d613c79c776b08b81e50a1d94caa0902e7262b"
+      "length": 761,
+      "hash": "9a87d9db2f25e13104046ebcd017155a396ebdfc250bae37836be1549f18b011"
     },
     "list_generation": {
       "hasChanges": true,
@@ -37,8 +37,8 @@
     "text_to_table_transform": {
       "hasChanges": true,
       "hasTable": true,
-      "length": 2567,
-      "hash": "f5905384d088cde9c584b688d1972261bb94aedda41fd24c7300046631f385b1"
+      "length": 3449,
+      "hash": "fdbbed8b4c2e09afda69070e1ca2edee7e628ce321375c181a7b498bc9a2e20a"
     },
     "comment_document_injection": {
       "commentsApplied": 2,

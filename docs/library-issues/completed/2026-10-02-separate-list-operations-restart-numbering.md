@@ -1,5 +1,7 @@
 # 0.8.4: separate list operations in one batch restart numbering
 
+> **Resolved in 0.9.0 (2026-10-12):** Fixed in `@ansonlai/docx-redline-js@0.9.0`. The reproducer now prints "NOT REPRODUCED: both headers share one list" (A., B., one `numId`). The add-in and MCP pin exact 0.9.0. The body below is the historical 0.8.4 report. See the [0.9.0 validation](../../validation-reports/2026-10-12-docx-redline-v090.md).
+
 Repository: `AnsonLai/docx-redline-js`. **Regression in 0.8.4**; 0.8.3 behaved
 correctly. Not yet filed upstream.
 
@@ -26,7 +28,7 @@ Operations in one batch that generate items of the same list kind and format
 ## Actual
 
 ```powershell
-node docs/library-issues/2026-10-02-separate-list-operations-restart-numbering-reproducer.mjs
+node docs/library-issues/completed/2026-10-02-separate-list-operations-restart-numbering-reproducer.mjs
 ```
 
 On the Word-authored `tests/fixtures/agentic-lists/nested-lists-source.docx`

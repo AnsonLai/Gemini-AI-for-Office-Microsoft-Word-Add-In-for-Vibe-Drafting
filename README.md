@@ -220,7 +220,7 @@ AIWordPlugin/
 └── README.md
 ```
 
-> The add-in and MCP pin [`@ansonlai/docx-redline-js@0.8.4`](https://www.npmjs.com/package/@ansonlai/docx-redline-js). The library owns supported DOCX operations and package lifecycle; local consumers retain tool-to-operation mapping, host I/O, and their UI/session contracts. The Word consumer also retains its Flat OPC bridge and Office.js adapter; browser and MCP editing use the public package facade. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the system map and [the library offload review](docs/library-offload-review.md) for the file-by-file boundary.
+> The add-in and MCP pin [`@ansonlai/docx-redline-js@0.9.0`](https://www.npmjs.com/package/@ansonlai/docx-redline-js). The library owns supported DOCX operations and package lifecycle; local consumers retain tool-to-operation mapping, host I/O, and their UI/session contracts. The Word consumer also retains its Flat OPC bridge and Office.js adapter; browser and MCP editing use the public package facade. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the system map and [the library offload review](docs/library-offload-review.md) for the file-by-file boundary.
 
 ## Development
 
@@ -283,7 +283,7 @@ node tests/direct_document_fidelity_manifest_tests.mjs
 ```
 
 The [tool contract](docs/agentic-tool-contracts.md) defines the two tools and
-retained/refused actions. The [implementation plan](docs/plans/2026-10-02-library-first-lightweight-agent-reliability.md)
+retained/refused actions. The [implementation plan](docs/plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md)
 links each milestone's evidence. Actual Office.js exports and independent Word
 save/reopen/Accept All/Reject All checks remain separate from offline mocks;
 see [runnable host commands](scripts/README.md). The Word-authored list fixture

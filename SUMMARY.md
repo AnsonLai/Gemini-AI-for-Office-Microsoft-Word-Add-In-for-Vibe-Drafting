@@ -15,11 +15,11 @@ before writing. The 54-suite offline aggregate and production build pass. The
 final desktop Word run passed 13 of 20 checks: plain accepted table content and
 both native insertions pass; tracked Reject All leaves an extra paragraph,
 while Accept All loses underline in the formatting fixture. See the
-[incident plan](docs/plans/2026-09-30-table-creation-reliability.md),
+[incident plan](docs/plans/completed/2026-09-30-table-creation-reliability.md),
 [host report](docs/validation-reports/2026-10-01-table-creation-reliability.md),
 [tracked-formatting report](docs/library-issues/completed/2026-10-01-table-append-tracked-formatting.md),
-and [Reject All paragraph report](docs/library-issues/2026-10-01-word-reject-table-append-paragraph.md).
-No full live chat/model reproduction is claimed. Update (2026-10-02): as of 0.8.4, `UNSUPPORTED_TABLE_FORMATTING` refuses only changing the text of a paragraph that carries the author's own pending formatting while adding a table; Accept All keeps underline, and Word Reject All still leaves one extra empty paragraph after a final table append (open library report).
+and [Reject All paragraph report](docs/library-issues/completed/2026-10-01-word-reject-table-append-paragraph.md).
+No full live chat/model reproduction is claimed. Update (2026-10-02): as of 0.8.4, `UNSUPPORTED_TABLE_FORMATTING` refuses only changing the text of a paragraph that carries the author's own pending formatting while adding a table; Accept All keeps underline, and Word Reject All still left one extra empty paragraph after a final table append. Update (2026-10-12): the incident plan is closed. The Reject All paragraph is fixed at package level in 0.9.0; the live-insert residual is KB-1 in [KNOWN_BUGS.md](docs/plans/KNOWN_BUGS.md), and table append stays refused.
 
 ### Undo/stale-context follow-up
 
@@ -39,10 +39,10 @@ found stability across repeated reads, tracking toggles and Reject All; restart
 and Ctrl+Z were not exercised, and Office.js behavior is not established by COM.
 The user's exact refusal cause remains unconfirmed; the fidelity plan stays open.
 
-## Package status: v0.8.3 record (current pin 0.8.4)
+## Package status: v0.8.3 record (current pin 0.9.0)
 
 The add-in, MCP server and browser demo use the public
-`@ansonlai/docx-redline-js@0.8.4` package. Its release notes describe fixes for
+`@ansonlai/docx-redline-js@0.9.0` package (0.9.0 upgrade: [validation](docs/validation-reports/2026-10-12-docx-redline-v090.md)). The v0.8.3 release notes describe fixes for
 tracked paragraph-boundary behavior, historical paragraph-property
 inspection, list-range numbering through `openDocx`, and explicit list-start
 parsing. The dated v0.8.3 consumer and Word validation is recorded in the [v0.8.3

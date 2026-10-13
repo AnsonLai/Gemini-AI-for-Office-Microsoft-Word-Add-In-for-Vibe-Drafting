@@ -2,7 +2,7 @@
 
 This directory contains the in-place Word plugin, settings, chat UI, lightweight
 inspect/apply harness and Office.js body transport. The add-in pins exact
-`@ansonlai/docx-redline-js@0.8.4`.
+`@ansonlai/docx-redline-js@0.9.0`.
 
 `taskpane.js` keeps UI and host concerns. Portable `document-agent-loop.js`
 coordinates bounded provider/tool exchanges; `tool-registry.js` declares exactly
@@ -20,7 +20,7 @@ IndexedDB checkpoint store remain local consumer responsibilities.
 
 Read the [tool contract](../../docs/agentic-tool-contracts.md),
 [architecture](../../ARCHITECTURE.md) and
-[implementation plan](../../docs/plans/2026-10-02-library-first-lightweight-agent-reliability.md)
+[implementation plan](../../docs/plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md)
 for supported scope and recorded evidence. Body checkpoints preserve only the
 transported body package. Live model and Word Online validation limits remain
 explicit.

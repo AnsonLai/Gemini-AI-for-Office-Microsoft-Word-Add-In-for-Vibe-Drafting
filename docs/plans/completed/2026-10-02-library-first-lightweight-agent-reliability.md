@@ -1,8 +1,8 @@
 # Library-first editing and a lightweight document agent
 
 **Date:** 2026-10-02 (America/Vancouver)  
-**Status:** WP0–WP4 complete locally; WP5 reopened after owner rejection of two regressions. Consumer repairs are implemented, with an in-scope untracked insertion blocked on a published library fix. Live provider and Word Online shipping gates remain explicit.
-**Baseline:** Add-in release v2.2.0.0; exact `@ansonlai/docx-redline-js@0.8.4` in the add-in and MCP.  
+**Status:** Complete (2026-10-12). WP0–WP5 are done: the WP5 engine blocker is fixed in `@ansonlai/docx-redline-js@0.9.0` and its unchanged host gate passes. Live-provider and Word Online checks remain separate shipping gates. See [Closure (2026-10-12)](#closure-2026-10-12).
+**Baseline:** Add-in release v2.2.0.0; exact `@ansonlai/docx-redline-js@0.8.4` in the add-in and MCP (historical; upgraded to exact 0.9.0 on 2026-10-12).  
 **Purpose:** Make ordinary professional document changes dependable by reducing tool choices, competing execution paths, repeated AI interpretation, and Word-specific editing logic.
 
 **Confirmed owner constraint:** Remove native Word editing commands, while keeping the product an in-place Word plugin. Office.js host transport/state integration remains necessary and in scope.
@@ -15,14 +15,26 @@
 
 | Package | Status | Current work / evidence |
 | --- | --- | --- |
-| WP0 | Complete | [Scope matrix, route inventory, and fresh baseline](../validation-reports/2026-10-02-lightweight-harness-wp0-baseline.md): 57 offline suites pass; 16/16 desktop replay steps complete, 29/29 content checks pass; three existing native-route author failures reproduced. Frozen bundle at `.cache/reliability/wp0-baseline/dist`. Office.js read/write counters unavailable. |
-| WP1 | Complete | [Extraction, verification, and net-size report](../validation-reports/2026-10-02-lightweight-harness-wp1.md): 61 offline suites pass; development/production builds pass; completed desktop replay preserves 29/29 content checks, 43 local model requests, and the same three author failures. Request/controller/history races fixed; all executor algorithm bodies/signatures and 11 declarations preserved. Net production size: 8,632 → 8,633 lines (+1), across 24 → 27 files. |
-| WP2 | Complete | [Canonical source and handle validation](../validation-reports/2026-10-02-lightweight-harness-wp2.md): 63 milestone offline suites pass; fresh desktop replay preserves 29/29 content checks, the same three author failures and 43 requests. Duplicate Word metadata/context walk removed. |
-| WP3 | Complete locally | [Direct typed batch report](../validation-reports/2026-10-02-lightweight-harness-wp3.md): 66 milestone offline suites; full direct Word replay 16/16 prompts, 48/48 checks, zero regressions. Ten verified batches: nine writes + one no-op; 36 mocked chat calls, zero nested calls. Word export-only metadata stabilized without changing source/payload or meaningful revision IDs. Live models remain a shipping gate. |
-| WP4 | Complete locally | [Native-route retirement and fidelity report](../validation-reports/2026-10-02-lightweight-harness-wp4.md): 11/11 actual Office.js cases, 44/44 independent Word checks, 49/49 NDA replay checks. Documented complete list-change preserves existing numbering. Net fixed production surface 7,004 lines, 1,628 fewer than WP0. |
-| WP5 | Reopened: upstream capability gate | Commit `2aa6aca` added two rejected blanket refusals. The [correction report](../validation-reports/2026-10-02-lightweight-harness-wp5-correction.md) verifies their repair: 13 supported Office.js edits, 19 host checks, 64 independent Word checks and 49 replay checks. A separate 0.8.4 untracked surgical-insertion bug retains its original success expectation; WP5 stays open pending a published fix. |
+| WP0 | Complete | [Scope matrix, route inventory, and fresh baseline](../../validation-reports/2026-10-02-lightweight-harness-wp0-baseline.md): 57 offline suites pass; 16/16 desktop replay steps complete, 29/29 content checks pass; three existing native-route author failures reproduced. Frozen bundle at `.cache/reliability/wp0-baseline/dist`. Office.js read/write counters unavailable. |
+| WP1 | Complete | [Extraction, verification, and net-size report](../../validation-reports/2026-10-02-lightweight-harness-wp1.md): 61 offline suites pass; development/production builds pass; completed desktop replay preserves 29/29 content checks, 43 local model requests, and the same three author failures. Request/controller/history races fixed; all executor algorithm bodies/signatures and 11 declarations preserved. Net production size: 8,632 → 8,633 lines (+1), across 24 → 27 files. |
+| WP2 | Complete | [Canonical source and handle validation](../../validation-reports/2026-10-02-lightweight-harness-wp2.md): 63 milestone offline suites pass; fresh desktop replay preserves 29/29 content checks, the same three author failures and 43 requests. Duplicate Word metadata/context walk removed. |
+| WP3 | Complete locally | [Direct typed batch report](../../validation-reports/2026-10-02-lightweight-harness-wp3.md): 66 milestone offline suites; full direct Word replay 16/16 prompts, 48/48 checks, zero regressions. Ten verified batches: nine writes + one no-op; 36 mocked chat calls, zero nested calls. Word export-only metadata stabilized without changing source/payload or meaningful revision IDs. Live models remain a shipping gate. |
+| WP4 | Complete locally | [Native-route retirement and fidelity report](../../validation-reports/2026-10-02-lightweight-harness-wp4.md): 11/11 actual Office.js cases, 44/44 independent Word checks, 49/49 NDA replay checks. Documented complete list-change preserves existing numbering. Net fixed production surface 7,004 lines, 1,628 fewer than WP0. |
+| WP5 | Complete (2026-10-12) | Resolved by 0.9.0: untracked surgical insertion no longer creates own markup, and the unchanged default 14-case Office.js manifest passes (20/20 host checks, 3 checkpoint restores; independent Word oracle 68 PASS, 0 FAIL; 16-prompt replay 49/49). See the [0.9.0 validation](../../validation-reports/2026-10-12-docx-redline-v090.md). Earlier correction evidence: the [correction report](../../validation-reports/2026-10-02-lightweight-harness-wp5-correction.md) and the original [WP5 report](../../validation-reports/2026-10-02-lightweight-harness-wp5.md) (historical). |
 
 WP0/WP1 are committed locally as `2c179a1`, WP2 as `e8c9aaa`, WP3 as `d282255`, and WP4 as `86b6ddc`. WP5 commit `2aa6aca` introduced two rejected capability regressions; its correction is tracked below and in a separate report. No deployment or push is requested. The WP0 bundle remains frozen at `.cache/reliability/wp0-baseline/dist`; the completed WP1 replay uses `.cache/reliability/wp1/completed-dist` and `golden-completed`. These artifacts are ignored and are not required to run the checked-in tests on another checkout. Historical baseline author failures remain documented; the final retained path passes attribution checks. Local completion does not certify the remaining shipping gates.
+
+## Closure (2026-10-12)
+
+The owner closed this plan after the 0.9.0 upgrade.
+
+- The WP5 engine blocker is fixed in `@ansonlai/docx-redline-js@0.9.0`: untracked pure insertion on a revised target now succeeds and survives Reject All. Both exact pins (add-in and MCP) are updated.
+- The unchanged default 14-case Office.js capability manifest passes, including `direct-literal-replacement-preserves-comment-threads` with its original applied-edit expectation. Offline: 46 of 46 suites (3 entrypoints excluded). The 16-prompt direct replay passes 49/49 checks. Evidence: [0.9.0 validation](../../validation-reports/2026-10-12-docx-redline-v090.md).
+- Live fast/slow provider replay and Word Online operation checks were not run. They stay as separate shipping gates, not part of this plan's closure.
+- Remaining consumer-side bugs (KB-1 to KB-6) and the Word JavaScript API inventory are in [`KNOWN_BUGS.md`](../KNOWN_BUGS.md). All library issues are resolved ([index](../../library-issues/README.md)).
+
+The sections below are the historical record. Statements that WP5 is reopened or blocked, and the 0.8.4 pin, describe the state before 2026-10-12.
+
 
 ### Current continuation seam — repair ordinary comment/revision workflows
 
@@ -62,7 +74,7 @@ disabled. Independent Word Reject All consequently removes the requested clean
 wording. A specific prepared-output tracking-policy check now prevents that write
 before checkpointing; existing foreign carriers remain allowed. Do not replace
 the failing capability with a passing refusal or silently remove it from scope.
-The [public upstream reproducer](../library-issues/2026-10-02-generate-redlines-false-cross-author-insertion.md)
+The [public upstream reproducer](../../library-issues/completed/2026-10-02-generate-redlines-false-cross-author-insertion.md)
 documents the engine defect. A published fix, both exact pin updates and the
 unchanged host gate must pass before closing WP5. A separate revised-target lexical
 replacement verifies the supported delete/insert path without concealing the
@@ -97,9 +109,9 @@ edit cases with 19 checks and three checkpoint restores; independent Word passes
 control proves zero writes/checkpoints for the tracking mismatch. The default
 14-case capability manifest still requires the unresolved untracked insertion
 to succeed; the diagnostic subset and safety control cannot close WP5.
-The [WP5 correction report](../validation-reports/2026-10-02-lightweight-harness-wp5-correction.md)
+The [WP5 correction report](../../validation-reports/2026-10-02-lightweight-harness-wp5-correction.md)
 records current evidence and preserves intermediate failures. The original
-[WP5 report](../validation-reports/2026-10-02-lightweight-harness-wp5.md) remains
+[WP5 report](../../validation-reports/2026-10-02-lightweight-harness-wp5.md) remains
 historical evidence for `2aa6aca`; its blanket guards and API-gap claim are
 withdrawn, and its earlier totals do not certify the correction.
 
@@ -140,7 +152,7 @@ The target is fewer ways to produce an incorrect document, not merely fewer func
 
 ## What the planning baseline documentation and code established
 
-Reviewed all six Markdown files at the `docs/` root: [tool contracts](../agentic-tool-contracts.md), [library offload review](../library-offload-review.md), [package boundaries](../package-boundaries.md), [performance notes](../ooxml-performance.md), [testing](../TESTING.md), and [historical PLAN](../PLAN.md). Also reviewed [v2.2.0.0](../release/v2.2.0.0.md), [architecture](../../ARCHITECTURE.md), current state/roadmap, the active list/table plans, the [0.8.4 validation](../validation-reports/2026-10-02-docx-redline-v084.md), library follow-ups, and the relevant taskpane/tool/context/adapter implementations.
+Reviewed all six Markdown files at the `docs/` root: [tool contracts](../../agentic-tool-contracts.md), [library offload review](../../library-offload-review.md), [package boundaries](../../package-boundaries.md), [performance notes](../../ooxml-performance.md), [testing](../../TESTING.md), and [historical PLAN](../../PLAN.md). Also reviewed [v2.2.0.0](../../release/v2.2.0.0.md), [architecture](../../../ARCHITECTURE.md), current state/roadmap, the active list/table plans, the [0.8.4 validation](../../validation-reports/2026-10-02-docx-redline-v084.md), library follow-ups, and the relevant taskpane/tool/context/adapter implementations.
 
 The root `docs/PLAN.md` is a historical July draft with later migration notices. Its old counts, proposed modules, and execution instructions are not the current queue. This plan carries forward the relevant intent without reopening already completed reliability work.
 
@@ -160,7 +172,7 @@ The 0.8.4 report records 57 offline suites passing, four excluded entrypoints, s
 
 ### Current upstream constraints
 
-The [library issue index](../library-issues/README.md) and [list migration follow-up](2026-09-30-canonical-list-migration-follow-up.md) identify constraints that remain relevant:
+The [library issue index](../../library-issues/README.md) and [list migration follow-up](../2026-09-30-canonical-list-migration-follow-up.md) identify constraints that remain relevant:
 
 - Plain/text-changing header-to-list conversion and list-format changes do not yet have the required supported canonical behavior.
 - Separate list operations in 0.8.4 can restart non-adjacent header numbering: A/A instead of A/B. The historical native conversion avoided this regression; conversion is now refused and that executor is deleted.
@@ -169,7 +181,7 @@ The [library issue index](../library-issues/README.md) and [list migration follo
 - Rewriting a paragraph with the author's own pending formatting and adding a table together remains refused by the consumer.
 - Untracked surgical pure insertion in 0.8.4 can create new own revision markup; the required in-scope case remains blocked on a published fix, rather than retired as a product decision.
 
-Do not count an operation type appearing in a schema as proof that every desired structure works. These defects need upstream fixes or explicit scope restrictions before migration. Continue the repository's [upstream ownership rule](../../.agent/rules/docx-redline-js-ownership.md): document engine defects with independent reproducers; do not implement consumer OOXML workarounds or edit installed package internals.
+Do not count an operation type appearing in a schema as proof that every desired structure works. These defects need upstream fixes or explicit scope restrictions before migration. Continue the repository's [upstream ownership rule](../../../.agent/rules/docx-redline-js-ownership.md): document engine defects with independent reproducers; do not implement consumer OOXML workarounds or edit installed package internals.
 
 This plan coordinates with the two active plans rather than declaring them superseded. During implementation, adjust their retained scope and links to the approved decisions here. An intentional capability retirement must be recorded as a product decision, not marked as a completed migration. The initial decision update changed only this plan; WP1 subsequently updated the architecture, tool contracts, and package boundaries to describe the extracted harness.
 
@@ -364,7 +376,7 @@ The owner has approved the design choices and authorized completing all packages
 
 ### WP0 — Freeze the everyday scope and baseline
 
-**Completed 2026-10-02:** [Scope matrix, native-route inventory, and fresh baseline](../validation-reports/2026-10-02-lightweight-harness-wp0-baseline.md).
+**Completed 2026-10-02:** [Scope matrix, native-route inventory, and fresh baseline](../../validation-reports/2026-10-02-lightweight-harness-wp0-baseline.md).
 
 - Translate the approved scope into an explicit retained/unsupported operation matrix. Do not reopen settled architecture choices or add native fallbacks to broaden scope.
 - Capture a fresh baseline from the current 16-step NDA replay and relevant offline/host lanes, with library version, tool calls, nested AI calls, source reads, writes, outcomes, and author attribution.
@@ -375,7 +387,7 @@ The owner has approved the design choices and authorized completing all packages
 
 ### WP1 — Extract the small loop and one registry without changing edits
 
-**Completed 2026-10-02:** [Implementation and verification report](../validation-reports/2026-10-02-lightweight-harness-wp1.md); continuation contracts and remaining work are recorded above.
+**Completed 2026-10-02:** [Implementation and verification report](../../validation-reports/2026-10-02-lightweight-harness-wp1.md); continuation contracts and remaining work are recorded above.
 
 - Extract provider/context/tool-exchange/stop decisions from `sendChatMessage` into Node-importable logic with injected host/provider/UI dependencies.
 - Use one registry for declaration, validation, mutability, execution, and progress text; remove repeated tool-name lists and dispatch branches. Reuse the shared Gemini client, history helpers, mutation guard, and lazy-loading boundary.
@@ -386,7 +398,7 @@ The owner has approved the design choices and authorized completing all packages
 
 ### WP2 — Canonical inspection and source-bound handles
 
-**Completed 2026-10-02:** [Canonical inspection and handle report](../validation-reports/2026-10-02-lightweight-harness-wp2.md).
+**Completed 2026-10-02:** [Canonical inspection and handle report](../../validation-reports/2026-10-02-lightweight-harness-wp2.md).
 
 - Implement focused inspection over the current Word source using supported library inspection APIs. Retain strong descriptors privately and provide compact target handles and human locations.
 - Bind target/range/end handles to document instance, snapshot, revision view, and structural dependencies. Expire them after actual writes, Undo/external changes, and reopening; freshness checks remain authoritative if change events are unavailable.
@@ -397,7 +409,7 @@ The owner has approved the design choices and authorized completing all packages
 
 ### WP3 — Direct typed batches; remove nested AI interpretation
 
-**Completed locally 2026-10-02:** [Direct typed batch and real Word report](../validation-reports/2026-10-02-lightweight-harness-wp3.md). Release still requires live fast/slow model checks.
+**Completed locally 2026-10-02:** [Direct typed batch and real Word report](../../validation-reports/2026-10-02-lightweight-harness-wp3.md). Release still requires live fast/slow model checks.
 
 - Introduce `apply_document_edits` for the retained core actions. Map intents to public canonical operations and the existing atomic Word adapter.
 - Move comment suggestions into the same source-bound batch. Validate every requested intent before writing and account for every result.
@@ -410,7 +422,7 @@ The owner has approved the design choices and authorized completing all packages
 
 ### WP4 — Retire native edit routes or migrate the retained subset
 
-**Completed locally 2026-10-02:** [Retirement and Word fidelity report](../validation-reports/2026-10-02-lightweight-harness-wp4.md). The initially unsafe ordinary redline recipe was replaced with the documented complete list-change; all retained cases pass. Broader capabilities are retired/refused rather than represented as completed upstream migration.
+**Completed locally 2026-10-02:** [Retirement and Word fidelity report](../../validation-reports/2026-10-02-lightweight-harness-wp4.md). The initially unsafe ordinary redline recipe was replaced with the documented complete list-change; all retained cases pass. Broader capabilities are retired/refused rather than represented as completed upstream migration.
 
 - Follow the existing upstream list/table reports for the approved retained scope. Bump both exact pins only after a published release and downstream checks; a library fix does not authorize expanding the product's scope.
 - Migrate one retained operation family at a time; accepted/rejected text, list identity/continuation, table structure, author attribution, comments, and preserved formatting must pass before deleting the native route.
@@ -421,7 +433,7 @@ The owner has approved the design choices and authorized completing all packages
 
 ### WP5 — Thin the bridge and finish deletion
 
-**Reopened 2026-10-02:** The [committed implementation and verification report](../validation-reports/2026-10-02-lightweight-harness-wp5.md) records deletion and checkpoint evidence, but its two blanket refusals were rejected by the owner. The [correction](../validation-reports/2026-10-02-lightweight-harness-wp5-correction.md) repairs comment merging, removes broad restrictions and adds capability-preservation checks. The remaining untracked surgical-insertion engine defect must be fixed in a published library release and pass its unchanged host gate before WP5 closes. Live-provider and Word Online checks remain release gates.
+**Reopened 2026-10-02:** The [committed implementation and verification report](../../validation-reports/2026-10-02-lightweight-harness-wp5.md) records deletion and checkpoint evidence, but its two blanket refusals were rejected by the owner. The [correction](../../validation-reports/2026-10-02-lightweight-harness-wp5-correction.md) repairs comment merging, removes broad restrictions and adds capability-preservation checks. The remaining untracked surgical-insertion engine defect must be fixed in a published library release and pass its unchanged host gate before WP5 closes. Live-provider and Word Online checks remain release gates.
 
 - Measure the selected adapter's remaining Flat OPC code. Offload reusable inspection/package preparation upstream through an agreed supported API if justified, retaining only host-specific adaptation here and preserving the Word transport.
 - Remove unused legacy list helpers, prompt/schema copies, regex argument recovery for retired tools, old exports, and redundant context/format inference. Keep font detection only if a surviving path needs it for preservation, not as an editing feature.

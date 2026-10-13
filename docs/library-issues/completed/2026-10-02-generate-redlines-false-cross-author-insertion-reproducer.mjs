@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import '../../tests/setup-xml-provider.mjs';
+import '../../../tests/setup-xml-provider.mjs';
 import {
   acceptTrackedChangesInOoxml,
   applyRedlineToOxml,

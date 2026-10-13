@@ -1,4 +1,4 @@
-import '../../tests/setup-xml-provider.mjs';
+import '../../../tests/setup-xml-provider.mjs';
 
 import assert from 'node:assert/strict';
 import { inspectDocumentParts } from '@ansonlai/docx-redline-js';

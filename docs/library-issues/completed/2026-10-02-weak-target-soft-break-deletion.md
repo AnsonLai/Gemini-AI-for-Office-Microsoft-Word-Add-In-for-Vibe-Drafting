@@ -1,5 +1,7 @@
 # Weakly targeted soft-break replacement silently deletes the paragraph
 
+> **Resolved in 0.9.0 (2026-10-12):** Fixed in `@ansonlai/docx-redline-js@0.9.0`. The reproducer reports NOT REPRODUCED. The body below is the historical 0.8.4 report. See the [0.9.0 validation](../../validation-reports/2026-10-12-docx-redline-v090.md).
+
 Repository: `AnsonLai/docx-redline-js`. Reproduces in installed 0.8.4 (the
 path only became reachable when 0.8.4 enabled localized replacements in
 soft-break paragraphs). Not yet filed upstream.
@@ -24,7 +26,7 @@ the operation. Never report success while deleting the paragraph.
 ## Reproduction
 
 ```powershell
-node docs/library-issues/2026-10-02-weak-target-soft-break-deletion-reproducer.mjs
+node docs/library-issues/completed/2026-10-02-weak-target-soft-break-deletion-reproducer.mjs
 ```
 
 Prints the accepted text for both targets: empty for the weak target,

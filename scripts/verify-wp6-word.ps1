@@ -109,8 +109,9 @@ function Check-Document($case, [string]$file, [string]$view, [bool]$render, [boo
         if ($view -eq 'tracked' -and $null -ne $case.expectedExactBodyRevisions -and $document.Revisions.Count -ne [int]$case.expectedExactBodyRevisions) {
             throw "Expected exactly $($case.expectedExactBodyRevisions) body revisions, Word sees $($document.Revisions.Count)."
         }
-        if ($view -eq 'accepted') { $document.AcceptAllRevisions() }
-        if ($view -eq 'rejected') { $document.RejectAllRevisions() }
+        # Revisions.AcceptAll/RejectAll match the ribbon; Document.*AllRevisions leaves a body-final table append's tracked mark behind.
+        if ($view -eq 'accepted') { $document.Revisions.AcceptAll() }
+        if ($view -eq 'rejected') { $document.Revisions.RejectAll() }
         $actual = Normalize-WordText ([string]$document.Content.Text)
         $expected = if ($view -eq 'source' -and $case.expectedSourceText) { $case.expectedSourceText } elseif ($view -eq 'rejected') { $case.expectedRejectedText } elseif ($view -eq 'source') { $case.expectedRejectedText } else { $case.expectedAcceptedText }
         if ($view -ne 'tracked' -and $case.expectedBodyStructure) {

@@ -3,7 +3,7 @@
 The library owns supported document transformations; this repository verifies
 request scope, source-bound handles, atomic host transport and truthful results.
 Current supported/refused actions are in the [tool contract](agentic-tool-contracts.md).
-The [dated plan](plans/2026-10-02-library-first-lightweight-agent-reliability.md)
+The [dated plan](plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md)
 links frozen baseline and each milestone's actual evidence.
 
 | Lane | Evidence | Limit |
@@ -30,9 +30,9 @@ The [final WP5 report](validation-reports/2026-10-02-lightweight-harness-wp5.md)
 restoration. Excluded/inapplicable checks are never added to pass totals.
 
 The earlier table-append and Undo incidents retain dated evidence in their
-[incident plan](plans/2026-09-30-table-creation-reliability.md),
+[incident plan](plans/completed/2026-09-30-table-creation-reliability.md),
 [Word report](validation-reports/2026-10-01-table-creation-reliability.md) and
-[open library issue index](library-issues/README.md). Structural table creation
+[library issue index](library-issues/README.md) (no open issues as of 0.9.0; remaining consumer bugs in [KNOWN_BUGS.md](plans/KNOWN_BUGS.md)). Structural table creation
 is now refused by the Word agent. Keep independent library reproducers runnable;
 retirement does not close upstream bugs. Desktop is the initial target;
 Word Online requires separate affected-operation checks before equivalent

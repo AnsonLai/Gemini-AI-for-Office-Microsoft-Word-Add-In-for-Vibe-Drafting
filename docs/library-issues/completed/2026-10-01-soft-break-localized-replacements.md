@@ -1,6 +1,6 @@
 # Localized replacements are refused in paragraphs with soft line breaks
 
-> **Resolved:** Fixed in 0.8.4 (verified 2026-10-02); a find spanning a break is refused by design. Related open issue: [weak-target soft-break deletion](../2026-10-02-weak-target-soft-break-deletion.md). The add-in now plans localized replacements with `structuredContent: false` so a lettered soft-break paragraph is not reread as a Markdown list.
+> **Resolved:** Fixed in 0.8.4 (verified 2026-10-02); a find spanning a break is refused by design. Related open issue: [weak-target soft-break deletion](./2026-10-02-weak-target-soft-break-deletion.md). The add-in now plans localized replacements with `structuredContent: false` so a lettered soft-break paragraph is not reread as a Markdown list.
 
 Repository: `AnsonLai/docx-redline-js`. Reproduces in installed 0.8.3.
 Not yet filed upstream.

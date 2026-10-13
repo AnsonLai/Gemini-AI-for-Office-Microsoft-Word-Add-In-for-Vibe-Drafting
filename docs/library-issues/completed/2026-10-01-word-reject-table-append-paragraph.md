@@ -1,5 +1,7 @@
 # Word Reject All leaves an extra paragraph after a final table append
 
+> **Resolved in 0.9.0 (2026-10-12):** Resolved at package level. The 0.9.0 public-library package passes source, tracked, Accept All and Reject All in Word with `Revisions.RejectAll()` (7 paragraphs, no revisions). The residual live-insert behaviour, where the production adapter's payload inserted into a live document leaves an extra paragraph, is tracked as KB-1 in [`KNOWN_BUGS.md`](../../plans/KNOWN_BUGS.md). The oracle API correction (`Document.Revisions.RejectAll()` instead of `Document.RejectAllRevisions()`) is KB-3. The "still open" status below is the historical 0.8.4 record. See the [0.9.0 validation](../../validation-reports/2026-10-12-docx-redline-v090.md).
+
 ## Status after 0.8.4 (2026-10-02): still open
 
 0.8.4 changed tracked tables to row-level `w:trPr/w:ins` marks (no `w:ins`
@@ -19,7 +21,7 @@ fixed (see `completed/2026-10-01-table-append-tracked-formatting.md`).
 From the repository root, export the single public-library fixture and run the Word oracle:
 
 ```powershell
-node docs/library-issues/2026-10-01-word-reject-table-append-paragraph-export.mjs `
+node docs/library-issues/completed/2026-10-01-word-reject-table-append-paragraph-export.mjs `
   --export-dir .cache/table-append-host
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-wp6-word.ps1 `
   -FixtureManifest .cache/table-append-host/manifest.json `

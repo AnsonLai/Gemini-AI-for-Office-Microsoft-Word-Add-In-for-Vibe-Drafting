@@ -3,7 +3,7 @@
 ## Status
 
 Resolved in consumer package preparation and verified in actual Office.js and
-independent desktop Word. The [WP5 correction report](../validation-reports/2026-10-02-lightweight-harness-wp5-correction.md)
+independent desktop Word. The [WP5 correction report](../../validation-reports/2026-10-02-lightweight-harness-wp5-correction.md)
 records the final evidence: three existing comments become four, then five in a
 second rewrite/comment batch; checkpoint restoration returns to four. Original
 replies, resolved state and durable identities are preserved throughout.
@@ -27,11 +27,11 @@ the package relationship through its existing adapter.
 ## Evidence
 
 The public-only reproducer uses the Word-authored
-[`threaded-comments.docx`](../../tests/fixtures/wp6/threaded-comments.docx)
+[`threaded-comments.docx`](../../../tests/fixtures/wp6/threaded-comments.docx)
 fixture:
 
 ```powershell
-node docs/library-issues/2026-10-02-word-existing-comments-delta-reproducer.mjs
+node docs/library-issues/completed/2026-10-02-word-existing-comments-delta-reproducer.mjs
 ```
 
 With the installed 0.8.4 package, it reports three source comments, a two-edit

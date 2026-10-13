@@ -1,6 +1,6 @@
 # Generated Markdown bullets reuse existing numbering IDs
 
-> **Resolved:** Fixed in 0.8.4 (verified 2026-10-02): the runner allocates fresh IDs from the supplied `numberingXml`. `applyRedlineToOxml` needs the new `numberingXml` option, which the add-in's `edit_list` now passes from `body.getOoxml()`. Follow-up regression: [separate list operations restart numbering](../2026-10-02-separate-list-operations-restart-numbering.md).
+> **Resolved:** Fixed in 0.8.4 (verified 2026-10-02): the runner allocates fresh IDs from the supplied `numberingXml`. `applyRedlineToOxml` needs the new `numberingXml` option, which the add-in's `edit_list` now passes from `body.getOoxml()`. Follow-up regression: [separate list operations restart numbering](./2026-10-02-separate-list-operations-restart-numbering.md).
 
 Repository: `AnsonLai/docx-redline-js`. Reproduces in installed 0.8.3.
 Not yet filed upstream.

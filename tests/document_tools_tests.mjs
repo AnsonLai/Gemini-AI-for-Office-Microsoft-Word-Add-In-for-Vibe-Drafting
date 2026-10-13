@@ -454,21 +454,23 @@ for (const metadata of [
   }
 }
 
-// Published 0.8.4 incorrectly tracks a pure insertion in surgical mode even
-// with tracking disabled. Reject that prepared output before recovery/write,
-// rather than refusing every revised paragraph or forcing the user's tracking.
+// Published 0.8.4 incorrectly tracked a pure insertion in surgical mode even with
+// tracking disabled, so the add-in rejected that prepared output (TRACKING_POLICY_MISMATCH).
+// 0.9.0 fixed this: the untracked insertion is written as plain text and the foreign
+// pending insertion is left untouched. The add-in's guard remains as a defensive check.
 {
   const source = buildDocumentFragmentPackage(`<w:p><w:r><w:t>This agreement is governed by local law.</w:t></w:r><w:ins w:id="21" w:author="Prior Reviewer"><w:r><w:t xml:space="preserve"> Pending clause.</w:t></w:r></w:ins></w:p>`, { appendTrailingParagraph: false });
   const harness = createHarness('governed by local law', { initialXml: source, generateRedlines: false });
   const target = await harness.handleFor('governed by local law');
   const receipt = await apply(harness, [{ type: 'replace_text', target,
     find: 'governed by local law', replace: 'governed by applicable local law' }]);
-  assert.equal(receipt.success, false);
-  assert.equal(receipt.error.code, 'TRACKING_POLICY_MISMATCH');
-  assert.equal(receipt.writeAttempted, false);
-  assert.equal(harness.counts.contentWrites, 0);
-  assert.equal(harness.checkpoints.length, 0);
-  assert.equal(harness.currentXml, source);
+  assert.equal(receipt.success, true, JSON.stringify(receipt));
+  assert.equal(receipt.written, true);
+  assert.equal(receipt.verified, true);
+  assert.equal(harness.counts.contentWrites, 1);
+  assert.equal(inspectWordSource(harness.currentXml).inspection.paragraphs[0].exactText,
+    'This agreement is governed by applicable local law. Pending clause.');
+  assert.equal((harness.currentXml.match(/<w:ins /g) || []).length, 1, 'only the prior reviewer insertion may remain tracked');
 }
 
 // A receipt may allocate IDs while the library slices a foreign insertion.

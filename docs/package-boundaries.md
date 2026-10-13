@@ -1,6 +1,6 @@
 # Consumer package boundaries
 
-Both manifests exact-pin `@ansonlai/docx-redline-js@0.8.4`. The library owns canonical inspection, targeting, literal matching, OOXML mutation, revisions, numbering and DOCX package semantics. Application prompting, scope, harness and Word transport defects are fixed here; engine defects receive upstream reports and independent reproducers.
+Both manifests exact-pin `@ansonlai/docx-redline-js@0.9.0`. The library owns canonical inspection, targeting, literal matching, OOXML mutation, revisions, numbering and DOCX package semantics. Application prompting, scope, harness and Word transport defects are fixed here; engine defects receive upstream reports and independent reproducers.
 
 | Surface | Responsibility |
 | --- | --- |
@@ -24,4 +24,4 @@ parts. Restore uses a derived comparison for proven Word-generated metadata,
 guarded by canonical comment relationship/anchor equality, without changing XML
 payloads or ordinary freshness checks.
 
-Current behavior: [tool contracts](agentic-tool-contracts.md). Measured changes and host evidence: [reliability plan](plans/2026-10-02-library-first-lightweight-agent-reliability.md). Unsupported engine shapes remain in [library issues](library-issues/README.md); removal of native fallback does not close them.
+Current behavior: [tool contracts](agentic-tool-contracts.md). Measured changes and host evidence: [reliability plan](./plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md). Unsupported engine shapes remain in [library issues](library-issues/README.md); removal of native fallback does not close them.

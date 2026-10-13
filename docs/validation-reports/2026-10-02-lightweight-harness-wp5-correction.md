@@ -64,7 +64,7 @@ silently selected.
 
 ### Required upstream correction, not a scope retirement
 
-The [upstream issue and portable public reproducer](../library-issues/2026-10-02-generate-redlines-false-cross-author-insertion.md)
+The [upstream issue and portable public reproducer](../library-issues/completed/2026-10-02-generate-redlines-false-cross-author-insertion.md)
 record the exact dependency and expected post-fix behavior.
 
 The expanded actual Word gate found a separate published 0.8.4 engine defect:

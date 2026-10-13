@@ -1,7 +1,7 @@
 # Canonical List Migration Follow-up
 
 > Scope update (2026-10-02): the owner approved the [library-first lightweight
-> harness plan](2026-10-02-library-first-lightweight-agent-reliability.md).
+> harness plan](./completed/2026-10-02-library-first-lightweight-agent-reliability.md).
 > Unsupported native editing commands and their migration queue are retired.
 > The smaller retained subset uses direct library batches; broader list/table
 > structure is refused. This is an intentional capability retirement, not
@@ -9,8 +9,8 @@
 > independent library reproducers below, including issue cleanup conditions.
 
 **Date:** 2026-09-30  
-**Status:** Planned — waiting for upstream canonical conversion/remapping capabilities.  
-**Baseline:** Exact `@ansonlai/docx-redline-js@0.8.4` in root and MCP consumers.
+**Status:** Upstream capabilities released; consumer adoption (WP1–WP3) not started.  
+**Baseline:** Exact `@ansonlai/docx-redline-js@0.9.0` in root and MCP consumers (verified 2026-10-12).
 
 ## Origin and scope
 
@@ -30,9 +30,28 @@ evidence, not validation of the future capabilities below.
 `numberingXml` (see the [0.8.4 validation](../validation-reports/2026-10-02-docx-redline-v084.md)),
 but still lacks plain-to-list conversion and list-format changes. It also
 introduced a numbering-continuity regression ([separate list operations restart
-numbering](../library-issues/2026-10-02-separate-list-operations-restart-numbering.md))
+numbering](../library-issues/completed/2026-10-02-separate-list-operations-restart-numbering.md))
 that blocks canonical `convert_headers_to_list`. The acceptance criteria and the
 no-consumer-side-workaround stance below are unchanged.
+
+**2026-10-12 note:** 0.9.0 satisfies upstream prerequisites 1 to 5 below
+([0.9.0 validation](../validation-reports/2026-10-12-docx-redline-v090.md)):
+
+1. `list-format` `convert-plain` converts plain headers in place with `w14:paraId` preserved.
+2. `list-format` `change-format` and `join` allocate new numbering definitions.
+3. `redline` plus `list-format` compose for changed-text headers.
+4. Unsupported shapes return explicit refusal codes.
+5. The bare-XML `RECEIPT_RECONCILIATION_FAILED` case is fixed.
+
+It also adds `paragraph-format.numbering`, and the numbering-continuity
+regression is fixed (separate list operations now share one list). The agent's
+typed intents expose none of this yet: header-to-list conversion and
+numbering-style changes are still refused before writing (KB-4 in
+[`KNOWN_BUGS.md`](./KNOWN_BUGS.md)). The old `reproduce-plain-header-conversion.mjs` reproducer is
+obsolete (now refused, `BATCH_OPERATION_FAILED`); the capability moved to
+`list-format` `convert-plain`. All library issues are resolved
+([index](../library-issues/README.md)); the no-consumer-side-workaround stance is
+unchanged.
 
 ## Current consumer behavior
 
@@ -55,7 +74,7 @@ upstream prerequisites and independent host checks in this plan.
 
 Library plan: `C:/Users/Phara/Desktop/Projects/Docx Redline JS/docs/plans/2026-09-30-canonical-list-operations.md`.
 The published 0.8.3 release explicitly excluded canonical plain-to-list
-conversion and list-format changes. [Capability report](../library-issues/2026-09-30-canonical-list-operations.md).
+conversion and list-format changes. [Capability report](../library-issues/completed/2026-09-30-canonical-list-operations.md).
 
 Required behavior includes:
 
@@ -83,6 +102,7 @@ not an existing API to code against yet.
   batches. Check unsupported shapes refuse before writes.
 - Preserve single-empty/all-empty rejection and facade numbering regressions.
 - Record supported levels, formats, scope and tracking behavior before routing.
+- **2026-10-12 status:** the root and MCP pins are updated to exact 0.9.0, and the offline and host gates are green (46 of 46 suites; 14 default Office.js cases; independent Word oracle 68 PASS, 0 FAIL). No `list-format` intent is exposed yet, so the source-bound regressions for conversion, format change and changed-header batches, and the supported-shape record, remain to do.
 
 ### WP1 — Migrate consumer command paths
 
@@ -131,5 +151,4 @@ not an existing API to code against yet.
 - [ ] All recorded library issues are resolved, `docs/library-issues/` is deleted,
       and its incoming links are removed or updated.
 
-**Next action:** implement and release the upstream capabilities, then start
-WP0 here. No consumer-side OOXML workaround is authorized by this plan.
+**Next action:** start WP1 here: expose the released `list-format` and `paragraph-format.numbering` operations as typed intents, after recording supported shapes (WP0). No consumer-side OOXML workaround is authorized by this plan.

@@ -10,9 +10,10 @@ import {
 
 import {
     createDynamicNumberingIdState,
-    reserveNextNumberingIdPair,
-    mergeNumberingXmlBySchemaOrder
+    reserveNextNumberingIdPair
 } from '@ansonlai/docx-redline-js/services/numbering-helpers.js';
+// 0.9.0 moved the single numbering merge into the allocator module.
+import { mergeNumberingXmlBySchemaOrder } from '@ansonlai/docx-redline-js/services/numbering-allocation.js';
 
 function testStandaloneReexportsMatchNumberingHelpers() {
     assert.strictEqual(createDynamicNumberingIdStateStandalone, createDynamicNumberingIdState);
