@@ -1,4 +1,5 @@
 import '../setup-xml-provider.mjs';
+import { parseXml, serializeXml } from '@ansonlai/docx-redline-js/adapters/xml-adapter.js';
 
 import fs from 'fs';
 import path from 'path';
@@ -18,8 +19,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
 function parseXmlStrict(xmlText, label) {
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(xmlText, 'application/xml');
+    const xmlDoc = parseXml(xmlText, 'application/xml');
     const parseError = xmlDoc.getElementsByTagName('parsererror')[0];
     if (parseError) {
         throw new Error(`[XML parse error] ${label}: ${parseError.textContent || 'Unknown'}`);
@@ -56,8 +56,6 @@ function isSectionPropertiesElement(node) {
 }
 
 function extractFromPackage(packageXml) {
-    const parser = new DOMParser();
-    const serializer = new XMLSerializer();
     const pkgDoc = parseXmlStrict(packageXml, 'pkg output');
     const parts = Array.from(pkgDoc.getElementsByTagNameNS('*', 'part'));
     const documentPart = parts.find(part => getPartName(part) === '/word/document.xml');
@@ -80,7 +78,7 @@ function extractFromPackage(packageXml) {
         const numberingNode = numberingXmlData
             ? Array.from(numberingXmlData.childNodes).find(node => node.nodeType === 1)
             : null;
-        if (numberingNode) numberingXml = serializer.serializeToString(numberingNode);
+        if (numberingNode) numberingXml = serializeXml(numberingNode);
     }
 
     return { replacementNodes, numberingXml };
@@ -91,10 +89,9 @@ function extractReplacementNodes(outputOxml) {
         throw new Error('Reconciliation returned no OOXML');
     }
 
-    const parser = new DOMParser();
     if (outputOxml.includes('<pkg:package')) return extractFromPackage(outputOxml);
     if (outputOxml.includes('<w:document')) {
-        const doc = parser.parseFromString(outputOxml, 'application/xml');
+        const doc = parseXml(outputOxml, 'application/xml');
         const body = doc.getElementsByTagNameNS('*', 'body')[0];
         const replacementNodes = body
             ? Array.from(body.childNodes).filter(node => node.nodeType === 1 && !isSectionPropertiesElement(node))
@@ -103,7 +100,7 @@ function extractReplacementNodes(outputOxml) {
     }
 
     const wrapped = `<root xmlns:w="${NS_W}">${outputOxml}</root>`;
-    const fragmentDoc = parser.parseFromString(wrapped, 'application/xml');
+    const fragmentDoc = parseXml(wrapped, 'application/xml');
     const replacementNodes = Array.from(fragmentDoc.documentElement.childNodes).filter(node => node.nodeType === 1);
     return { replacementNodes, numberingXml: null };
 }
@@ -320,7 +317,7 @@ function assertCondition(condition, message) {
 async function applyHeaderConversion(xmlDoc, serializer, numberingState, capturedNumberingXml, snippet) {
     const targetParagraph = findParagraphBySnippet(xmlDoc, snippet);
     const originalText = getParagraphText(targetParagraph).trim();
-    const paragraphXml = serializer.serializeToString(targetParagraph);
+    const paragraphXml = serializeXml(targetParagraph);
 
     const result = await applyRedlineToOxmlWithListFallback(
         paragraphXml,
@@ -418,7 +415,6 @@ async function main() {
     const documentXml = fs.readFileSync(documentXmlPath, 'utf8');
     const numberingXml = fs.readFileSync(numberingXmlPath, 'utf8');
 
-    const serializer = new XMLSerializer();
     const xmlDoc = parseXmlStrict(documentXml, 'word/document.xml');
     const numberingState = createNumberingIdState(numberingXml);
     const capturedNumberingXml = [];
@@ -442,7 +438,7 @@ async function main() {
     }
     applyArchivalNestedInsertion(xmlDoc);
 
-    fs.writeFileSync(documentXmlPath, serializer.serializeToString(xmlDoc), 'utf8');
+    fs.writeFileSync(documentXmlPath, serializeXml(xmlDoc), 'utf8');
 
     let mergedNumbering = numberingXml;
     for (const incoming of capturedNumberingXml) {

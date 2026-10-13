@@ -1,4 +1,5 @@
 import '../setup-xml-provider.mjs';
+import { parseXml, serializeXml } from '@ansonlai/docx-redline-js/adapters/xml-adapter.js';
 
 /**
  * Integration Tests
@@ -87,7 +88,7 @@ function runFlags(run) {
 
 // Per document-order paragraph: one entry per visible character with its bold/underline flags.
 function characterFormats(documentXml) {
-    const doc = new DOMParser().parseFromString(documentXml, 'text/xml');
+    const doc = parseXml(documentXml);
     const paragraphs = doc.getElementsByTagName('w:p');
     const result = [];
     for (let i = 0; i < paragraphs.length; i++) {
@@ -109,19 +110,18 @@ const formatKey = (c) => `${c.ch}|${c.b ? 1 : 0}|${c.u ? 1 : 0}`;
 const plainText = (chars) => chars.map(c => c.ch).join('');
 
 function paragraphXmlById(documentXml) {
-    const doc = new DOMParser().parseFromString(documentXml, 'text/xml');
-    const serializer = new XMLSerializer();
+    const doc = parseXml(documentXml);
     const map = new Map();
     const paragraphs = doc.getElementsByTagName('w:p');
     for (let i = 0; i < paragraphs.length; i++) {
         const id = paragraphs[i].getAttribute('w14:paraId');
-        if (id) map.set(id, serializer.serializeToString(paragraphs[i]));
+        if (id) map.set(id, serializeXml(paragraphs[i]));
     }
     return map;
 }
 
 function countTables(documentXml) {
-    return new DOMParser().parseFromString(documentXml, 'text/xml').getElementsByTagName('w:tbl').length;
+    return parseXml(documentXml).getElementsByTagName('w:tbl').length;
 }
 
 function strongTarget(paragraph) {

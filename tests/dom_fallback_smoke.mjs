@@ -1,25 +1,22 @@
 import './setup-xml-provider.mjs';
 
 import assert from 'assert';
+import { parseXml, serializeXml } from '@ansonlai/docx-redline-js/adapters/xml-adapter.js';
 
+// The default test lane configures no XML provider and installs no DOM globals:
+// the library must parse and serialize on its own @xmldom/xmldom fallback in Node.
 function run() {
-    assert(global.DOMParser, 'DOMParser should be available');
-    assert(global.XMLSerializer, 'XMLSerializer should be available');
-    assert(global.document, 'document should be available');
-
-    const parser = new global.DOMParser();
-    const doc = parser.parseFromString('<root><item>A</item><item>B</item></root>', 'text/xml');
-    const items = doc.getElementsByTagName('item');
-
-    // Ensure NodeList is iterable in both jsdom and xmldom fallback mode.
-    let count = 0;
-    for (const node of items) {
-        count++;
-        assert(node.textContent === 'A' || node.textContent === 'B', 'Unexpected node content');
+    if ((process.env.DOCX_TEST_XML_PROVIDER || 'xmldom').toLowerCase() === 'xmldom') {
+        assert.equal(globalThis.DOMParser, undefined, 'default lane must not install a global DOMParser');
+        assert.equal(globalThis.document, undefined, 'default lane must not install a global document');
     }
 
-    assert.strictEqual(count, 2, 'Expected iterable NodeList with 2 items');
-    console.log('PASS: dom fallback smoke');
+    const doc = parseXml('<root><item>A</item><item>B</item></root>');
+    const texts = [];
+    for (const node of doc.getElementsByTagName('item')) texts.push(node.textContent);
+    assert.deepStrictEqual(texts, ['A', 'B'], 'Expected an iterable element list with 2 items');
+    assert.match(serializeXml(doc), /<root><item>A<\/item><item>B<\/item><\/root>/);
+    console.log('PASS: library XML fallback smoke');
 }
 
 try {

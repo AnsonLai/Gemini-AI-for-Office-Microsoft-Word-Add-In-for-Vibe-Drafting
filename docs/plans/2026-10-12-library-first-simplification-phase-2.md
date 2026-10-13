@@ -115,6 +115,10 @@ These items have no library dependency and can start right after WP0.
   - the unreachable checkpoint-capture branch in `taskpane.js`;
   - the unused `baseTrackingMode` parameter in `word-ooxml.js`.
 - **Host paragraph count.** Remove it and `detectExportTailIndex` once WP1 provides export-tail handling.
+- **Test XML setup (done 2026-10-13).** The default lane relies on the library's own xmldom fallback.
+  - `tests/setup-xml-provider.mjs` went from 97 lines to 16. It no longer installs global `DOMParser`, `XMLSerializer`, `document`, `window` or `Node`, and no longer patches NodeList iteration. It only configures jsdom when that lane is explicitly selected.
+  - The tests that used the globals now call the library's `parseXml` / `serializeXml`, the same entry point production uses: `integration_tests`, `dom_fallback_smoke` (now a library-fallback check) and the manual `word-desktop/list-regression` lane.
+  - Default lane: 48/48. The jsdom lane is unchanged at the same 5 KB-8 diagnostics.
 
 **Exit:** the KNOWN_BUGS "Expedient uses to retire" list is empty except items blocked on WP1.
 
