@@ -487,4 +487,142 @@ await assert.rejects(
     && error.recovery.requiresReinspection
 );
 
+// ---------------------------------------------------------------- typed list intents
+const handleOf = text => {
+  const found = listSourceTargets.find(item => item.exactText === text);
+  assert.ok(found, `Word-authored fixture contains ${text}`);
+  return found.handle;
+};
+const H1 = handleOf('1. Supported Header First'), H2 = handleOf('2. Supported Header Second');
+const BULLET = handleOf('Bullet Root A'), NUM_B = handleOf('Number Root B'), RESTART = handleOf('Number Restart Root');
+const PLAIN = handleOf('Plain paragraph before bullet list.');
+const compileLists = (edits, targets = listSourceTargets) => compileDocumentEdits(edits, { session: createSession(targets), source });
+async function refusesList(edits, code, field, label, targets = listSourceTargets) {
+  await assert.rejects(() => compileLists(edits, targets), error => error instanceof DocumentEditIntentError
+    && error.code === code && (field === undefined || error.field === field), label);
+}
+const descriptorOf = handle => {
+  const found = listSourceTargets.find(item => item.handle === handle);
+  return { exactText: found.exactText, index: found.index, ...(found.paragraphId ? { paragraphId: found.paragraphId } : {}),
+    fingerprint: found.fingerprint, revisionView: found.revisionView, inTable: found.inTable };
+};
+
+{
+  // convert_to_list maps typed markers to strip:marker and resolves every handle once.
+  const session = createSession(listSourceTargets);
+  const converted = await compileDocumentEdits([{ type: 'convert_to_list', target: H1 }], { session, source });
+  assert.deepEqual(converted.operations, [{ type: 'list-format', target: descriptorOf(H1), list: { mode: 'convert-plain', strip: 'marker' } }],
+    'typed markers are the default; no format, start or targetEnd is invented');
+  assert.equal(converted.expectations[0].expectedParagraphs, undefined, 'conversion never changes the paragraph count');
+  assert.equal(converted.expectations[0].sourceText, '1. Supported Header First');
+
+  const rangeSession = createSession(listSourceTargets);
+  const range = await compileDocumentEdits([{ type: 'convert_to_list', target: H1, through: H2, format: 'decimal' }], { session: rangeSession, source });
+  assert.deepEqual(rangeSession.calls[0].handles, [H1, H2], 'through is resolved with the other handles from one fresh source');
+  assert.equal(rangeSession.calls.length, 1);
+  assert.deepEqual(range.operations, [{ type: 'list-format', target: descriptorOf(H1), targetEnd: descriptorOf(H2),
+    list: { mode: 'convert-plain', strip: 'marker', format: 'decimal' } }]);
+
+  const untyped = await compileLists([{ type: 'convert_to_list', target: PLAIN, markers: 'none', format: 'upperLetter', start: 3 }]);
+  assert.deepEqual(untyped.operations[0].list, { mode: 'convert-plain', strip: 'none', format: 'upperLetter', start: 3 });
+
+  // Non-contiguous headers: one convert per paragraph in one batch, in input order.
+  const headers = await compileLists([{ type: 'convert_to_list', target: H1 }, { type: 'convert_to_list', target: H2 }]);
+  assert.deepEqual(headers.operations.map(operation => operation.target.index), [21, 23]);
+  assert.deepEqual(headers.operationActions, [0, 1], 'each library operation maps back to its requested edit');
+
+  const change = await compileLists([{ type: 'change_list_format', target: BULLET, format: 'decimal' }]);
+  assert.deepEqual(change.operations, [{ type: 'list-format', target: descriptorOf(BULLET), list: { mode: 'change-format', format: 'decimal', scope: 'list' } }],
+    'range scope is never requested; level and start are omitted unless given');
+  assert.equal(change.expectations[0].expectedParagraphs, undefined);
+  const detailed = await compileLists([{ type: 'change_list_format', target: BULLET, format: 'lowerRoman', level: 0, start: 2 }]);
+  assert.deepEqual(detailed.operations[0].list, { mode: 'change-format', format: 'lowerRoman', scope: 'list', level: 0, start: 2 },
+    'level 0 is a real value and is forwarded');
+
+  const joinSession = createSession(listSourceTargets);
+  const join = await compileDocumentEdits([{ type: 'continue_list', target: RESTART, from: NUM_B }], { session: joinSession, source });
+  assert.deepEqual(joinSession.calls[0].handles, [RESTART, NUM_B]);
+  assert.deepEqual(join.operations, [{ type: 'list-format', target: descriptorOf(RESTART),
+    list: { mode: 'join', continueFrom: descriptorOf(NUM_B), scope: 'list' } }]);
+
+  // The one allowed same-paragraph pair: a rewrite that keeps the typed marker plus a single-paragraph conversion.
+  for (const reversed of [false, true]) {
+    const rewrite = { type: 'rewrite_paragraph', target: H1, text: '1. Changed Header First' };
+    const convert = { type: 'convert_to_list', target: H1 };
+    const pair = await compileLists(reversed ? [convert, rewrite] : [rewrite, convert]);
+    assert.deepEqual(pair.operations.map(operation => operation.type).sort(), ['list-format', 'redline']);
+    assert.equal(pair.operations.find(operation => operation.type === 'redline').modified, '1. Changed Header First');
+    assert.deepEqual(pair.expectations.map(item => item.expectedParagraphs?.length ?? 0).sort(), [0, 1],
+      'neither action of the pair changes the paragraph count');
+  }
+  const otherParagraphs = await compileLists([
+    { type: 'rewrite_paragraph', target: H2, text: '2. Changed Header Second' },
+    { type: 'convert_to_list', target: H1 }
+  ]);
+  assert.equal(otherParagraphs.operations.length, 2, 'a rewrite of a different paragraph needs no pairing rule');
+}
+
+// Field validation.
+const bad = (edit, field, label, code = 'INVALID_DOCUMENT_EDIT') => refusesList([edit], code, `edits[0].${field}`, label);
+await bad({ type: 'convert_to_list', target: H1, format: 'roman' }, 'format', 'convert_to_list refuses an unknown format');
+await bad({ type: 'convert_to_list', target: H1, format: 'Decimal' }, 'format', 'formats are case-sensitive library values');
+await bad({ type: 'change_list_format', target: BULLET, format: 'numbered' }, 'format', 'change_list_format refuses kind-style names');
+await bad({ type: 'change_list_format', target: BULLET }, 'format', 'change_list_format requires a format');
+await bad({ type: 'convert_to_list', target: PLAIN, markers: 'none' }, 'format', 'markers none requires a format');
+await bad({ type: 'convert_to_list', target: H1, markers: 'auto' }, 'markers', 'markers is typed or none');
+await bad({ type: 'convert_to_list', target: H1, start: 3 }, 'start', 'start with implicit typed markers is refused');
+await bad({ type: 'convert_to_list', target: H1, markers: 'typed', format: 'decimal', start: 3 }, 'start', 'start with explicit typed markers is refused');
+await bad({ type: 'convert_to_list', target: PLAIN, markers: 'none', format: 'decimal', start: 0 }, 'start', 'start is a positive integer');
+await bad({ type: 'change_list_format', target: BULLET, format: 'decimal', start: 1.5 }, 'start', 'change start is a positive integer');
+await bad({ type: 'change_list_format', target: BULLET, format: 'decimal', level: 9 }, 'level', 'level is 0 through 8');
+await bad({ type: 'change_list_format', target: BULLET, format: 'decimal', level: -1 }, 'level', 'level is not negative');
+await bad({ type: 'change_list_format', target: BULLET, format: 'decimal', level: '1' }, 'level', 'level is an integer');
+await bad({ type: 'convert_to_list', target: H1, through: H1 }, 'through', 'through must differ from target');
+await bad({ type: 'convert_to_list', target: H2, through: H1 }, 'through', 'through before target is refused after resolution');
+await bad({ type: 'continue_list', target: RESTART, from: RESTART }, 'from', 'a list cannot continue from its own target');
+await bad({ type: 'continue_list', target: RESTART }, 'from', 'from is required');
+await bad({ type: 'convert_to_list', target: H1, text: 'x' }, 'text', 'convert_to_list accepts no text');
+await bad({ type: 'change_list_format', target: BULLET, format: 'decimal', through: H2 }, 'through', 'change_list_format has no through');
+await bad({ type: 'continue_list', target: RESTART, from: NUM_B, format: 'decimal' }, 'format', 'continue_list has no format');
+
+// Target shape.
+await bad({ type: 'convert_to_list', target: BULLET }, 'target', 'convert_to_list refuses a list item', 'UNSUPPORTED_DOCUMENT_EDIT_TARGET');
+await bad({ type: 'convert_to_list', target: H1, through: BULLET }, 'through', 'a through paragraph that is a list item is refused', 'UNSUPPORTED_DOCUMENT_EDIT_TARGET');
+await bad({ type: 'change_list_format', target: PLAIN, format: 'decimal' }, 'target', 'change_list_format refuses a plain paragraph', 'UNSUPPORTED_DOCUMENT_EDIT_TARGET');
+await bad({ type: 'continue_list', target: PLAIN, from: NUM_B }, 'target', 'continue_list refuses a plain target', 'UNSUPPORTED_DOCUMENT_EDIT_TARGET');
+await bad({ type: 'continue_list', target: RESTART, from: PLAIN }, 'from', 'continue_list refuses a plain from paragraph', 'UNSUPPORTED_DOCUMENT_EDIT_TARGET');
+const inTableTargets = listSourceTargets.map(item => ['Bullet Root A', '1. Supported Header First', 'Number Root B'].includes(item.exactText)
+  ? { ...item, inTable: true, table: { rowIndex: 0, cellIndex: 0 } } : item);
+await refusesList([{ type: 'convert_to_list', target: H1 }], 'UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'edits[0].target', 'table paragraphs are not converted', inTableTargets);
+await refusesList([{ type: 'change_list_format', target: BULLET, format: 'decimal' }], 'UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'edits[0].target', 'table list items are not reformatted', inTableTargets);
+await refusesList([{ type: 'continue_list', target: RESTART, from: NUM_B }], 'UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'edits[0].from', 'a table list item cannot be continued from', inTableTargets);
+const partialTargets = listSourceTargets.map(item => item.handle === H2 ? { ...item, fullTextInspected: false } : item);
+await refusesList([{ type: 'convert_to_list', target: H1, through: H2 }], 'TARGET_TEXT_NOT_FULLY_INSPECTED', 'edits[0].through', 'through must be fully inspected', partialTargets);
+await refusesList([{ type: 'continue_list', target: RESTART, from: NUM_B }], 'TARGET_TEXT_NOT_FULLY_INSPECTED', 'edits[0].from', 'from must be fully inspected',
+  listSourceTargets.map(item => item.handle === NUM_B ? { ...item, fullTextInspected: false } : item));
+await refusesList([{ type: 'convert_to_list', target: H2 }], 'TARGET_TEXT_NOT_FULLY_INSPECTED', 'edits[0].target', 'the target must be fully inspected', partialTargets);
+await assert.rejects(() => compileLists([{ type: 'convert_to_list', target: 'unknown-handle' }]), error => error instanceof DocumentEditIntentError,
+  'unknown handles never reach the library');
+
+// Same-paragraph combinations: only rewrite plus one single-paragraph conversion is allowed.
+const comboCode = 'UNSUPPORTED_DOCUMENT_EDIT_COMBINATION';
+const combo = (edits, label) => refusesList(edits, comboCode, undefined, label);
+await combo([{ type: 'convert_to_list', target: H1 }, { type: 'replace_text', target: H1, find: 'Header', replace: 'Heading' }], 'replace_text plus conversion is refused');
+await combo([{ type: 'convert_to_list', target: H1 }, { type: 'comment', target: H1, text: 'Check.' }], 'comment plus conversion is refused');
+await combo([{ type: 'convert_to_list', target: H1 }, { type: 'format_text', target: H1, find: 'Header', properties: { bold: true } }], 'format plus conversion is refused');
+await combo([{ type: 'convert_to_list', target: H1 }, { type: 'delete_paragraph', target: H1 }], 'delete plus conversion is refused');
+await combo([{ type: 'convert_to_list', target: PLAIN, markers: 'none', format: 'decimal' }, { type: 'insert_paragraph', target: PLAIN, position: 'after', text: 'More.' }], 'insertion beside a converted paragraph is refused');
+await combo([{ type: 'convert_to_list', target: H1 }, { type: 'convert_to_list', target: H1 }], 'two conversions of one paragraph are refused');
+await combo([{ type: 'convert_to_list', target: H1, through: H2 }, { type: 'convert_to_list', target: H2 }], 'a range and a conversion of its last paragraph are refused');
+await combo([{ type: 'rewrite_paragraph', target: H1, text: '1. Changed' }, { type: 'convert_to_list', target: H1, through: H2 }], 'rewrite plus a range conversion is refused');
+await combo([{ type: 'rewrite_paragraph', target: H2, text: '2. Changed' }, { type: 'convert_to_list', target: H1, through: H2 }], 'rewrite of the range end plus the range is refused');
+await combo([{ type: 'rewrite_paragraph', target: H1, text: '1. Changed' }, { type: 'convert_to_list', target: H1 }, { type: 'comment', target: H1, text: 'Check.' }], 'the pair plus a comment is refused');
+await combo([{ type: 'change_list_format', target: BULLET, format: 'decimal' }, { type: 'rewrite_paragraph', target: BULLET, text: 'Changed.' }], 'rewrite plus change_list_format is refused');
+await combo([{ type: 'change_list_format', target: BULLET, format: 'decimal' }, { type: 'replace_text', target: BULLET, find: 'Bullet', replace: 'Item' }], 'replace_text plus change_list_format is refused');
+await combo([{ type: 'continue_list', target: RESTART, from: NUM_B }, { type: 'comment', target: RESTART, text: 'Check.' }], 'comment plus continue_list is refused');
+await combo([{ type: 'change_list_format', target: RESTART, format: 'lowerLetter' }, { type: 'continue_list', target: RESTART, from: NUM_B }], 'two list actions on one item are refused');
+// A different paragraph of the same list is left to the library (LIST_FORMAT_COMPOSITION_CONFLICT).
+const crossItem = await compileLists([{ type: 'change_list_format', target: BULLET, format: 'decimal' }, { type: 'rewrite_paragraph', target: handleOf('Bullet Root B'), text: 'Changed.' }]);
+assert.equal(crossItem.operations.length, 2, 'cross-item composition is not pre-judged by the add-in');
+
 console.log('PASS: typed document edit intent compiler tests');

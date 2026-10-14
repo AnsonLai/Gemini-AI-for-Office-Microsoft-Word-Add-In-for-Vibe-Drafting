@@ -9,7 +9,7 @@
 > independent library reproducers below, including issue cleanup conditions.
 
 **Date:** 2026-09-30  
-**Status:** Upstream capabilities released; consumer adoption (WP1–WP3) not started.  
+**Status:** Upstream capabilities released; WP1 typed intents landed offline 2026-10-14 (host evidence, WP2 and WP3 pending).
 **Baseline:** Exact `@ansonlai/docx-redline-js@0.9.0` in root and MCP consumers (verified 2026-10-12).
 
 ## Origin and scope
@@ -106,6 +106,22 @@ not an existing API to code against yet.
 
 ### WP1 — Migrate consumer command paths
 
+> **2026-10-14 status (offline done, host evidence pending):** the typed intents
+> `convert_to_list`, `change_list_format` and `continue_list` map one-to-one onto the
+> library's `list-format` (see [tool contracts](../agentic-tool-contracts.md)).
+> Header conversion, changed-text header plus conversion, bullet-to-decimal and
+> list continuation are covered offline by `tests/document_list_intents_tests.mjs`,
+> and golden step 12 is a replay instead of a scripted refusal. Library
+> refusals pass through (`error.failedOperations`) with no write. Not done:
+> real-Word golden, Office.js and Word-oracle evidence (KB-4), range scope,
+> `paragraph-format.numbering` and the retirement of the legacy list helpers.
+>
+> **2026-10-14 host evidence (WP2):** five list-action capability cases plus one no-write
+> refusal control run in the default Office.js manifest (20 cases; 26 host checks) from
+> Word-authored sources (`scripts/create-agentic-list-action-fixtures.ps1`). The independent
+> Word oracle asserts `ListFormat.ListString` after `Revisions.AcceptAll/RejectAll`: 88 PASS,
+> 0 FAIL (the 14 original cases unchanged). Artifacts: `.cache/reliability/list-officejs`, `list-oracle`.
+
 - Move supported `edit_list` and `convert_headers_to_list` requests to one
   immutable-source canonical batch and one confirmed Word insertion.
 - Expand insertion routing only for shapes whose text, paragraph marks,
@@ -141,14 +157,17 @@ not an existing API to code against yet.
 
 ## Acceptance
 
-- [ ] Released canonical operations support the required conversion and
-      numbering-remapping behaviors, with explicit unsupported errors.
-- [ ] Remaining supported list commands use source-bound canonical batches.
-- [ ] Current/native fallback boundaries and tracking semantics are documented.
-- [ ] Offline, actual Office.js and independent Word accepted/rejected gates pass.
+- [x] Released canonical operations support the required conversion and
+      numbering-remapping behaviors, with explicit unsupported errors (0.9.0).
+- [x] Remaining supported list commands use source-bound canonical batches
+      (`convert_to_list`, `change_list_format`, `continue_list`, `insert_list_item`; 2026-10-14).
+- [x] Current/native fallback boundaries and tracking semantics are documented
+      (no native fallback; [tool contract](../agentic-tool-contracts.md)).
+- [x] Offline, actual Office.js and independent Word accepted/rejected gates pass
+      ([2026-10-14 list-format validation](../validation-reports/2026-10-14-list-format-intents.md)).
 - [ ] Browser/MCP facade fidelity and atomic batch behavior pass.
 - [ ] Retired helpers have no active callers; docs and durable reports are updated.
 - [ ] All recorded library issues are resolved, `docs/library-issues/` is deleted,
       and its incoming links are removed or updated.
 
-**Next action:** start WP1 here: expose the released `list-format` and `paragraph-format.numbering` operations as typed intents, after recording supported shapes (WP0). No consumer-side OOXML workaround is authorized by this plan.
+**Next action (2026-10-14):** WP1 and WP2 are done for `convert_to_list`, `change_list_format` and `continue_list`. Remaining: browser/MCP facade parity for `list-format`, a live-provider check of step 12, and library-issues cleanup once the underscore defect is fixed. `paragraph-format.numbering` and range-scoped changes stay unexposed until there is a product need. No consumer-side OOXML workaround is authorized by this plan.

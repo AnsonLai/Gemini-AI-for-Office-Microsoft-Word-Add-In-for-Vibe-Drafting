@@ -1,0 +1,379 @@
+{
+    "schemaVersion":  1,
+    "provenance":  {
+                       "authoredBy":  "Microsoft Word desktop COM",
+                       "wordVersion":  "16.0",
+                       "wordBuild":  "16.0.20430",
+                       "saveFormat":  "wdFormatDocumentDefault (16)",
+                       "verifiedAfterSaveReopen":  true,
+                       "note":  "Typed-header sources are plain paragraphs; list sources use the Word bullet/number gallery templates with ContinuePreviousList=false."
+                   },
+    "sources":  [
+                    {
+                        "case":  "L1",
+                        "file":  "list-headers-source.docx",
+                        "paragraphs":  [
+                                           {
+                                               "paragraphIndex":  1,
+                                               "text":  "Lead-in paragraph.",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           },
+                                           {
+                                               "paragraphIndex":  2,
+                                               "text":  "1. Alpha",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           },
+                                           {
+                                               "paragraphIndex":  3,
+                                               "text":  "Alpha body paragraph.",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           },
+                                           {
+                                               "paragraphIndex":  4,
+                                               "text":  "2. Beta",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           },
+                                           {
+                                               "paragraphIndex":  5,
+                                               "text":  "Beta body paragraph.",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           },
+                                           {
+                                               "paragraphIndex":  6,
+                                               "text":  "3. Gamma",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           },
+                                           {
+                                               "paragraphIndex":  7,
+                                               "text":  "Closing paragraph.",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           }
+                                       ]
+                    },
+                    {
+                        "case":  "L2",
+                        "file":  "list-letter-headers-source.docx",
+                        "paragraphs":  [
+                                           {
+                                               "paragraphIndex":  1,
+                                               "text":  "Preamble paragraph.",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           },
+                                           {
+                                               "paragraphIndex":  2,
+                                               "text":  "C. Scope",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           },
+                                           {
+                                               "paragraphIndex":  3,
+                                               "text":  "Scope body paragraph.",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           },
+                                           {
+                                               "paragraphIndex":  4,
+                                               "text":  "D. Fees",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           },
+                                           {
+                                               "paragraphIndex":  5,
+                                               "text":  "Fees body paragraph.",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           }
+                                       ]
+                    },
+                    {
+                        "case":  "L3",
+                        "file":  "list-bullets-source.docx",
+                        "paragraphs":  [
+                                           {
+                                               "paragraphIndex":  1,
+                                               "text":  "Lead-in paragraph.",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           },
+                                           {
+                                               "paragraphIndex":  2,
+                                               "text":  "Passport",
+                                               "isList":  true,
+                                               "listType":  2,
+                                               "listString":  "",
+                                               "listLevel":  1,
+                                               "listValue":  1,
+                                               "numId":  "1",
+                                               "numFmt":  "bullet"
+                                           },
+                                           {
+                                               "paragraphIndex":  3,
+                                               "text":  "Driver licence",
+                                               "isList":  true,
+                                               "listType":  2,
+                                               "listString":  "",
+                                               "listLevel":  1,
+                                               "listValue":  2,
+                                               "numId":  "1",
+                                               "numFmt":  "bullet"
+                                           },
+                                           {
+                                               "paragraphIndex":  4,
+                                               "text":  "Health card",
+                                               "isList":  true,
+                                               "listType":  2,
+                                               "listString":  "",
+                                               "listLevel":  1,
+                                               "listValue":  3,
+                                               "numId":  "1",
+                                               "numFmt":  "bullet"
+                                           },
+                                           {
+                                               "paragraphIndex":  5,
+                                               "text":  "Trailing paragraph.",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           }
+                                       ]
+                    },
+                    {
+                        "case":  "L4",
+                        "file":  "list-two-lists-source.docx",
+                        "paragraphs":  [
+                                           {
+                                               "paragraphIndex":  1,
+                                               "text":  "Opening paragraph.",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           },
+                                           {
+                                               "paragraphIndex":  2,
+                                               "text":  "Alpha item",
+                                               "isList":  true,
+                                               "listType":  3,
+                                               "listString":  "1.",
+                                               "listLevel":  1,
+                                               "listValue":  1,
+                                               "numId":  "1",
+                                               "numFmt":  "decimal"
+                                           },
+                                           {
+                                               "paragraphIndex":  3,
+                                               "text":  "Beta item",
+                                               "isList":  true,
+                                               "listType":  3,
+                                               "listString":  "2.",
+                                               "listLevel":  1,
+                                               "listValue":  2,
+                                               "numId":  "1",
+                                               "numFmt":  "decimal"
+                                           },
+                                           {
+                                               "paragraphIndex":  4,
+                                               "text":  "Interlude paragraph.",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           },
+                                           {
+                                               "paragraphIndex":  5,
+                                               "text":  "Gamma item",
+                                               "isList":  true,
+                                               "listType":  3,
+                                               "listString":  "1.",
+                                               "listLevel":  1,
+                                               "listValue":  1,
+                                               "numId":  "2",
+                                               "numFmt":  "decimal"
+                                           },
+                                           {
+                                               "paragraphIndex":  6,
+                                               "text":  "Delta item",
+                                               "isList":  true,
+                                               "listType":  3,
+                                               "listString":  "2.",
+                                               "listLevel":  1,
+                                               "listValue":  2,
+                                               "numId":  "2",
+                                               "numFmt":  "decimal"
+                                           },
+                                           {
+                                               "paragraphIndex":  7,
+                                               "text":  "Closing paragraph.",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           }
+                                       ]
+                    },
+                    {
+                        "case":  "L5",
+                        "file":  "list-changed-header-source.docx",
+                        "paragraphs":  [
+                                           {
+                                               "paragraphIndex":  1,
+                                               "text":  "Lead-in paragraph.",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           },
+                                           {
+                                               "paragraphIndex":  2,
+                                               "text":  "1. Old title",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           },
+                                           {
+                                               "paragraphIndex":  3,
+                                               "text":  "Header body paragraph.",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           }
+                                       ]
+                    },
+                    {
+                        "case":  "L6",
+                        "file":  "list-ambiguous-marker-source.docx",
+                        "paragraphs":  [
+                                           {
+                                               "paragraphIndex":  1,
+                                               "text":  "Lead-in paragraph.",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           },
+                                           {
+                                               "paragraphIndex":  2,
+                                               "text":  "I. Introduction",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           },
+                                           {
+                                               "paragraphIndex":  3,
+                                               "text":  "Introduction body paragraph.",
+                                               "isList":  false,
+                                               "listType":  0,
+                                               "listString":  null,
+                                               "listLevel":  null,
+                                               "listValue":  null,
+                                               "numId":  null,
+                                               "numFmt":  null
+                                           }
+                                       ]
+                    }
+                ]
+}

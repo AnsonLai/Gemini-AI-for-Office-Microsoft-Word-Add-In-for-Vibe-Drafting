@@ -467,8 +467,15 @@ async function applyRequestedEdits(tools, testCase) {
             handle = await handleFor(tools, proposal.targetText);
             handles.set(proposal.targetText, handle);
         }
-        const { targetText, ...edit } = proposal;
-        edits.push({ ...edit, target: handle });
+        // List actions name related paragraphs by inspected text: throughText -> through, fromText -> from.
+        const { targetText, throughText, fromText, ...edit } = proposal;
+        const related = {};
+        for (const [field, text] of [['through', throughText], ['from', fromText]]) {
+            if (text === undefined) continue;
+            if (!handles.has(text)) handles.set(text, await handleFor(tools, text));
+            related[field] = handles.get(text);
+        }
+        edits.push({ ...edit, ...related, target: handle });
     }
     return tools.applyDocumentEdits({ edits });
 }
@@ -841,11 +848,24 @@ Office.onReady(async info => {
                     `${testCase.name}: prewrite refusal changed pending revision identity.`);
                 assertDeepEqual(commentSnapshot(afterSource), commentSnapshot(source),
                     `${testCase.name}: prewrite refusal changed comment threads.`);
+                let refusedOperation = null;
+                if (testCase.expectedRefusalOperation) {
+                    // The atomic wrapper hides which operation the library refused; the receipt lists it.
+                    const expectedOperation = testCase.expectedRefusalOperation;
+                    refusedOperation = receipt.error?.failedOperations?.[0] ?? null;
+                    assert(refusedOperation?.editIndex === expectedOperation.editIndex && refusedOperation?.code === expectedOperation.code,
+                        `${testCase.name}: expected library refusal ${JSON.stringify(expectedOperation)}, received ${JSON.stringify(receipt.error)}.`);
+                    if (expectedOperation.allowedFormats) {
+                        assertDeepEqual(refusedOperation.recovery?.allowedValues, expectedOperation.allowedFormats,
+                            `${testCase.name}: the library recovery values did not reach the model.`);
+                    }
+                }
                 const refusalCheck = {
                     case: testCase.name,
                     view: 'direct-tool-prewrite-safety-refusal',
-                    capability: 'unresolved-published-library-tracking-policy-limitation',
+                    capability: testCase.refusalCapability || 'unresolved-published-library-tracking-policy-limitation',
                     expectedCode: testCase.expectedPrewriteRefusal,
+                    ...(refusedOperation ? { refusedOperation } : {}),
                     receipt,
                     sourceUnchanged: true,
                     hostTransport: {

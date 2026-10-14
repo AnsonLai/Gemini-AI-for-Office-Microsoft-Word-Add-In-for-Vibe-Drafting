@@ -203,14 +203,30 @@ export function extractLatestInspection(payload, requestPrompt = null) {
     return response && typeof response === 'object' ? response : null;
 }
 
+/**
+ * Every inspect_document result of the latest inspection exchange, in call order. A model turn may issue
+ * several parallel inspect calls; their results share one function-response message and one document
+ * generation. Results from earlier exchanges are never included (handles expire after a write).
+ */
+function latestInspectionExchange(payload, requestPrompt) {
+    const messages = currentStepMessages(payload, requestPrompt);
+    for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
+        const parts = Array.isArray(messages[messageIndex]?.parts) ? messages[messageIndex].parts : [];
+        const responses = parts.map(part => part?.functionResponse).filter(response => response?.name === 'inspect_document');
+        if (responses.length) return responses.map(parseFunctionResponse);
+    }
+    return [];
+}
+
 function inspectionForHandle(payload, requestPrompt) {
-    const functionResponse = latestFunctionResponse(payload, 'inspect_document', requestPrompt);
-    if (!functionResponse) throw new Error('$handle/$end requires an inspect_document response in the current model history');
-    const inspection = parseFunctionResponse(functionResponse);
-    if (!inspection || inspection.status !== 'ok') {
+    const exchange = latestInspectionExchange(payload, requestPrompt);
+    if (!exchange.length) throw new Error('$handle/$end requires an inspect_document response in the current model history');
+    if (!exchange.at(-1) || exchange.at(-1).status !== 'ok') {
         throw new Error('The latest inspect_document response did not contain a successful JSON result');
     }
-    return inspection;
+    const inspections = exchange.filter(inspection => inspection?.status === 'ok');
+    return { targets: inspections.flatMap(inspection => Array.isArray(inspection.targets) ? inspection.targets : []),
+        documentEnd: [...inspections].reverse().find(inspection => inspection.documentEnd?.handle)?.documentEnd };
 }
 
 function resolveHandle(inspection, spec, nth = 1) {
@@ -249,8 +265,10 @@ export function resolveReferences(value, context, payload = null, requestPrompt 
 /** Wrap a scripted entry as a Gemini generateContent response body. */
 export function buildResponse(entry, context, payload = null, requestPrompt = null) {
     const resolved = resolveReferences(entry.chat ?? entry.aux, context, payload, requestPrompt);
-    const part = entry.chat != null ? resolved : { text: JSON.stringify(resolved) };
-    return { candidates: [{ content: { role: 'model', parts: [part] }, finishReason: 'STOP', index: 0 }] };
+    // A chat entry that is an array is one model turn with several (parallel) parts, e.g. several inspect calls.
+    const parts = Array.isArray(resolved) && entry.chat != null ? resolved
+        : [entry.chat != null ? resolved : { text: JSON.stringify(resolved) }];
+    return { candidates: [{ content: { role: 'model', parts }, finishReason: 'STOP', index: 0 }] };
 }
 
 /**
@@ -299,7 +317,7 @@ export function createReplayQueue(step) {
             queue.shift();
             try {
                 const response = buildResponse(entry, context.length ? context : lastContext, payload, step.prompt);
-                served.push({ kind, part: response.candidates[0].content.parts[0] });
+                for (const part of response.candidates[0].content.parts) served.push({ kind, part });
                 return { kind, entry, response };
             } catch (error) {
                 desyncs.push(error.message);

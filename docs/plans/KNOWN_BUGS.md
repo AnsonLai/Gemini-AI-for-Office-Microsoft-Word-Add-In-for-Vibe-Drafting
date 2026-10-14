@@ -44,12 +44,14 @@ Library defects still go in [`../library-issues/`](../library-issues/README.md),
 - [`verify-wp6-word.ps1`](../../scripts/verify-wp6-word.ps1) now uses `Revisions.AcceptAll/RejectAll`.
 - Oracle reports produced before 2026-10-12 used the `Document.*` methods.
 
-### KB-4: List conversion and list-format changes are refused despite library support
+### KB-4: List conversion and list-format changes (resolved for the exposed scope, 2026-10-14)
 
 - 0.9.0 ships `list-format` (`convert-plain`, `change-format`, `join`) and `paragraph-format.numbering`. It also supports a composed `redline` plus `list-format` for changed-text headers, and returns explicit refusal codes.
-- The agent's typed intents expose none of these. Header-to-list conversion and numbering-style changes are refused before writing.
+- **2026-10-14:** `apply_document_edits` now exposes `convert_to_list`, `change_list_format` and `continue_list` as one-to-one maps onto `list-format` (contract in [`agentic-tool-contracts.md`](../agentic-tool-contracts.md)). The add-in parses no markers and writes no numbering. Offline evidence: [`document_list_intents_tests.mjs`](../../tests/document_list_intents_tests.mjs) (Accept All and Reject All on synthetic and Word-authored fixtures, library refusals with no write) and the direct golden step 12 replay.
+- **Host evidence (2026-10-14):** five new Office.js capability cases plus one refusal control all pass. The Word oracle gives 88 PASS / 0 FAIL, with labels read from `ListFormat.ListString`. The real-Word NDA replay passes 16/16 (51/51 checks) with step 12 applied. See the [2026-10-14 list-format validation](../validation-reports/2026-10-14-list-format-intents.md).
+- **Still open:** the live-provider lane, Word Online, and browser/MCP facade parity. Not exposed: range-scoped changes, `paragraph-format.numbering`, depth/indent changes, table lists, `detach`.
 - Tracked in the [canonical list migration follow-up](2026-09-30-canonical-list-migration-follow-up.md) (WP1 to WP3).
-- **Exit condition:** that plan's acceptance criteria are met.
+- **Exit condition:** that plan's remaining acceptance items are met (facade parity; library-issues cleanup).
 
 ### KB-5: `TRACKING_POLICY_MISMATCH` guard is a 0.8.4 workaround
 

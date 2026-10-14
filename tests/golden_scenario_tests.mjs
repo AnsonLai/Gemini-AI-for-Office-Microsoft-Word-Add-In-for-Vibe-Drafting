@@ -36,7 +36,7 @@ assert.equal(directScenario.steps.length, scenario.steps.length, 'the direct sce
 assert.deepEqual(directScenario.steps.map(step => step.prompt), scenario.steps.map(step => step.prompt), 'direct prompts are byte-for-byte preserved');
 const unsupportedDirectStepIds = [
   '03-recitals-list', '04-parties-table', '06-signature-date-row',
-  '09-archival-subbullet', '11-required-disclosure-rewrite', '12-headers-to-list'
+  '09-archival-subbullet', '11-required-disclosure-rewrite'
 ];
 for (const [index, directStep] of directScenario.steps.entries()) {
   const legacyStep = scenario.steps[index];
@@ -64,6 +64,20 @@ assert.deepEqual(confidentialBulletCall.chat.functionCall.args.edits[0], {
   text: 'Photographs, videos, and other recordings of prototypes and physical hardware.'
 }, 'the direct overlay retains the original request with a same-level typed list insertion');
 assert.equal(confidentialBulletStep.checks[0].type, 'list', 'step 7 is checked against the resulting actual list sequence');
+const headersStep = directScenario.steps.find(step => step.id === '12-headers-to-list');
+assert.equal(headersStep.scopeDisposition, undefined, 'step 12 is no longer a scripted refusal');
+assert.equal(Object.hasOwn(headersStep, 'deferredChecks'), false, 'step 12 scores the legacy sameList and marker-removal checks');
+assert.deepEqual(headersStep.checks.slice(0, -1).map(check => check.type), ['sameList', 'text']);
+assert.equal(headersStep.checks[0].texts.length, 9, 'all nine headers must share one decimal list');
+assert.equal(headersStep.checks[0].numFmt, 'decimal');
+assert.equal(headersStep.checks[1].absent, true, 'the manual header numbers must be gone');
+assert.equal(headersStep.replay[0].chat.length, 9, 'one parallel inspection turn');
+assert.ok(headersStep.replay[0].chat.every(part => part.functionCall.name === 'inspect_document'));
+const headerEdits = headersStep.replay[1].chat.functionCall.args.edits;
+assert.equal(headersStep.replay[1].chat.functionCall.name, 'apply_document_edits');
+assert.equal(headerEdits.length, 9, 'one convert_to_list per header in one batch');
+assert.ok(headerEdits.every(edit => edit.type === 'convert_to_list' && Object.keys(edit).sort().join() === 'target,type'),
+  'each header uses a bare typed-marker conversion');
 const purposeStep = directScenario.steps.find(step => step.id === '15-bold-purpose-phrase');
 const titanStep = directScenario.steps.find(step => step.id === '16-titan-rewrite');
 assert.equal(purposeStep.checks.find(check => check.label === 'purpose phrase is bold').persist, false,
@@ -150,6 +164,32 @@ assert.equal(directEdits[0].target, 'opaque-latest', 'a semantic matcher resolve
 assert.equal(directEdits[1].target, 'opaque-end-latest', '$end resolves to the latest inspected document-end handle');
 assert.equal(directEdits.some(edit => Number.isInteger(edit.target)), false, 'physical paragraph indexes are never edit targets');
 assert.deepEqual(directQueue.summary().desyncs, []);
+// Parallel inspections in one model turn share one function-response message; every result of that
+// exchange can supply a handle, and results from earlier exchanges (expired by a write) cannot.
+const parallelRequest = {
+  contents: [
+    { role: 'user', parts: [{ text: `User Question:\n${currentPrompt}` }] },
+    { role: 'model', parts: [{ functionCall: { name: 'inspect_document', args: { search: 'stale' } } }] },
+    { role: 'user', parts: [inspectionResponse([{ handle: 'opaque-stale', text: '1. Stale header', index: 5 }])] },
+    { role: 'model', parts: [{ functionCall: { name: 'inspect_document', args: { search: '1.' } } }, { functionCall: { name: 'inspect_document', args: { search: '2.' } } }] },
+    { role: 'user', parts: [
+      inspectionResponse([{ handle: 'opaque-first', text: '1. First header', index: 7 }]),
+      inspectionResponse([{ handle: 'opaque-second', text: '2. Second header', index: 9 }])
+    ] }
+  ],
+  tools: [{ functionDeclarations: [{ name: 'apply_document_edits' }] }]
+};
+assert.deepEqual(resolveReferences({ a: { $handle: { regex: '^1\\. ', flags: '' } }, b: { $handle: { regex: '^2\\. ', flags: '' } } }, [], parallelRequest, currentPrompt),
+  { a: 'opaque-first', b: 'opaque-second' }, 'handles resolve across every result of the latest parallel inspection exchange');
+assert.throws(() => resolveReferences({ $handle: { includes: 'Stale header' } }, [], parallelRequest, currentPrompt), /matched 0 inspected target/,
+  'an inspection from an earlier exchange cannot supply a handle');
+const parallelQueue = createReplayQueue({ prompt: currentPrompt, replay: [{ chat: [
+  { functionCall: { name: 'inspect_document', args: { search: 'a' } } }, { functionCall: { name: 'inspect_document', args: { search: 'b' } } }
+] }] });
+const parallelServed = parallelQueue.next(capturedRequest);
+assert.equal(parallelServed.response.candidates[0].content.parts.length, 2, 'an array chat entry is one model turn with several parts');
+assert.equal(parallelQueue.summary().served.length, 2, 'every part of a parallel turn is recorded as served');
+assert.deepEqual(parallelQueue.summary().desyncs, []);
 const capturedReceipt = { requestedCount: 2, accountedCount: 2, counters: { sourceReads: 2, contentWrites: 1, verificationReads: 1 } };
 const receiptRequest = {
   ...capturedRequest,

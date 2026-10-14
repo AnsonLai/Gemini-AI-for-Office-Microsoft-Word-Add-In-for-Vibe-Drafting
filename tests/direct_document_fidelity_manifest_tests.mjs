@@ -325,8 +325,119 @@ const tableCase = {
   productionOptions: { generateRedlines: true, priorTrackingMode: 'off' }
 };
 
-const cases = [...listCases, noRedlineListCase, literalCase, supportedRevisionReplacement, untrackedFormatCase, commentWorkflowCase,
+// ---- List actions (convert_to_list, change_list_format, continue_list) -------------------
+// Sources are Word-authored (scripts/create-agentic-list-action-fixtures.ps1) and every expectation below is
+// written from the requested edit and the user-visible result (Word's ListString), not from engine output.
+const listActionObservations = JSON.parse(readFileSync(path.join(fixtureDirectory, 'list-actions-source-observations.json'), 'utf8'));
+assert.equal(listActionObservations.provenance.authoredBy, 'Microsoft Word desktop COM');
+assert.equal(listActionObservations.provenance.verifiedAfterSaveReopen, true);
+const listActionSource = caseId => {
+  const source = listActionObservations.sources.find(item => item.case === caseId);
+  assert.ok(source, `Missing list-action source observation: ${caseId}`);
+  return { file: source.file, rows: source.paragraphs, texts: source.paragraphs.map(item => item.text) };
+};
+const plainRow = text => ({ text, isList: false });
+const listRow = (text, listString, group, listLevel = 1) => ({ text, isList: true, listLevel, listString, ...(group ? { group } : {}) });
+const plainRows = source => source.rows.map(item => plainRow(item.text));
+// Source and Reject All rows come from what Word itself observed in the authored file.
+const observedRows = (source, groups = {}) => source.rows.map(item => item.isList
+  ? { text: item.text, isList: true, listType: item.listType, listLevel: item.listLevel, listString: item.listString,
+    ...(groups[item.text] ? { group: groups[item.text] } : {}) }
+  : plainRow(item.text));
+function listActionCase(name, caseId, edits, acceptedTexts, acceptedRows, rejectedTexts, rejectedRows, sourceRows = null) {
+  const source = listActionSource(caseId);
+  return {
+    name,
+    source: `tests/fixtures/agentic-lists/${source.file}`,
+    edits,
+    productionOptions: { generateRedlines: true, priorTrackingMode: 'off' },
+    expectedSourceText: source.texts.join('\n'),
+    expectedAcceptedText: acceptedTexts.join('\n'),
+    expectedRejectedText: rejectedTexts.join('\n'),
+    expectedComments: 0,
+    expectedMinimumBodyRevisions: 1,
+    expectedFormatting: [],
+    expectedNumbering: { source: sourceRows || observedRows(source), accepted: acceptedRows, rejected: rejectedRows },
+    expectedEngineReferencePackages: false
+  };
+}
+
+// L1: three typed headers separated by body paragraphs become one decimal list with one convert_to_list per header.
+const l1 = listActionSource('L1');
+assert.deepEqual(l1.texts, ['Lead-in paragraph.', '1. Alpha', 'Alpha body paragraph.', '2. Beta', 'Beta body paragraph.', '3. Gamma', 'Closing paragraph.']);
+assert.ok(l1.rows.every(item => !item.isList), 'L1 typed headers are plain Word paragraphs');
+const listHeadersCase = listActionCase('list-convert-noncontiguous-typed-headers', 'L1', [
+  { type: 'convert_to_list', targetText: '1. Alpha' },
+  { type: 'convert_to_list', targetText: '2. Beta' },
+  { type: 'convert_to_list', targetText: '3. Gamma' }
+], ['Lead-in paragraph.', 'Alpha', 'Alpha body paragraph.', 'Beta', 'Beta body paragraph.', 'Gamma', 'Closing paragraph.'], [
+  plainRow('Lead-in paragraph.'), listRow('Alpha', '1.', 'headers'), plainRow('Alpha body paragraph.'),
+  listRow('Beta', '2.', 'headers'), plainRow('Beta body paragraph.'), listRow('Gamma', '3.', 'headers'), plainRow('Closing paragraph.')
+], l1.texts, plainRows(l1));
+
+// L2: typed letter headers starting at C. keep their typed start value.
+const l2 = listActionSource('L2');
+assert.deepEqual(l2.texts, ['Preamble paragraph.', 'C. Scope', 'Scope body paragraph.', 'D. Fees', 'Fees body paragraph.']);
+assert.ok(l2.rows.every(item => !item.isList));
+const listLetterCase = listActionCase('list-convert-letter-headers-start-at-c', 'L2', [
+  { type: 'convert_to_list', targetText: 'C. Scope', format: 'upperLetter' },
+  { type: 'convert_to_list', targetText: 'D. Fees', format: 'upperLetter' }
+], ['Preamble paragraph.', 'Scope', 'Scope body paragraph.', 'Fees', 'Fees body paragraph.'], [
+  plainRow('Preamble paragraph.'), listRow('Scope', 'C.', 'letters'), plainRow('Scope body paragraph.'),
+  listRow('Fees', 'D.', 'letters'), plainRow('Fees body paragraph.')
+], l2.texts, plainRows(l2));
+
+// L3: change_list_format on a Word bullet list makes the whole list decimal; Reject All restores the bullets.
+const l3 = listActionSource('L3');
+assert.deepEqual(l3.texts, ['Lead-in paragraph.', 'Passport', 'Driver licence', 'Health card', 'Trailing paragraph.']);
+assert.deepEqual(l3.rows.filter(item => item.isList).map(item => item.listType), [2, 2, 2], 'L3 source items are Word bullets');
+const bulletGroups = { Passport: 'bullets', 'Driver licence': 'bullets', 'Health card': 'bullets' };
+const listBulletsCase = listActionCase('list-change-format-bullets-to-decimal', 'L3', [
+  { type: 'change_list_format', targetText: 'Driver licence', format: 'decimal' }
+], l3.texts, [
+  plainRow('Lead-in paragraph.'), listRow('Passport', '1.', 'decimal'), listRow('Driver licence', '2.', 'decimal'),
+  listRow('Health card', '3.', 'decimal'), plainRow('Trailing paragraph.')
+], l3.texts, observedRows(l3, bulletGroups), observedRows(l3, bulletGroups));
+
+// L4: a second numbered list (restarted at 1) continues the first.
+const l4 = listActionSource('L4');
+assert.deepEqual(l4.rows.filter(item => item.isList).map(item => item.listString), ['1.', '2.', '1.', '2.'], 'L4 source has two separate decimal lists');
+const twoListGroups = { 'Alpha item': 'first', 'Beta item': 'first', 'Gamma item': 'second', 'Delta item': 'second' };
+const listContinueCase = listActionCase('list-continue-second-list-after-first', 'L4', [
+  { type: 'continue_list', targetText: 'Gamma item', fromText: 'Beta item' }
+], l4.texts, [
+  plainRow('Opening paragraph.'), listRow('Alpha item', '1.', 'joined'), listRow('Beta item', '2.', 'joined'), plainRow('Interlude paragraph.'),
+  listRow('Gamma item', '3.', 'joined'), listRow('Delta item', '4.', 'joined'), plainRow('Closing paragraph.')
+], l4.texts, observedRows(l4, twoListGroups), observedRows(l4, twoListGroups));
+
+// L5: a changed-text header plus conversion in one batch: the new wording takes the label, Reject All restores the typed header.
+const l5 = listActionSource('L5');
+assert.deepEqual(l5.texts, ['Lead-in paragraph.', '1. Old title', 'Header body paragraph.']);
+const listChangedHeaderCase = listActionCase('list-rewrite-and-convert-changed-header', 'L5', [
+  { type: 'rewrite_paragraph', targetText: '1. Old title', text: '1. New title' },
+  { type: 'convert_to_list', targetText: '1. Old title' }
+], ['Lead-in paragraph.', 'New title', 'Header body paragraph.'], [
+  plainRow('Lead-in paragraph.'), listRow('New title', '1.'), plainRow('Header body paragraph.')
+], l5.texts, plainRows(l5));
+
+// L6 (safety control, not a capability pass): "I." without a format is ambiguous (Roman numeral or letter). The library
+// refuses the whole batch, so Word must see no content write, no checkpoint and an unchanged document.
+const l6 = listActionSource('L6');
+assert.deepEqual(l6.texts, ['Lead-in paragraph.', 'I. Introduction', 'Introduction body paragraph.']);
+const listAmbiguousRefusal = {
+  ...listActionCase('list-convert-ambiguous-roman-marker-refusal', 'L6', [
+    { type: 'convert_to_list', targetText: 'I. Introduction' }
+  ], l6.texts, plainRows(l6), l6.texts, plainRows(l6)),
+  expectedPrewriteRefusal: 'BATCH_OPERATION_FAILED',
+  expectedRefusalOperation: { editIndex: 0, code: 'LIST_MARKER_AMBIGUOUS', allowedFormats: ['upperLetter', 'upperRoman'] },
+  refusalCapability: 'list-marker-ambiguity-no-write-refusal'
+};
+delete listAmbiguousRefusal.expectedMinimumBodyRevisions;
+const listActionCases = [listHeadersCase, listLetterCase, listBulletsCase, listContinueCase, listChangedHeaderCase];
+
+const existingCases = [...listCases, noRedlineListCase, literalCase, supportedRevisionReplacement, untrackedFormatCase, commentWorkflowCase,
   rewriteCommentCase, insertionCase, deletionCase, formatCase, tableCase];
+const cases = [...existingCases, ...listActionCases, listAmbiguousRefusal];
 assert.equal(listCases.length, 4);
 assert.deepEqual(listCases.map(testCase => testCase.agenticRequest.afterParagraphIndex), [6, 10, 12, 14]);
 assert.ok(listCases.every(testCase => testCase.agenticRequest.type === 'insert_list_item'));
@@ -338,6 +449,15 @@ assert.equal(commentWorkflowCase.expectedThreadIdentities.length, 5);
 assert.equal(commentWorkflowCase.expectedRestoredThreadIdentities.length, 4);
 assert.equal(tableCase.tableStructure.source.length, tableCase.tableStructure.rows);
 assert.equal(tableCase.tableStructure.source[0].length, tableCase.tableStructure.columns);
+assert.equal(existingCases.length, 14, 'the fourteen existing cases are unchanged and stay first');
+assert.equal(listActionCases.length, 5, 'five required list-action capability cases');
+assert.equal(cases.length, 20, 'fourteen existing cases, five list-action capability cases and one no-write refusal control');
+assert.deepEqual(cases.filter(testCase => testCase.expectedPrewriteRefusal).map(testCase => testCase.name), [listAmbiguousRefusal.name],
+  'the ambiguous-marker refusal is the only no-write control; it is not a capability pass');
+assert.deepEqual(listActionCases.map(testCase => testCase.edits.map(edit => edit.type)), [
+  ['convert_to_list', 'convert_to_list', 'convert_to_list'], ['convert_to_list', 'convert_to_list'], ['change_list_format'],
+  ['continue_list'], ['rewrite_paragraph', 'convert_to_list']]);
+assert.ok(listActionCases.every(testCase => testCase.expectedNumbering.accepted.some(item => item.isList)));
 
 const outputArg = process.argv.indexOf('--export-dir');
 const outputDirectory = outputArg >= 0 ? path.resolve(process.argv[outputArg + 1])
@@ -346,6 +466,7 @@ assert.ok(outputDirectory && !String(process.argv[outputArg + 1] || '').startsWi
 mkdirSync(outputDirectory, { recursive: true });
 const sourcePaths = new Map([
   ['nested-lists-source.docx', path.join(fixtureDirectory, 'nested-lists-source.docx')],
+  ...[...listActionCases, listAmbiguousRefusal].map(testCase => [testCase.source, path.join(root, testCase.source)]),
   [commentSource, path.join(root, commentSource)],
   [tableSource, path.join(root, tableSource)]
 ]);
@@ -364,4 +485,4 @@ const manifest = {
 };
 const manifestPath = path.join(outputDirectory, 'manifest.json');
 writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-console.log(`PASS: exported ${cases.length} direct Word document-tool cases (${listCases.length} retained list cases) to ${manifestPath}`);
+console.log(`PASS: exported ${cases.length} direct Word document-tool cases (${listCases.length} retained list cases, ${listActionCases.length} list-action capability cases, 1 no-write refusal control) to ${manifestPath}`);

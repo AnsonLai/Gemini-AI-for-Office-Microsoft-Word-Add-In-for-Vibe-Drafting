@@ -1,7 +1,7 @@
 # Library-first simplification, phase 2
 
 **Date:** 2026-10-12 (America/Vancouver)
-**Status:** WP0 complete (2026-10-12). WP1–WP5 not started; the open owner decisions are at the end.
+**Status:** WP0 complete (2026-10-12); WP5 complete for the exposed list actions (2026-10-14); WP4 partly done (test XML setup). WP1–WP3 not started; the open owner decisions are at the end.
 **Baseline:**
 - Exact `@ansonlai/docx-redline-js@0.9.0` in the add-in and MCP.
 - HEAD `a98f339` plus the uncommitted 0.9.0 upgrade work.
@@ -129,6 +129,8 @@ These items have no library dependency and can start right after WP0.
 - Re-enabling structural table edits or table append stays out of scope until KB-1 has Office.js evidence.
 
 **Exit:** governed by the list plan's own acceptance.
+
+**Done (2026-10-14):** three list actions are exposed as one-to-one `list-format` mappings, adding 112 production lines (4,437 → 4,549). Offline is 49/49; Office.js passes with 20 cases; the oracle gives 88/0; the real-Word NDA replay is 16/16 with step 12 applied. See the [2026-10-14 list-format validation](../validation-reports/2026-10-14-list-format-intents.md). The list plan's facade-parity and library-issues cleanup items remain.
 
 ## Separate track: release readiness (not simplification)
 

@@ -331,7 +331,8 @@ async function handle(request, response) {
             const served = queue ? queue.next(payload) : { kind: 'unknown', error: `model call outside a step (${step})`,
                 response: { candidates: [{ content: { role: 'model', parts: [{ text: '{}' }] }, finishReason: 'STOP' }] } };
             appendFileSync(modelLog, `${JSON.stringify({ step, model, kind: served.kind, error: served.error || null,
-                served: served.response.candidates[0].content.parts[0], payload })}\n`);
+                served: served.response.candidates[0].content.parts.length > 1
+                    ? served.response.candidates[0].content.parts : served.response.candidates[0].content.parts[0], payload })}\n`);
             if (served.error) console.log(`  REPLAY ${step}: ${served.error}`);
             json(served.response);
             return;

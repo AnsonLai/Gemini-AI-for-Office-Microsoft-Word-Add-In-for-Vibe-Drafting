@@ -10,8 +10,13 @@ const FIELDS = {
   append_paragraph: ['target', 'text'],
   insert_list_item: ['target', 'text'],
   comment: ['target', 'text', 'anchor'],
-  format_text: ['target', 'find', 'occurrence', 'properties']
+  format_text: ['target', 'find', 'occurrence', 'properties'],
+  convert_to_list: ['target', 'through', 'format', 'markers', 'start'],
+  change_list_format: ['target', 'format', 'level', 'start'],
+  continue_list: ['target', 'from']
 };
+const LIST_ACTIONS = new Set(['convert_to_list', 'change_list_format', 'continue_list']);
+const LIST_FORMATS = ['decimal', 'upperLetter', 'lowerLetter', 'upperRoman', 'lowerRoman', 'bullet'];
 
 export class DocumentEditIntentError extends Error {
   constructor(code, message, details = {}) {
@@ -39,6 +44,15 @@ function text(value, index, field, allowEmpty = false) {
   return value;
 }
 
+function listFormat(value, index, field = 'format') {
+  if (!LIST_FORMATS.includes(value)) fail('INVALID_DOCUMENT_EDIT', `${field} must be one of ${LIST_FORMATS.join(', ')}.`, index, field);
+  return value;
+}
+function positiveInteger(value, index, field) {
+  if (!Number.isInteger(value) || value < 1) fail('INVALID_DOCUMENT_EDIT', `${field} must be a positive integer.`, index, field);
+  return value;
+}
+
 function plainParagraph(value, index, field) {
   if (value.includes('\n') || value.includes('\r') || value !== value.trim()) {
     fail('UNSUPPORTED_DOCUMENT_EDIT', 'Inserted content must be one plain paragraph without line breaks or outer whitespace.', index, field);
@@ -53,7 +67,7 @@ function plainParagraph(value, index, field) {
 
 function validateEdit(edit, index) {
   if (!record(edit) || typeof edit.type !== 'string' || !FIELDS[edit.type]) {
-    fail('UNSUPPORTED_DOCUMENT_EDIT', 'This edit action is unsupported. Use a supported text, paragraph, comment, or basic-formatting action.', index, 'type');
+    fail('UNSUPPORTED_DOCUMENT_EDIT', 'This edit action is unsupported. Use a supported text, paragraph, list, comment, or basic-formatting action.', index, 'type');
   }
   const allowed = new Set(['type', ...FIELDS[edit.type]]);
   const extra = Object.keys(edit).find(key => !allowed.has(key));
@@ -92,6 +106,27 @@ function validateEdit(edit, index) {
       }
     }
     value.properties = { ...edit.properties };
+  } else if (edit.type === 'convert_to_list') {
+    if (edit.through !== undefined) {
+      value.through = text(edit.through, index, 'through');
+      if (value.through === value.target) fail('INVALID_DOCUMENT_EDIT', 'through must be a later paragraph than target; omit it to convert a single paragraph.', index, 'through');
+    }
+    if (edit.markers !== undefined && !['typed', 'none'].includes(edit.markers)) fail('INVALID_DOCUMENT_EDIT', 'markers must be "typed" or "none".', index, 'markers');
+    value.markers = edit.markers ?? 'typed';
+    if (edit.format !== undefined) listFormat(edit.format, index);
+    if (value.markers === 'none' && edit.format === undefined) fail('INVALID_DOCUMENT_EDIT', 'format is required when markers is "none".', index, 'format');
+    if (edit.start !== undefined) {
+      if (value.markers !== 'none') fail('INVALID_DOCUMENT_EDIT', 'start is valid only with markers "none"; typed markers supply their own start value.', index, 'start');
+      positiveInteger(edit.start, index, 'start');
+    }
+  } else if (edit.type === 'change_list_format') {
+    if (edit.format === undefined) fail('INVALID_DOCUMENT_EDIT', 'format is required.', index, 'format');
+    listFormat(edit.format, index);
+    if (edit.level !== undefined && (!Number.isInteger(edit.level) || edit.level < 0 || edit.level > 8)) fail('INVALID_DOCUMENT_EDIT', 'level must be an integer from 0 through 8.', index, 'level');
+    if (edit.start !== undefined) positiveInteger(edit.start, index, 'start');
+  } else if (edit.type === 'continue_list') {
+    value.from = text(edit.from, index, 'from');
+    if (value.from === value.target) fail('INVALID_DOCUMENT_EDIT', 'from must be an item of an earlier list, not the target itself.', index, 'from');
   }
   if (edit.occurrence !== undefined && edit.type === 'replace_text'
     && (!Number.isInteger(edit.occurrence) || edit.occurrence < 1)) fail('INVALID_DOCUMENT_EDIT', 'occurrence must be a positive integer.', index, 'occurrence');
@@ -111,13 +146,13 @@ function location(target) {
   return String(target.location || descriptor.humanReference || descriptor.excerpt || descriptor.provision || descriptor.nearestHeading?.text || 'Document paragraph')
     .replace(/\s+/g, ' ').trim().slice(0, 240);
 }
-function checkedDescriptor(target, index, expectedKind) {
-  if (target?.kind !== expectedKind) fail('INVALID_DOCUMENT_EDIT_TARGET', `This action requires an inspected ${expectedKind === 'document-end' ? 'document-end' : 'paragraph'} handle.`, index, 'target', true);
+function checkedDescriptor(target, index, expectedKind, field = 'target') {
+  if (target?.kind !== expectedKind) fail('INVALID_DOCUMENT_EDIT_TARGET', `This action requires an inspected ${expectedKind === 'document-end' ? 'document-end' : 'paragraph'} handle.`, index, field, true);
   const descriptor = target.descriptor;
   if (!record(descriptor) || !Number.isInteger(descriptor.index) || descriptor.index < 1
     || typeof descriptor.exactText !== 'string' || typeof descriptor.fingerprint !== 'string'
     || !descriptor.fingerprint || typeof descriptor.inTable !== 'boolean') {
-    fail('WEAK_DOCUMENT_EDIT_TARGET', 'The target has no strong canonical descriptor. Inspect the current source again.', index, 'target', true);
+    fail('WEAK_DOCUMENT_EDIT_TARGET', 'The target has no strong canonical descriptor. Inspect the current source again.', index, field, true);
   }
   return descriptor;
 }
@@ -161,6 +196,16 @@ function listInsertionMarkers(list, index) {
     ? { current: '1.', next: '2.' }
     : { current: '1.1.', next: '1.2.' };
 }
+function checkedPlainListCandidate(descriptor, index, field) {
+  if (descriptor.inTable || descriptor.table || descriptor.list) {
+    fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'convert_to_list requires plain non-list paragraphs outside tables. Existing list items change with change_list_format or continue_list.', index, field);
+  }
+}
+function checkedListItem(descriptor, index, field) {
+  if (descriptor.inTable || descriptor.table || !record(descriptor.list)) {
+    fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'This action requires an inspected list item outside tables. Plain paragraphs convert with convert_to_list.', index, field);
+  }
+}
 function resolvedTargets(result, handles) {
   if (result?.status !== 'ok' || !Array.isArray(result.targets) || result.targets.length !== handles.length) {
     refuse(result?.error?.code || 'DOCUMENT_TARGET_RESOLUTION_FAILED', result?.error?.message || 'Targets could not be resolved against the current source. Inspect again.', { requiresReinspection: true });
@@ -176,16 +221,34 @@ function resolvedTargets(result, handles) {
 
 function combinations(items, targets) {
   const groups = new Map();
+  const groupFor = handle => {
+    const key = identity(targets.get(handle).descriptor);
+    const group = groups.get(key) || { text: [], comments: [], formats: [], lists: [] };
+    groups.set(key, group);
+    return group;
+  };
   for (const item of items) {
-    const target = targets.get(item.edit.target);
-    const key = identity(target.descriptor);
-    const group = groups.get(key) || { text: [], comments: [], formats: [] };
+    if (LIST_ACTIONS.has(item.edit.type)) {
+      groupFor(item.edit.target).lists.push(item);
+      if (item.edit.through) groupFor(item.edit.through).lists.push(item);
+      continue;
+    }
+    const group = groupFor(item.edit.target);
     if (TEXT_ACTIONS.has(item.edit.type)) group.text.push(item);
     else if (item.edit.type === 'comment') group.comments.push(item);
     else group.formats.push(item);
-    groups.set(key, group);
   }
   for (const group of groups.values()) {
+    if (group.lists.length) {
+      const others = [...group.text, ...group.comments, ...group.formats];
+      if (group.lists.length > 1) fail('UNSUPPORTED_DOCUMENT_EDIT_COMBINATION', 'A source paragraph can take only one list action per batch.', group.lists[1].actionIndex, 'target');
+      const [list] = group.lists;
+      const pair = list.edit.type === 'convert_to_list' && !list.edit.through
+        && others.length === 1 && others[0].edit.type === 'rewrite_paragraph';
+      if (others.length && !pair) {
+        fail('UNSUPPORTED_DOCUMENT_EDIT_COMBINATION', 'A list action can share a source paragraph only as one rewrite_paragraph plus one single-paragraph convert_to_list. Apply other changes in a separate stage after fresh inspection.', others[0].actionIndex, 'target');
+      }
+    }
     const textActions = group.text.filter(({ edit }) => {
       if (edit.type === 'replace_text') return true;
       const descriptor = targets.get(edit.target).descriptor;
@@ -218,7 +281,7 @@ export async function compileDocumentEdits(edits, { session, source } = {}) {
   if (edits.length > 40) refuse('INVALID_DOCUMENT_EDIT_BATCH', 'A document edit batch may contain at most 40 edits.');
   if (!session || typeof session.resolveHandles !== 'function') refuse('INVALID_DOCUMENT_EDIT_SESSION', 'A document inspection session is required.');
   const items = edits.map(validateEdit);
-  const handles = [...new Set(items.map(({ edit }) => edit.target))];
+  const handles = [...new Set(items.flatMap(({ edit }) => [edit.target, edit.through, edit.from].filter(Boolean)))];
   let result;
   try { result = await session.resolveHandles(handles, { source }); }
   catch (error) { refuse(error?.code || 'DOCUMENT_TARGET_RESOLUTION_FAILED', error?.message || 'Targets could not be resolved. Inspect the current source again.', { requiresReinspection: true }); }
@@ -236,6 +299,25 @@ export async function compileDocumentEdits(edits, { session, source } = {}) {
       fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'Deleting a paragraph is supported only for plain non-list paragraphs outside tables.', actionIndex, 'target');
     }
     if (edit.type === 'insert_paragraph' && !descriptor.exactText) fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'Insert before or after a blank paragraph is ambiguous; choose a non-empty paragraph.', actionIndex, 'target');
+    if (LIST_ACTIONS.has(edit.type)) {
+      const checkRelated = (handle, field, validate) => {
+        const related = targets.get(handle);
+        const relatedDescriptor = checkedDescriptor(related, actionIndex, 'paragraph', field);
+        if (related.fullTextInspected !== true) fail('TARGET_TEXT_NOT_FULLY_INSPECTED', 'This paragraph was only partially shown. Inspect the complete paragraph before editing around it.', actionIndex, field, true);
+        validate(relatedDescriptor, actionIndex, field);
+        return relatedDescriptor;
+      };
+      if (edit.type === 'convert_to_list') {
+        checkedPlainListCandidate(descriptor, actionIndex, 'target');
+        if (edit.through) {
+          const through = checkRelated(edit.through, 'through', checkedPlainListCandidate);
+          if (through.index <= descriptor.index) fail('INVALID_DOCUMENT_EDIT', 'through must be a later paragraph than target.', actionIndex, 'through');
+        }
+      } else {
+        checkedListItem(descriptor, actionIndex, 'target');
+        if (edit.type === 'continue_list') checkRelated(edit.from, 'from', checkedListItem);
+      }
+    }
     if (edit.type === 'comment') {
       const anchor = edit.anchor ?? descriptor.exactText;
       if (!anchor || !descriptor.exactText.includes(anchor)) fail('COMMENT_ANCHOR_REQUIRES_REINSPECTION', 'The comment anchor is not present in inspected text. Inspect the resulting paragraph before commenting.', actionIndex, 'anchor', true);
@@ -243,7 +325,7 @@ export async function compileDocumentEdits(edits, { session, source } = {}) {
   }
   combinations(items, targets);
 
-  const operations = [], expectations = [], locations = [];
+  const operations = [], operationActions = [], expectations = [], locations = [];
   for (const { edit, actionIndex } of items) {
     const resolved = targets.get(edit.target), descriptor = resolved.descriptor, target = targetDescriptor(descriptor);
     let operation, expected = { action: edit.type, handle: edit.target, target, sourceText: descriptor.exactText };
@@ -296,11 +378,25 @@ export async function compileDocumentEdits(edits, { session, source } = {}) {
         operation = { type: 'format', target, textToFormat: edit.find, ...(edit.occurrence ? { textOccurrence: edit.occurrence } : {}), properties: { ...edit.properties } };
         expected.format = { textToFormat: edit.find, ...(edit.occurrence ? { textOccurrence: edit.occurrence } : {}), properties: { ...edit.properties } };
         break;
+      case 'convert_to_list': {
+        const list = { mode: 'convert-plain', strip: edit.markers === 'none' ? 'none' : 'marker',
+          ...(edit.format ? { format: edit.format } : {}), ...(edit.start ? { start: edit.start } : {}) };
+        operation = { type: 'list-format', target,
+          ...(edit.through ? { targetEnd: targetDescriptor(targets.get(edit.through).descriptor) } : {}), list };
+        break;
+      }
+      case 'change_list_format':
+        operation = { type: 'list-format', target, list: { mode: 'change-format', format: edit.format, scope: 'list',
+          ...(edit.level !== undefined ? { level: edit.level } : {}), ...(edit.start ? { start: edit.start } : {}) } };
+        break;
+      case 'continue_list':
+        operation = { type: 'list-format', target, list: { mode: 'join', continueFrom: targetDescriptor(targets.get(edit.from).descriptor), scope: 'list' } };
+        break;
       default: fail('UNSUPPORTED_DOCUMENT_EDIT', 'This edit action is unsupported.', actionIndex, 'type');
     }
-    if (operation) operations.push(operation);
+    if (operation) { operations.push(operation); operationActions.push(actionIndex); }
     expectations.push(expected);
     locations.push({ handle: edit.target, location: location(resolved) });
   }
-  return { operations, expectations, locations, requestedCount: edits.length };
+  return { operations, operationActions, expectations, locations, requestedCount: edits.length };
 }

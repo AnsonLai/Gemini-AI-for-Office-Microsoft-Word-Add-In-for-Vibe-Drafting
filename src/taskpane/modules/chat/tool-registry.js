@@ -1,5 +1,6 @@
 // One authoritative model protocol. Action-specific validation belongs to the intent compiler.
-const EDIT_TYPES = ['replace_text', 'rewrite_paragraph', 'delete_paragraph', 'insert_paragraph', 'append_paragraph', 'insert_list_item', 'comment', 'format_text'];
+const EDIT_TYPES = ['replace_text', 'rewrite_paragraph', 'delete_paragraph', 'insert_paragraph', 'append_paragraph', 'insert_list_item', 'comment', 'format_text', 'convert_to_list', 'change_list_format', 'continue_list'];
+const LIST_FORMATS = ['decimal', 'upperLetter', 'lowerLetter', 'upperRoman', 'lowerRoman', 'bullet'];
 const DECLARATIONS = [{ function_declarations: [
   { name: 'inspect_document', description: 'Inspect accepted document text and obtain fresh opaque target handles. Search and surrounding context are library-backed; use cursor to continue a page.', parameters: {
     type: 'OBJECT', properties: {
@@ -11,10 +12,16 @@ const DECLARATIONS = [{ function_declarations: [
   { name: 'apply_document_edits', description: 'Validate and apply every independent requested intent as one atomic batch using previously inspected handles. Unsupported or invalid mixed batches make no changes.', parameters: {
     type: 'OBJECT', required: ['edits'], properties: { edits: { type: 'ARRAY', items: {
       type: 'OBJECT', required: ['type', 'target'], properties: {
-        type: { type: 'STRING', enum: EDIT_TYPES, description: 'insert_list_item adds one plain-text item at the same level as a fully inspected level 0/1 bullet or decimal target outside a table.' }, target: { type: 'STRING', description: 'Current opaque inspected paragraph handle; append requires the document-end handle.' },
+        type: { type: 'STRING', enum: EDIT_TYPES, description: 'insert_list_item adds one plain-text item at the same level as a fully inspected level 0/1 bullet or decimal target outside a table. convert_to_list turns plain paragraphs into a new list (target, optional later through for a contiguous run). change_list_format changes the numbering format of the whole list of the inspected list item. continue_list makes the target list continue the earlier list that from belongs to.' }, target: { type: 'STRING', description: 'Current opaque inspected paragraph handle; append requires the document-end handle.' },
         find: { type: 'STRING' }, replace: { type: 'STRING' }, text: { type: 'STRING' },
         occurrence: { type: 'INTEGER', description: '1-based exact text occurrence.' },
         position: { type: 'STRING', enum: ['before', 'after'] }, anchor: { type: 'STRING' },
+        through: { type: 'STRING', description: 'convert_to_list only: handle of a later plain paragraph that ends a contiguous run starting at target.' },
+        from: { type: 'STRING', description: 'continue_list only: handle of an item of the earlier list to continue.' },
+        format: { type: 'STRING', enum: LIST_FORMATS, description: 'convert_to_list: required with markers none, otherwise disambiguates typed markers such as I. or C. change_list_format: the new numbering format.' },
+        markers: { type: 'STRING', enum: ['typed', 'none'], description: 'convert_to_list only. typed (default): the paragraph text starts with a typed marker such as 1., A., iv. or - that becomes the list label. none: the text has no marker; requires format.' },
+        start: { type: 'INTEGER', description: 'convert_to_list (markers none only) or change_list_format: first number of the list.' },
+        level: { type: 'INTEGER', description: 'change_list_format only: list level to redefine, 0 through 8; default is the target level.' },
         properties: { type: 'OBJECT', properties: {
           bold: { type: 'BOOLEAN' }, italic: { type: 'BOOLEAN' }, underline: { type: 'BOOLEAN' },
           strikethrough: { type: 'BOOLEAN' }, highlight: { type: 'STRING', enum: ['yellow', 'none'] },

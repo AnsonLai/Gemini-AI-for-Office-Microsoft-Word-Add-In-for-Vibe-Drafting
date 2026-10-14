@@ -38,8 +38,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-wp6-word.ps1 
 ```
 
 The default generator is `tests/direct_document_fidelity_manifest_tests.mjs`.
-It creates fourteen required cases from Word-authored sources with independent
-expected text, list identity/continuation/restart, formatting and table cells.
+It creates nineteen required capability cases (fourteen original, five list-action) and one
+no-write refusal control from Word-authored sources with independent expected text, list
+identity/continuation/restart, labels, formatting and table cells.
 The collector runs production inspect/apply, records real transport counters,
 verified/no-op/stale/refusal outcomes, and saves/reads the exact body checkpoint
 through the production IndexedDB store. A separate restored export tests the
@@ -52,6 +53,18 @@ revision. These assert expected comment counts and original thread identities,
 rather than treating refusal as a passing preservation check. The sequential
 case uses two checkpoints/two edit writes and restores the latest checkpoint;
 single-stage edit cases retain one checkpoint/one write.
+
+The list-action cases use sources from `scripts/create-agentic-list-action-fixtures.ps1`
+(`tests/fixtures/agentic-lists/list-*-source.docx` and
+`list-actions-source-observations.json`, authored, saved and reopened in Word):
+`list-convert-noncontiguous-typed-headers` (`1. Alpha`/`2. Beta`/`3. Gamma` around body paragraphs,
+one `convert_to_list` each), `list-convert-letter-headers-start-at-c` (`C.`/`D.`, `upperLetter`),
+`list-change-format-bullets-to-decimal`, `list-continue-second-list-after-first` (labels 3./4.) and
+`list-rewrite-and-convert-changed-header` (`rewrite_paragraph` plus `convert_to_list` on one paragraph).
+The oracle asserts the labels from Word's own `ListFormat.ListString` after `Revisions.AcceptAll()`/`RejectAll()`.
+`list-convert-ambiguous-roman-marker-refusal` is a safety control, not a capability pass: the collector requires
+the library's `LIST_MARKER_AMBIGUOUS` (in `error.failedOperations`), zero content writes, zero checkpoints and an
+unchanged source; the oracle excludes it like every `expectedPrewriteRefusal` case.
 
 The default success gate for untracked pure insertion on a revised target was
 blocked by the 0.8.4 surgical-insertion defect and passes on 0.9.0 (verified

@@ -11,6 +11,12 @@ const inspect = (search, options = {}) => ({
 const apply = edits => ({ chat: { functionCall: { name: 'apply_document_edits', args: { edits } } } });
 const handle = (matcher, nth) => ({ $handle: matcher, ...(nth ? { nth } : {}) });
 const done = { chat: { text: 'Done.' } };
+// The nine typed numbered headers of step 12, in document order.
+const NUMBERED_HEADERS = [
+  'DEFINITION OF CONFIDENTIAL INFORMATION', 'EXCLUSIONS', 'OBLIGATIONS OF RECEIVING PARTY', 'TERM',
+  'REQUIRED DISCLOSURE', 'RETURN OF INFORMATION', 'REMEDIES', 'GOVERNING LAW', 'GENERAL PROVISIONS'
+];
+const headerPattern = (number, name) => ({ regex: `^${number}\\. ${name}$`, flags: '' });
 const batchEvidence = {
   type: 'directToolEvidence',
   label: 'edit batches have one verified commit and no nested model calls',
@@ -111,12 +117,13 @@ const plans = [
     refusal: 'I can’t restructure that provision into an introductory paragraph and bullets in this editing workflow. Structural reformatting is unsupported, so I left the document unchanged.'
   },
   {
-    scopeDisposition: {
-      status: 'unsupported',
-      reason: 'Converting non-contiguous headers to a numbered list is outside the retained direct-edit scope.',
-      refusalPattern: '(?:cannot|can’t|can\'t|unsupported|outside).*(?:headers|numbered list|conversion|convert)'
-    },
-    refusal: 'I can’t convert the headers into a numbered list in this editing workflow. Header conversion is unsupported, so I left the document unchanged.'
+    // One parallel inspection turn finds all nine headers, then one convert_to_list per header in one batch.
+    // The library joins the consecutive values 1. to 9. into one list.
+    replay: [
+      { chat: NUMBERED_HEADERS.map((name, index) => inspect(`${index + 1}. ${name}`).chat) },
+      apply(NUMBERED_HEADERS.map((name, index) => ({ type: 'convert_to_list', target: handle(headerPattern(index + 1, name)) }))),
+      done
+    ]
   },
   {
     replay: [

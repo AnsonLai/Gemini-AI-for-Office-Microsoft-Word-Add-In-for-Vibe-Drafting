@@ -41,3 +41,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-agentic-list-
 Generation logs and bounded-worker progress belong under
 `.cache/reliability/agentic-list-fixture-generation`; only the source DOCX and
 its observation record belong in this fixture directory.
+
+## List-action sources
+
+`scripts/create-agentic-list-action-fixtures.ps1` authors six small sources through Word COM
+(`list-headers`, `list-letter-headers`, `list-bullets`, `list-two-lists`, `list-changed-header` and
+`list-ambiguous-marker`), saves and reopens each, and records Word's observations (text, list state,
+`ListString`, level, numId and numbering format) in `list-actions-source-observations.json`. They back the
+`convert_to_list`, `change_list_format` and `continue_list` Office.js and Word-oracle cases.

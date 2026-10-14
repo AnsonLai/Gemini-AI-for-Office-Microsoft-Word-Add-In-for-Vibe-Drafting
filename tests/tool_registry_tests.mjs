@@ -26,11 +26,17 @@ function testDeclarationsAndRecoveryNames() {
   assert.deepEqual(edit.required, ['type', 'target']);
   assert.deepEqual(edit.properties.type.enum, [
     'replace_text', 'rewrite_paragraph', 'delete_paragraph', 'insert_paragraph',
-    'append_paragraph', 'insert_list_item', 'comment', 'format_text'
+    'append_paragraph', 'insert_list_item', 'comment', 'format_text',
+    'convert_to_list', 'change_list_format', 'continue_list'
   ]);
   assert.deepEqual(Object.keys(edit.properties), [
-    'type', 'target', 'find', 'replace', 'text', 'occurrence', 'position', 'anchor', 'properties'
+    'type', 'target', 'find', 'replace', 'text', 'occurrence', 'position', 'anchor',
+    'through', 'from', 'format', 'markers', 'start', 'level', 'properties'
   ]);
+  assert.deepEqual(edit.properties.format.enum, ['decimal', 'upperLetter', 'lowerLetter', 'upperRoman', 'lowerRoman', 'bullet']);
+  assert.deepEqual(edit.properties.markers.enum, ['typed', 'none']);
+  for (const key of ['start', 'level']) assert.equal(edit.properties[key].type, 'INTEGER');
+  for (const key of ['through', 'from']) assert.equal(edit.properties[key].type, 'STRING');
   assert.deepEqual(Object.keys(edit.properties.properties.properties), [
     'bold', 'italic', 'underline', 'strikethrough', 'highlight'
   ]);

@@ -164,6 +164,14 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
         } };
       }
       const success = result.status === 'ok' && result.verified === true;
+      // The batch wrapper hides which operation the library refused and why; pass each library error through.
+      const failedOperations = (Array.isArray(result.results) ? result.results : [])
+        .filter(item => item?.status === 'error' && item.error?.code)
+        .map(item => ({
+          ...(Number.isInteger(compiled?.operationActions?.[item.index - 1]) ? { editIndex: compiled.operationActions[item.index - 1] } : {}),
+          code: item.error.code, message: item.error.message,
+          ...(item.error.recovery ? { recovery: item.error.recovery } : {})
+        }));
       if (result.written || result.writeAttempted || result.error?.code?.startsWith('STALE')) session.invalidate();
       const receipt = {
         status: success ? 'ok' : 'error', success, completion: success, verified: result.verified === true,
@@ -172,7 +180,7 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
         requiresInspection: result.requiresInspection === true,
         requestedCount: edits?.length || 0, accountedCount: success ? compiled.requestedCount : 0,
         locations: compiled?.locations?.map(item => item.location) || [], counters: counts,
-        ...(result.error ? { error: result.error } : {}),
+        ...(result.error ? { error: failedOperations.length ? { ...result.error, failedOperations } : result.error } : {}),
         message: success ? (result.written ? `Applied and verified ${compiled.requestedCount} requested edit(s).` : 'The requested state is already satisfied; no document write was needed.')
           : result.written || result.writeAttempted ? 'An edit was attempted but completion could not be verified. Inspect the document before continuing; do not replay it.'
             : `No changes made. ${result.error?.message || 'The batch was refused.'}`,
