@@ -139,7 +139,6 @@ async function executePureOoxmlBatchInternal(context, body, operations, options,
         if (options.disableNativeTracking) {
             await withNativeTrackingDisabled(context, writeBatch, {
                 enabled: true,
-                baseTrackingMode: options.baseTrackingMode ?? null,
                 logPrefix: options.logPrefix || 'WordOp/Batch'
             });
         } else {

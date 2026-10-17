@@ -8,22 +8,18 @@
  * @template T
  * @param {Word.RequestContext} context
  * @param {(state: { originalMode: Word.ChangeTrackingMode, trackingDisabled: boolean }) => Promise<T>} operation
- * @param {{ enabled?: boolean, baseTrackingMode?: Word.ChangeTrackingMode|null, logPrefix?: string }} [options]
+ * @param {{ enabled?: boolean, logPrefix?: string }} [options]
  * @returns {Promise<T>}
  */
 export async function withNativeTrackingDisabled(context, operation, options = {}) {
     const {
         enabled = true,
-        baseTrackingMode = null,
         logPrefix = 'Tracking'
     } = options;
 
-    let originalMode = baseTrackingMode;
-    if (originalMode === null || originalMode === undefined) {
-        context.document.load('changeTrackingMode');
-        await context.sync();
-        originalMode = context.document.changeTrackingMode;
-    }
+    context.document.load('changeTrackingMode');
+    await context.sync();
+    const originalMode = context.document.changeTrackingMode;
 
     const trackingDisabled = !!enabled && originalMode !== Word.ChangeTrackingMode.off;
     let primaryError = null;

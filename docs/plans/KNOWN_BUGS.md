@@ -121,7 +121,6 @@ All document *transformation* happens in the library. The only Word call that ch
 | `chat/word-document-source.js` | `body.getOoxml()` | Library inspection needs the live body package | Necessary | Only a Word-supported way to read the document package directly |
 | `docx-redline-js-integration/word-operation-runner.js` | `body.getOoxml()` | Source for the single batch | Necessary | Same |
 | `chat/document-tools.js` | `getOoxml` (wrapped) | Freshness re-read after checkpoint, before commit | Necessary | Same |
-| `taskpane.js` (checkpoint capture fallback, ~L925) | `body.getOoxml()` | Fallback when no source is supplied. The only caller always supplies one, so this branch looks unreachable | Expedient (dead) | Delete the branch |
 
 ### Commit
 
@@ -134,7 +133,6 @@ All document *transformation* happens in the library. The only Word call that ch
 | Location | Calls | Why | Class | Exit condition |
 | --- | --- | --- | --- | --- |
 | `docx-redline-js-integration/word-ooxml.js`, `word-operation-runner.js`, `chat/checkpoint-restoration.js` | `document.changeTrackingMode` load, set to off, restore | Word would wrap the replacement in its own revisions. The library already produced the tracked output | Necessary until disproved | Evidence that `insertOoxml('Replace')` preserves the package's revisions unchanged with tracking on |
-| `word-ooxml.js` `baseTrackingMode` parameter | none | No caller passes it | Expedient (dead) | Remove the parameter |
 
 ### Selection, identity and platform
 
@@ -156,7 +154,7 @@ All document *transformation* happens in the library. The only Word call that ch
 | Location | Calls | Why | Class | Exit condition |
 | --- | --- | --- | --- | --- |
 | `taskpane.js` (~L561) | `document.properties.load('lastAuthor, author')` | Pre-fills the redline author on refresh | Convenience, host-only | Optional. An explicit author setting exists |
-| `taskpane.js` (~L804, glance checks) | `body.load('text')`, `body.text` | Prompt text for glance checks. This is **Word's text, not library text**: it differs on soft breaks and deleted runs | **Expedient** | Build the text from `inspectWordSource(...).inspection.paragraphs[].exactText` through the shared source reader |
+| `taskpane.js` (glance checks) | none since WP4 (2026-10-16) | Prompt text is built from library inspection (`inspection.paragraphs[].exactText`) through the shared source reader, not Word's `body.text` | Retired | — |
 
 ### Local package logic that should move upstream
 
@@ -169,8 +167,8 @@ This is not Word API use, but it is outside the library:
 
 ### Expedient uses to retire (priority order)
 
-1. Glance-check `body.text` read: switch to library inspection text.
-2. Host paragraph count and `detectExportTailIndex`: needs a library export-tail detector.
-3. `TRACKING_POLICY_MISMATCH` guard (KB-5).
-4. Dead code: the `taskpane.js` checkpoint-capture fallback, the `baseTrackingMode` parameter, the unimported `src/taskpane/debug_structure.js` (`Word.run` + `paragraphs.load`), and the Outlook-only `src/commands/commands.js` template stub.
-5. Upstream the `consumer-core.js` / `word-source-identity.js` package logic once a library surface is agreed.
+1. Host paragraph count and `detectExportTailIndex`: needs a library export-tail detector (blocked on phase-2 WP1).
+2. `TRACKING_POLICY_MISMATCH` guard (KB-5).
+3. Upstream the `consumer-core.js` / `word-source-identity.js` package logic once a library surface is agreed.
+
+Retired by phase-2 WP4 (2026-10-16): the glance-check `body.text` read, the unreachable checkpoint-capture `getOoxml` fallback in `taskpane.js`, the unused `baseTrackingMode` option, the unimported `src/taskpane/debug_structure.js`, and the Outlook-template `src/commands/commands.js` (the manifest's `FunctionFile` still points at the now script-free `commands.html`).

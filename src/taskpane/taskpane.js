@@ -807,13 +807,8 @@ async function runGlanceChecks() {
   });
 
   try {
-    let docText = "";
-    await Word.run(async (context) => {
-      const body = context.document.body;
-      body.load("text");
-      await context.sync();
-      docText = body.text;
-    });
+    const { inspection } = await createWordDocumentSourceReader({ loadSupport: loadWordOperationSupport, getDocumentId })();
+    const docText = inspection.paragraphs.map(paragraph => paragraph.exactText).join('\n');
 
     const model = loadModel('fast'); // Use fast model for glance checks
 
@@ -911,43 +906,17 @@ async function ensureCheckpointMigration() {
 }
 
 /**
- * Capture the current document state as a checkpoint.
- * @param {boolean} silent - suppress chat status messages
- * @param {string|null} toolName - when set, this is an auto-checkpoint taken
- *   before its atomic batch; it is labeled `auto:<toolName>:<ISO>`.
+ * Save the exact body Flat OPC prepared for an automatic batch as a checkpoint
+ * labeled `auto:<toolName>:<ISO>`.
  * @returns {Promise<number>} the new checkpoint id (>=1), or -1 on failure
  */
-async function createCheckpoint(silent = false, toolName = null, sourceOoxml = null) {
-  const isAuto = !!toolName;
-
-  if (!silent) {
-    addMessageToChat("System", "Saving checkpoint...");
-  }
-
+async function createAutoCheckpoint(toolName, sourceOoxml) {
   try {
     await ensureCheckpointMigration();
-
-    // Body Flat OPC, captured from the exact source prepared for an automatic batch.
-    let ooxmlValue = sourceOoxml || "";
-    if (sourceOoxml == null) await Word.run(async (context) => {
-      const ooxml = context.document.body.getOoxml();
-      await context.sync();
-      ooxmlValue = ooxml.value;
-    });
-
-    const label = isAuto ? formatAutoCheckpointLabel(toolName) : "manual";
-    const id = await saveCheckpoint(label, ooxmlValue);
-
-    if (!silent) {
-      addMessageToChat("System", "Checkpoint saved.");
-    }
-    return id;
+    return await saveCheckpoint(formatAutoCheckpointLabel(toolName), sourceOoxml);
   } catch (error) {
     // The direct batch executor refuses a write when this returns -1.
     console.error("Error saving checkpoint:", error);
-    if (!silent) {
-      addMessageToChat("Error", `Could not save checkpoint. ${error.message}`);
-    }
     return -1;
   }
 }
@@ -1132,7 +1101,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
           return createToolRegistry(toolsModule.createDocumentTools({
             session: inspectionSession, getDocumentId, getAuthor: loadRedlineAuthor,
             getGenerateRedlines: loadRedlineSetting,
-            persistCheckpoint: source => createCheckpoint(true, 'apply_document_edits', source),
+            persistCheckpoint: source => createAutoCheckpoint('apply_document_edits', source),
             signal: requestController.signal,
           }));
         },

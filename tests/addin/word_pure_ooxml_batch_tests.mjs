@@ -157,12 +157,12 @@ let trackingSyncs = 0;
 const restoreFailure = fixture();
 restoreFailure.context.document = { changeTrackingMode: 'TrackAll', load() {} };
 restoreFailure.context.sync = async () => {
-    if (++trackingSyncs === 4) throw new Error('Cannot restore tracking');
+    if (++trackingSyncs === 5) throw new Error('Cannot restore tracking');
 };
 globalThis.Word = { ChangeTrackingMode: { off: 'Off' } };
 const afterWriteFailure = await executePureOoxmlBatch(restoreFailure.context, restoreFailure.body, [
     { type: 'replace', target: { exactText: 'Alpha beta gamma.' }, modified: 'Updated.' }
-], { disableNativeTracking: true, baseTrackingMode: 'TrackAll' });
+], { disableNativeTracking: true });
 assert.equal(afterWriteFailure.written, true);
 assert.equal(afterWriteFailure.writeAttempted, true);
 assert.equal(afterWriteFailure.mutationOutcome, 'applied_with_host_error');
@@ -173,16 +173,16 @@ let disableSyncs = 0;
 const disableFailure = fixture();
 disableFailure.context.document = { changeTrackingMode: 'TrackAll', load() {} };
 disableFailure.context.sync = async () => {
-    if (++disableSyncs === 2) throw Object.assign(new Error('Disable sync failed'), { code: 'DISABLE_SYNC_FAILED' });
+    if (++disableSyncs === 3) throw Object.assign(new Error('Disable sync failed'), { code: 'DISABLE_SYNC_FAILED' });
 };
 globalThis.Word = { ChangeTrackingMode: { off: 'Off' } };
 const disableFailed = await executePureOoxmlBatch(disableFailure.context, disableFailure.body, [
     { type: 'replace', target: { exactText: 'Alpha beta gamma.' }, modified: 'Must not be inserted.' }
-], { disableNativeTracking: true, baseTrackingMode: 'TrackAll' });
+], { disableNativeTracking: true });
 assert.equal(disableFailed.status, 'error');
 assert.equal(disableFailed.writeAttempted, false, 'do not start the edit when disabling native tracking fails');
 assert.equal(disableFailed.hostError.code, 'DISABLE_SYNC_FAILED');
-assert.equal(disableSyncs, 3, 'attempt restoration after the disable synchronization fails');
+assert.equal(disableSyncs, 4, 'attempt restoration after the disable synchronization fails');
 assert.equal(disableFailure.context.document.changeTrackingMode, 'TrackAll');
 assert.equal(disableFailure.writes.length, 0);
 
@@ -193,16 +193,16 @@ operationAndRestoreFailure.body.insertOoxml = () => {
     throw Object.assign(new Error('Primary content-write failure'), { code: 'CONTENT_WRITE_FAILED' });
 };
 operationAndRestoreFailure.context.sync = async () => {
-    if (++operationRestoreSyncs === 3) throw new Error('Secondary tracking restore failure');
+    if (++operationRestoreSyncs === 4) throw new Error('Secondary tracking restore failure');
 };
 const primaryPreserved = await executePureOoxmlBatch(operationAndRestoreFailure.context, operationAndRestoreFailure.body, [
     { type: 'replace', target: { exactText: 'Alpha beta gamma.' }, modified: 'Must remain uncommitted.' }
-], { disableNativeTracking: true, baseTrackingMode: 'TrackAll' });
+], { disableNativeTracking: true });
 assert.equal(primaryPreserved.status, 'error');
 assert.equal(primaryPreserved.hostError.code, 'CONTENT_WRITE_FAILED', 'restore failure must not mask the content-write failure');
 assert.equal(primaryPreserved.error.message, 'Primary content-write failure');
 assert.equal(primaryPreserved.writeAttempted, true);
-assert.equal(operationRestoreSyncs, 3, 'restore is attempted after a content-write failure');
+assert.equal(operationRestoreSyncs, 4, 'restore is attempted after a content-write failure');
 delete globalThis.Word;
 
 console.log('PASS: pure OOXML batch tests');

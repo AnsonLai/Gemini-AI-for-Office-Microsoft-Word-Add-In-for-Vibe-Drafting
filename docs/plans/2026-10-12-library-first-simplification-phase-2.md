@@ -1,7 +1,7 @@
 # Library-first simplification, phase 2
 
 **Date:** 2026-10-12 (America/Vancouver)
-**Status:** WP0 complete (2026-10-12); WP5 complete for the exposed list actions (2026-10-14); WP4 partly done (test XML setup). WP1–WP3 not started; the open owner decisions are at the end.
+**Status:** WP0 complete (2026-10-12); WP5 complete for the exposed list actions (2026-10-14); WP4 complete except the host paragraph count, which waits on WP1 (2026-10-16). WP1–WP3 not started; the open owner decisions are at the end.
 **Baseline:**
 - Exact `@ansonlai/docx-redline-js@0.9.0` in the add-in and MCP.
 - HEAD `a98f339` plus the uncommitted 0.9.0 upgrade work.
@@ -121,6 +121,21 @@ These items have no library dependency and can start right after WP0.
   - Default lane: 48/48. The jsdom lane is unchanged at the same 5 KB-8 diagnostics.
 
 **Exit:** the KNOWN_BUGS "Expedient uses to retire" list is empty except items blocked on WP1.
+
+**Done (2026-10-16), except the host paragraph count:**
+- Glance checks build their prompt text from `inspection.paragraphs[].exactText` through `createWordDocumentSourceReader`. They no longer read Word's `body.text`.
+- `createCheckpoint` became `createAutoCheckpoint(toolName, sourceOoxml)`. The only caller always passes the prepared source, so the `getOoxml` fallback and the manual/non-silent paths were dead.
+- `baseTrackingMode` is gone from `withNativeTrackingDisabled` and the batch runner. `word_pure_ooxml_batch_tests` now counts the tracking-mode load sync.
+- Deleted `src/taskpane/debug_structure.js` (unimported) and `src/commands/commands.js`. The manifest still declares `FunctionFile` → `commands.html` but has no `ExecuteFunction` action. So the page stays as an empty function file, and webpack no longer builds a `commands` entry for it.
+- Production lines went from 4,549 to 4,478, and files from 20 to 19 (`count-document-agent-code.mjs`; `debug_structure.js` was outside the counted surface).
+- Remaining items: the KNOWN_BUGS list keeps only the WP1-blocked export-tail item, KB-5 (WP3) and the upstream package logic.
+- Gates:
+  - Offline: 49/49.
+  - Production and development builds pass.
+  - Actual Office.js: passed, 20 cases with 26 host checks. The run needs a `WORD_HOST_VALIDATION` build passed with `--dist-dir`.
+  - Word oracle: 88 PASS, 0 FAIL. Run it against `officejs-fixtures.json`, not the export `manifest.json`.
+  - NDA replay: 16/16, 51 checks, 0 failed.
+  - No host lane runs glance checks, so their new text source is covered only by the offline build.
 
 ### WP5: New capabilities only as library releases plus a thin mapping
 
