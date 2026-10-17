@@ -5,14 +5,14 @@ import {
   inspectDocumentParts
 } from '@ansonlai/docx-redline-js';
 import { buildDocumentCommentsPackage, buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
-import { inspectWordSource } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
+import { inspectWordFlatOpc } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
 import { createWordDocumentSourceReader } from '../src/taskpane/modules/chat/word-document-source.js';
 import { createDocumentInspectionSession } from '../src/taskpane/modules/chat/document-inspection-session.js';
 import {
   computeWordSourceRevisionToken,
   computeWordRestorationToken,
-  detectExportTailIndex
-} from '../src/taskpane/modules/docx-redline-js-integration/word-source-identity.js';
+  detectWordExportTailIndex
+} from '@ansonlai/docx-redline-js/word';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const W14 = 'http://schemas.microsoft.com/office/word/2010/wordml';
@@ -33,7 +33,7 @@ const settingsB = `<w:settings xmlns:w="${W}"><w:rsids><w:rsidRoot w:val="BBBB00
 
 function fixtureParts(paragraphXml = bodyXml, settingsXml = settingsA) {
   const flatOpc = buildDocumentFragmentPackage(paragraphXml, { appendTrailingParagraph: false });
-  const parts = inspectWordSource(flatOpc).parts;
+  const parts = inspectWordFlatOpc(flatOpc).parts;
   return {
     ...parts,
     additionalParts: { ...parts.additionalParts, '/word/settings.xml': settingsXml }
@@ -76,7 +76,7 @@ function buildThreadedCommentFixture() {
   let flatOpc = buildDocumentCommentsPackage(documentXml, commentsXml);
   flatOpc = addFlatOpcPart(flatOpc, 'commentsExtended.xml', 'application/xml', commentsExtendedXml);
   flatOpc = addFlatOpcPart(flatOpc, 'commentsIds.xml', 'application/xml', commentsIdsXml);
-  return { flatOpc, parts: inspectWordSource(flatOpc).parts, commentsXml, commentsExtendedXml, commentsIdsXml };
+  return { flatOpc, parts: inspectWordFlatOpc(flatOpc).parts, commentsXml, commentsExtendedXml, commentsIdsXml };
 }
 
 const originalParts = fixtureParts();
@@ -88,11 +88,11 @@ assert.equal(originalInspection.paragraphs[0].exactText, 'First real paragraph.'
 assert.equal(originalInspection.paragraphs[1].exactText, 'Tracked accepted text.');
 assert.equal(originalInspection.paragraphs[1].hasRevisions, true);
 assert.equal(originalInspection.paragraphs[1].revisionAuthors[0], 'Tracked Author');
-assert.equal(detectExportTailIndex(originalParts, { hostParagraphCount: 2 }), 3,
+assert.equal(detectWordExportTailIndex(originalParts, { hostParagraphCount: 2 }), 3,
   'only the certified final empty body paragraph is identified as the export tail');
-assert.equal(detectExportTailIndex(originalParts, { hostParagraphCount: 1 }), null,
+assert.equal(detectWordExportTailIndex(originalParts, { hostParagraphCount: 1 }), null,
   'a paragraph-count mismatch cannot certify the export tail');
-assert.equal(detectExportTailIndex(originalParts, {}), null,
+assert.equal(detectWordExportTailIndex(originalParts, {}), null,
   'without the host count, no paragraph ID is treated as an export artifact');
 
 // Word refreshes session rsids in document.xml and settings.xml. Those values
@@ -218,7 +218,7 @@ for (const [before, after] of [
   ['10000001', '10000011'], ['10000002', '10000012'], ['10000003', '10000013'],
   ['AAAA0001', 'AAAA0011'], ['CCCC0003', 'CCCC0013'], ['BBBB0002', 'BBBB0012']
 ]) remappedFlatOpc = remappedFlatOpc.replaceAll(before, after);
-const remappedThreadParts = inspectWordSource(remappedFlatOpc).parts;
+const remappedThreadParts = inspectWordFlatOpc(remappedFlatOpc).parts;
 const remappedRestoreToken = await computeWordRestorationToken(remappedThreadParts);
 assert.equal(remappedRestoreToken.value, threadedRestoreToken.value,
   'Word-regenerated body/comment paragraph IDs and linked w15/w16cid paraIds are omitted during restore comparison');
@@ -304,13 +304,13 @@ assert.notEqual((await computeWordSourceRevisionToken(changedSettings, { hostPar
 
 const nonEmptyTailParts = fixtureParts(bodyXml.replace('<w:p xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" w14:paraId="3333CCCC" w:rsidR="00000003"/>',
   '<w:p xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" w14:paraId="3333CCCC"><w:r><w:t>Real final text.</w:t></w:r></w:p>'));
-assert.equal(detectExportTailIndex(nonEmptyTailParts, { hostParagraphCount: 2 }), null,
+assert.equal(detectWordExportTailIndex(nonEmptyTailParts, { hostParagraphCount: 2 }), null,
   'a non-empty final paragraph is never discarded as an export artifact');
 
 const tableTail = fixtureParts(`<w:p xmlns:w14="${W14}" w14:paraId="1111AAAA"><w:r><w:t>First real paragraph.</w:t></w:r></w:p>
   <w:p xmlns:w14="${W14}" w14:paraId="2222BBBB"><w:r><w:t>Second real paragraph.</w:t></w:r></w:p>
   <w:tbl><w:tr><w:tc><w:p xmlns:w14="${W14}" w14:paraId="3333CCCC"/></w:tc></w:tr></w:tbl>`);
-assert.equal(detectExportTailIndex(tableTail, { hostParagraphCount: 2 }), null,
+assert.equal(detectWordExportTailIndex(tableTail, { hostParagraphCount: 2 }), null,
   'an empty table-cell paragraph is never mistaken for the body export tail');
 
 // The reader queues the host paragraph count beside OOXML and selection in the
@@ -318,7 +318,7 @@ assert.equal(detectExportTailIndex(tableTail, { hostParagraphCount: 2 }), null,
 let sourceSyncCount = 0;
 const paragraphCollection = { items: [], load: property => assert.equal(property, '$none') };
 const reader = createWordDocumentSourceReader({
-  loadSupport: async () => [{ inspectWordSource }],
+  loadSupport: async () => [{ inspectWordFlatOpc }],
   getDocumentId: () => 'source-identity-document',
   run: async callback => callback({
     document: {
@@ -334,11 +334,11 @@ const reader = createWordDocumentSourceReader({
 const read = await reader();
 assert.equal(read.hostParagraphCount, 2);
 assert.equal(sourceSyncCount, 1);
-assert.equal(detectExportTailIndex(read.parts, { hostParagraphCount: read.hostParagraphCount }), 3);
+assert.equal(detectWordExportTailIndex(read.parts, { hostParagraphCount: read.hostParagraphCount }), 3);
 
 let optionalSyncCount = 0;
 const optionalReader = createWordDocumentSourceReader({
-  loadSupport: async () => [{ inspectWordSource }],
+  loadSupport: async () => [{ inspectWordFlatOpc }],
   getDocumentId: () => 'source-identity-document',
   run: async callback => callback({
     document: {
@@ -357,7 +357,7 @@ let currentParts = originalParts;
 const session = createDocumentInspectionSession({
   readSource: async () => ({ documentId: 'word-source-test', parts: currentParts, hostParagraphCount: 2 }),
   computeRevisionToken: computeWordSourceRevisionToken,
-  getExcludedParagraphIndex: detectExportTailIndex,
+  getExcludedParagraphIndex: detectWordExportTailIndex,
 });
 const inspected = await session.inspect({ includeDocumentEnd: true });
 assert.equal(inspected.targets.length, 2, 'the certified export artifact never receives an editable paragraph handle');

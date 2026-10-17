@@ -8,7 +8,7 @@ import { parseXml, serializeXml } from '@ansonlai/docx-redline-js/adapters/xml-a
  * Run with: node tests/addin/integration_tests.mjs
  *
  * NDA cases edit the complete sample word/document.xml the way production does
- * (consumer-core.js / document-tools.js): strong paragraph targets from
+ * (@ansonlai/docx-redline-js/word / document-tools.js): strong paragraph targets from
  * inspectDocumentParts (paragraphId + fingerprint) and applyOperationsToDocumentXml with
  * atomic + strictTargets. applyRedlineToOxml is limited to paragraph, range or table scope
  * (library README, Output Shape Matrix) and parses modifiedText as Markdown, so replaying a
@@ -407,17 +407,8 @@ async function runNdaTests() {
             { text: run.source[last].exactText, from: last },
             { text: `Date: ${blank}`, from: null }, { text: `Date: ${blank}`, from: null }
         ]]]));
-        // Signature of the known defect: a paragraph whose actual Accept All text is shorter than
-        // expected and equals it once underscore runs are normalised to "_". Everything else
-        // (other paragraphs, Reject All, byte identity, formatting elsewhere) is still asserted strictly.
-        const squash = (text) => text.replace(/_+/g, '_');
-        const collapsed = expected.map((entry, i) => {
-            const actual = run.accepted[i]?.exactText;
-            return typeof actual === 'string' && actual.length < entry.text.length && squash(actual) === squash(entry.text);
-        });
-        const knownDefect = run.accepted.length === expected.length && collapsed.some(Boolean);
         verifyViews(run, {
-            expected: knownDefect ? expected.map((entry, i) => collapsed[i] ? { ...entry, text: run.accepted[i].exactText } : entry) : expected,
+            expected,
             touched: tableParagraphs.map(t => t.from)
         });
         [1, 2].forEach((cellIndex) => {
@@ -426,9 +417,6 @@ async function runNdaTests() {
                 throw new Error(`${name}: new Date cell ${cellIndex} landed at ${JSON.stringify(cell.table)}`);
             }
         });
-        if (knownDefect) {
-            console.log('KNOWN_LIBRARY_DEFECT: table-reconciliation collapses literal underscores (docs/library-issues/2026-10-12-table-reconciliation-underscore-collapse.md)');
-        }
     });
 
     await check('Add Confidential Info List Item', async () => {

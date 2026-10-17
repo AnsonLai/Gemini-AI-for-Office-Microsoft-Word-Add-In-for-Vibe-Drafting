@@ -2,7 +2,7 @@ import './setup-xml-provider.mjs';
 import assert from 'node:assert/strict';
 import { inspectDocumentParts, acceptTrackedChangesInOoxml } from '@ansonlai/docx-redline-js';
 import { buildDocumentFragmentPackage, buildDocumentCommentsPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
-import { inspectWordSource } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
+import { inspectWordFlatOpc } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
 import { createDocumentInspectionSession } from '../src/taskpane/modules/chat/document-inspection-session.js';
 import { createDocumentTools } from '../src/taskpane/modules/chat/document-tools.js';
 
@@ -72,7 +72,7 @@ function createHarness(text, options = {}) {
   };
   const session = createDocumentInspectionSession({
     readSource: async () => {
-      const source = inspectWordSource(currentXml);
+      const source = inspectWordFlatOpc(currentXml);
       if (source.inspection?.status !== 'ok') throw new Error(`Inspection failed: ${JSON.stringify(source.inspection?.error)}`);
       return { documentId, revisionView: 'accepted', parts: source.parts };
     }
@@ -149,7 +149,7 @@ async function apply(harness, edits) {
   assert.equal(harness.checkpoints[0], originalXml, 'checkpoint stores the exact source package read for compilation');
   assert.ok(harness.events.indexOf('checkpoint') < harness.events.findIndex(event => event.startsWith('insertOoxml:')),
     'checkpoint is durable before the one content write');
-  const accepted = inspectWordSource(harness.currentXml).inspection;
+  const accepted = inspectWordFlatOpc(harness.currentXml).inspection;
   assert.equal(accepted.paragraphs[0].exactText, 'Revised clause.');
 }
 
@@ -165,7 +165,7 @@ async function apply(harness, edits) {
   assert.equal(receipt.verified, true);
   assert.equal(receipt.written, true);
   assert.deepEqual(receipt.counters, { sourceReads: 2, contentWrites: 1, verificationReads: 1 });
-  const parsed = inspectWordSource(harness.currentXml);
+  const parsed = inspectWordFlatOpc(harness.currentXml);
   assert.equal(parsed.inspection.paragraphs[0].exactText, 'Keep this phrase plain.');
   assert.match(parsed.parts.documentXml, /<w:b(?:\s[^>]*)?\/?\s*>/,
     'the committed canonical document retains the requested bold property');
@@ -180,7 +180,7 @@ async function apply(harness, edits) {
   const candidates = await harness.handlesFor('Same phrase');
   assert.equal(candidates.length, 2, 'both identical paragraphs are independently inspectable');
   assert.notEqual(candidates[0].handle, candidates[1].handle);
-  const initial = inspectWordSource(harness.currentXml);
+  const initial = inspectWordFlatOpc(harness.currentXml);
   assert.deepEqual(initial.inspection.paragraphs.map(item => item.paragraphId), [null, null],
     'the fixture exercises the canonical index fallback rather than paragraph IDs');
 
@@ -189,7 +189,7 @@ async function apply(harness, edits) {
   }]);
   assert.equal(receipt.success, true, JSON.stringify(receipt));
   assert.equal(receipt.verified, true);
-  const committed = inspectWordSource(harness.currentXml);
+  const committed = inspectWordFlatOpc(harness.currentXml);
   assert.deepEqual(committed.inspection.paragraphs.map(item => item.exactText), [repeated, repeated]);
   const paragraphs = committed.parts.documentXml.match(/<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g) || [];
   assert.equal(paragraphs.length, 2, 'both duplicate paragraphs remain in the source');
@@ -324,7 +324,7 @@ async function apply(harness, edits) {
   assert.equal(receipt.error.code, 'WORD_RUN_POST_COMMIT_ERROR');
   assert.equal(receipt.verified, false);
   assert.equal(harness.counts.contentWrites, 1);
-  assert.equal(inspectWordSource(harness.currentXml).inspection.paragraphs[0].exactText, 'Revised clause.');
+  assert.equal(inspectWordFlatOpc(harness.currentXml).inspection.paragraphs[0].exactText, 'Revised clause.');
 }
 
 // Existing comments, replies and resolved state survive a combined rewrite
@@ -339,7 +339,7 @@ for (const metadata of [
   let threaded = buildDocumentCommentsPackage(`<w:document xmlns:w="${W}"><w:body><w:p><w:commentRangeStart w:id="0"/><w:commentRangeStart w:id="1"/><w:r><w:t>Original clause.</w:t></w:r><w:commentRangeEnd w:id="1"/><w:r><w:commentReference w:id="1"/></w:r><w:commentRangeEnd w:id="0"/><w:r><w:commentReference w:id="0"/></w:r></w:p></w:body></w:document>`,
     `<w:comments xmlns:w="${W}" xmlns:w14="${w14}"><w:comment w:id="0" w:author="Reviewer"><w:p w14:paraId="1111AAAA"><w:r><w:t>Original comment.</w:t></w:r></w:p></w:comment><w:comment w:id="1" w:author="Responder"><w:p w14:paraId="2222BBBB"><w:r><w:t>Reply or resolved comment.</w:t></w:r></w:p></w:comment></w:comments>`);
   threaded = threaded.replace('</pkg:package>', `<pkg:part pkg:name="/word/commentsExtended.xml" pkg:contentType="application/vnd.ms-word.commentsExtended+xml"><pkg:xmlData><w15:commentsEx xmlns:w15="${w15}"><w15:commentEx w15:paraId="1111AAAA"/>${metadata}</w15:commentsEx></pkg:xmlData></pkg:part></pkg:package>`);
-  const inspection = inspectWordSource(threaded).inspection;
+  const inspection = inspectWordFlatOpc(threaded).inspection;
   assert.equal(inspection.comments.length, 2);
   const harness = createHarness('Original clause.', { initialXml: threaded });
   const target = await harness.handleFor('Original clause.');
@@ -354,7 +354,7 @@ for (const metadata of [
   assert.equal(receipt.writeAttempted, true);
   assert.equal(harness.counts.contentWrites, 1);
   assert.equal(harness.checkpoints.length, 1);
-  const committed = inspectWordSource(harness.currentXml).inspection;
+  const committed = inspectWordFlatOpc(harness.currentXml).inspection;
   assert.equal(committed.paragraphs[0].exactText, 'Revised clause.');
   assert.equal(committed.comments.length, 3);
   const identity = comment => [comment.id, comment.author, comment.text, comment.done, comment.parentCommentId];
@@ -369,7 +369,7 @@ for (const metadata of [
   assert.equal(second.verified, true);
   assert.equal(harness.counts.contentWrites, 2);
   assert.equal(harness.checkpoints.length, 2);
-  const finalComments = inspectWordSource(harness.currentXml).inspection.comments;
+  const finalComments = inspectWordFlatOpc(harness.currentXml).inspection.comments;
   assert.equal(finalComments.length, 4, 'later comment additions retain all previous comments');
   for (const comment of committed.comments) assert.deepEqual(identity(finalComments.find(item => item.id === comment.id)), identity(comment));
   if (metadata.includes('paraIdParent') || metadata.includes('done="1"')) {
@@ -406,8 +406,8 @@ for (const metadata of [
   assert.equal(receipt.requestedCount, 2);
   assert.equal(harness.counts.contentWrites, 1, 'the foreign-revision target and clean paragraph commit atomically in one write');
   assert.equal(harness.checkpoints.length, 1);
-  const beforeParts = inspectWordSource(revised).parts;
-  const after = inspectWordSource(harness.currentXml);
+  const beforeParts = inspectWordFlatOpc(revised).parts;
+  const after = inspectWordFlatOpc(harness.currentXml);
   assert.deepEqual(after.inspection.paragraphs.map(paragraph => paragraph.exactText), [
     'Revised before Pending clause. base after.', 'Changed clause.'
   ]);
@@ -449,15 +449,15 @@ for (const metadata of [
     assert.equal(receipt.verified, verified);
     assert.equal(harness.counts.contentWrites, 1);
     if (!verified) assert.equal(receipt.requiresInspection, true);
-    assert.equal(inspectWordSource(harness.currentXml).inspection.paragraphs[0].exactText,
+    assert.equal(inspectWordFlatOpc(harness.currentXml).inspection.paragraphs[0].exactText,
       'Revised before Pending clause.', `${label}: accepted text alone cannot distinguish carrier loss`);
   }
 }
 
 // Published 0.8.4 incorrectly tracked a pure insertion in surgical mode even with
-// tracking disabled, so the add-in rejected that prepared output (TRACKING_POLICY_MISMATCH).
-// 0.9.0 fixed this: the untracked insertion is written as plain text and the foreign
-// pending insertion is left untouched. The add-in's guard remains as a defensive check.
+// tracking disabled. 0.9.0 fixed it and the library enforces the rule itself
+// (UNTRACKED_CREATED_REVISION), so the add-in's guard was retired in phase-2 WP3:
+// the untracked insertion is plain text and the foreign insertion is untouched.
 {
   const source = buildDocumentFragmentPackage(`<w:p><w:r><w:t>This agreement is governed by local law.</w:t></w:r><w:ins w:id="21" w:author="Prior Reviewer"><w:r><w:t xml:space="preserve"> Pending clause.</w:t></w:r></w:ins></w:p>`, { appendTrailingParagraph: false });
   const harness = createHarness('governed by local law', { initialXml: source, generateRedlines: false });
@@ -468,7 +468,7 @@ for (const metadata of [
   assert.equal(receipt.written, true);
   assert.equal(receipt.verified, true);
   assert.equal(harness.counts.contentWrites, 1);
-  assert.equal(inspectWordSource(harness.currentXml).inspection.paragraphs[0].exactText,
+  assert.equal(inspectWordFlatOpc(harness.currentXml).inspection.paragraphs[0].exactText,
     'This agreement is governed by applicable local law. Pending clause.');
   assert.equal((harness.currentXml.match(/<w:ins /g) || []).length, 1, 'only the prior reviewer insertion may remain tracked');
 }
@@ -487,7 +487,7 @@ for (const metadata of [
   assert.equal(receipt.written, true);
   assert.equal(harness.counts.contentWrites, 1);
 
-  const committed = inspectWordSource(harness.currentXml);
+  const committed = inspectWordFlatOpc(harness.currentXml);
   assert.equal(committed.inspection.paragraphs[0].exactText, 'Reviewed clause.');
   const insertion = committed.parts.documentXml.match(/<w:ins\b[\s\S]*?<\/w:ins>/)?.[0];
   assert.ok(insertion, 'the unaffected suffix remains a pending insertion');
@@ -510,7 +510,7 @@ for (const metadata of [
   assert.equal(receipt.success, true, JSON.stringify(receipt));
   assert.equal(receipt.verified, true);
   assert.equal(harness.counts.contentWrites, 1);
-  const committed = inspectWordSource(harness.currentXml);
+  const committed = inspectWordFlatOpc(harness.currentXml);
   assert.equal(committed.inspection.paragraphs[0].exactText, 'Keep this phrase plain. Pending clause.');
   assert.deepEqual(committed.inspection.paragraphs[0].revisionAuthors, ['Prior Reviewer']);
   const insertion = committed.parts.documentXml.match(/<w:ins\b[\s\S]*?<\/w:ins>/)?.[0];
@@ -535,7 +535,7 @@ for (const metadata of [
   const receipt = await apply(harness, [{ type: 'insert_list_item', target, text: 'Added list item.' }]);
   assert.equal(receipt.success, true, JSON.stringify(receipt));
   assert.equal(receipt.verified, true);
-  const parts = inspectWordSource(harness.currentXml).parts;
+  const parts = inspectWordFlatOpc(harness.currentXml).parts;
   const accepted = acceptTrackedChangesInOoxml(parts.documentXml, { allAuthors: true });
   assert.ok(accepted.acceptedCount > 0, JSON.stringify(accepted));
   const committed = inspectDocumentParts({ ...parts, documentXml: accepted.oxml }).paragraphs;
@@ -554,7 +554,7 @@ for (const metadata of [
     find: 'governed by local law', replace: 'governed by applicable local law' }]);
   assert.equal(receipt.success, true, JSON.stringify(receipt));
   assert.equal(receipt.written, true);
-  const actual = inspectWordSource(harness.currentXml);
+  const actual = inspectWordFlatOpc(harness.currentXml);
   assert.equal(actual.inspection.paragraphs[0].exactText,
     'This agreement is governed by applicable local law. Prior own change.');
   assert.doesNotMatch(actual.parts.documentXml, /<w:(?:ins|del)\b/,
@@ -572,7 +572,7 @@ for (const metadata of [
   assert.equal(receipt.success, true, JSON.stringify(receipt));
   assert.equal(receipt.verified, true);
   assert.equal(harness.counts.contentWrites, 1);
-  const committed = inspectWordSource(harness.currentXml);
+  const committed = inspectWordFlatOpc(harness.currentXml);
   assert.equal(committed.inspection.paragraphs[0].exactText, 'Clean final wording.');
   assert.deepEqual(committed.inspection.paragraphs[0].revisionAuthors, [],
     'the intentional same-author clean rewrite leaves no tracked revision');

@@ -9,7 +9,7 @@ import {
   rejectTrackedChangesInOoxml
 } from '@ansonlai/docx-redline-js';
 import { buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
-import { prepareCanonicalBatch, inspectWordSource } from '../src/taskpane/modules/docx-redline-js-integration/consumer-core.js';
+import { prepareWordFlatOpcBatch, inspectWordFlatOpc } from '@ansonlai/docx-redline-js/word';
 import {
   compileDocumentEdits,
   DocumentEditIntentError
@@ -20,7 +20,7 @@ function makePackage(paragraphAndTableXml) {
 }
 
 function targetsFrom(packageXml) {
-  return inspectWordSource(packageXml).inspection.paragraphs.map((paragraph, index) => ({
+  return inspectWordFlatOpc(packageXml).inspection.paragraphs.map((paragraph, index) => ({
     ...paragraph,
     handle: `handle-${index + 1}`,
     location: `Paragraph ${index + 1}`,
@@ -123,7 +123,7 @@ assert.deepEqual(compiled.operations[4].properties, { bold: true, highlight: 'ye
 assert.equal(compiled.expectations.length, 5, 'every intent receives an expectation');
 assert.equal(compiled.locations.length, 5, 'every intent retains its inspected location');
 
-const prepared = await prepareCanonicalBatch(sourcePackage, compiled.operations, {
+const prepared = await prepareWordFlatOpcBatch(sourcePackage, compiled.operations, {
   author: 'Intent Compiler Test', existingRevisions: 'merge-same-author'
 });
 assert.equal(prepared.status, 'ready', JSON.stringify(prepared.result?.error || prepared.result?.results));
@@ -146,7 +146,7 @@ const backslashCompiled = await compileFor(backslashPackage, [
   { type: 'replace_text', target: 'handle-1', find: 'A/B', replace: 'A\\B' }
 ]);
 assert.equal(backslashCompiled.compiled.operations[0].structuredContent, false);
-const backslashPrepared = await prepareCanonicalBatch(backslashPackage, backslashCompiled.compiled.operations, {
+const backslashPrepared = await prepareWordFlatOpcBatch(backslashPackage, backslashCompiled.compiled.operations, {
   author: 'Intent Compiler Test'
 });
 assert.equal(backslashPrepared.status, 'ready', JSON.stringify(backslashPrepared.result?.error));
@@ -158,7 +158,7 @@ const nbspPackage = makePackage('<w:p><w:r><w:t>Use A&#xA0;B here.</w:t></w:r></
 const nbspCompiled = await compileFor(nbspPackage, [
   { type: 'replace_text', target: 'handle-1', find: 'A B', replace: 'A C' }
 ]);
-const nbspPrepared = await prepareCanonicalBatch(nbspPackage, nbspCompiled.compiled.operations, {
+const nbspPrepared = await prepareWordFlatOpcBatch(nbspPackage, nbspCompiled.compiled.operations, {
   author: 'Intent Compiler Test'
 });
 assert.equal(nbspPrepared.status, 'ready', JSON.stringify(nbspPrepared.result?.error));
@@ -172,7 +172,7 @@ const ambiguousReplacement = await compileFor(ambiguousPackage, [
 ]);
 assert.equal(ambiguousReplacement.compiled.operations.length, 1,
   'the consumer forwards ambiguous literal requests without implementing a parallel matcher');
-const ambiguousPrepared = await prepareCanonicalBatch(ambiguousPackage, ambiguousReplacement.compiled.operations);
+const ambiguousPrepared = await prepareWordFlatOpcBatch(ambiguousPackage, ambiguousReplacement.compiled.operations);
 assert.equal(ambiguousPrepared.status, 'refused');
 assert.equal(ambiguousPrepared.result.results[0].error.code, 'AMBIGUOUS_PATCH_SOURCE',
   'the library reports ambiguity for the atomic batch');
@@ -181,7 +181,7 @@ assert.equal(ambiguousPrepared.insertionPayload, undefined, 'ambiguous source re
 const selectedOccurrence = await compileFor(ambiguousPackage, [
   { type: 'replace_text', target: 'handle-1', find: 'Repeat', replace: 'Change', occurrence: 2 }
 ]);
-const selectedOccurrencePrepared = await prepareCanonicalBatch(ambiguousPackage, selectedOccurrence.compiled.operations);
+const selectedOccurrencePrepared = await prepareWordFlatOpcBatch(ambiguousPackage, selectedOccurrence.compiled.operations);
 assert.equal(selectedOccurrencePrepared.status, 'ready', JSON.stringify(selectedOccurrencePrepared.result?.error));
 const selectedOccurrenceAccepted = acceptTrackedChangesInOoxml(selectedOccurrencePrepared.result.documentXml, { allAuthors: true });
 assert.equal(inspectDocumentParts({ documentXml: selectedOccurrenceAccepted.oxml }).paragraphs[0].exactText,
@@ -190,7 +190,7 @@ assert.equal(inspectDocumentParts({ documentXml: selectedOccurrenceAccepted.oxml
 const missingReplacement = await compileFor(ambiguousPackage, [
   { type: 'replace_text', target: 'handle-1', find: 'Missing', replace: 'Change' }
 ]);
-const missingPrepared = await prepareCanonicalBatch(ambiguousPackage, missingReplacement.compiled.operations);
+const missingPrepared = await prepareWordFlatOpcBatch(ambiguousPackage, missingReplacement.compiled.operations);
 assert.equal(missingPrepared.status, 'refused');
 assert.equal(missingPrepared.result.results[0].error.code, 'PATCH_SOURCE_NOT_FOUND',
   'the library, not a consumer-side count, owns missing-source diagnostics');
@@ -202,7 +202,7 @@ const insertCompiled = await compileFor(insertPackage, [
 assert.equal(insertCompiled.compiled.operations[0].structuredContent, true,
   'structured parsing is enabled only for the explicitly validated paragraph insertion');
 assert.equal(insertCompiled.compiled.operations[0].modified, 'Existing clause.\nAdditional plain paragraph.');
-const insertPrepared = await prepareCanonicalBatch(insertPackage, insertCompiled.compiled.operations, {
+const insertPrepared = await prepareWordFlatOpcBatch(insertPackage, insertCompiled.compiled.operations, {
   author: 'Intent Compiler Test'
 });
 assert.equal(insertPrepared.status, 'ready', JSON.stringify(insertPrepared.result?.error));
@@ -243,10 +243,10 @@ for (const [targetText, expectedFormat, expectedLevel, expectedSiblingLabels = {
   assert.equal(operation.structuredContent, true);
   assert.equal(operation.modified, `${markerPair[0]} ${target.exactText}\n${markerPair[1]} ${insertedText}`,
     'the redline describes the complete affected list block with structural markers');
-  const listPrepared = await prepareCanonicalBatch(listSourcePackage, listCompiled.operations, { author: 'Intent Compiler Test' });
+  const listPrepared = await prepareWordFlatOpcBatch(listSourcePackage, listCompiled.operations, { author: 'Intent Compiler Test' });
   assert.equal(listPrepared.status, 'ready', JSON.stringify(listPrepared.result?.error || listPrepared.result?.results));
   const listAccepted = acceptTrackedChangesInOoxml(listPrepared.insertionPayload, { allAuthors: true });
-  const acceptedParagraphs = inspectWordSource(listAccepted.oxml).inspection.paragraphs;
+  const acceptedParagraphs = inspectWordFlatOpc(listAccepted.oxml).inspection.paragraphs;
   const inserted = acceptedParagraphs.find(item => item.exactText === insertedText);
   const targetAfter = acceptedParagraphs.find(item => item.exactText === targetText);
   assert.ok(inserted && targetAfter, `${targetText}: accepted output keeps text and adds the requested item`);
@@ -281,7 +281,7 @@ for (const [targetText, expectedFormat, expectedLevel, expectedSiblingLabels = {
     'Accept All adds exactly the requested same-level list item');
   const rejected = rejectTrackedChangesInOoxml(listPrepared.insertionPayload, { allAuthors: true });
   assert.equal(rejected.status, undefined, JSON.stringify(rejected.error));
-  const rejectedParagraphs = inspectWordSource(rejected.oxml).inspection.paragraphs;
+  const rejectedParagraphs = inspectWordFlatOpc(rejected.oxml).inspection.paragraphs;
   assert.deepEqual(rejectedParagraphs.map(item => item.exactText), listSourceTargets.map(item => item.exactText),
     'Reject All restores the source text exactly');
   assert.deepEqual(rejectedParagraphs.map(item => item.list && { numId: item.list.numId, level: item.list.level, format: item.list.format, label: item.list.label }),
@@ -348,7 +348,7 @@ const formatComment = await compileFor(formatCommentPackage, [
   { type: 'format_text', target: 'handle-1', find: 'Format', properties: { bold: true } },
   { type: 'comment', target: 'handle-1', anchor: 'Format', text: 'Review this wording.' }
 ]);
-const formatCommentPrepared = await prepareCanonicalBatch(formatCommentPackage, formatComment.compiled.operations, {
+const formatCommentPrepared = await prepareWordFlatOpcBatch(formatCommentPackage, formatComment.compiled.operations, {
   author: 'Intent Compiler Test'
 });
 assert.equal(formatCommentPrepared.status, 'ready', JSON.stringify(formatCommentPrepared.result?.error));
@@ -387,7 +387,7 @@ const atomicBatch = await compileFor(atomicPackage, [
   { type: 'rewrite_paragraph', target: 'handle-1', text: 'First proposed change.' },
   { type: 'format_text', target: 'handle-2', find: 'missing anchor', properties: { italic: true } }
 ]);
-const atomicPrepared = await prepareCanonicalBatch(atomicPackage, atomicBatch.compiled.operations, {
+const atomicPrepared = await prepareWordFlatOpcBatch(atomicPackage, atomicBatch.compiled.operations, {
   author: 'Intent Compiler Test'
 });
 assert.equal(atomicPrepared.status, 'refused', 'an engine-invalid member refuses the entire atomic batch');
@@ -396,7 +396,7 @@ assert.equal(atomicPrepared.insertionPayload, undefined, 'a refused batch cannot
 const noopCompiled = await compileFor(insertPackage, [
   { type: 'rewrite_paragraph', target: 'handle-1', text: 'Existing clause.' }
 ]);
-const noopPrepared = await prepareCanonicalBatch(insertPackage, noopCompiled.compiled.operations, {
+const noopPrepared = await prepareWordFlatOpcBatch(insertPackage, noopCompiled.compiled.operations, {
   author: 'Intent Compiler Test'
 });
 assert.equal(noopPrepared.status, 'noop', 'a same-text rewrite remains an explicit canonical no-op');
@@ -418,14 +418,14 @@ const alreadyBoldPackage = makePackage('<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Alre
 const alreadyBold = await compileFor(alreadyBoldPackage, [
   { type: 'format_text', target: 'handle-1', find: 'Already', properties: { bold: true } }
 ]);
-const alreadyBoldPrepared = await prepareCanonicalBatch(alreadyBoldPackage, alreadyBold.compiled.operations);
+const alreadyBoldPrepared = await prepareWordFlatOpcBatch(alreadyBoldPackage, alreadyBold.compiled.operations);
 assert.equal(alreadyBoldPrepared.status, 'noop', 'already-applied formatting remains a canonical no-op');
 
 const highlightedPackage = makePackage('<w:p><w:r><w:rPr><w:highlight w:val="yellow"/></w:rPr><w:t>Marked.</w:t></w:r></w:p>');
 const removeHighlight = await compileFor(highlightedPackage, [
   { type: 'format_text', target: 'handle-1', find: 'Marked.', properties: { highlight: 'none' } }
 ]);
-const removeHighlightPrepared = await prepareCanonicalBatch(highlightedPackage, removeHighlight.compiled.operations);
+const removeHighlightPrepared = await prepareWordFlatOpcBatch(highlightedPackage, removeHighlight.compiled.operations);
 assert.equal(removeHighlightPrepared.status, 'ready', JSON.stringify(removeHighlightPrepared.result?.error));
 const unhighlighted = acceptTrackedChangesInOoxml(removeHighlightPrepared.result.documentXml, { allAuthors: true });
 assert.doesNotMatch(unhighlighted.oxml, /w:highlight/, 'the narrow none value removes existing highlighting');
@@ -438,7 +438,7 @@ const appendCompiled = await compileDocumentEdits([
 ], { session: appendSession, source });
 assert.equal(appendCompiled.operations[0].structuredContent, true);
 assert.equal(appendCompiled.operations[0].modified, 'Last paragraph.\nFinal plain paragraph.');
-const appendPrepared = await prepareCanonicalBatch(appendPackage, appendCompiled.operations);
+const appendPrepared = await prepareWordFlatOpcBatch(appendPackage, appendCompiled.operations);
 assert.equal(appendPrepared.status, 'ready', JSON.stringify(appendPrepared.result?.error));
 const appendAccepted = acceptTrackedChangesInOoxml(appendPrepared.result.documentXml, { allAuthors: true });
 assert.deepEqual(inspectDocumentParts({ documentXml: appendAccepted.oxml }).paragraphs.map(paragraph => paragraph.exactText), [

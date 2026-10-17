@@ -66,10 +66,12 @@ still produce library refusals. No accept-all-first policy is selected.
 Published 0.8.4 had an untracked surgical-insertion defect: a pure insertion
 could create new own tracked text despite tracking being disabled. It is fixed in
 0.9.0, and untracked pure insertion beside a foreign revision now succeeds (the
-original capability gate passes, 2026-10-12). The tool still compares prepared
-public revision segments with receipt-created IDs and refuses a mismatching
-output as `TRACKING_POLICY_MISMATCH` before checkpoint/write, kept as a backstop
-(KB-5 in [KNOWN_BUGS.md](plans/KNOWN_BUGS.md)). Foreign review carriers are
+original capability gate passes, 2026-10-12). The library enforces the rule
+itself (`UNTRACKED_CREATED_REVISION`), so the add-in's `TRACKING_POLICY_MISMATCH`
+backstop was retired in phase-2 WP3 (KB-5 in [KNOWN_BUGS.md](plans/KNOWN_BUGS.md)).
+Plain-text `replace_text`/`rewrite_paragraph` operations send
+`existingRevisions: 'auto'`; the library slices around another reviewer's
+pending revisions and merges the user's own. Foreign review carriers are
 allowed. WP5 is closed.
 
 Uncertain writes, verification errors, tracking restoration errors and cancellation preserve observed host evidence and require inspection. There is no native fallback or automatic mutation replay. The loop pairs every function response, rejects multiple mutation calls and mixed inspect/mutate exchanges before execution, and retains six model turns, two failed mutation cycles and one no-write stale refresh. Read-only calls do not reset mutation failures. Malformed recovery accepts only complete JSON calls for declared names. An unresolved refusal overrides a fabricated final success.

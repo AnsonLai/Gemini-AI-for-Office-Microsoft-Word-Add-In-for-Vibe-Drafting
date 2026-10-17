@@ -1,8 +1,8 @@
 import './setup-xml-provider.mjs';
 import assert from 'node:assert/strict';
 import { buildDocumentCommentsPackage, buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
-import { inspectWordSource } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
-import { computeWordRestorationToken } from '../src/taskpane/modules/docx-redline-js-integration/word-source-identity.js';
+import { inspectWordFlatOpc } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
+import { computeWordRestorationToken } from '@ansonlai/docx-redline-js/word';
 import { restoreBodyCheckpoint } from '../src/taskpane/modules/chat/checkpoint-restoration.js';
 
 globalThis.Word = { ChangeTrackingMode: { off: 'Off', trackAll: 'TrackAll' } };
@@ -74,13 +74,13 @@ assert.deepEqual(host.state(), { writes: 1, mode: 'TrackAll', modes: ['Off', 'Tr
 let receipt;
 
 const threadedCheckpoint = buildThreadedCheckpoint();
-const expectedThreadParts = inspectWordSource(threadedCheckpoint).parts;
+const expectedThreadParts = inspectWordFlatOpc(threadedCheckpoint).parts;
 const expectedThreadToken = await computeWordRestorationToken(expectedThreadParts);
 const regenerateWordIds = xml => [
   ['10000001', '10000011'], ['10000002', '10000012'], ['10000003', '10000013'],
   ['AAAA0001', 'AAAA0011'], ['CCCC0003', 'CCCC0013'], ['BBBB0002', 'BBBB0012']
 ].reduce((result, [before, after]) => result.replaceAll(before, after), xml);
-const regeneratedParts = inspectWordSource(regenerateWordIds(threadedCheckpoint)).parts;
+const regeneratedParts = inspectWordFlatOpc(regenerateWordIds(threadedCheckpoint)).parts;
 const regeneratedToken = await computeWordRestorationToken(regeneratedParts);
 assert.equal(regeneratedToken.value, expectedThreadToken.value);
 assert.deepEqual(regeneratedToken.commentIdentity, expectedThreadToken.commentIdentity,
@@ -93,7 +93,7 @@ assert.equal(host.state().writes, 1);
 const reparentedCheckpoint = threadedCheckpoint.replace(
   'w15:paraIdParent="AAAA0001"', 'w15:paraIdParent="BBBB0002"'
 );
-const reparentedParts = inspectWordSource(reparentedCheckpoint).parts;
+const reparentedParts = inspectWordFlatOpc(reparentedCheckpoint).parts;
 const reparentedToken = await computeWordRestorationToken(reparentedParts);
 assert.equal(reparentedToken.value, expectedThreadToken.value,
   'the full parts token alone intentionally omits regenerated parent paragraph IDs');

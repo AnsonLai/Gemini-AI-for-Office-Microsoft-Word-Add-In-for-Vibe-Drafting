@@ -1,7 +1,7 @@
 # Known bugs and host-boundary exceptions
 
-**Updated:** 2026-10-12, after the `@ansonlai/docx-redline-js` 0.9.0 upgrade
-([validation](../validation-reports/2026-10-12-docx-redline-v090.md)).
+**Updated:** 2026-10-17, phase-2 WP1/WP3 against the local `@ansonlai/docx-redline-js` 0.10.0 build (unpublished; the pin is still 0.9.0).
+Previous: 2026-10-12, after the 0.9.0 upgrade ([validation](../validation-reports/2026-10-12-docx-redline-v090.md)).
 
 This file tracks two things:
 
@@ -53,12 +53,11 @@ Library defects still go in [`../library-issues/`](../library-issues/README.md),
 - Tracked in the [canonical list migration follow-up](2026-09-30-canonical-list-migration-follow-up.md) (WP1 to WP3).
 - **Exit condition:** that plan's remaining acceptance items are met (facade parity; library-issues cleanup).
 
-### KB-5: `TRACKING_POLICY_MISMATCH` guard is a 0.8.4 workaround
+### KB-5: `TRACKING_POLICY_MISMATCH` guard (retired by phase-2 WP3, 2026-10-17)
 
-- [`document-tools.js`](../../src/taskpane/modules/chat/document-tools.js) (`onPrepared`) refuses an untracked batch whose prepared output carries new own-author revisions. It was added for the 0.8.4 surgical-insertion bug.
-- 0.9.0 fixes that bug and enforces the same rule itself (`REVISION_FIDELITY_VIOLATION` / `UNTRACKED_CREATED_REVISION`).
-- The guard is kept as a backstop and no longer fires on the certified cases.
-- **Exit condition:** one release cycle on 0.9.x with the untracked capability gate passing. Then remove the guard and rely on the library's `UNTRACKED_CREATED_REVISION`.
+- The add-in refused an untracked batch whose prepared output carried new own-author revisions, a workaround for the 0.8.4 surgical-insertion bug.
+- 0.9.0 fixed that bug and enforces the same rule itself (`REVISION_FIDELITY_VIOLATION` / `UNTRACKED_CREATED_REVISION`). The guard never fired on the certified cases during the 0.9.x cycle.
+- **Retired:** the guard is removed from `document-tools.js`; the library's refusal is relied on. The untracked capability cases in `document_tools_tests.mjs` still pass.
 
 ### KB-6: Revision-fidelity refusals reach the model unmapped
 
@@ -75,6 +74,7 @@ Library defects still go in [`../library-issues/`](../library-issues/README.md),
   - Reproducer: [`2026-10-12-table-reconciliation-underscore-collapse-reproducer.mjs`](../library-issues/2026-10-12-table-reconciliation-underscore-collapse-reproducer.mjs) (exit 0 while it reproduces; 0.8.4 behaves the same).
 - **User impact today:** the table-reconciliation route is not reachable. `rewrite_paragraph` and `replace_text` forbid line breaks, and the route needs a multi-line pipe table. Insertions refuse targets and text that `preprocessMarkdown` would change (`plainParagraph`, `checkedInsertionTarget`). `replace_text` is safe because the library refuses a localized replacement it cannot round-trip (`PATCH_ROUNDTRIP_MISMATCH`). **However, `rewrite_paragraph` is exposed through the same root cause.** It sends a `redline` with `structuredContent: false`, and the library still runs `preprocessMarkdown` on it. Rewriting a paragraph whose text holds an underscore run (signature or date line, `__x__`) returns `status: 'ok'` with the run shrunk. Example: `_________________________` with ` (sign)` appended accepts as `_____ (sign)`. `document-tools.js` verifies Word against the prepared text, not the requested text, so nothing catches it. Signature-block rewrites are the likely trigger.
 - **Exit condition:** a published library fix, with the reproducer exiting 1. Then remove the known-defect gate from "Add Date Row" (the `squash`/`knownDefect` logic and the marker). Consider a guard that compares the requested `rewrite_paragraph` text with the prepared text before the interim period ends.
+- **Fixed in 0.10.0 (local build, 2026-10-17; not yet published):** underscore emphasis follows CommonMark flanking rules, and a caller's `structuredContent: false` keeps inline Markdown literal. The reproducer exits 1 against 0.10.0, and the "Add Date Row" known-defect gate is removed on branch `phase2-wp1-wp3`. Close this entry and move the library issue to `completed/` once 0.10.0 is published and pinned.
 - **Related observation (not filed):** a `list-change` whose kept item carries `-` markers on a decimal list converts the list to a new bullet list (new `numId`, bullet labels). The only diagnostic is "Paragraph expanded to list fragment". The 0.9.0 README ("List operations") and `AGENT_KNOWLEDGE_BASE.md` say retyped markers keep the old numbering and warn `LIST_FORMAT_NOT_APPLIED`. Checked on the sample's decimal list with a single-paragraph target. This looks like a gap against the documented contract, probably on the single-paragraph or fragment path. It is not filed because Reject All and the multi-paragraph target form were not checked. The add-in avoids it by deriving markers from the target list's kind (`listInsertionMarkers`).
 
 ### KB-8: Test XML provider was chosen silently; the `jsdom` lane fails 5 suites (all provider-specific, none a user defect)
@@ -140,7 +140,7 @@ All document *transformation* happens in the library. The only Word call that ch
 | --- | --- | --- | --- | --- |
 | `chat/word-document-source.js` | `document.getSelection()`, `load('text')` | "User highlighted text" hint. The library has no selection concept | Necessary | None. A future improvement could map the selection to inspected paragraph handles instead of Word text |
 | `taskpane.js` | `Office.context.document.url`, `Office.onReady`, `Office.context.platform` | Document-identity guard, host gate, and the platform passed to the library | Necessary | None |
-| `chat/word-document-source.js` → `word-source-identity.js` `detectExportTailIndex` | `body.paragraphs.load('$none')`, `items.length` | Host paragraph count, used only to recognise the empty trailing paragraph Word adds to `getOoxml` exports | **Expedient** | The library recognises the Word export tail from Flat OPC alone, or the extra paragraph is shown never to occur. Then remove the count and `detectExportTailIndex` |
+| `chat/word-document-source.js` → library `detectWordExportTailIndex` (via the Word tokens) | `body.paragraphs.load('$none')`, `items.length` | Host paragraph count, used only to recognise the empty trailing paragraph Word adds to `getOoxml` exports | **Expedient** | The library recognises the Word export tail from Flat OPC alone, or the extra paragraph is shown never to occur. Then remove the count and `detectExportTailIndex` |
 
 ### Verification and checkpoint restore
 
@@ -158,17 +158,12 @@ All document *transformation* happens in the library. The only Word call that ch
 
 ### Local package logic that should move upstream
 
-This is not Word API use, but it is outside the library:
-
-- **`consumer-core.js`:** Flat OPC part and relationship handling, comment-part merge (`mergeCommentPartsIntoPackage`), and `buildBatchInsertionPackage`. Exit: a supported library Flat OPC inspect/prepare surface. The plan already proposes one; its API is not yet agreed.
-- **`word-source-identity.js`:** normalisation of Word rsid and paraId export noise, and export-tail detection. Exit: the same Flat OPC surface, or a library "Word export" normaliser.
-- **`chat/document-tools.js`:** choosing `existingRevisions: 'slice-cross-author'` from the revision authors in a paragraph. Exit: a library auto policy for foreign revisions.
-- **`chat/document-tools.js`:** the local review-segment merge used for post-commit verification. Exit: a library helper that verifies committed output against the prepared output.
+Moved by phase-2 WP1/WP3 (2026-10-17, library 0.10.0): Flat OPC part and relationship handling, comment and numbering merge and insertion-package assembly (`consumer-core.js`), Word export-noise normalisation and tail detection (`word-source-identity.js`) — now `@ansonlai/docx-redline-js/word`; the foreign-revision policy choice — now `existingRevisions: 'auto'`; and the post-commit review-segment comparison — now `compareDocumentInspections`. Nothing listed remains.
 
 ### Expedient uses to retire (priority order)
 
-1. Host paragraph count and `detectExportTailIndex`: needs a library export-tail detector (blocked on phase-2 WP1).
-2. `TRACKING_POLICY_MISMATCH` guard (KB-5).
-3. Upstream the `consumer-core.js` / `word-source-identity.js` package logic once a library surface is agreed.
+1. Host paragraph count for the export tail: the library's `detectWordExportTailIndex` still needs `hostParagraphCount` to certify that Word's trailing empty paragraph is an export artefact and not real content. Removing it needs Word evidence that the tail is always present (or a Flat OPC marker that identifies it).
+
+Retired by phase-2 WP1/WP3 (2026-10-17): the `TRACKING_POLICY_MISMATCH` guard (KB-5) and the consumer package logic (see above).
 
 Retired by phase-2 WP4 (2026-10-16): the glance-check `body.text` read, the unreachable checkpoint-capture `getOoxml` fallback in `taskpane.js`, the unused `baseTrackingMode` option, the unimported `src/taskpane/debug_structure.js`, and the Outlook-template `src/commands/commands.js` (the manifest's `FunctionFile` still points at the now script-free `commands.html`).

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { configureLogger, openDocx, validateDocxPackage } from '@ansonlai/docx-redline-js';
 import { MemoryZip, unzipDocx, zipDocx } from '@ansonlai/docx-redline-js/document/zip-archive.js';
 import { createParser, createSerializer } from '@ansonlai/docx-redline-js/adapters/xml-adapter.js';
-import { prepareCanonicalBatch } from '../src/taskpane/modules/docx-redline-js-integration/consumer-core.js';
+import { prepareWordFlatOpcBatch } from '@ansonlai/docx-redline-js/word';
 import { executePureOoxmlBatch } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
 import { applyDocumentOperations } from '../mcp/docx-server/src/services/docx-document-service.mjs';
 import { createDocumentSession } from '../browser-demo/document-session.js';
@@ -259,7 +259,7 @@ async function captureFailure(run) {
 async function runSuccessfulParity(sourceBytes) {
     const operations = batchOperations();
     const flatSource = packageToFlatOpc(sourceBytes);
-    const core = await prepareCanonicalBatch(flatSource, operations, options);
+    const core = await prepareWordFlatOpcBatch(flatSource, operations, options);
     assert.equal(core.status, 'ready', `portable core: ${JSON.stringify(core.result?.error || core.result?.results)}`);
     const coreBytes = materializeWordInsertion(sourceBytes, core.insertionPayload);
 
@@ -312,7 +312,7 @@ async function runAtomicRefusalParity(sourceBytes) {
         { type: 'replace', target: { exactText: 'missing source paragraph' }, modified: 'also refused' }
     ];
     const flatSource = packageToFlatOpc(sourceBytes);
-    const core = await prepareCanonicalBatch(flatSource, badOperations, options);
+    const core = await prepareWordFlatOpcBatch(flatSource, badOperations, options);
     assert.equal(core.status, 'refused');
     assert.equal(core.result?.error?.code, 'BATCH_OPERATION_FAILED', 'portable core retains the batch wrapper');
     assert.ok(getErrorCodes(core.result).includes('TARGET_NOT_FOUND'), 'portable core preserves the engine error code');

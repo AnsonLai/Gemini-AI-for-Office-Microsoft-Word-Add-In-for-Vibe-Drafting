@@ -543,7 +543,7 @@ const loadWordOperationSupport = createLazyModuleLoader(
     import('./modules/docx-redline-js-integration/word-operation-runner.js'),
     import('@ansonlai/docx-redline-js'),
     import('./modules/chat/document-inspection-session.js'),
-    import('./modules/docx-redline-js-integration/word-source-identity.js')
+    import('@ansonlai/docx-redline-js/word')
   ]),
   ([, docxLibrary]) => {
     docxLibrary.setPlatform(Office?.context?.platform);
@@ -1035,7 +1035,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
     const [, , inspectionModule, wordIdentity] = await wordOperationSupportPromise;
     const inspectionSession = inspectionModule.createDocumentInspectionSession({ readSource, maxTextChars: 4000,
       computeRevisionToken: wordIdentity.computeWordSourceRevisionToken,
-      getExcludedParagraphIndex: wordIdentity.detectExportTailIndex,
+      getExcludedParagraphIndex: wordIdentity.detectWordExportTailIndex,
       ...(globalThis.__WORD_SOURCE_DIAGNOSTICS__ ? { onStaleSource: globalThis.__WORD_SOURCE_DIAGNOSTICS__ } : {}),
     });
     const docSelection = documentSource.selectionText.slice(0, 2000);

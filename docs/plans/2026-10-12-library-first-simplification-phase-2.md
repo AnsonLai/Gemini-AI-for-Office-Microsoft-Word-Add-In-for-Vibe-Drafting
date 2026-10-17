@@ -1,7 +1,7 @@
 # Library-first simplification, phase 2
 
 **Date:** 2026-10-12 (America/Vancouver)
-**Status:** WP0 complete (2026-10-12); WP5 complete for the exposed list actions (2026-10-14); WP4 complete except the host paragraph count, which waits on WP1 (2026-10-16). WP1–WP3 not started; the open owner decisions are at the end.
+**Status:** WP0 complete (2026-10-12); WP5 complete for the exposed list actions (2026-10-14); WP4 complete except the host paragraph count (2026-10-16). WP1 and WP3 implemented 2026-10-17 against a local `docx-redline-js` 0.10.0 build: the library work is on branch `feat/word-surface-0.10`, the plugin work on `phase2-wp1-wp3`, and both wait on publishing 0.10.0. WP2 not started.
 **Baseline:**
 - Exact `@ansonlai/docx-redline-js@0.9.0` in the add-in and MCP.
 - HEAD `a98f339` plus the uncommitted 0.9.0 upgrade work.
@@ -104,6 +104,13 @@ If WP1–WP3 land as proposed, roughly 1,000–1,200 consumer lines become libra
 
 **Exit:** `document-tools.js` holds only tool wiring. KB-5 and KB-7 are closed.
 
+**Done (2026-10-17, pending the 0.10.0 release), WP1 and WP3 together:**
+- Library 0.10.0 (`feat/word-surface-0.10`, `a915dab`): `@ansonlai/docx-redline-js/word` (`inspectWordFlatOpc`, `prepareWordFlatOpcBatch`, `computeWordSourceRevisionToken`, `computeWordRestorationToken`, `detectWordExportTailIndex`), `existingRevisions: 'auto'`, `compareDocumentInspections`, and the KB-7 fix. The consumer-core test suite moved to the library as `word_flat_opc_body_tests`. Library suite 153/153, types and isolation checks pass.
+- Plugin (`phase2-wp1-wp3`): `consumer-core.js` and `word-source-identity.js` deleted; plain-text replace/rewrite operations send `existingRevisions: 'auto'`; post-commit verification uses `compareDocumentInspections`; the `TRACKING_POLICY_MISMATCH` guard (KB-5) and the "Add Date Row" known-defect gate (KB-7) are removed.
+- Production lines 4,478 → 3,900, files 19 → 17. Internal library subpath imports in `src/`: 6 → 0. The one remaining subpath, `standalone-runner`, is a documented public entry point.
+- Gates so far: offline 48/48 (one suite moved to the library), both builds, and the KB-7 reproducer exits 1. **Not yet run:** the Office.js manifest, the Word oracle and the NDA replay. Run them after 0.10.0 is published and pinned.
+- Still open: the host paragraph count for the export tail (see KNOWN_BUGS). The library still needs it as certification.
+
 ### WP4: Remove expedient Word JS API uses and dead code
 
 These items have no library dependency and can start right after WP0.
@@ -166,12 +173,12 @@ These don't reduce the plugin, but they gate users actually getting today's work
 
 ## Open owner decisions
 
-1. **Size target.** Proposed: at most 3,300 production lines after WP1–WP4, about a 25% cut from 4,437. Is there a harder target?
+1. **Size target.** Decided 2026-10-17: no fixed target. Keep shrinking.
 2. **Order.** The recommended order is WP0 → WP4 → WP1 → WP3 → WP2.
    - WP4 is quick and independent.
    - WP1 removes the most library coupling.
    - WP2 is the largest API design.
    - Alternatively, start WP2 first if inspection reliability is the bigger pain.
-3. **Library API shape.** Should the Flat OPC body surface and the agent session be public library modules (browser-safe, documented, semver-covered), or a Word-specific companion package?
+3. **Library API shape.** Decided 2026-10-17: public, documented modules in `docx-redline-js` itself (the `/word` subpath for WP1). The WP2 session API should follow the same pattern.
 4. **Browser lane.** Recommendation from WP0: don't make jsdom a required gate. Keep xmldom as the gate and add a headless Chromium/Edge lane that runs the library bundle, advisory at first and required once it is stable. `scripts/browser-document-validation.html` is a manual starting point. Agree?
 5. **Release track.** Deploy the current fixes before phase 2 starts, or batch them with WP0?

@@ -1,7 +1,7 @@
-import { areRevisionTokensEqual } from '@ansonlai/docx-redline-js';
-import { computeWordSourceRevisionToken } from '../docx-redline-js-integration/word-source-identity.js';
+import { areRevisionTokensEqual, compareDocumentInspections } from '@ansonlai/docx-redline-js';
+import { computeWordSourceRevisionToken } from '@ansonlai/docx-redline-js/word';
 import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalone-runner';
-import { executePureOoxmlBatch, inspectWordSource } from '../docx-redline-js-integration/word-operation-runner.js';
+import { executePureOoxmlBatch, inspectWordFlatOpc } from '../docx-redline-js-integration/word-operation-runner.js';
 import { compileDocumentEdits } from './document-edit-intents.js';
 import { queueHostParagraphCount } from './word-document-source.js';
 
@@ -13,35 +13,6 @@ function sourceParts(source) {
   ].filter(([, xml]) => xml));
   return parts;
 }
-const commentIdentity = comment => [comment.author, comment.text, comment.anchoredText || ''];
-function reviewSegments(segments = []) {
-  return segments.filter(segment => segment.kind !== 'baseline').reduce((result, segment) => {
-    const next = { kind: segment.kind, author: segment.author || null, text: segment.text,
-      acceptedStart: segment.acceptedStart, rejectedStart: segment.rejectedStart };
-    const previous = result.at(-1);
-    const adjacent = key => previous[key] == null && next[key] == null
-      || previous[key] != null && previous[key] + previous.text.length === next[key];
-    if (previous && previous.kind === next.kind && previous.author === next.author
-      && adjacent('acceptedStart') && adjacent('rejectedStart')) previous.text += next.text;
-    else result.push(next);
-    return result;
-  }, []);
-}
-const acceptedShape = inspection => ({
-  paragraphs: inspection.paragraphs.map(paragraph => ({
-    text: paragraph.exactText, inTable: paragraph.inTable,
-    table: paragraph.table ? [paragraph.table.rowIndex, paragraph.table.cellIndex] : null,
-    list: paragraph.list ? [paragraph.list.format, paragraph.list.level, paragraph.list.label] : null,
-    review: { present: paragraph.hasRevisions, authors: [...paragraph.revisionAuthors].sort(),
-      segments: reviewSegments(paragraph.segments) },
-  })),
-  comments: (inspection.comments || []).map(comment => {
-    const parent = (inspection.comments || []).find(item => comment.parentCommentId != null && String(item.id) === String(comment.parentCommentId));
-    return [...commentIdentity(comment), comment.done === true,
-      parent ? commentIdentity(parent) : comment.parentCommentId != null || comment.parentParaId ? 'unresolved parent' : null];
-  }).sort(),
-});
-
 /** Direct document tools. Word is only a source/commit/state transport. */
 export function createDocumentTools({ session, getDocumentId, getAuthor, getGenerateRedlines, persistCheckpoint, signal,
   run = callback => Word.run(callback), onReceipt = () => {} }) {
@@ -55,7 +26,6 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
         checkCancelled();
         const documentId = getDocumentId();
         const author = getAuthor(), generateRedlines = getGenerateRedlines();
-        const ownAuthor = String(author).trim().toLowerCase();
         result = await run(async context => {
           const body = context.document.body;
           let hostParagraphCount;
@@ -71,12 +41,10 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
             compiled = await compileDocumentEdits(edits, { session, source: {
               documentId, revisionView: 'accepted', parts: sourceParts(source), hostParagraphCount,
             } });
+            // The library slices around another reviewer's history and merges our own.
             compiled.operations = compiled.operations.map(operation =>
               operation.structuredContent === false && ['replace', 'redline'].includes(operation.type)
-                && source.paragraphs.some(paragraph => paragraph.index === operation.target.index && paragraph.hasRevisions
-                  && (!paragraph.revisionAuthors.length
-                    || paragraph.revisionAuthors.some(name => name.trim().toLowerCase() !== ownAuthor)))
-                ? { ...operation, existingRevisions: 'slice-cross-author' } : operation);
+                ? { ...operation, existingRevisions: 'auto' } : operation);
             return compiled.operations;
           }, {
             author, generateRedlines,
@@ -89,17 +57,7 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
                   || new Set(preparation.result.results.map(item => item.index)).size !== compiled.operations.length)) {
                 throw fail('INCOMPLETE_ENGINE_RESULT', 'The engine did not account for every prepared operation. No write was attempted.');
               }
-              if (preparation.status === 'ready') {
-                expected = inspectWordSource(preparation.insertionPayload);
-                const createdIds = new Set(preparation.result.receipts.flatMap(receipt => receipt.revisionItems || [])
-                  .map(item => String(item.id)));
-                if (generateRedlines === false && expected.inspection.paragraphs.some(paragraph =>
-                  paragraph.segments.some(segment => segment.kind !== 'baseline'
-                    && String(segment.author || '').trim().toLowerCase() === ownAuthor
-                    && createdIds.has(String(segment.revisionId))))) {
-                  throw fail('TRACKING_POLICY_MISMATCH', 'The library prepared new tracked text despite tracked edits being disabled. This operation requires a library fix; no part of the batch was written.');
-                }
-              }
+              if (preparation.status === 'ready') expected = inspectWordFlatOpc(preparation.insertionPayload);
             },
             async beforeWrite(preparation) {
               checkCancelled();
@@ -112,7 +70,7 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
               const readFreshCount = queueHostParagraphCount(body);
               await context.sync();
               const sourceToken = await computeWordSourceRevisionToken(sourceParts(preparation.source), { hostParagraphCount });
-              const freshToken = await computeWordSourceRevisionToken(inspectWordSource(fresh.value).parts, { hostParagraphCount: readFreshCount() });
+              const freshToken = await computeWordSourceRevisionToken(inspectWordFlatOpc(fresh.value).parts, { hostParagraphCount: readFreshCount() });
               if (getDocumentId() !== documentId || !areRevisionTokensEqual(sourceToken.value, freshToken.value)) {
                 throw fail('STALE_DOCUMENT_CONTEXT', 'The document changed while saving its checkpoint. Inspect it again before editing.');
               }
@@ -125,9 +83,9 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
             try {
               const fresh = body.getOoxml(); counts.verificationReads++;
               await context.sync();
-              const actual = inspectWordSource(fresh.value);
+              const actual = inspectWordFlatOpc(fresh.value);
               if (getDocumentId() !== documentId
-                || JSON.stringify(acceptedShape(actual.inspection)) !== JSON.stringify(acceptedShape(expected.inspection))) {
+                || !compareDocumentInspections(expected.inspection, actual.inspection).matches) {
                 throw fail('HOST_VERIFICATION_FAILED', 'The committed document does not match the prepared text, structure, review marks or comments.');
               }
               // Reapplying a requested format to the actual source must be a pure no-op.

@@ -1,8 +1,8 @@
 /** Word host adapter for one body-level canonical OOXML batch. */
-import { prepareCanonicalBatch } from './consumer-core.js';
+import { prepareWordFlatOpcBatch } from '@ansonlai/docx-redline-js/word';
 import { withNativeTrackingDisabled } from './word-ooxml.js';
 
-export { inspectWordSource, prepareCanonicalBatch } from './consumer-core.js';
+export { inspectWordFlatOpc, prepareWordFlatOpcBatch } from '@ansonlai/docx-redline-js/word';
 
 function failedBatchWrite(result, source, code, error, writeAttempted = false, written = false) {
     return {
@@ -89,7 +89,7 @@ async function executePureOoxmlBatchInternal(context, body, operations, options,
         const preparationOptions = { ...options };
         delete preparationOptions.onTiming;
         delete preparationOptions.now;
-        preparation = await prepareCanonicalBatch(ooxmlResult?.value || '', operations, preparationOptions);
+        preparation = await prepareWordFlatOpcBatch(ooxmlResult?.value || '', operations, preparationOptions);
     } finally {
         timing?.record('portablePreparation', preparationStartedAt);
     }

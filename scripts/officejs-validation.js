@@ -3,9 +3,9 @@
 // document tools and source-bound handles used by the task pane.
 import * as docxLibrary from '@ansonlai/docx-redline-js';
 import { extractDocumentPartsEntries } from '@ansonlai/docx-redline-js';
-import { inspectWordSource } from '../src/taskpane/modules/docx-redline-js-integration/consumer-core.js';
+import { inspectWordFlatOpc } from '@ansonlai/docx-redline-js/word';
 import * as wordOperationRunner from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
-import { computeWordRestorationToken, computeWordSourceRevisionToken, detectExportTailIndex } from '../src/taskpane/modules/docx-redline-js-integration/word-source-identity.js';
+import { computeWordRestorationToken, computeWordSourceRevisionToken, detectWordExportTailIndex } from '@ansonlai/docx-redline-js/word';
 import { createDocumentInspectionSession } from '../src/taskpane/modules/chat/document-inspection-session.js';
 import { createDocumentTools } from '../src/taskpane/modules/chat/document-tools.js';
 import { createWordDocumentSourceReader, queueHostParagraphCount } from '../src/taskpane/modules/chat/word-document-source.js';
@@ -185,7 +185,7 @@ async function captureBodySource() {
     });
 }
 function inspectBodySource(raw) {
-    return { ...raw, ...inspectWordSource(raw.ooxml) };
+    return { ...raw, ...inspectWordFlatOpc(raw.ooxml) };
 }
 function commentDurableIds(source) {
     const xml = source.parts?.commentsIdsXml
@@ -417,7 +417,7 @@ async function createDirectDocumentTools(testCase, stats, options = {}) {
         readSource,
         maxTextChars: 4000,
         computeRevisionToken: computeWordSourceRevisionToken,
-        getExcludedParagraphIndex: detectExportTailIndex,
+        getExcludedParagraphIndex: detectWordExportTailIndex,
     });
     let checkpointCount = 0;
     let checkpointId = null;
@@ -574,7 +574,7 @@ function assertCommitted(receipt, testCase, stats, checkpointCount, expectedCont
 }
 function tableStructureFromSource(source, tableFixture) {
     assert(Number.isInteger(source.hostParagraphCount), 'Word source did not capture the body paragraph membership count.');
-    const excludedTailIndex = detectExportTailIndex(source.parts, { hostParagraphCount: source.hostParagraphCount });
+    const excludedTailIndex = detectWordExportTailIndex(source.parts, { hostParagraphCount: source.hostParagraphCount });
     const paragraphs = source.inspection.paragraphs.filter(paragraph => paragraph.inTable !== true
         && paragraph.index !== excludedTailIndex).map(paragraph => paragraph.exactText);
     const state = cells => ({
@@ -624,7 +624,7 @@ async function prepareProductionSource(testCase) {
             assert(harness.checkpointCount === 1 && stats.contentWrites === 1,
                 `${testCase.name}: tracked source preparation did not persist one checkpoint and one source write.`);
             const prepared = await captureBodySource();
-            const inspection = inspectWordSource(prepared.ooxml).inspection;
+            const inspection = inspectWordFlatOpc(prepared.ooxml).inspection;
             assert(inspection.paragraphs.some(paragraph => paragraph.hasRevisions),
                 `${testCase.name}: tracked source preparation did not leave a body revision in Word.`);
             applied.push({ type: step.type, targetText: step.targetText, text: step.text, author: step.author || 'WP4 reviewer', receipt,
@@ -706,7 +706,7 @@ async function runCheckpointRestoreControl(testCase, harness) {
     const checkpoint = await getCheckpoint(harness.checkpointId);
     assert(checkpoint?.id === harness.checkpointId && checkpoint.ooxml === harness.checkpointOoxml,
         `${testCase.name}: IndexedDB did not return the exact persisted pre-edit checkpoint.`);
-    const checkpointInspection = inspectWordSource(checkpoint.ooxml);
+    const checkpointInspection = inspectWordFlatOpc(checkpoint.ooxml);
     const checkpointCommentCount = checkpointInspection.inspection.comments?.length || 0;
     const checkpointComments = commentSnapshot(checkpointInspection);
     const checkpointRevisionElementCount = (checkpointInspection.parts.documentXml.match(/<w:(?:ins|del)\b/g) || []).length;
@@ -726,7 +726,7 @@ async function runCheckpointRestoreControl(testCase, harness) {
     const trackingModeAfter = await getTrackingMode();
     const restoredSource = inspectBodySource(await captureBodySource());
     if (!receipt.success) {
-        const expectedSource = inspectWordSource(checkpoint.ooxml);
+        const expectedSource = inspectWordFlatOpc(checkpoint.ooxml);
         const diagnostics = sourcePartDiagnostics(expectedSource.parts, restoredSource.parts, restoredSource.hostParagraphCount);
         const expectedToken = await computeWordRestorationToken(expectedSource.parts, { hostParagraphCount: restoredSource.hostParagraphCount });
         const restoredToken = await computeWordRestorationToken(restoredSource.parts, { hostParagraphCount: restoredSource.hostParagraphCount });
@@ -890,7 +890,7 @@ Office.onReady(async info => {
             let revisionIdentityEvidence = null;
             if (testCase.revisionIdentityCheck) {
                 const afterSource = inspectBodySource(await captureBodySource());
-                const checkpointSource = inspectWordSource(harness.checkpointOoxml || '');
+                const checkpointSource = inspectWordFlatOpc(harness.checkpointOoxml || '');
                 const sourceRevisions = revisionIdentity(source);
                 const checkpointRevisions = revisionIdentity(checkpointSource);
                 const afterRevisions = revisionIdentity(afterSource);
@@ -951,7 +951,7 @@ Office.onReady(async info => {
                 fixtureExpectations[testCase.name] = {
                     expectedBodyStructure: tableStructureFromSource(source, testCase.tableStructure),
                     hostParagraphCount: source.hostParagraphCount,
-                    excludedExportTailIndex: detectExportTailIndex(source.parts, { hostParagraphCount: source.hostParagraphCount })
+                    excludedExportTailIndex: detectWordExportTailIndex(source.parts, { hostParagraphCount: source.hostParagraphCount })
                 };
             }
             if (!testCase.expectedPrewriteRefusal && testCase.name === cases[0]?.name) {
