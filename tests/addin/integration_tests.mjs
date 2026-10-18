@@ -384,11 +384,8 @@ async function runNdaTests() {
 
     await check('Add Date Row', async () => {
         const name = 'Add Date Row';
-        // Known library defect in @ansonlai/docx-redline-js 0.9.0 (docs/library-issues/2026-10-12-
-        // table-reconciliation-underscore-collapse.md): the Markdown pre-processor collapses literal
-        // underscore signature lines in Accept All, including cells the edit did not change.
-        // The strict assertions stay; the case is reported (not failed) only when the sole mismatch
-        // is that signature, and passes normally with no marker once the library is fixed.
+        // The underscore signature lines must survive Accept All unchanged (fixed in 0.10.0; see
+        // docs/library-issues/completed/2026-10-12-table-reconciliation-underscore-collapse.md).
         const blank = '___________________';
         const run = await applyToSampleDocument(name, (source) => {
             const [header] = findParagraphs(source, p => p.inTable && p.exactText === 'DISCLOSING PARTY:', name, 1);

@@ -1,5 +1,7 @@
 # Literal underscore runs are collapsed by the Markdown pre-processor
 
+> **Resolved in 0.10.0 (2026-10-17):** Fixed in `@ansonlai/docx-redline-js@0.10.0`. Underscore emphasis now follows CommonMark flanking rules, and a caller's `structuredContent: false` keeps inline Markdown literal. The reproducer prints "NOT REPRODUCED" and exits 1. The add-in and MCP pin exact 0.10.0, and the "Add Date Row" known-defect gate is removed. The body below is the historical 0.9.0 report. See the [0.10.0 validation](../../validation-reports/2026-10-17-docx-redline-v0100.md).
+
 Repository: `AnsonLai/docx-redline-js`. Reproduces in installed 0.9.0 and in
 0.8.4 (checked 2026-10-12 with a scratch install outside the repo). Not yet
 filed upstream.
@@ -36,7 +38,7 @@ modified text equals the table's current text must be a no-op.
 ## Actual
 
 ```powershell
-node docs/library-issues/2026-10-12-table-reconciliation-underscore-collapse-reproducer.mjs
+node docs/library-issues/completed/2026-10-12-table-reconciliation-underscore-collapse-reproducer.mjs
 ```
 
 Prints the Accept All cells for a no-change reconcile (`["_","_"]` against

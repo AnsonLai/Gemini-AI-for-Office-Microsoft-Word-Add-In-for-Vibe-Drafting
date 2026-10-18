@@ -4,8 +4,8 @@
 // The same parser also collapses underscores in a plain paragraph rewrite with
 // structuredContent: false. Exits 0 while the defect reproduces and 1 once fixed.
 //
-//   node docs/library-issues/2026-10-12-table-reconciliation-underscore-collapse-reproducer.mjs
-import '../../tests/setup-xml-provider.mjs';
+//   node docs/library-issues/completed/2026-10-12-table-reconciliation-underscore-collapse-reproducer.mjs
+import '../../../tests/setup-xml-provider.mjs';
 import { acceptTrackedChangesInOoxml, inspectDocumentParts } from '@ansonlai/docx-redline-js';
 import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalone-runner';
 

@@ -8,23 +8,23 @@ reports move to [`completed/`](completed/); once every report is resolved, the
 [canonical list follow-up](../plans/2026-09-30-canonical-list-migration-follow-up.md)
 deletes this folder.
 
-## Current status: installed 0.9.0 (verified 2026-10-12)
+## Current status: installed 0.10.0 (verified 2026-10-17)
 
-The root and MCP consumers pin exact 0.9.0. Every report that was open on
-0.8.4 is resolved in 0.9.0 (see the
-[0.9.0 validation](../validation-reports/2026-10-12-docx-redline-v090.md)), and
-all earlier 0.8.2 to 0.8.4 fixes still hold. Resolved reports are in
-[`completed/`](completed/) with dated resolution notes. Their original bodies are
-historical records of the version they were filed against.
+The root and MCP consumers pin exact 0.10.0. The last open report, the
+underscore collapse (KB-7), is fixed in 0.10.0 (see the
+[0.10.0 validation](../validation-reports/2026-10-17-docx-redline-v0100.md)).
+Resolved reports are in [`completed/`](completed/) with dated resolution notes.
+Their original bodies are historical records of the version they were filed against.
 
 ## Open
 
-| Report | Installed | Reproducer |
-| --- | --- | --- |
-| [Markdown pre-processor collapses literal underscore runs](2026-10-12-table-reconciliation-underscore-collapse.md) | 0.8.4 and 0.9.0 | [`2026-10-12-table-reconciliation-underscore-collapse-reproducer.mjs`](2026-10-12-table-reconciliation-underscore-collapse-reproducer.mjs) |
+None. Every recorded report is resolved, so the
+[canonical list follow-up](../plans/2026-09-30-canonical-list-migration-follow-up.md)
+cleanup (keep needed evidence in `docs/validation-reports/`, then delete this
+folder and its incoming links) is unblocked.
 
 Consumer-side bugs, host-boundary exceptions and the Word JavaScript API
-inventory are tracked in [`KNOWN_BUGS.md`](../plans/KNOWN_BUGS.md); this defect is KB-7.
+inventory are tracked in [`KNOWN_BUGS.md`](../plans/KNOWN_BUGS.md).
 
 ## Consumer transport incidents (not library defects)
 
@@ -65,3 +65,4 @@ the links to them.
 | [`generateRedlines: false` cross-author insertion](completed/2026-10-02-generate-redlines-false-cross-author-insertion.md) | 0.9.0 |
 | [Word Reject All extra paragraph after a final table append](completed/2026-10-01-word-reject-table-append-paragraph.md) | 0.9.0 at package level; live-insert residual is KB-1 |
 | [Canonical list capabilities](completed/2026-09-30-canonical-list-operations.md) | 0.9.0 (`list-format`, `paragraph-format.numbering`); consumer adoption tracked in the list plan and KB-4 |
+| [Markdown pre-processor collapses literal underscore runs](completed/2026-10-12-table-reconciliation-underscore-collapse.md) | 0.10.0 (KB-7) |

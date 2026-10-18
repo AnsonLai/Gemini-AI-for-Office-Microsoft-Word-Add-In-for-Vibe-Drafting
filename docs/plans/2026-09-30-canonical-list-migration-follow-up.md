@@ -170,4 +170,4 @@ not an existing API to code against yet.
 - [ ] All recorded library issues are resolved, `docs/library-issues/` is deleted,
       and its incoming links are removed or updated.
 
-**Next action (2026-10-14):** WP1 and WP2 are done for `convert_to_list`, `change_list_format` and `continue_list`. Remaining: browser/MCP facade parity for `list-format`, a live-provider check of step 12, and library-issues cleanup once the underscore defect is fixed. `paragraph-format.numbering` and range-scoped changes stay unexposed until there is a product need. No consumer-side OOXML workaround is authorized by this plan.
+**Next action (2026-10-14):** WP1 and WP2 are done for `convert_to_list`, `change_list_format` and `continue_list`. Remaining: browser/MCP facade parity for `list-format`, a live-provider check of step 12, and library-issues cleanup, which is unblocked: the underscore defect is fixed in 0.10.0 (2026-10-17) and no library report remains open. `paragraph-format.numbering` and range-scoped changes stay unexposed until there is a product need. No consumer-side OOXML workaround is authorized by this plan.
