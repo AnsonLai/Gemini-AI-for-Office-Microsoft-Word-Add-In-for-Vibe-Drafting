@@ -1,6 +1,5 @@
 /** Flat OPC source inspection and insertion-package assembly around public library operations. */
 import {
-    extractReplacementNodesFromOoxml,
     normalizeBodySectionOrderStandalone,
     getDefaultAuthor,
     inspectDocumentParts,
@@ -14,7 +13,6 @@ import {
 import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalone-runner';
 import { reconcileCommentSiblingParts } from '@ansonlai/docx-redline-js/services/comment-thread-parts.js';
 import { getPartSpec } from '@ansonlai/docx-redline-js/services/package-parts.js';
-import { buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
 import { MemoryZip } from '@ansonlai/docx-redline-js/document/zip-archive.js';
 
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
@@ -28,28 +26,6 @@ function parseXmlStrict(xmlText, label) {
     const { doc, error } = parseOoxmlSafe(xmlText, 'application/xml');
     if (error) throw new Error(`[XML parse error] ${label}: ${error.message || 'Unknown parse error'}`);
     return doc;
-}
-
-function wrapParagraphNodesAsDocument(paragraphNodes) {
-    const bodyXml = (paragraphNodes || [])
-        .map(node => serializeOoxml(node))
-        .join('');
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="${NS_W}">
-  <w:body>${bodyXml}<w:sectPr/></w:body>
-</w:document>`;
-}
-
-function extractBodyChildElements(xmlDoc) {
-    if (!xmlDoc) return [];
-    const body = xmlDoc.getElementsByTagNameNS(NS_W, 'body')[0] || xmlDoc.getElementsByTagNameNS('*', 'body')[0];
-    if (!body) return [];
-
-    return Array.from(body.childNodes || []).filter(
-        node => node
-            && node.nodeType === 1
-            && !(node.namespaceURI === NS_W && node.localName === 'sectPr')
-    );
 }
 
 function packagePart(packageDoc, name) {
@@ -148,14 +124,13 @@ function readBatchSource(scopeOoxml) {
             packageDoc
         };
     }
-    const extracted = extractReplacementNodesFromOoxml(scopeOoxml);
-    if (extracted.status === 'error' || !extracted.replacementNodes?.length) {
-        throw new Error(extracted.error?.message || 'Word scope has no editable OOXML nodes');
+    // Word always returns a Flat OPC package. A bare w:document (for example a resolved
+    // Accept All/Reject All view) can be inspected, but there is nothing to write back to.
+    const root = parseXmlStrict(scopeOoxml, 'Word scope').documentElement;
+    if (root?.namespaceURI !== NS_W || root.localName !== 'document') {
+        throw new Error('A Word body Flat OPC package or a w:document is required.');
     }
-    const documentXml = extracted.sourceType === 'document'
-        ? scopeOoxml
-        : wrapParagraphNodesAsDocument(extracted.replacementNodes);
-    const parts = { documentXml, numberingXml: extracted.numberingXml || null };
+    const parts = { documentXml: scopeOoxml, numberingXml: null };
     const inspection = inspectDocumentParts(parts);
     if (inspection.status === 'error') throw new Error(inspection.error?.message || 'Cannot inspect Word scope');
     return {
@@ -332,13 +307,5 @@ async function buildBatchInsertionPackage(source, result) {
         }
         return serializeOoxml(source.packageDoc);
     }
-    const bodyXml = extractBodyChildElements(outputDoc).map(node => serializeOoxml(node)).join('');
-    const fragmentPackage = buildDocumentFragmentPackage(bodyXml, {
-        includeNumbering: !!numberingXml,
-        numberingXml,
-        appendTrailingParagraph: false
-    });
-    const packageDoc = parseXmlStrict(fragmentPackage, 'batch fragment package');
-    await mergeCommentPartsIntoPackage(packageDoc, result);
-    return serializeOoxml(packageDoc);
+    throw Object.assign(new Error('Only a Word body Flat OPC package can be written back.'), { code: 'WORD_FLAT_OPC_REQUIRED' });
 }

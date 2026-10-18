@@ -283,6 +283,19 @@ const refused = await consumer.prepareCanonicalBatch(packageXml, [{
 assert.equal(refused.status, 'refused');
 assert.equal(refused.result.status, 'error');
 assert.equal(refused.insertionPayload, undefined, 'a refused library result must not prepare a host payload');
+
+// Word always supplies a body Flat OPC package. A bare w:document can still be inspected
+// (resolved Accept All/Reject All views), but only a package can be written back.
+const bareDocument = `<w:document xmlns:w="${wordNamespace}"><w:body><w:p><w:r><w:t>Bare sentence.</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`;
+assert.equal(consumer.inspectWordSource(bareDocument).inspection.paragraphs[0].exactText, 'Bare sentence.');
+assert.throws(() => consumer.inspectWordSource(`<w:p xmlns:w="${wordNamespace}"><w:r><w:t>Fragment.</w:t></w:r></w:p>`),
+    /Flat OPC package or a w:document is required/, 'a paragraph fragment is not a Word source');
+const bareWrite = await consumer.prepareCanonicalBatch(bareDocument, [{
+    type: 'replace', target: { exactText: 'Bare sentence.' }, modified: 'Changed sentence.'
+}], { author: 'Portable Core Test' });
+assert.equal(bareWrite.status, 'error');
+assert.equal(bareWrite.error?.code, 'WORD_FLAT_OPC_REQUIRED');
+assert.equal(bareWrite.insertionPayload, undefined, 'no insertion package without a Flat OPC source');
 assert.equal(typeof globalThis.Word, 'undefined', 'portable import and execution do not require or install Word globals');
 
 console.log('PASS: narrow canonical DOCX consumer core tests');
