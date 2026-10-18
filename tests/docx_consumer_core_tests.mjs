@@ -179,6 +179,22 @@ const threadedDoc = openDocx(threadedBytes);
 const threadedBefore = threadedDoc.inspect();
 const threadedPackageXml = flatOpcFromDocxEntries(threadedDoc.entries);
 const threadedSourceParts = consumer.inspectWordSource(threadedPackageXml);
+
+// A commentsExtended merge delta cannot be applied to a package that already has thread
+// metadata; the batch is refused before any insertion package exists.
+const threadDelta = await consumer.prepareCanonicalBatch(threadedPackageXml, [{
+    type: 'replace', target: { exactText: 'unused by the mocked runner' }, modified: 'unused'
+}], {
+    author: 'Portable Core Test',
+    runner: async documentXml => ({
+        ...mockBatchResult(documentXml, null),
+        commentsExtendedXml: '<w15:commentsEx xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml"/>',
+        commentsExtendedXmlMode: 'merge'
+    })
+});
+assert.equal(threadDelta.status, 'error');
+assert.equal(threadDelta.error?.code, 'UNSUPPORTED_EXISTING_COMMENT_THREAD_METADATA');
+assert.equal(threadDelta.insertionPayload, undefined);
 const governed = threadedBefore.paragraphs.find(paragraph => paragraph.exactText === 'This agreement is governed by local law.');
 assert.ok(governed, 'Word-authored threaded source contains the tracked paragraph target');
 const threadedPrepared = await consumer.prepareCanonicalBatch(threadedPackageXml, source => {

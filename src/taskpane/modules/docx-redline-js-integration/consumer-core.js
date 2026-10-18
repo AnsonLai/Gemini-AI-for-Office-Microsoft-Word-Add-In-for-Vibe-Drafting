@@ -5,14 +5,11 @@ import {
     inspectDocumentParts,
     mergeNumberingXmlBySchemaOrder,
     computeDocumentPartsRevisionToken,
-    ensureCommentsArtifactsInZip,
-    ensureCommentsExtendedArtifactsInZip,
+    mergeCommentParts,
     parseOoxmlSafe,
     serializeOoxml
 } from '@ansonlai/docx-redline-js';
 import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalone-runner';
-import { reconcileCommentSiblingParts } from '@ansonlai/docx-redline-js/services/comment-thread-parts.js';
-import { MemoryZip } from '@ansonlai/docx-redline-js/document/zip-archive.js';
 
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const NS_PKG = 'http://schemas.microsoft.com/office/2006/xmlPackage';
@@ -238,57 +235,22 @@ export async function prepareCanonicalBatch(scopeOoxml, operations, options = {}
     }
 }
 
-async function mergeCommentPartsIntoPackage(packageDoc, result) {
-    const packageToZip = [
-        ['/word/comments.xml', 'word/comments.xml'],
-        ['/word/commentsExtended.xml', 'word/commentsExtended.xml'],
-        ['/word/commentsIds.xml', 'word/commentsIds.xml'],
-        ['/word/commentsExtensible.xml', 'word/commentsExtensible.xml']
-    ];
-    const entries = new Map();
-    const encoder = new TextEncoder();
-    for (const [packageName, zipName] of packageToZip) {
-        const xml = packagePartXml(packageDoc, packageName);
-        if (xml) entries.set(zipName, encoder.encode(xml));
-    }
-    const zip = new MemoryZip(entries);
+const COMMENT_PARTS = { comments: 'commentsXml', commentsExtended: 'commentsExtendedXml', commentsIds: 'commentsIdsXml', commentsExtensible: 'commentsExtensibleXml' };
 
-    if (result.commentsXml) {
-        await ensureCommentsArtifactsInZip(zip, result.commentsXml, {
-            replaceExisting: result.commentsXmlMode === 'replace'
-        });
-        ensurePackageRelationship(packageDoc, 'comments');
-        const commentsXml = await zip.file('word/comments.xml')?.async('string');
-        const commentsIdsXml = await zip.file('word/commentsIds.xml')?.async('string');
-        const commentsExtensibleXml = await zip.file('word/commentsExtensible.xml')?.async('string');
-        const reconciled = reconcileCommentSiblingParts({
-            commentsXml,
-            commentsIdsXml,
-            commentsExtensibleXml
-        });
-        if (reconciled.commentsIdsXml) zip.file('word/commentsIds.xml', reconciled.commentsIdsXml);
-        if (reconciled.commentsExtensibleXml) zip.file('word/commentsExtensible.xml', reconciled.commentsExtensibleXml);
+function mergeCommentPartsIntoPackage(packageDoc, result) {
+    const current = Object.fromEntries(Object.entries(COMMENT_PARTS)
+        .map(([kind, key]) => [key, packagePartXml(packageDoc, `/word/${PARTS[kind][0]}`)]));
+    const merged = mergeCommentParts(current, result);
+    if (merged.status !== 'ok') {
+        throw Object.assign(new Error(merged.error?.message || 'The comment parts could not be merged; no insertion package was prepared.'),
+            { code: merged.error?.code || 'COMMENT_MERGE_FAILED' });
     }
-
-    if (result.commentsExtendedXml) {
-        const existingExtended = await zip.file('word/commentsExtended.xml')?.async('string');
-        if (result.commentsExtendedXmlMode !== 'replace' && existingExtended) {
-            throw Object.assign(
-                new Error('The library returned a commentsExtended delta for a package that already has thread metadata; no insertion package was prepared.'),
-                { code: 'UNSUPPORTED_EXISTING_COMMENT_THREAD_METADATA' }
-            );
-        }
-        await ensureCommentsExtendedArtifactsInZip(zip, result.commentsExtendedXml);
-        ensurePackageRelationship(packageDoc, 'commentsExtended');
+    for (const kind of merged.changedParts) {
+        replacePackagePartXml(packageDoc, `/word/${PARTS[kind][0]}`, merged.parts[COMMENT_PARTS[kind]]);
     }
-
-    for (const [packageName, zipName] of packageToZip) {
-        const part = zip.file(zipName);
-        if (!part) continue;
-        const updatedXml = await part.async('string');
-        if (updatedXml !== packagePartXml(packageDoc, packageName)) {
-            replacePackagePartXml(packageDoc, packageName, updatedXml);
-        }
+    // Idempotent: also repairs a missing relationship for a part that already existed.
+    for (const kind of new Set([...merged.changedParts, ...merged.addedParts])) {
+        if (kind === 'comments' || kind === 'commentsExtended') ensurePackageRelationship(packageDoc, kind);
     }
 }
 
@@ -302,7 +264,7 @@ async function buildBatchInsertionPackage(source, result) {
     }
     if (source.packageDoc) {
         replacePackagePartXml(source.packageDoc, '/word/document.xml', outputXml);
-        await mergeCommentPartsIntoPackage(source.packageDoc, result);
+        mergeCommentPartsIntoPackage(source.packageDoc, result);
         // A body edit must also repair the commentsExtended type written before 0.8.1.
         const extendedPart = packagePart(source.packageDoc, '/word/commentsExtended.xml');
         if (extendedPart) extendedPart.setAttribute('pkg:contentType', PARTS.commentsExtended[1]);
