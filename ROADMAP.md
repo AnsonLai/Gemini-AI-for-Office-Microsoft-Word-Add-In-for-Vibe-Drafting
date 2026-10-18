@@ -25,7 +25,7 @@ consumer-side bugs and the Word JavaScript API inventory are in
 version upgrade; it does not authorize expanding scope. Broader list
 conversion/depth/styles and table creation/rows remain refused unless the owner
 later approves a capability and its source/accepted/rejected fidelity passes.
-The [September list follow-up](docs/plans/2026-09-30-canonical-list-migration-follow-up.md)
+The [September list follow-up](docs/plans/completed/2026-09-30-canonical-list-migration-follow-up.md)
 is open for consumer adoption of the released `list-format` capabilities; the
 [table plan](docs/plans/completed/2026-09-30-table-creation-reliability.md) is closed.
 

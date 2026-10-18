@@ -1,7 +1,7 @@
 # Library-first simplification, phase 2
 
 **Date:** 2026-10-12 (America/Vancouver)
-**Status:** WP0 complete (2026-10-12); WP5 complete for the exposed list actions (2026-10-14); WP4 complete except the host paragraph count (2026-10-16). WP3 implemented 2026-10-17 on plugin branch `phase2-wp1-wp3`, pinned to the published `docx-redline-js` 0.10.0; offline and Word host gates pass. WP1 is re-scoped: the Word host layer stays in the plugin (owner decision, 2026-10-17); the XML-adapter deep imports are already gone. WP2 not started.
+**Status:** WP0 complete (2026-10-12); WP5 complete for the exposed list actions (2026-10-14); WP4 complete except the host paragraph count (2026-10-16). WP3 complete and merged 2026-10-17 on `docx-redline-js` 0.10.0. WP1 is re-scoped: the Word host layer stays in the plugin (owner decision, 2026-10-17); 4 deep imports wait on a library decision. WP2 not started. The browser demo and MCP server were removed as obsolete spikes on 2026-10-17, and the list follow-up plan is complete and archived.
 **Baseline:**
 - Exact `@ansonlai/docx-redline-js@0.9.0` in the add-in and MCP.
 - HEAD `a98f339` plus the uncommitted 0.9.0 upgrade work.
@@ -9,7 +9,7 @@
 
 **Related:**
 - [Known bugs and the Word JS API inventory](KNOWN_BUGS.md)
-- [Canonical list migration follow-up](2026-09-30-canonical-list-migration-follow-up.md)
+- [Canonical list migration follow-up](completed/2026-09-30-canonical-list-migration-follow-up.md)
 - [0.9.0 validation](../validation-reports/2026-10-12-docx-redline-v090.md)
 - [Harness (optional)](2026-10-12-harness-optional.md): a parked Pi-style harness idea, split out of this plan on 2026-10-12
 
@@ -115,7 +115,7 @@ What remains of WP1 is to remove the plugin's imports of unexported library inte
 **Done (2026-10-17, pending the 0.10.0 release):**
 - Library 0.10.0 adds `existingRevisions: 'auto'`, `compareDocumentInspections` and the KB-7 fix (CommonMark underscore flanking, and literal inline Markdown for a caller's `structuredContent: false`).
 - Plugin branch `phase2-wp1-wp3`: plain-text replace/rewrite operations send `existingRevisions: 'auto'` instead of choosing `slice-cross-author` locally; post-commit verification uses `compareDocumentInspections` instead of the local `acceptedShape`/`reviewSegments`; the `TRACKING_POLICY_MISMATCH` guard (KB-5) and the "Add Date Row" known-defect gate (KB-7) are removed.
-- Production lines 4,478 → 4,436. Root and MCP pins are exact 0.10.0 (published 2026-10-17, tag `v0.10.0` at `04faf9b`). Offline 49/49, the MCP workflow test, both builds, and the KB-7 reproducer exits 1.
+- Production lines 4,478 → 4,436. Root and MCP pins are exact 0.10.0 (published 2026-10-17, tag `v0.10.0` at `04faf9b`); the MCP server was removed later the same day. Offline 49/49, the MCP workflow test, both builds, and the KB-7 reproducer exits 1.
 - 0.10.0 also counts unattributed revisions as another author's (`EXISTING_REVISIONS` instead of `UNSAFE_REVISION_NESTING` under merge-same-author). The plugin maps neither code, so nothing changes here.
 - Host lanes (2026-10-17): Office.js passed (20 cases, 26 checks, 3 restores), the Word oracle gives 88 PASS / 0 FAIL, and the NDA replay passes 16/16 (51/51). See the [0.10.0 validation](../validation-reports/2026-10-17-docx-redline-v0100.md).
 
@@ -154,7 +154,7 @@ These items have no library dependency and can start right after WP0.
 
 ### WP5: New capabilities only as library releases plus a thin mapping
 
-- Adopt 0.9.0 `list-format` (`convert-plain`, `change-format`, `join`) through the [list migration follow-up](2026-09-30-canonical-list-migration-follow-up.md) WP1–WP3. Each new intent should be a schema entry plus an operation mapping, with no plugin-side numbering or marker logic.
+- Adopt 0.9.0 `list-format` (`convert-plain`, `change-format`, `join`) through the [list migration follow-up](completed/2026-09-30-canonical-list-migration-follow-up.md) WP1–WP3. Each new intent should be a schema entry plus an operation mapping, with no plugin-side numbering or marker logic.
 - Measure the lines added per capability.
 - Re-enabling structural table edits or table append stays out of scope until KB-1 has Office.js evidence.
 
@@ -188,5 +188,5 @@ These don't reduce the plugin, but they gate users actually getting today's work
    - WP2 is the largest API design.
    - Alternatively, start WP2 first if inspection reliability is the bigger pain.
 3. **Library API shape.** Decided 2026-10-17: the library takes only host-independent, general-purpose API. Word-specific layers (Flat OPC round-trip, Word export noise, and probably the WP2 agent session's Word binding) stay in the plugin.
-4. **Browser lane.** Recommendation from WP0: don't make jsdom a required gate. Keep xmldom as the gate and add a headless Chromium/Edge lane that runs the library bundle, advisory at first and required once it is stable. `scripts/browser-document-validation.html` is a manual starting point. Agree?
+4. **Browser lane.** Recommendation from WP0: don't make jsdom a required gate. Keep xmldom as the gate and add a headless Chromium/Edge lane that runs the library bundle, advisory at first and required once it is stable. `scripts/browser-document-validation.html` is a manual starting point. Agree? *(2026-10-17: with the browser demo and MCP server gone, the add-in's only runtime is Word's WebView2, which the Office.js, Word oracle and NDA replay lanes already exercise. A separate headless library-bundle lane would mostly check the library, so it belongs with the library if anywhere.)*
 5. **Release track.** Deploy the current fixes before phase 2 starts, or batch them with WP0?

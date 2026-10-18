@@ -14,7 +14,7 @@
 > performance plans are complete. The [agentic tools and list reliability
 > plan](plans/completed/2026-08-29-agentic-tools-and-list-reliability.md) is now
 > closed with deferred scope at the user's request. Full canonical list
-> migration transfers to the fresh [follow-up](plans/2026-09-30-canonical-list-migration-follow-up.md),
+> migration transfers to the fresh [follow-up](plans/completed/2026-09-30-canonical-list-migration-follow-up.md),
 > which depends on separately tracked upstream capabilities.
 > The tracked-text fidelity defects and historical-property inspection findings
 > covered by 0.8.3 (and the 0.8.4 follow-up fixes) are fixed and validated; canonical header conversion and

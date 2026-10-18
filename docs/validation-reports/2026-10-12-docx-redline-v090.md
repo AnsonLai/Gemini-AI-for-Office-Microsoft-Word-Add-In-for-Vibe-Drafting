@@ -20,7 +20,7 @@ installed package, followed by independent checks.
 | [Weak-target soft-break deletion](2026-10-17-library-issues-closeout.md) | Fixed. Reproducer: NOT REPRODUCED. |
 | [`generateRedlines: false` cross-author insertion](2026-10-17-library-issues-closeout.md) | Fixed. Reject All keeps the clean text. The reproducer's defect assertion now throws, so it exits 1. |
 | [Word Reject All after final table append](2026-10-17-library-issues-closeout.md) | Fixed at package level. The public-library package passes source, tracked, Accept All and Reject All in Word using `Revisions.RejectAll()`. The live-insert lane still fails: see KB-1. |
-| [Canonical list capabilities](2026-10-17-library-issues-closeout.md) | Released as `list-format` (`convert-plain`, `change-format`, `join`) and `paragraph-format.numbering`. `reproduce-plain-header-conversion.mjs` is now refused (`BATCH_OPERATION_FAILED`, strict list conversion): the reproducer is obsolete because the capability moved to `list-format` `convert-plain`. Consumer adoption is tracked in the [list plan](../plans/2026-09-30-canonical-list-migration-follow-up.md) and KB-4. |
+| [Canonical list capabilities](2026-10-17-library-issues-closeout.md) | Released as `list-format` (`convert-plain`, `change-format`, `join`) and `paragraph-format.numbering`. `reproduce-plain-header-conversion.mjs` is now refused (`BATCH_OPERATION_FAILED`, strict list conversion): the reproducer is obsolete because the capability moved to `list-format` `convert-plain`. Consumer adoption is tracked in the [list plan](../plans/completed/2026-09-30-canonical-list-migration-follow-up.md) and KB-4. |
 
 ## Test and oracle changes (no `src/` change)
 
@@ -87,7 +87,7 @@ See [`docs/plans/KNOWN_BUGS.md`](../plans/KNOWN_BUGS.md):
 - KB-5: `TRACKING_POLICY_MISMATCH` guard is a 0.8.4 workaround kept as a backstop.
 - KB-6: revision-fidelity refusals reach the model unmapped.
 
-The [canonical list migration follow-up](../plans/2026-09-30-canonical-list-migration-follow-up.md)
+The [canonical list migration follow-up](../plans/completed/2026-09-30-canonical-list-migration-follow-up.md)
 stays open.
 
 ## Gates not run

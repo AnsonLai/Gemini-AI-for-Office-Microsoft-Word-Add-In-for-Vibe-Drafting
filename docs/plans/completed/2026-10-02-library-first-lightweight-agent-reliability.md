@@ -172,7 +172,7 @@ The 0.8.4 report records 57 offline suites passing, four excluded entrypoints, s
 
 ### Current upstream constraints
 
-The [library issue index](../../validation-reports/2026-10-17-library-issues-closeout.md) and [list migration follow-up](../2026-09-30-canonical-list-migration-follow-up.md) identify constraints that remain relevant:
+The [library issue index](../../validation-reports/2026-10-17-library-issues-closeout.md) and [list migration follow-up](./2026-09-30-canonical-list-migration-follow-up.md) identify constraints that remain relevant:
 
 - Plain/text-changing header-to-list conversion and list-format changes do not yet have the required supported canonical behavior.
 - Separate list operations in 0.8.4 can restart non-adjacent header numbering: A/A instead of A/B. The historical native conversion avoided this regression; conversion is now refused and that executor is deleted.

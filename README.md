@@ -205,10 +205,7 @@ AIWordPlugin/
 │   │           ├── consumer-core.js    # Portable preparation and package helpers
 │   │           └── word-operation-runner.js  # Word I/O and atomic batch adapter
 │   └── commands/
-│       ├── commands.html
-│       └── commands.js
-├── browser-demo/                      # Browser runtime for manual validation
-├── mcp/docx-server/                   # MCP server exposing reconciliation tools
+│       └── commands.html
 ├── tests/                             # Node regression tests (*.mjs) + evals/ harness
 ├── docs/plans/                        # Active implementation plans
 │   ├── completed/                     # Archived completed plans
@@ -220,7 +217,7 @@ AIWordPlugin/
 └── README.md
 ```
 
-> The add-in and MCP pin [`@ansonlai/docx-redline-js@0.9.0`](https://www.npmjs.com/package/@ansonlai/docx-redline-js). The library owns supported DOCX operations and package lifecycle; local consumers retain tool-to-operation mapping, host I/O, and their UI/session contracts. The Word consumer also retains its Flat OPC bridge and Office.js adapter; browser and MCP editing use the public package facade. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the system map and [the library offload review](docs/library-offload-review.md) for the file-by-file boundary.
+> The add-in pins [`@ansonlai/docx-redline-js@0.10.0`](https://www.npmjs.com/package/@ansonlai/docx-redline-js). The library owns supported DOCX operations and package lifecycle; local consumers retain tool-to-operation mapping, host I/O, and their UI/session contracts. The add-in also retains its Flat OPC bridge and Office.js adapter. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the system map and [the library offload review](docs/library-offload-review.md) for the file-by-file boundary.
 
 ## Development
 
@@ -291,13 +288,12 @@ preserves source numbering continuation/restart and formatting sentinels.
 Dated native-route reports remain historical evidence for retired capabilities.
 Live fast/slow models must pass before shipping the changed prompt. Desktop
 validation does not certify Word Online.
-### Portable preparation and browser document sessions
+### Portable preparation
 
 The local Flat OPC bridge prepares one atomic library batch and preserves
 transported parts. Word APIs read/insert body OOXML and preserve tracking state.
-No complete-DOCX Word facade upgrade or binary bridge is planned. Browser and
-MCP consumers continue using the library's complete-DOCX session facade;
-JSZip remains in browser preview. See [ARCHITECTURE.md](ARCHITECTURE.md) and
+No complete-DOCX Word facade upgrade or binary bridge is planned. See
+[ARCHITECTURE.md](ARCHITECTURE.md) and
 [package boundaries](docs/package-boundaries.md).
 ### OOXML performance measurements
 

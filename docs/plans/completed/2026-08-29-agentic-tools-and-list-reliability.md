@@ -1,6 +1,6 @@
 # Agentic Tools and List Reliability Plan
 
-> **Retrospective ownership review (2026-09-30):** See the [library offload review](../../library-offload-review.md) for measured code changes, responsibilities delegated to the library, and remaining consumer/native routes. Version pins and validation counts in this closure record describe their dated checkpoints; current consumers pin exact 0.8.3. All five original plans are closed; remaining canonical list work is in the [fresh follow-up](../2026-09-30-canonical-list-migration-follow-up.md).
+> **Retrospective ownership review (2026-09-30):** See the [library offload review](../../library-offload-review.md) for measured code changes, responsibilities delegated to the library, and remaining consumer/native routes. Version pins and validation counts in this closure record describe their dated checkpoints; current consumers pin exact 0.8.3. All five original plans are closed; remaining canonical list work is in the [fresh follow-up](./2026-09-30-canonical-list-migration-follow-up.md).
 
 **Date:** 2026-08-29
 
@@ -15,7 +15,7 @@
 The user explicitly requested closure on 2026-09-30 despite the remaining
 canonical capabilities. This supersedes the earlier keep-open decision below.
 WP1 and current-route WP3 are complete; remaining WP2 migration and its
-acceptance criterion are transferred to the [Canonical List Migration Follow-up](../2026-09-30-canonical-list-migration-follow-up.md).
+acceptance criterion are transferred to the [Canonical List Migration Follow-up](./2026-09-30-canonical-list-migration-follow-up.md).
 This archive records a scoped closure, not completion of full canonical migration.
 
 ## Baseline and dependencies

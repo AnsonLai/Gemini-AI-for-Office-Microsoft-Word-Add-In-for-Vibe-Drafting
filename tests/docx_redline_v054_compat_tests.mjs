@@ -66,9 +66,7 @@ function walkJavaScriptFiles(root) {
 
 function testProductionBatchCallsRequireExplicitAtomicity() {
     const productionRoots = [
-        join(REPO_ROOT, 'src'),
-        join(REPO_ROOT, 'browser-demo'),
-        join(REPO_ROOT, 'mcp', 'docx-server', 'src')
+        join(REPO_ROOT, 'src')
     ];
 
     for (const file of productionRoots.flatMap(walkJavaScriptFiles)) {

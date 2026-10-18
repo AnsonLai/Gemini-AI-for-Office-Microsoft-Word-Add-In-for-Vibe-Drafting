@@ -62,7 +62,7 @@ Retirement of unsupported consumer commands is a scope decision, rather than
 proof that a capability is certified.
 
 Historical incidents and prior milestones remain in dated plans/reports. The
-[September list follow-up](docs/plans/2026-09-30-canonical-list-migration-follow-up.md)
+[September list follow-up](docs/plans/completed/2026-09-30-canonical-list-migration-follow-up.md)
 stays open (browser/MCP facade parity and retired-helper checks remain); its
 library-issues cleanup was done on 2026-10-17. The
 [table incident](docs/plans/completed/2026-09-30-table-creation-reliability.md) is

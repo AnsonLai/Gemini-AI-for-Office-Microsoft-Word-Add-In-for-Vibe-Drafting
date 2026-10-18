@@ -82,7 +82,7 @@ but 0.8.3 does not implement them.
 At the user's explicit request, the [August agentic plan](../plans/completed/2026-08-29-agentic-tools-and-list-reliability.md)
 is closed and archived with a deferred-scope note. WP1 and current-route WP3
 are complete; the remaining WP2 work and full canonical migration acceptance
-criterion transfer to the fresh [Canonical List Migration Follow-up](../plans/2026-09-30-canonical-list-migration-follow-up.md).
+criterion transfer to the fresh [Canonical List Migration Follow-up](../plans/completed/2026-09-30-canonical-list-migration-follow-up.md).
 Release fidelity fixes do not automatically migrate production command paths.
 The fresh plan owns capability implementation/release, remaining consumer
 migrations and corresponding host checks, and helper retirement after all

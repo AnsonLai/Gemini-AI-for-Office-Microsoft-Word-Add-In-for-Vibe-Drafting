@@ -26,7 +26,7 @@ function positiveInteger(name, fallback) {
 
 const timeout = positiveInteger('DOCX_TEST_TIMEOUT', 180000);
 const concurrency = positiveInteger('DOCX_TEST_CONCURRENCY', 4);
-const entries = [...discover(resolve(root, 'tests')), ...discover(resolve(root, 'mcp/docx-server/tests'))].sort();
+const entries = [...discover(resolve(root, 'tests'))].sort();
 if (process.argv.includes('--list')) {
   for (const file of entries) console.log(`${exclusions.has(file) ? 'SKIP' : 'RUN '} ${file}${exclusions.has(file) ? `: ${exclusions.get(file)}` : ''}`);
 } else {

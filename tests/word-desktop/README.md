@@ -17,7 +17,7 @@ separately by `scripts/run-officejs-validation.mjs`; its exported packages
 then pass through the independent Word worker. PDF rendering is optional.
 
 See the [agentic execution report](../../docs/validation-reports/2026-09-30-agentic-tools-and-list-reliability.md)
-for commands and durable evidence, and the [new follow-up](../../docs/plans/2026-09-30-canonical-list-migration-follow-up.md)
+for commands and durable evidence, and the [new follow-up](../../docs/plans/completed/2026-09-30-canonical-list-migration-follow-up.md)
 for outstanding library dependencies. The older inspector and regression
 scripts below remain useful diagnostics; they do not replace these acceptance
 gates. Use the bounded worker for automated runs so cleanup targets only its

@@ -28,8 +28,6 @@
     "stop": "office-addin-debugging stop manifest.xml",
     "validate": "office-addin-manifest validate manifest.xml",
     "watch": "webpack --mode development --watch",
-    "mcp:docx:install": "npm install --prefix mcp/docx-server",
-    "mcp:docx": "npm --prefix mcp/docx-server run start",
     "docx:harness": "powershell -ExecutionPolicy Bypass -File tests/docx-harness/docx-xml-harness.ps1",
     "test": "node scripts/run-all-tests.mjs",
     "benchmark:ooxml": "node scripts/benchmark-ooxml-pipeline.mjs",

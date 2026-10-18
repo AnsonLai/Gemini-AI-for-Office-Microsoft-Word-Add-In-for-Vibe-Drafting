@@ -88,8 +88,7 @@ for (const file of [
   'src/taskpane/taskpane.js',
   'src/taskpane/modules/chat/document-agent-loop.js',
   'src/taskpane/modules/chat/tool-registry.js',
-  'src/taskpane/modules/chat/document-tools.js',
-  'browser-demo/demo.js'
+  'src/taskpane/modules/chat/document-tools.js'
 ]) {
   const source = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
   assert.doesNotMatch(source, /\bfetch\s*\(/, `${file}: direct Gemini transport bypass`);

@@ -11,7 +11,6 @@ import { fileURLToPath } from 'node:url';
 import { acceptTrackedChangesInOoxml, configureLogger, openDocx } from '@ansonlai/docx-redline-js';
 import { zipDocx, unzipDocx } from '@ansonlai/docx-redline-js/document/zip-archive.js';
 import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalone-runner';
-import { createDocumentSession } from '../browser-demo/document-session.js';
 import { compileDocumentEdits } from '../src/taskpane/modules/chat/document-edit-intents.js';
 
 configureLogger({ info() {}, warn() {}, error() {} });
@@ -312,15 +311,6 @@ for (const scenario of scenarios) {
             action: doc => doc.inspect(),
             verify: result => assert.equal(result.status, 'ok', 'package inspection status')
         }),
-        browserSessionOpen: await measure({
-            action: () => createDocumentSession(fixture.bytes),
-            verify: session => assert.ok(session && typeof session.getPromptParagraphs === 'function')
-        }),
-        browserPromptProjection: await measure({
-            prepare: async () => createDocumentSession(fixture.bytes),
-            action: session => session.getPromptParagraphs(),
-            verify: paragraphs => assert.ok(Array.isArray(paragraphs), 'browser prompt projection returns paragraphs')
-        }),
         coreApplication: await measure({
             action: () => applyOperationsToDocumentXml(pkg.documentXml, operations, AUTHOR, context, {
                 atomic: true, structuredContent: true, pairReplacements: true, generateRedlines: true
@@ -403,8 +393,6 @@ const report = {
         coreApplication: 'Times applyOperationsToDocumentXml(documentXml, operations, ...) using pre-mapped operations; excludes package open/save and host transport.',
         packageOpen: 'Times openDocx(sourceBytes) only.',
         packageInspection: 'Times doc.inspect() on an already-open document.',
-        browserSessionOpen: 'Times createDocumentSession(sourceBytes).',
-        browserPromptProjection: 'Times session.getPromptParagraphs() on an already-open browser document session; includes its inspect, parse, and paragraph projection work.',
         packageApply: 'Times DocxDocument.applyOperations on an already-open package; excludes source open and final serialization.',
         packageSerialize: 'Times toUint8Array() on an already-edited package; source open and mutation are prepared outside the timer.',
         packageOpenApplySave: 'Times openDocx + applyOperations + toUint8Array end to end.',

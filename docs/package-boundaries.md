@@ -10,12 +10,10 @@ Both manifests exact-pin `@ansonlai/docx-redline-js@0.9.0`. The library owns can
 | Document tools | Fresh resolution, exact-source checkpoint, atomic preparation/commit and affected-state verification. |
 | `consumer-core.js` | Read Word Flat OPC parts and assemble a preserved insertion package around library output. No Word, UI or filesystem globals. |
 | Word adapter/source identity | Source/selection/count reads, sync, one body insertion, tracking state, checkpoint transport and confirmed export-metadata stabilization. |
-| Browser document session | Open/inspect/atomic edit/serialize through the public complete-DOCX facade; JSZip remains for preview. |
-| MCP document service | Node file/session I/O and public facade operations; persistence is explicit. |
 
 The Word plugin keeps Flat OPC transport, as approved by the owner. Supported editing has no native paragraph/list/table algorithm or compatibility executor. Remaining part/relationship assembly is host adaptation and delegates reusable comment/numbering reconciliation to published helpers.
 
-A future agreed public Flat OPC prepare/export API could remove more assembly, with preservation evidence. No assumed facade input, local engine clone or dependency experiment is included. Word preparation does not confirm a write; synchronized host evidence plus verification does. Browser/MCP edits happen in memory, with download/save separate. Offline success or preview does not certify Office.js transport.
+A future agreed public Flat OPC prepare/export API could remove more assembly, with preservation evidence. No assumed facade input, local engine clone or dependency experiment is included. Word preparation does not confirm a write; synchronized host evidence plus verification does. Offline success or preview does not certify Office.js transport.
 
 Ordinary-comment output is a merge delta. Until a supported public merge path
 exists, the Word consumer refuses adding comments to sources with existing

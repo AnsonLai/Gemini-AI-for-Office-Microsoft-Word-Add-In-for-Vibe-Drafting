@@ -3,7 +3,7 @@
 `docs/library-issues/` held upstream reports for `@ansonlai/docx-redline-js`,
 each with a portable reproducer. Every report was resolved by 0.10.0, so the
 folder was deleted as the last cleanup item of the
-[canonical list follow-up](../plans/2026-09-30-canonical-list-migration-follow-up.md) (WP3).
+[canonical list follow-up](../plans/completed/2026-09-30-canonical-list-migration-follow-up.md) (WP3).
 The rule it carried (library defects get a portable reproducer, never an add-in
 workaround) now lives in [`KNOWN_BUGS.md`](../plans/KNOWN_BUGS.md).
 

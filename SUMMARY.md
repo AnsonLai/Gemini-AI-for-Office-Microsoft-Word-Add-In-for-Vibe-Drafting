@@ -39,10 +39,10 @@ found stability across repeated reads, tracking toggles and Reject All; restart
 and Ctrl+Z were not exercised, and Office.js behavior is not established by COM.
 The user's exact refusal cause remains unconfirmed; the fidelity plan stays open.
 
-## Package status: v0.8.3 record (current pin 0.9.0)
+## Package status: v0.8.3 record (current pin 0.10.0)
 
-The add-in, MCP server and browser demo use the public
-`@ansonlai/docx-redline-js@0.9.0` package (0.9.0 upgrade: [validation](docs/validation-reports/2026-10-12-docx-redline-v090.md)). The v0.8.3 release notes describe fixes for
+The add-in uses the public
+`@ansonlai/docx-redline-js@0.10.0` package ([0.10.0 validation](docs/validation-reports/2026-10-17-docx-redline-v0100.md)). The browser demo and MCP server that also used it were removed on 2026-10-17. The v0.8.3 release notes describe fixes for
 tracked paragraph-boundary behavior, historical paragraph-property
 inspection, list-range numbering through `openDocx`, and explicit list-start
 parsing. The dated v0.8.3 consumer and Word validation is recorded in the [v0.8.3
@@ -55,7 +55,7 @@ conversion and list-format changes still lack supported canonical operations.
 A marker-prefixed `1. Header` to `1. Header` operation on bare `document.xml`
 can fail with `RECEIPT_RECONCILIATION_FAILED`. The original list plan is closed
 with these remaining capabilities transferred to the [canonical migration
-follow-up](docs/plans/2026-09-30-canonical-list-migration-follow-up.md), which
+follow-up](docs/plans/completed/2026-09-30-canonical-list-migration-follow-up.md), which
 remains open. All five original plans are closed; this follow-up carries the
 uncompleted canonical migration work forward without marking it complete.
 

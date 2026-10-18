@@ -6,8 +6,6 @@ import { MemoryZip, unzipDocx, zipDocx } from '@ansonlai/docx-redline-js/documen
 import { createParser, createSerializer } from '@ansonlai/docx-redline-js/adapters/xml-adapter.js';
 import { prepareCanonicalBatch } from '../src/taskpane/modules/docx-redline-js-integration/consumer-core.js';
 import { executePureOoxmlBatch } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
-import { applyDocumentOperations } from '../mcp/docx-server/src/services/docx-document-service.mjs';
-import { createDocumentSession } from '../browser-demo/document-session.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -25,6 +23,8 @@ const NS = {
 };
 const author = 'Cross Host Reviewer';
 const options = { author, generateRedlines: true };
+// The library's complete-DOCX facade, called the way an atomic whole-file consumer would.
+const applyWithFacade = (doc, operations) => doc.applyOperations(operations, { ...options, atomic: true, strictTargets: true });
 
 configureLogger({ log: () => {}, warn: () => {}, error: () => {} }, { level: 'silent' });
 
@@ -279,21 +279,15 @@ async function runSuccessfulParity(sourceBytes) {
     assert.equal(wordInsertionCount, 1, 'Word adapter performs one insertion for the batch');
     const wordBytes = materializeWordInsertion(sourceBytes, wordInsertionPayload);
 
-    const mcpDoc = openDocx(sourceBytes);
-    const mcp = await applyDocumentOperations(mcpDoc, operations, options);
-    assert.equal(mcp.written, true);
-    const mcpBytes = mcpDoc.toUint8Array();
-
-    const browser = createDocumentSession(sourceBytes);
-    const browserResult = await browser.applyOperations(operations, options);
-    assert.equal(browserResult.status, 'ok', `browser facade: ${JSON.stringify(browserResult.error || browserResult.results)}`);
-    const browserBytes = browser.toUint8Array();
+    const facade = openDocx(sourceBytes);
+    const facadeResult = await applyWithFacade(facade, operations);
+    assert.equal(facadeResult.status, 'ok', `library DOCX facade: ${JSON.stringify(facadeResult.error || facadeResult.results)}`);
+    const facadeBytes = facade.toUint8Array();
 
     const outputs = [
         ['portable core', coreBytes],
         ['Word batch adapter', wordBytes],
-        ['MCP document service', mcpBytes],
-        ['browser document facade', browserBytes]
+        ['library DOCX facade', facadeBytes]
     ];
     for (const [label, bytes] of outputs) {
         await validateDocxPackage(new MemoryZip(unzipDocx(bytes)));
@@ -330,25 +324,15 @@ async function runAtomicRefusalParity(sourceBytes) {
     assert.equal(word.writeAttempted, false);
     assert.equal(wordWrites, 0, 'failed Word batch never inserts');
 
-    const mcpDoc = openDocx(sourceBytes);
-    const mcpBefore = mcpDoc.toUint8Array();
-    const mcpFailure = await captureFailure(() => applyDocumentOperations(mcpDoc, badOperations, options));
-    assert.equal(mcpFailure.error?.code, 'TARGET_NOT_FOUND', 'MCP service exposes the structured operation code');
-    assert.ok(getErrorCodes(mcpFailure.error).includes('TARGET_NOT_FOUND'), 'MCP facade preserves a generic structured target error');
-    assert.ok(mcpFailure.error?.message);
-    assertUncompressedPackageUnchanged(mcpBefore, mcpDoc.toUint8Array(), 'MCP refused batch');
-
-    const browser = createDocumentSession(sourceBytes);
-    const browserBefore = browser.toUint8Array();
-    const browserFailure = await captureFailure(() => browser.applyOperations(badOperations, options));
-    const browserFailureResult = browserFailure.result;
-    assert.equal(browserFailureResult?.error?.code, 'BATCH_OPERATION_FAILED', 'browser facade retains the batch wrapper');
-    assert.ok(getErrorCodes(browserFailure.error || browserFailureResult).includes('TARGET_NOT_FOUND'), 'browser facade preserves the engine error code');
-    assert.ok(browserFailure.error?.message || browserFailureResult?.error?.message);
-    assertUncompressedPackageUnchanged(browserBefore, browser.toUint8Array(), 'browser refused batch');
-
-    assertUncompressedPackageUnchanged(sourceBytes, mcpDoc.toUint8Array(), 'shared source after MCP refusal');
-    assertUncompressedPackageUnchanged(sourceBytes, browser.toUint8Array(), 'shared source after browser refusal');
+    const facade = openDocx(sourceBytes);
+    const facadeBefore = facade.toUint8Array();
+    const facadeFailure = await captureFailure(() => applyWithFacade(facade, badOperations));
+    const facadeFailureResult = facadeFailure.result;
+    assert.equal(facadeFailureResult?.error?.code, 'BATCH_OPERATION_FAILED', 'library DOCX facade retains the batch wrapper');
+    assert.ok(getErrorCodes(facadeFailure.error || facadeFailureResult).includes('TARGET_NOT_FOUND'), 'library DOCX facade preserves the engine error code');
+    assert.ok(facadeFailure.error?.message || facadeFailureResult?.error?.message);
+    assertUncompressedPackageUnchanged(facadeBefore, facade.toUint8Array(), 'library DOCX facade refused batch');
+    assertUncompressedPackageUnchanged(sourceBytes, facade.toUint8Array(), 'shared source after facade refusal');
 }
 
 async function run() {
@@ -360,11 +344,11 @@ async function run() {
         'Untouched bold sentinel.',
         'Foreign lead external tail.',
         'Untouched plain paragraph.'
-    ], 'all hosts receive the same fixture bytes and source view');
+    ], 'every path receives the same fixture bytes and source view');
 
     await runSuccessfulParity(sourceBytes);
     await runAtomicRefusalParity(sourceBytes);
-    console.log('PASS: cross-host DOCX operation parity');
+    console.log('PASS: Word Flat OPC path matches the library DOCX facade');
 }
 
 run().catch(error => {
