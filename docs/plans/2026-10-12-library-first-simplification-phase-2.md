@@ -94,6 +94,7 @@ What remains of WP1 is to remove the plugin's imports of unexported library inte
 **Progress (2026-10-17):** step 1 removed the bare-fragment path (`buildDocumentFragmentPackage`, `extractReplacementNodesFromOoxml` and two local helpers). Production never used it, because every `getOoxml()` source and checkpoint is a full package. New assertions in `docx_consumer_core_tests` pin the contract. 4,363 → 4,330 lines.
 Step 2 replaced `getPartSpec` with a local part table (4,330 → 4,335). Two deep imports remain, `reconcileCommentSiblingParts` and `MemoryZip`, both for the comment-part merge.
 Step 3 (2026-10-17): sent the library owner a request for a general-purpose, parts-level comment merge (string in, string out, with sibling reconciliation and the existing-thread-metadata refusal), or else documented exports of those two. WP1 waits on that decision. Until then the two imports stay, with the library pinned exact.
+Host lanes on steps 1–2 (2026-10-17): Office.js passed (20 cases, 26 checks, 3 restores), the Word oracle gives 88 PASS / 0 FAIL, and the NDA replay passes 16/16 (51/51). Artifacts: `.cache/reliability/wp1-officejs`, `wp1-oracle`, `.cache/golden/wp1-direct`.
 
 **Exit:** `src/` imports only the library root and documented subpaths; the Word layer shrinks where a general-purpose library primitive replaces local code. Steps that need a library change wait for the library owner's decision.
 
