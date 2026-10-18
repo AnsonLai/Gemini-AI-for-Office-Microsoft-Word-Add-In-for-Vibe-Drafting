@@ -104,6 +104,9 @@ Work:
 
 **Exit:** the session has no local target-matching logic, production lines fall, and stale, ambiguous, cross-document and expired-handle cases still refuse with no write (the existing offline contracts pass unchanged, plus the host lanes).
 
+**Progress (2026-10-17):**
+- Step 1, local target matching removed. `descriptorsMatch` and `hasStrongDescriptor` are gone from `document-inspection-session.js`. `resolveHandles` already refuses unless the current source has the same document id, revision view and Word revision token as the handle's snapshot. An equal token means the canonical source is unchanged, so a field-by-field descriptor comparison could never fail. The apply path then resolves every target strictly in the library (`strictTargets: true`, `expectedRevision: true`), so `preflightOperations` would only repeat that check. Library inspection always returns strong descriptors, so the strong-descriptor filter and its "omitted" warning were dead. Production lines 4,436 → 4,415. Offline 44/44.
+
 ### WP3: Upstream revision policy and verification; retire workarounds
 
 - **Auto revision policy.** The library chooses `slice-cross-author` or same-author merge from the target's revisions. Delete the add-in's choice in `document-tools.js`.

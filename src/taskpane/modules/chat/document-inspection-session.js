@@ -101,25 +101,6 @@ function snapshotIdentity(snapshot) {
   };
 }
 
-function hasStrongDescriptor(paragraph) {
-  return Number.isInteger(paragraph?.index)
-    && paragraph.index > 0
-    && typeof paragraph?.exactText === 'string'
-    && typeof paragraph?.fingerprint === 'string'
-    && paragraph.fingerprint.length > 0
-    && typeof paragraph?.inTable === 'boolean';
-}
-
-function descriptorsMatch(before, after) {
-  if (!hasStrongDescriptor(after)) return false;
-  const fields = [
-    'index', 'paragraphId', 'fingerprint', 'revisionView', 'exactText', 'inTable',
-    'table', 'list', 'styleId', 'headingLevel', 'nearestHeading',
-    'structuralReferences', 'hasRevisions', 'revisionAuthors', 'commentIds', 'segments'
-  ];
-  return fields.every(field => JSON.stringify(before?.[field]) === JSON.stringify(after?.[field]));
-}
-
 function describeLocation(paragraph) {
   const reference = String(paragraph?.humanReference || paragraph?.excerpt || '')
     .replace(/\[\s*P\d+(?:\|[^\]]*)?\s*\]/gi, ' ')
@@ -389,18 +370,16 @@ export function createDocumentInspectionSession({
         throw sessionError(selectedInspection?.error?.code || 'CANONICAL_INSPECTION_FAILED', selectedInspection?.error?.message || 'The Word source could not be inspected.');
       }
 
+      // Library inspection always returns strong descriptors (index, exactText, paragraphId, fingerprint).
       const editableParagraphs = (selectedInspection.paragraphs || []).filter(paragraph => paragraph.index !== snapshot.excludedParagraphIndex);
-      const strongParagraphs = editableParagraphs.filter(hasStrongDescriptor);
-      if (handles.size + strongParagraphs.length + (normalized.includeDocumentEnd ? 1 : 0) > MAX_STORED_HANDLES) {
+      if (handles.size + editableParagraphs.length + (normalized.includeDocumentEnd ? 1 : 0) > MAX_STORED_HANDLES) {
         invalidate();
         throw sessionError('HANDLE_STORE_LIMIT', 'This inspection session reached its handle limit. Start a fresh inspection session.');
       }
 
       const issued = [];
-      const unresolvedCount = editableParagraphs.length;
       const handleByIndex = new Map();
       for (const paragraph of editableParagraphs) {
-        if (!hasStrongDescriptor(paragraph)) continue;
         const handle = makeHandle('paragraph', paragraph, snapshot);
         issued.push({ paragraph, handle });
         handleByIndex.set(paragraph.index, handle);
@@ -449,7 +428,7 @@ export function createDocumentInspectionSession({
           excerptLength: Math.min(maxTextChars, 240)
         });
         const lastParagraph = fullInspection.paragraphs?.filter(paragraph => paragraph.index !== snapshot.excludedParagraphIndex).at(-1);
-        if (fullInspection.status === 'ok' && hasStrongDescriptor(lastParagraph)) {
+        if (fullInspection.status === 'ok' && lastParagraph) {
           endHandle = makeHandle('document-end', lastParagraph, snapshot, {
             fullTextInspected: false
           });
@@ -461,9 +440,6 @@ export function createDocumentInspectionSession({
         status: 'ok',
         revisionView,
         targets,
-        ...(unresolvedCount > issued.length ? {
-          warnings: ['Some inspected paragraphs did not have a strong canonical descriptor and were omitted from handle results.']
-        } : {}),
         ...(selectedInspection.selection ? { selection: compactSelection(selectedInspection.selection, nextCursor) } : {}),
         ...(endHandle ? { documentEnd: { handle: endHandle, location: 'End of document' } } : {})
       };
@@ -505,6 +481,9 @@ export function createDocumentInspectionSession({
         throw sessionError('STALE_DOCUMENT_SOURCE', 'The Word source changed after inspection. Inspect the current document again before editing.');
       }
 
+      // An equal revision token means the canonical source is unchanged, so each handle's
+      // descriptor still resolves. The apply path resolves it again strictly in the library
+      // (strictTargets + expectedRevision); no local descriptor comparison is needed.
       const indexes = [...new Set(entries.map(({ entry }) => entry.descriptor.index))];
       const freshInspection = inspectDocumentParts(snapshot.parts, { revisionView, indexes });
       if (freshInspection?.status !== 'ok') {
@@ -513,7 +492,7 @@ export function createDocumentInspectionSession({
       const freshByIndex = new Map((freshInspection.paragraphs || []).map(item => [item.index, item]));
       const targets = entries.map(({ handle, entry }) => {
         const current = freshByIndex.get(entry.descriptor.index);
-        if (!descriptorsMatch(entry.descriptor, current)) {
+        if (!current) {
           invalidate();
           throw sessionError('STALE_TARGET_DESCRIPTOR', 'The inspected target no longer matches the current canonical source.');
         }
