@@ -1,7 +1,7 @@
 # Library-first simplification, phase 2
 
 **Date:** 2026-10-12 (America/Vancouver)
-**Status:** WP0 complete (2026-10-12); WP5 complete for the exposed list actions (2026-10-14); WP4 complete except the host paragraph count (2026-10-16). WP3 implemented 2026-10-17 on plugin branch `phase2-wp1-wp3`, waiting for `docx-redline-js` 0.10.0 to be published. WP1 is re-scoped: the Word host layer stays in the plugin (owner decision, 2026-10-17). WP2 not started.
+**Status:** WP0 complete (2026-10-12); WP5 complete for the exposed list actions (2026-10-14); WP4 complete except the host paragraph count (2026-10-16). WP3 implemented 2026-10-17 on plugin branch `phase2-wp1-wp3`, pinned to the published `docx-redline-js` 0.10.0; offline gates pass, the Word host lanes are still to run. WP1 is re-scoped: the Word host layer stays in the plugin (owner decision, 2026-10-17); the XML-adapter deep imports are already gone. WP2 not started.
 **Baseline:**
 - Exact `@ansonlai/docx-redline-js@0.9.0` in the add-in and MCP.
 - HEAD `a98f339` plus the uncommitted 0.9.0 upgrade work.
@@ -86,10 +86,10 @@ What remains of WP1 is to remove the plugin's imports of unexported library inte
 | Import | Use | Plugin can do without it? |
 | --- | --- | --- |
 | `applyOperationsToDocumentXml` (`/standalone-runner`) | Batch execution; no-write format re-check | No, but it is a documented public subpath |
-| `createParser`/`createSerializer`, `parseXml`/`serializeXml` (`adapters/xml-adapter.js`) | Flat OPC part parse and serialise | Probably: root exports `parseOoxml`/`serializeOoxml`/`parseOoxmlSafe` (parse-error parity unchecked) |
-| `getPartSpec` (`services/package-parts.js`) | Content and relationship types for comment/numbering parts | Yes: local constants |
+| ~~`createParser`/`createSerializer`, `parseXml`/`serializeXml` (`adapters/xml-adapter.js`)~~ | Flat OPC part parse and serialise | **Done 2026-10-17:** replaced with the root `parseOoxmlSafe`/`serializeOoxml`, the same functions those adapter helpers wrap |
+| `getPartSpec` (`services/package-parts.js`) | Content and relationship types for comment/numbering parts | Yes, with local constants. Not done, because it would add plugin lines |
 | `buildDocumentFragmentPackage` (`services/package-builder.js`) | Wrap a bare fragment; test fixtures | Yes in production (Word returns full packages); test-only otherwise |
-| `reconcileCommentSiblingParts`, `MemoryZip` | Comment-part merge with the root's zip-shaped `ensureComments*ArtifactsInZip` | Only if the library offers a general-purpose parts-level comment merge or exports these |
+| `reconcileCommentSiblingParts`, `MemoryZip` | Comment-part merge with the root's zip-shaped `ensureComments*ArtifactsInZip` | Only if the library offers a general-purpose parts-level comment merge or exports these. The library lists a parts-level merge as a candidate for a later release |
 
 **Exit:** `src/` imports only the library root and documented subpaths; the Word layer shrinks where a general-purpose library primitive replaces local code. Steps that need a library change wait for the library owner's decision.
 
@@ -115,8 +115,9 @@ What remains of WP1 is to remove the plugin's imports of unexported library inte
 **Done (2026-10-17, pending the 0.10.0 release):**
 - Library 0.10.0 adds `existingRevisions: 'auto'`, `compareDocumentInspections` and the KB-7 fix (CommonMark underscore flanking, and literal inline Markdown for a caller's `structuredContent: false`).
 - Plugin branch `phase2-wp1-wp3`: plain-text replace/rewrite operations send `existingRevisions: 'auto'` instead of choosing `slice-cross-author` locally; post-commit verification uses `compareDocumentInspections` instead of the local `acceptedShape`/`reviewSegments`; the `TRACKING_POLICY_MISMATCH` guard (KB-5) and the "Add Date Row" known-defect gate (KB-7) are removed.
-- Production lines 4,478 → 4,436. Offline suite 49/49 against a locally packed 0.10.0, and the KB-7 reproducer exits 1.
-- **Not yet run:** the Office.js manifest, the Word oracle and the NDA replay. Run them after 0.10.0 is published and pinned (root and MCP), then merge the branch.
+- Production lines 4,478 → 4,436. Root and MCP pins are exact 0.10.0 (published 2026-10-17, tag `v0.10.0` at `04faf9b`). Offline 49/49, the MCP workflow test, both builds, and the KB-7 reproducer exits 1.
+- 0.10.0 also counts unattributed revisions as another author's (`EXISTING_REVISIONS` instead of `UNSAFE_REVISION_NESTING` under merge-same-author). The plugin maps neither code, so nothing changes here.
+- **Not yet run:** the Office.js manifest, the Word oracle and the NDA replay. Merge the branch after they pass.
 
 ### WP4: Remove expedient Word JS API uses and dead code
 

@@ -7,9 +7,10 @@ import {
     mergeNumberingXmlBySchemaOrder,
     computeDocumentPartsRevisionToken,
     ensureCommentsArtifactsInZip,
-    ensureCommentsExtendedArtifactsInZip
+    ensureCommentsExtendedArtifactsInZip,
+    parseOoxmlSafe,
+    serializeOoxml
 } from '@ansonlai/docx-redline-js';
-import { createParser, createSerializer } from '@ansonlai/docx-redline-js/adapters/xml-adapter.js';
 import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalone-runner';
 import { reconcileCommentSiblingParts } from '@ansonlai/docx-redline-js/services/comment-thread-parts.js';
 import { getPartSpec } from '@ansonlai/docx-redline-js/services/package-parts.js';
@@ -24,19 +25,14 @@ const PART_TYPES = Object.fromEntries(
         .map(kind => getPartSpec(kind)).map(spec => [`/${spec.path}`, spec.contentType])
 );
 function parseXmlStrict(xmlText, label) {
-    const parser = createParser();
-    const xmlDoc = parser.parseFromString(xmlText, 'application/xml');
-    const parseError = xmlDoc.getElementsByTagName('parsererror')[0];
-    if (parseError) {
-        throw new Error(`[XML parse error] ${label}: ${parseError.textContent || 'Unknown parse error'}`);
-    }
-    return xmlDoc;
+    const { doc, error } = parseOoxmlSafe(xmlText, 'application/xml');
+    if (error) throw new Error(`[XML parse error] ${label}: ${error.message || 'Unknown parse error'}`);
+    return doc;
 }
 
 function wrapParagraphNodesAsDocument(paragraphNodes) {
-    const serializer = createSerializer();
     const bodyXml = (paragraphNodes || [])
-        .map(node => serializer.serializeToString(node))
+        .map(node => serializeOoxml(node))
         .join('');
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="${NS_W}">
@@ -65,7 +61,7 @@ function packagePart(packageDoc, name) {
 function packagePartXml(packageDoc, name) {
     const xmlData = packagePart(packageDoc, name)?.getElementsByTagNameNS(NS_PKG, 'xmlData')[0];
     const root = Array.from(xmlData?.childNodes || []).find(node => node.nodeType === 1);
-    return root ? createSerializer().serializeToString(root) : null;
+    return root ? serializeOoxml(root) : null;
 }
 
 function replacePackagePartXml(packageDoc, name, xml) {
@@ -317,10 +313,9 @@ async function mergeCommentPartsIntoPackage(packageDoc, result) {
 }
 
 async function buildBatchInsertionPackage(source, result) {
-    const serializer = createSerializer();
     const outputDoc = parseXmlStrict(result.documentXml, 'batch output');
     normalizeBodySectionOrderStandalone(outputDoc);
-    const outputXml = serializer.serializeToString(outputDoc.documentElement);
+    const outputXml = serializeOoxml(outputDoc.documentElement);
     let numberingXml = source.numberingXml || null;
     for (const part of result.numberingXmlParts || []) {
         numberingXml = numberingXml ? mergeNumberingXmlBySchemaOrder(numberingXml, part) : part;
@@ -335,9 +330,9 @@ async function buildBatchInsertionPackage(source, result) {
             replacePackagePartXml(source.packageDoc, '/word/numbering.xml', numberingXml);
             ensurePackageRelationship(source.packageDoc, 'numbering');
         }
-        return serializer.serializeToString(source.packageDoc);
+        return serializeOoxml(source.packageDoc);
     }
-    const bodyXml = extractBodyChildElements(outputDoc).map(node => serializer.serializeToString(node)).join('');
+    const bodyXml = extractBodyChildElements(outputDoc).map(node => serializeOoxml(node)).join('');
     const fragmentPackage = buildDocumentFragmentPackage(bodyXml, {
         includeNumbering: !!numberingXml,
         numberingXml,
@@ -345,5 +340,5 @@ async function buildBatchInsertionPackage(source, result) {
     });
     const packageDoc = parseXmlStrict(fragmentPackage, 'batch fragment package');
     await mergeCommentPartsIntoPackage(packageDoc, result);
-    return serializer.serializeToString(packageDoc);
+    return serializeOoxml(packageDoc);
 }

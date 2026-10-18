@@ -1,5 +1,10 @@
-import { computeDocumentPartsRevisionToken, inspectDocumentParts, NS_W } from '@ansonlai/docx-redline-js';
-import { parseXml, serializeXml } from '@ansonlai/docx-redline-js/adapters/xml-adapter.js';
+import { computeDocumentPartsRevisionToken, inspectDocumentParts, NS_W, parseOoxmlSafe, serializeOoxml as serializeXml } from '@ansonlai/docx-redline-js';
+
+function parseXml(xml) {
+  const { doc, error } = parseOoxmlSafe(xml, 'text/xml');
+  if (error) throw Object.assign(new Error(error.message), { code: error.code });
+  return doc;
+}
 
 const NS_W14 = 'http://schemas.microsoft.com/office/word/2010/wordml';
 const NS_W15 = 'http://schemas.microsoft.com/office/word/2012/wordml';
