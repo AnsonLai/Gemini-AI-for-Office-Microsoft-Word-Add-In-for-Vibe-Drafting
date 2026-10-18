@@ -1,7 +1,7 @@
 # Library-first simplification, phase 2
 
 **Date:** 2026-10-12 (America/Vancouver)
-**Status:** WP0 complete (2026-10-12); WP5 complete for the exposed list actions (2026-10-14); WP4 complete except the host paragraph count (2026-10-16). WP3 implemented 2026-10-17 on plugin branch `phase2-wp1-wp3`, pinned to the published `docx-redline-js` 0.10.0; offline gates pass, the Word host lanes are still to run. WP1 is re-scoped: the Word host layer stays in the plugin (owner decision, 2026-10-17); the XML-adapter deep imports are already gone. WP2 not started.
+**Status:** WP0 complete (2026-10-12); WP5 complete for the exposed list actions (2026-10-14); WP4 complete except the host paragraph count (2026-10-16). WP3 implemented 2026-10-17 on plugin branch `phase2-wp1-wp3`, pinned to the published `docx-redline-js` 0.10.0; offline and Word host gates pass. WP1 is re-scoped: the Word host layer stays in the plugin (owner decision, 2026-10-17); the XML-adapter deep imports are already gone. WP2 not started.
 **Baseline:**
 - Exact `@ansonlai/docx-redline-js@0.9.0` in the add-in and MCP.
 - HEAD `a98f339` plus the uncommitted 0.9.0 upgrade work.
@@ -117,7 +117,7 @@ What remains of WP1 is to remove the plugin's imports of unexported library inte
 - Plugin branch `phase2-wp1-wp3`: plain-text replace/rewrite operations send `existingRevisions: 'auto'` instead of choosing `slice-cross-author` locally; post-commit verification uses `compareDocumentInspections` instead of the local `acceptedShape`/`reviewSegments`; the `TRACKING_POLICY_MISMATCH` guard (KB-5) and the "Add Date Row" known-defect gate (KB-7) are removed.
 - Production lines 4,478 → 4,436. Root and MCP pins are exact 0.10.0 (published 2026-10-17, tag `v0.10.0` at `04faf9b`). Offline 49/49, the MCP workflow test, both builds, and the KB-7 reproducer exits 1.
 - 0.10.0 also counts unattributed revisions as another author's (`EXISTING_REVISIONS` instead of `UNSAFE_REVISION_NESTING` under merge-same-author). The plugin maps neither code, so nothing changes here.
-- **Not yet run:** the Office.js manifest, the Word oracle and the NDA replay. Merge the branch after they pass.
+- Host lanes (2026-10-17): Office.js passed (20 cases, 26 checks, 3 restores), the Word oracle gives 88 PASS / 0 FAIL, and the NDA replay passes 16/16 (51/51). See the [0.10.0 validation](../validation-reports/2026-10-17-docx-redline-v0100.md).
 
 ### WP4: Remove expedient Word JS API uses and dead code
 
