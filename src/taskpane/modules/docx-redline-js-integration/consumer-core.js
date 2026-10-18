@@ -12,16 +12,22 @@ import {
 } from '@ansonlai/docx-redline-js';
 import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalone-runner';
 import { reconcileCommentSiblingParts } from '@ansonlai/docx-redline-js/services/comment-thread-parts.js';
-import { getPartSpec } from '@ansonlai/docx-redline-js/services/package-parts.js';
 import { MemoryZip } from '@ansonlai/docx-redline-js/document/zip-archive.js';
 
 const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const NS_PKG = 'http://schemas.microsoft.com/office/2006/xmlPackage';
 const NS_REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
-const PART_TYPES = Object.fromEntries(
-    ['comments', 'commentsExtended', 'commentsIds', 'commentsExtensible', 'numbering']
-        .map(kind => getPartSpec(kind)).map(spec => [`/${spec.path}`, spec.contentType])
-);
+// Word package parts the insertion package may add: [part name, content type, relationship type].
+const WML = 'application/vnd.openxmlformats-officedocument.wordprocessingml';
+const OFFICE_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+const PARTS = {
+    comments: ['comments.xml', `${WML}.comments+xml`, `${OFFICE_REL}/comments`],
+    commentsExtended: ['commentsExtended.xml', `${WML}.commentsExtended+xml`, 'http://schemas.microsoft.com/office/2011/relationships/commentsExtended'],
+    commentsIds: ['commentsIds.xml', `${WML}.commentsIds+xml`, 'http://schemas.microsoft.com/office/2016/09/relationships/commentsIds'],
+    commentsExtensible: ['commentsExtensible.xml', `${WML}.commentsExtensible+xml`, 'http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible'],
+    numbering: ['numbering.xml', `${WML}.numbering+xml`, `${OFFICE_REL}/numbering`]
+};
+const PART_TYPES = Object.fromEntries(Object.values(PARTS).map(([target, contentType]) => [`/word/${target}`, contentType]));
 function parseXmlStrict(xmlText, label) {
     const { doc, error } = parseOoxmlSafe(xmlText, 'application/xml');
     if (error) throw new Error(`[XML parse error] ${label}: ${error.message || 'Unknown parse error'}`);
@@ -65,8 +71,7 @@ function ensurePackageRelationship(packageDoc, kind) {
     if (!relsXml) relsXml = `<Relationships xmlns="${NS_REL}"/>`;
     const relsDoc = parseXmlStrict(relsXml, name);
     const relationships = Array.from(relsDoc.getElementsByTagNameNS(NS_REL, 'Relationship'));
-    const spec = getPartSpec(kind);
-    const type = spec.relType;
+    const [target, , type] = PARTS[kind];
     if (!relationships.some(rel => rel.getAttribute('Type') === type)) {
         const used = new Set(relationships.map(rel => rel.getAttribute('Id')));
         let next = 1;
@@ -74,7 +79,7 @@ function ensurePackageRelationship(packageDoc, kind) {
         const rel = relsDoc.createElementNS(NS_REL, 'Relationship');
         rel.setAttribute('Id', `rId${next}`);
         rel.setAttribute('Type', type);
-        rel.setAttribute('Target', spec.relTarget);
+        rel.setAttribute('Target', target);
         relsDoc.documentElement.appendChild(rel);
     }
     // Relationship parts have a different content type from the Word XML parts.
@@ -300,7 +305,7 @@ async function buildBatchInsertionPackage(source, result) {
         await mergeCommentPartsIntoPackage(source.packageDoc, result);
         // A body edit must also repair the commentsExtended type written before 0.8.1.
         const extendedPart = packagePart(source.packageDoc, '/word/commentsExtended.xml');
-        if (extendedPart) extendedPart.setAttribute('pkg:contentType', getPartSpec('commentsExtended').contentType);
+        if (extendedPart) extendedPart.setAttribute('pkg:contentType', PARTS.commentsExtended[1]);
         if (numberingXml && (result.numberingXmlParts?.length || !source.numberingXml)) {
             replacePackagePartXml(source.packageDoc, '/word/numbering.xml', numberingXml);
             ensurePackageRelationship(source.packageDoc, 'numbering');

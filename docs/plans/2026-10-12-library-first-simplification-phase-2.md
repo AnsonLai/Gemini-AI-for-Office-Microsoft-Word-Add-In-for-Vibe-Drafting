@@ -87,11 +87,12 @@ What remains of WP1 is to remove the plugin's imports of unexported library inte
 | --- | --- | --- |
 | `applyOperationsToDocumentXml` (`/standalone-runner`) | Batch execution; no-write format re-check | No, but it is a documented public subpath |
 | ~~`createParser`/`createSerializer`, `parseXml`/`serializeXml` (`adapters/xml-adapter.js`)~~ | Flat OPC part parse and serialise | **Done 2026-10-17:** replaced with the root `parseOoxmlSafe`/`serializeOoxml`, the same functions those adapter helpers wrap |
-| `getPartSpec` (`services/package-parts.js`) | Content and relationship types for comment/numbering parts | Yes, with local constants. Not done, because it would add plugin lines |
+| ~~`getPartSpec` (`services/package-parts.js`)~~ | Content and relationship types for comment/numbering parts | **Done 2026-10-17:** a local five-row part table, as the library recommended (+5 lines, one fewer unversioned import) |
 | ~~`buildDocumentFragmentPackage` (`services/package-builder.js`)~~ | Wrap a bare fragment; test fixtures | **Done 2026-10-17:** the Word layer no longer builds fragment packages. It inspects a Flat OPC package or a bare `w:document`, and refuses to prepare a write without a package (`WORD_FLAT_OPC_REQUIRED`). Tests still use the builder as a fixture helper |
 | `reconcileCommentSiblingParts`, `MemoryZip` | Comment-part merge with the root's zip-shaped `ensureComments*ArtifactsInZip` | Only if the library offers a general-purpose parts-level comment merge or exports these. The library lists a parts-level merge as a candidate for a later release |
 
-**Progress (2026-10-17):** step 1 removed the bare-fragment path (`buildDocumentFragmentPackage`, `extractReplacementNodesFromOoxml` and two local helpers). Production never used it, because every `getOoxml()` source and checkpoint is a full package. New assertions in `docx_consumer_core_tests` pin the contract.
+**Progress (2026-10-17):** step 1 removed the bare-fragment path (`buildDocumentFragmentPackage`, `extractReplacementNodesFromOoxml` and two local helpers). Production never used it, because every `getOoxml()` source and checkpoint is a full package. New assertions in `docx_consumer_core_tests` pin the contract. 4,363 → 4,330 lines.
+Step 2 replaced `getPartSpec` with a local part table (4,330 → 4,335). Two deep imports remain, `reconcileCommentSiblingParts` and `MemoryZip`, both for the comment-part merge.
 
 **Exit:** `src/` imports only the library root and documented subpaths; the Word layer shrinks where a general-purpose library primitive replaces local code. Steps that need a library change wait for the library owner's decision.
 
