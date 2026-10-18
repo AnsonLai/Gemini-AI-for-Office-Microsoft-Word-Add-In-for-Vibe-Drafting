@@ -1,7 +1,7 @@
 # Library-first simplification, phase 2
 
 **Date:** 2026-10-12 (America/Vancouver)
-**Status:** WP0 complete (2026-10-12); WP5 complete for the exposed list actions (2026-10-14); WP4 complete except the host paragraph count (2026-10-16). WP1 and WP3 implemented 2026-10-17 against a local `docx-redline-js` 0.10.0 build: the library work is on branch `feat/word-surface-0.10`, the plugin work on `phase2-wp1-wp3`, and both wait on publishing 0.10.0. WP2 not started.
+**Status:** WP0 complete (2026-10-12); WP5 complete for the exposed list actions (2026-10-14); WP4 complete except the host paragraph count (2026-10-16). WP3 implemented 2026-10-17 on plugin branch `phase2-wp1-wp3`, waiting for `docx-redline-js` 0.10.0 to be published. WP1 is re-scoped: the Word host layer stays in the plugin (owner decision, 2026-10-17). WP2 not started.
 **Baseline:**
 - Exact `@ansonlai/docx-redline-js@0.9.0` in the add-in and MCP.
 - HEAD `a98f339` plus the uncommitted 0.9.0 upgrade work.
@@ -77,13 +77,21 @@ If WP1–WP3 land as proposed, roughly 1,000–1,200 consumer lines become libra
 - The add-in never calls `configureXmlProvider`, so in Word the library uses WebView2's native DOM. Details are in [KNOWN_BUGS KB-8](KNOWN_BUGS.md).
 - Optional library hardening (do not depend on serializer prefix preservation) is noted in KB-8. Nothing was filed, because no user-facing defect exists.
 
-### WP1: Upstream the Word Flat OPC body surface
+### WP1: Word Flat OPC body layer (re-scoped 2026-10-17)
 
-- Move package-part, relationship, comment-merge and insertion-package assembly from `consumer-core.js` behind one public library function. The same applies to the export-noise normalisation and tail detection in `word-source-identity.js`.
-- The function takes the Word body Flat OPC, a batch and options, and returns the result, the insertion package and receipts.
-- Remove the six internal subpath imports.
-- The Word transport itself (`getOoxml`, one `insertOoxml`) stays in the plugin.
-- **Exit:** `consumer-core.js` and most of `word-source-identity.js` are deleted or reduced to host glue, with package-root imports only. All gates pass unchanged, including the sequential comment workflow and checkpoint restores.
+**Decision (owner, 2026-10-17):** the Word host layer stays in the plugin, and the library stays host-independent. Library ARCHITECTURE.md says "No Word add-in entrypoints or host-specific integration layers are part of this package." A `/word` subpath was built and reviewed for 0.10.0 and then dropped for that reason. `consumer-core.js` and `word-source-identity.js` stay plugin code.
+
+What remains of WP1 is to remove the plugin's imports of unexported library internals, without adding Word-specific API to the library. The plugin imports from outside the library root today (sent to the library side on 2026-10-17 for a decision):
+
+| Import | Use | Plugin can do without it? |
+| --- | --- | --- |
+| `applyOperationsToDocumentXml` (`/standalone-runner`) | Batch execution; no-write format re-check | No, but it is a documented public subpath |
+| `createParser`/`createSerializer`, `parseXml`/`serializeXml` (`adapters/xml-adapter.js`) | Flat OPC part parse and serialise | Probably: root exports `parseOoxml`/`serializeOoxml`/`parseOoxmlSafe` (parse-error parity unchecked) |
+| `getPartSpec` (`services/package-parts.js`) | Content and relationship types for comment/numbering parts | Yes: local constants |
+| `buildDocumentFragmentPackage` (`services/package-builder.js`) | Wrap a bare fragment; test fixtures | Yes in production (Word returns full packages); test-only otherwise |
+| `reconcileCommentSiblingParts`, `MemoryZip` | Comment-part merge with the root's zip-shaped `ensureComments*ArtifactsInZip` | Only if the library offers a general-purpose parts-level comment merge or exports these |
+
+**Exit:** `src/` imports only the library root and documented subpaths; the Word layer shrinks where a general-purpose library primitive replaces local code. Steps that need a library change wait for the library owner's decision.
 
 ### WP2: Upstream the agent session (inspection, handles, search)
 
@@ -104,12 +112,11 @@ If WP1–WP3 land as proposed, roughly 1,000–1,200 consumer lines become libra
 
 **Exit:** `document-tools.js` holds only tool wiring. KB-5 and KB-7 are closed.
 
-**Done (2026-10-17, pending the 0.10.0 release), WP1 and WP3 together:**
-- Library 0.10.0 (`feat/word-surface-0.10`, `a915dab`): `@ansonlai/docx-redline-js/word` (`inspectWordFlatOpc`, `prepareWordFlatOpcBatch`, `computeWordSourceRevisionToken`, `computeWordRestorationToken`, `detectWordExportTailIndex`), `existingRevisions: 'auto'`, `compareDocumentInspections`, and the KB-7 fix. The consumer-core test suite moved to the library as `word_flat_opc_body_tests`. Library suite 153/153, types and isolation checks pass.
-- Plugin (`phase2-wp1-wp3`): `consumer-core.js` and `word-source-identity.js` deleted; plain-text replace/rewrite operations send `existingRevisions: 'auto'`; post-commit verification uses `compareDocumentInspections`; the `TRACKING_POLICY_MISMATCH` guard (KB-5) and the "Add Date Row" known-defect gate (KB-7) are removed.
-- Production lines 4,478 → 3,900, files 19 → 17. Internal library subpath imports in `src/`: 6 → 0. The one remaining subpath, `standalone-runner`, is a documented public entry point.
-- Gates so far: offline 48/48 (one suite moved to the library), both builds, and the KB-7 reproducer exits 1. **Not yet run:** the Office.js manifest, the Word oracle and the NDA replay. Run them after 0.10.0 is published and pinned.
-- Still open: the host paragraph count for the export tail (see KNOWN_BUGS). The library still needs it as certification.
+**Done (2026-10-17, pending the 0.10.0 release):**
+- Library 0.10.0 adds `existingRevisions: 'auto'`, `compareDocumentInspections` and the KB-7 fix (CommonMark underscore flanking, and literal inline Markdown for a caller's `structuredContent: false`).
+- Plugin branch `phase2-wp1-wp3`: plain-text replace/rewrite operations send `existingRevisions: 'auto'` instead of choosing `slice-cross-author` locally; post-commit verification uses `compareDocumentInspections` instead of the local `acceptedShape`/`reviewSegments`; the `TRACKING_POLICY_MISMATCH` guard (KB-5) and the "Add Date Row" known-defect gate (KB-7) are removed.
+- Production lines 4,478 → 4,436. Offline suite 49/49 against a locally packed 0.10.0, and the KB-7 reproducer exits 1.
+- **Not yet run:** the Office.js manifest, the Word oracle and the NDA replay. Run them after 0.10.0 is published and pinned (root and MCP), then merge the branch.
 
 ### WP4: Remove expedient Word JS API uses and dead code
 
@@ -179,6 +186,6 @@ These don't reduce the plugin, but they gate users actually getting today's work
    - WP1 removes the most library coupling.
    - WP2 is the largest API design.
    - Alternatively, start WP2 first if inspection reliability is the bigger pain.
-3. **Library API shape.** Decided 2026-10-17: public, documented modules in `docx-redline-js` itself (the `/word` subpath for WP1). The WP2 session API should follow the same pattern.
+3. **Library API shape.** Decided 2026-10-17: the library takes only host-independent, general-purpose API. Word-specific layers (Flat OPC round-trip, Word export noise, and probably the WP2 agent session's Word binding) stay in the plugin.
 4. **Browser lane.** Recommendation from WP0: don't make jsdom a required gate. Keep xmldom as the gate and add a headless Chromium/Edge lane that runs the library bundle, advisory at first and required once it is stable. `scripts/browser-document-validation.html` is a manual starting point. Agree?
 5. **Release track.** Deploy the current fixes before phase 2 starts, or batch them with WP0?

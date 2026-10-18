@@ -6,7 +6,7 @@ import './setup-xml-provider.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { acceptTrackedChangesInOoxml, openDocx, rejectTrackedChangesInOoxml } from '@ansonlai/docx-redline-js';
-import { inspectWordFlatOpc } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
+import { inspectWordSource } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
 import { createDocumentInspectionSession } from '../src/taskpane/modules/chat/document-inspection-session.js';
 import { createDocumentTools } from '../src/taskpane/modules/chat/document-tools.js';
 import { createFunctionResponse } from '../src/taskpane/modules/chat/document-agent-loop.js';
@@ -83,7 +83,7 @@ function createHarness(initialXml, { generateRedlines = true } = {}) {
   const context = { document, async sync() {} };
   const session = createDocumentInspectionSession({
     readSource: async () => {
-      const source = inspectWordFlatOpc(currentXml);
+      const source = inspectWordSource(currentXml);
       if (source.inspection?.status !== 'ok') throw new Error(`Inspection failed: ${JSON.stringify(source.inspection?.error)}`);
       return { documentId: 'list-intents-doc', revisionView: 'accepted', parts: source.parts };
     }
@@ -118,7 +118,7 @@ const view = (xml, action) => {
     ? acceptTrackedChangesInOoxml(xml, { allAuthors: true })
     : rejectTrackedChangesInOoxml(xml, { allAuthors: true });
   assert.equal(result.status, undefined, JSON.stringify(result.error));
-  return inspectWordFlatOpc(result.oxml).inspection.paragraphs;
+  return inspectWordSource(result.oxml).inspection.paragraphs;
 };
 const shape = paragraphs => paragraphs.map(item => [item.exactText, item.list ? item.list.label : null]);
 const formats = paragraphs => paragraphs.map(item => (item.list ? item.list.format : null));
@@ -152,7 +152,7 @@ function headerSource() {
 for (const mode of ['one convert per header', 'one contiguous range']) {
   const source = headerSource();
   const harness = createHarness(source);
-  const sourceParagraphs = inspectWordFlatOpc(source).inspection.paragraphs;
+  const sourceParagraphs = inspectWordSource(source).inspection.paragraphs;
   const edits = mode === 'one convert per header'
     ? await Promise.all(HEADERS.map(async ([header]) => ({ type: 'convert_to_list', target: await harness.handle(header) })))
     : [{ type: 'convert_to_list', target: await harness.handle('1. DEFINITIONS'), through: await harness.handle('3. FEES') }];
@@ -209,7 +209,7 @@ for (const mode of ['one convert per header', 'one contiguous range']) {
     para('Lead-in.'), para('Passport', { numId: 2 }), para('Driver licence', { numId: 2 }), para('Health card', { numId: 2 }), para('Trailer.')
   ]);
   const harness = createHarness(source);
-  const before = inspectWordFlatOpc(source).inspection.paragraphs;
+  const before = inspectWordSource(source).inspection.paragraphs;
   const receipt = await harness.apply([{ type: 'change_list_format', target: await harness.handle('Driver licence'), format: 'decimal' }]);
   assertCommitted(receipt, harness, '(c)');
   const accepted = view(harness.currentXml, 'accept');
@@ -230,7 +230,7 @@ for (const mode of ['one convert per header', 'one contiguous range']) {
     para('Alpha', { numId: 1 }), para('Beta', { numId: 1 }), para('Interlude.'), para('Gamma', { numId: 3 }), para('Delta', { numId: 3 })
   ]);
   const harness = createHarness(source);
-  const before = inspectWordFlatOpc(source).inspection.paragraphs;
+  const before = inspectWordSource(source).inspection.paragraphs;
   assert.deepEqual(shape(before).map(row => row[1]), ['1.', '2.', null, '1.', '2.'], 'fixture: two separate decimal lists');
   const receipt = await harness.apply([{ type: 'continue_list', target: await harness.handle('Gamma'), from: await harness.handle('Beta') }]);
   assertCommitted(receipt, harness, '(d)');
@@ -277,7 +277,7 @@ for (const order of ['rewrite first', 'convert first']) {
   const styled = flatOpc([para('Lead-in.'), para('Styled item', { style: 'Numbered' }), para('1. Typed header')]);
   const harness = createHarness(styled);
   // The inspector reports no direct list for a style-numbered paragraph, so only the library can refuse it.
-  assert.equal(inspectWordFlatOpc(styled).inspection.paragraphs[1].list, null);
+  assert.equal(inspectWordSource(styled).inspection.paragraphs[1].list, null);
   const receipt = await harness.apply([{ type: 'convert_to_list', target: await harness.handle('Styled item'), markers: 'none', format: 'decimal' }]);
   assertRefusedWithoutWrite(receipt, harness, styled, 'LIST_FORMAT_STYLE_NUMBERED', '(f) style-numbered');
 }
@@ -292,7 +292,7 @@ for (const order of ['rewrite first', 'convert first']) {
   const nda = openDocx(ndaBytes);
   const entryText = name => new TextDecoder().decode(nda.entries.get(name));
   const source = flatOpcFromParts(entryText('word/document.xml'), entryText('word/numbering.xml'), entryText('word/styles.xml'));
-  const before = inspectWordFlatOpc(source).inspection.paragraphs;
+  const before = inspectWordSource(source).inspection.paragraphs;
   const harness = createHarness(source);
 
   const inspectParts = step.replay[0].chat;
@@ -314,7 +314,7 @@ for (const order of ['rewrite first', 'convert first']) {
   assertCommitted(receipt, harness, '(g) NDA headers');
   assert.equal(receipt.accountedCount, 9);
 
-  const parts = inspectWordFlatOpc(harness.currentXml).parts;
+  const parts = inspectWordSource(harness.currentXml).parts;
   const scored = openDocx(ndaBytes);
   scored.entries.set('word/document.xml', new TextEncoder().encode(parts.documentXml));
   scored.entries.set('word/numbering.xml', new TextEncoder().encode(parts.numberingXml));
@@ -346,7 +346,7 @@ for (const order of ['rewrite first', 'convert first']) {
   const fixture = openDocx(new Uint8Array(readFileSync(new URL('./fixtures/agentic-lists/nested-lists-source.docx', import.meta.url))));
   const text = name => new TextDecoder().decode(fixture.entries.get(name));
   const source = flatOpcFromParts(text('word/document.xml'), text('word/numbering.xml'), text('word/styles.xml'));
-  const before = inspectWordFlatOpc(source).inspection.paragraphs;
+  const before = inspectWordSource(source).inspection.paragraphs;
   const run = async (edits) => {
     const harness = createHarness(source);
     const resolved = [];

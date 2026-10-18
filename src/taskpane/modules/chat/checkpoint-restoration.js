@@ -1,6 +1,7 @@
 import { areRevisionTokensEqual } from '@ansonlai/docx-redline-js';
-import { computeWordRestorationToken, inspectWordFlatOpc } from '@ansonlai/docx-redline-js/word';
+import { inspectWordSource } from '../docx-redline-js-integration/consumer-core.js';
 import { withNativeTrackingDisabled } from '../docx-redline-js-integration/word-ooxml.js';
+import { computeWordRestorationToken } from '../docx-redline-js-integration/word-source-identity.js';
 import { queueHostParagraphCount } from './word-document-source.js';
 
 /** Restore one body Flat OPC checkpoint once, preserving the host tracking mode. */
@@ -10,7 +11,7 @@ export async function restoreBodyCheckpoint(ooxml, { run = callback => Word.run(
     if (signal?.aborted) throw new Error('Checkpoint restoration was cancelled before writing.');
     if (typeof ooxml !== 'string' || !ooxml.trim()) throw new Error('The checkpoint is empty.');
     const documentId = getDocumentId();
-    const expected = inspectWordFlatOpc(ooxml);
+    const expected = inspectWordSource(ooxml);
     const before = await computeWordRestorationToken(expected.parts);
     return await run(async context => {
       const body = context.document.body;
@@ -26,7 +27,7 @@ export async function restoreBodyCheckpoint(ooxml, { run = callback => Word.run(
       const readCount = queueHostParagraphCount(body);
       await context.sync();
       const hostParagraphCount = readCount();
-      const actual = inspectWordFlatOpc(fresh.value);
+      const actual = inspectWordSource(fresh.value);
       const after = await computeWordRestorationToken(actual.parts, { hostParagraphCount });
       const verified = getDocumentId() === documentId && areRevisionTokensEqual(before.value, after.value)
         && JSON.stringify(before.commentIdentity) === JSON.stringify(after.commentIdentity);

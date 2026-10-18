@@ -30,7 +30,7 @@ export function createWordDocumentSourceReader({ loadSupport, getDocumentId, sig
     });
     abort();
     if (documentId !== getDocumentId()) throw Object.assign(new Error('The active document changed during inspection.'), { code: 'DOCUMENT_CHANGED' });
-    const { parts, inspection } = support.inspectWordFlatOpc(sourceOoxml);
+    const { parts, inspection } = support.inspectWordSource(sourceOoxml);
     return { documentId, revisionView: 'accepted', parts, inspection, sourceOoxml, selectionText, hostParagraphCount };
   };
 }

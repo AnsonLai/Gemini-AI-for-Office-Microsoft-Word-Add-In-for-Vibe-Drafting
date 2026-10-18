@@ -8,7 +8,7 @@ import { parseXml, serializeXml } from '@ansonlai/docx-redline-js/adapters/xml-a
  * Run with: node tests/addin/integration_tests.mjs
  *
  * NDA cases edit the complete sample word/document.xml the way production does
- * (@ansonlai/docx-redline-js/word / document-tools.js): strong paragraph targets from
+ * (consumer-core.js / document-tools.js): strong paragraph targets from
  * inspectDocumentParts (paragraphId + fingerprint) and applyOperationsToDocumentXml with
  * atomic + strictTargets. applyRedlineToOxml is limited to paragraph, range or table scope
  * (library README, Output Shape Matrix) and parses modifiedText as Markdown, so replaying a

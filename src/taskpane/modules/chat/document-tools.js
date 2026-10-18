@@ -1,7 +1,7 @@
 import { areRevisionTokensEqual, compareDocumentInspections } from '@ansonlai/docx-redline-js';
-import { computeWordSourceRevisionToken } from '@ansonlai/docx-redline-js/word';
+import { computeWordSourceRevisionToken } from '../docx-redline-js-integration/word-source-identity.js';
 import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalone-runner';
-import { executePureOoxmlBatch, inspectWordFlatOpc } from '../docx-redline-js-integration/word-operation-runner.js';
+import { executePureOoxmlBatch, inspectWordSource } from '../docx-redline-js-integration/word-operation-runner.js';
 import { compileDocumentEdits } from './document-edit-intents.js';
 import { queueHostParagraphCount } from './word-document-source.js';
 
@@ -57,7 +57,7 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
                   || new Set(preparation.result.results.map(item => item.index)).size !== compiled.operations.length)) {
                 throw fail('INCOMPLETE_ENGINE_RESULT', 'The engine did not account for every prepared operation. No write was attempted.');
               }
-              if (preparation.status === 'ready') expected = inspectWordFlatOpc(preparation.insertionPayload);
+              if (preparation.status === 'ready') expected = inspectWordSource(preparation.insertionPayload);
             },
             async beforeWrite(preparation) {
               checkCancelled();
@@ -70,7 +70,7 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
               const readFreshCount = queueHostParagraphCount(body);
               await context.sync();
               const sourceToken = await computeWordSourceRevisionToken(sourceParts(preparation.source), { hostParagraphCount });
-              const freshToken = await computeWordSourceRevisionToken(inspectWordFlatOpc(fresh.value).parts, { hostParagraphCount: readFreshCount() });
+              const freshToken = await computeWordSourceRevisionToken(inspectWordSource(fresh.value).parts, { hostParagraphCount: readFreshCount() });
               if (getDocumentId() !== documentId || !areRevisionTokensEqual(sourceToken.value, freshToken.value)) {
                 throw fail('STALE_DOCUMENT_CONTEXT', 'The document changed while saving its checkpoint. Inspect it again before editing.');
               }
@@ -83,7 +83,7 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
             try {
               const fresh = body.getOoxml(); counts.verificationReads++;
               await context.sync();
-              const actual = inspectWordFlatOpc(fresh.value);
+              const actual = inspectWordSource(fresh.value);
               if (getDocumentId() !== documentId
                 || !compareDocumentInspections(expected.inspection, actual.inspection).matches) {
                 throw fail('HOST_VERIFICATION_FAILED', 'The committed document does not match the prepared text, structure, review marks or comments.');

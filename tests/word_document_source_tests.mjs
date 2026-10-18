@@ -1,7 +1,7 @@
 import './setup-xml-provider.mjs';
 import assert from 'node:assert/strict';
 import { buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
-import { inspectWordFlatOpc } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
+import { inspectWordSource } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
 import {
   createWordDocumentSourceReader
 } from '../src/taskpane/modules/chat/word-document-source.js';
@@ -43,9 +43,9 @@ const sourceOoxml = basePackage.replace('</pkg:package>', `${commentsPart}</pkg:
 let supportLoads = 0;
 let integrationInspections = 0;
 const support = {
-  inspectWordFlatOpc(ooxml) {
+  inspectWordSource(ooxml) {
     integrationInspections++;
-    return inspectWordFlatOpc(ooxml);
+    return inspectWordSource(ooxml);
   }
 };
 let runCount = 0;
@@ -84,7 +84,7 @@ const reader = createWordDocumentSourceReader({
   run
 });
 const source = await reader();
-const expected = inspectWordFlatOpc(sourceOoxml);
+const expected = inspectWordSource(sourceOoxml);
 
 assert.deepEqual(source.parts, expected.parts, 'the host source must retain the library integration parts');
 assert.deepEqual(source.inspection, expected.inspection, 'the reader must return the real library inspection without reinterpreting it');
@@ -145,7 +145,7 @@ const cancelledDuringRead = new AbortController();
 let cancelledDuringInspections = 0;
 const cancellationReader = createWordDocumentSourceReader({
   loadSupport: async () => [{
-    inspectWordFlatOpc(ooxml) { cancelledDuringInspections++; return inspectWordFlatOpc(ooxml); }
+    inspectWordSource(ooxml) { cancelledDuringInspections++; return inspectWordSource(ooxml); }
   }],
   getDocumentId: () => 'word-document:one',
   signal: cancelledDuringRead.signal,
@@ -166,7 +166,7 @@ let activeDocumentId = 'word-document:one';
 let switchedDocumentInspections = 0;
 const switchedDocumentReader = createWordDocumentSourceReader({
   loadSupport: async () => [{
-    inspectWordFlatOpc(ooxml) { switchedDocumentInspections++; return inspectWordFlatOpc(ooxml); }
+    inspectWordSource(ooxml) { switchedDocumentInspections++; return inspectWordSource(ooxml); }
   }],
   getDocumentId: () => activeDocumentId,
   run: async callback => callback({

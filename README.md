@@ -202,10 +202,11 @@ AIWordPlugin/
 │   │       ├── storage/               # IndexedDB checkpoint store
 │   │       ├── utils/                 # Lazy module loading
 │   │       └── docx-redline-js-integration/
-│   │           ├── word-ooxml.js       # Tracking-mode save/disable/restore
-│   │           └── word-operation-runner.js  # Word I/O and atomic batch adapter (library /word surface)
+│   │           ├── consumer-core.js    # Portable preparation and package helpers
+│   │           └── word-operation-runner.js  # Word I/O and atomic batch adapter
 │   └── commands/
-│       └── commands.html
+│       ├── commands.html
+│       └── commands.js
 ├── browser-demo/                      # Browser runtime for manual validation
 ├── mcp/docx-server/                   # MCP server exposing reconciliation tools
 ├── tests/                             # Node regression tests (*.mjs) + evals/ harness

@@ -1,6 +1,6 @@
 # Known bugs and host-boundary exceptions
 
-**Updated:** 2026-10-17, phase-2 WP1/WP3 against the local `@ansonlai/docx-redline-js` 0.10.0 build (unpublished; the pin is still 0.9.0).
+**Updated:** 2026-10-17, phase-2 WP3 against a local `@ansonlai/docx-redline-js` 0.10.0 build (unpublished; the pin is still 0.9.0).
 Previous: 2026-10-12, after the 0.9.0 upgrade ([validation](../validation-reports/2026-10-12-docx-redline-v090.md)).
 
 This file tracks two things:
@@ -140,7 +140,7 @@ All document *transformation* happens in the library. The only Word call that ch
 | --- | --- | --- | --- | --- |
 | `chat/word-document-source.js` | `document.getSelection()`, `load('text')` | "User highlighted text" hint. The library has no selection concept | Necessary | None. A future improvement could map the selection to inspected paragraph handles instead of Word text |
 | `taskpane.js` | `Office.context.document.url`, `Office.onReady`, `Office.context.platform` | Document-identity guard, host gate, and the platform passed to the library | Necessary | None |
-| `chat/word-document-source.js` → library `detectWordExportTailIndex` (via the Word tokens) | `body.paragraphs.load('$none')`, `items.length` | Host paragraph count, used only to recognise the empty trailing paragraph Word adds to `getOoxml` exports | **Expedient** | The library recognises the Word export tail from Flat OPC alone, or the extra paragraph is shown never to occur. Then remove the count and `detectExportTailIndex` |
+| `chat/word-document-source.js` → `word-source-identity.js` `detectExportTailIndex` | `body.paragraphs.load('$none')`, `items.length` | Host paragraph count, used only to recognise the empty trailing paragraph Word adds to `getOoxml` exports | **Expedient** | The library recognises the Word export tail from Flat OPC alone, or the extra paragraph is shown never to occur. Then remove the count and `detectExportTailIndex` |
 
 ### Verification and checkpoint restore
 
@@ -156,14 +156,17 @@ All document *transformation* happens in the library. The only Word call that ch
 | `taskpane.js` (~L561) | `document.properties.load('lastAuthor, author')` | Pre-fills the redline author on refresh | Convenience, host-only | Optional. An explicit author setting exists |
 | `taskpane.js` (glance checks) | none since WP4 (2026-10-16) | Prompt text is built from library inspection (`inspection.paragraphs[].exactText`) through the shared source reader, not Word's `body.text` | Retired | — |
 
-### Local package logic that should move upstream
+### Local package logic
 
-Moved by phase-2 WP1/WP3 (2026-10-17, library 0.10.0): Flat OPC part and relationship handling, comment and numbering merge and insertion-package assembly (`consumer-core.js`), Word export-noise normalisation and tail detection (`word-source-identity.js`) — now `@ansonlai/docx-redline-js/word`; the foreign-revision policy choice — now `existingRevisions: 'auto'`; and the post-commit review-segment comparison — now `compareDocumentInspections`. Nothing listed remains.
+This is not Word API use, but it is outside the library:
+
+- **`consumer-core.js` and `word-source-identity.js`:** Flat OPC part and relationship handling, comment and numbering merge, insertion-package assembly, and Word export-noise normalisation. **They stay in the plugin** by owner decision (2026-10-17): the library stays host-independent. Their remaining issue is imports of unexported library internals (see phase-2 WP1).
+- Moved by phase-2 WP3 (library 0.10.0): the foreign-revision policy choice (now `existingRevisions: 'auto'`) and the post-commit review-segment comparison (now `compareDocumentInspections`).
 
 ### Expedient uses to retire (priority order)
 
-1. Host paragraph count for the export tail: the library's `detectWordExportTailIndex` still needs `hostParagraphCount` to certify that Word's trailing empty paragraph is an export artefact and not real content. Removing it needs Word evidence that the tail is always present (or a Flat OPC marker that identifies it).
+1. Host paragraph count for the export tail: `detectExportTailIndex` needs `hostParagraphCount` to certify that Word's trailing empty paragraph is an export artefact and not real content. Removing it needs Word evidence that the tail is always present, or a Flat OPC marker that identifies it. This is plugin work now that the Word layer stays here.
 
-Retired by phase-2 WP1/WP3 (2026-10-17): the `TRACKING_POLICY_MISMATCH` guard (KB-5) and the consumer package logic (see above).
+Retired by phase-2 WP3 (2026-10-17): the `TRACKING_POLICY_MISMATCH` guard (KB-5).
 
 Retired by phase-2 WP4 (2026-10-16): the glance-check `body.text` read, the unreachable checkpoint-capture `getOoxml` fallback in `taskpane.js`, the unused `baseTrackingMode` option, the unimported `src/taskpane/debug_structure.js`, and the Outlook-template `src/commands/commands.js` (the manifest's `FunctionFile` still points at the now script-free `commands.html`).

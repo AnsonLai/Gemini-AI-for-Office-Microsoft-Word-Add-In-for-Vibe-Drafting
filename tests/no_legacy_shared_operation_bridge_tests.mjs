@@ -19,9 +19,6 @@ const retiredModulePaths = [
   'src/taskpane/modules/docx-redline-js-integration/index.js',
   'src/taskpane/modules/docx-redline-js-integration/word-route-change.js',
   'src/taskpane/modules/docx-redline-js-integration/word-structured-list.js',
-  // Moved into @ansonlai/docx-redline-js/word in 0.10.0 (phase-2 WP1).
-  'src/taskpane/modules/docx-redline-js-integration/consumer-core.js',
-  'src/taskpane/modules/docx-redline-js-integration/word-source-identity.js',
   'src/taskpane/modules/utils/markdown-utils.js',
   'src/taskpane/modules/utils/text-statistics.js',
 ];
@@ -51,8 +48,11 @@ for (const retiredModulePath of retiredModulePaths) {
 
 const documentTools = readFileSync('src/taskpane/modules/chat/document-tools.js', 'utf8');
 const editIntents = readFileSync('src/taskpane/modules/chat/document-edit-intents.js', 'utf8');
+const consumerCore = readFileSync('src/taskpane/modules/docx-redline-js-integration/consumer-core.js', 'utf8');
 const wordRunner = readFileSync('src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js', 'utf8');
 for (const retiredSymbol of retiredSymbols) {
+  assert.equal(consumerCore.includes(retiredSymbol), false,
+    `Narrow consumer core should not contain retired symbol: ${retiredSymbol}`);
   assert.equal(wordRunner.includes(retiredSymbol), false,
     `Body-only Word adapter should not contain retired symbol: ${retiredSymbol}`);
   assert.equal(documentTools.includes(retiredSymbol), false,
@@ -60,8 +60,9 @@ for (const retiredSymbol of retiredSymbols) {
   assert.equal(editIntents.includes(retiredSymbol), false,
     `Typed edit compiler should not use retired symbol: ${retiredSymbol}`);
 }
-assert.doesNotMatch(wordRunner, /from\s+['"]@ansonlai\/docx-redline-js\/(?:services|document|adapters|core|engine|pipeline|orchestration)\//,
-  'Word adapter uses only public library entry points');
+assert.deepEqual([...consumerCore.matchAll(/^export\s+(?:async\s+)?function\s+(\w+)/gm)].map(match => match[1]).sort(),
+  ['inspectWordSource', 'prepareCanonicalBatch'],
+  'consumer core exposes only canonical source inspection and package preparation');
 assert.match(wordRunner, /export\s+async\s+function\s+executePureOoxmlBatch\(/,
   'Word adapter retains the body-level batch entrypoint');
 assert.doesNotMatch(wordRunner, /resolveWordOperationScope|applyWordOperation|applySharedOperationToWord/,
