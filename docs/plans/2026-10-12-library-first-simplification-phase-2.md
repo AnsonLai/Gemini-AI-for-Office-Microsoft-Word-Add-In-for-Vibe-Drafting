@@ -1,7 +1,7 @@
 # Library-first simplification, phase 2
 
 **Date:** 2026-10-12 (America/Vancouver)
-**Status:** WP0 complete (2026-10-12); WP5 complete for the exposed list actions (2026-10-14); WP4 complete except the host paragraph count (2026-10-16). WP3 complete and merged 2026-10-17 on `docx-redline-js` 0.10.0. WP1 is re-scoped: the Word host layer stays in the plugin (owner decision, 2026-10-17); 4 deep imports wait on a library decision. WP2 not started. The browser demo and MCP server were removed as obsolete spikes on 2026-10-17, and the list follow-up plan is complete and archived.
+**Status:** WP0 complete (2026-10-12); WP5 complete for the exposed list actions (2026-10-14); WP4 complete except the host paragraph count (2026-10-16). WP3 complete and merged 2026-10-17 on `docx-redline-js` 0.10.0. WP1 is re-scoped: the Word host layer stays in the plugin (owner decision, 2026-10-17); 4 deep imports wait on a library decision. WP2 re-scoped to plugin-only cleanup (2026-10-17), not started. The browser demo and MCP server were removed as obsolete spikes on 2026-10-17, and the list follow-up plan is complete and archived.
 **Baseline:**
 - Exact `@ansonlai/docx-redline-js@0.9.0` in the add-in and MCP.
 - HEAD `a98f339` plus the uncommitted 0.9.0 upgrade work.
@@ -43,7 +43,7 @@ Everything that *understands or transforms a document* lives in `docx-redline-js
 
 | Module | Lines | What it does that is document logic | Library home (proposed, to negotiate) |
 | --- | ---: | --- | --- |
-| `chat/document-inspection-session.js` | 551 | Handle store, focused inspection, search, pagination, staleness and expiry checks | A published, browser-safe **agent session** API. The library's `examples/agent-session-wrapper.mjs` shows the pattern, but it is development-only and uses private imports |
+| `chat/document-inspection-session.js` | 551 | Handle store, focused inspection, search, pagination, staleness and expiry checks | Stays in the plugin (WP2 re-scoped 2026-10-17); its target matching moves onto public library resolution. Originally proposed: a published, browser-safe **agent session** API. The library's `examples/agent-session-wrapper.mjs` shows the pattern, but it is development-only and uses private imports |
 | `docx-redline-js-integration/consumer-core.js` | 349 | Flat OPC part and relationship handling, comment-part merge, insertion package assembly, internal subpath imports | A **Word Flat OPC body** surface: inspect, apply a batch, and return the insertion package with comment and numbering parts merged |
 | `docx-redline-js-integration/word-source-identity.js` | 186 | Word rsid and paraId export-noise normalisation, export-tail detection | The same Flat OPC surface, as Word-export normalisation |
 | `chat/document-tools.js` | 184 | Foreign-revision policy choice (`slice-cross-author`), `TRACKING_POLICY_MISMATCH` guard (KB-5), review-segment merge for verification | A library **auto revision policy** and a **verify-committed-against-prepared** helper |
@@ -93,12 +93,16 @@ What remains of WP1 is to remove the plugin's imports of unexported library inte
 
 **Exit:** `src/` imports only the library root and documented subpaths; the Word layer shrinks where a general-purpose library primitive replaces local code. Steps that need a library change wait for the library owner's decision.
 
-### WP2: Upstream the agent session (inspection, handles, search)
+### WP2: Tighten the inspection session (plugin-only; re-scoped 2026-10-17)
 
-- Replace the handle store, focused inspection, search and pagination in `document-inspection-session.js` with a published library session API.
-- That API binds handles to a source revision and view, expires them after a write, and returns bounded pages with locations.
-- The plugin keeps only the tool schema and the mapping from the live Word source to the library session.
-- **Exit:** most of `document-inspection-session.js` is gone. Stale, ambiguous, cross-document and expired-handle cases still refuse with no write (the existing offline contracts pass unchanged).
+**Decision (owner, 2026-10-17):** no library agent-session API. Opaque handles and cursors, prompt text budgets and handle lifecycle (invalidate after a write, expiry) are LLM-harness policy, and the export-tail hook is Word glue, so `document-inspection-session.js` stays in the plugin. The library-side review agreed: `examples/agent-session-wrapper.mjs` stays a dev-only example, and production harnesses own their transport. Search, ranges, context and paging are already delegated to `inspectDocumentParts`.
+
+Work:
+- Replace the hand-rolled descriptor checks (`hasStrongDescriptor`, `descriptorsMatch`) with the library's public strict target resolution: `preflightOperations(..., { strictTargets: true })` from `/standalone-runner` (read-only, returns the resolved paragraph or a structured stale/ambiguous error), or the root `resolveTargetParagraph` / `findStrictTargetCandidates` for a pure lookup. Keep binding handles to {document id, revision view, revision token}.
+- Shrink whatever else becomes redundant once resolution is the library's, without changing the tool contract.
+- If resolution doesn't expose something the session needs, send the case to the library owner as a possible general-purpose primitive. No Word- or agent-specific API goes upstream.
+
+**Exit:** the session has no local target-matching logic, production lines fall, and stale, ambiguous, cross-document and expired-handle cases still refuse with no write (the existing offline contracts pass unchanged, plus the host lanes).
 
 ### WP3: Upstream revision policy and verification; retire workarounds
 
@@ -185,7 +189,7 @@ These don't reduce the plugin, but they gate users actually getting today's work
 2. **Order.** The recommended order is WP0 → WP4 → WP1 → WP3 → WP2.
    - WP4 is quick and independent.
    - WP1 removes the most library coupling.
-   - WP2 is the largest API design.
+   - WP2 was the largest API design; since 2026-10-17 it is plugin-only cleanup.
    - Alternatively, start WP2 first if inspection reliability is the bigger pain.
 3. **Library API shape.** Decided 2026-10-17: the library takes only host-independent, general-purpose API. Word-specific layers (Flat OPC round-trip, Word export noise, and probably the WP2 agent session's Word binding) stay in the plugin.
 4. **Browser lane.** Recommendation from WP0: don't make jsdom a required gate. Keep xmldom as the gate and add a headless Chromium/Edge lane that runs the library bundle, advisory at first and required once it is stable. `scripts/browser-document-validation.html` is a manual starting point. Agree? *(2026-10-17: with the browser demo and MCP server gone, the add-in's only runtime is Word's WebView2, which the Office.js, Word oracle and NDA replay lanes already exercise. A separate headless library-bundle lane would mostly check the library, so it belongs with the library if anywhere.)*
