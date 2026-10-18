@@ -1,7 +1,7 @@
 # Library-first simplification, phase 2
 
 **Date:** 2026-10-12 (America/Vancouver)
-**Status:** WP0 complete (2026-10-12); WP5 complete for the exposed list actions (2026-10-14); WP4 complete except the host paragraph count (2026-10-16). WP3 complete and merged 2026-10-17 on `docx-redline-js` 0.10.0. WP1 is re-scoped: the Word host layer stays in the plugin (owner decision, 2026-10-17); 4 deep imports wait on a library decision. WP2 re-scoped to plugin-only cleanup (2026-10-17), not started. The browser demo and MCP server were removed as obsolete spikes on 2026-10-17, and the list follow-up plan is complete and archived.
+**Status:** WP0 complete (2026-10-12); WP5 complete for the exposed list actions (2026-10-14); WP4 complete except the host paragraph count (2026-10-16). WP3 complete and merged 2026-10-17 on `docx-redline-js` 0.10.0. WP1 is re-scoped: the Word host layer stays in the plugin (owner decision, 2026-10-17); 4 deep imports wait on a library decision. WP2 complete as plugin-only cleanup (2026-10-17). The browser demo and MCP server were removed as obsolete spikes on 2026-10-17, and the list follow-up plan is complete and archived.
 **Baseline:**
 - Exact `@ansonlai/docx-redline-js@0.9.0` in the add-in and MCP.
 - HEAD `a98f339` plus the uncommitted 0.9.0 upgrade work.
@@ -93,7 +93,7 @@ What remains of WP1 is to remove the plugin's imports of unexported library inte
 
 **Exit:** `src/` imports only the library root and documented subpaths; the Word layer shrinks where a general-purpose library primitive replaces local code. Steps that need a library change wait for the library owner's decision.
 
-### WP2: Tighten the inspection session (plugin-only; re-scoped 2026-10-17)
+### WP2: Tighten the inspection session (plugin-only; re-scoped and done 2026-10-17)
 
 **Decision (owner, 2026-10-17):** no library agent-session API. Opaque handles and cursors, prompt text budgets and handle lifecycle (invalidate after a write, expiry) are LLM-harness policy, and the export-tail hook is Word glue, so `document-inspection-session.js` stays in the plugin. The library-side review agreed: `examples/agent-session-wrapper.mjs` stays a dev-only example, and production harnesses own their transport. Search, ranges, context and paging are already delegated to `inspectDocumentParts`.
 
@@ -108,6 +108,7 @@ Work:
 - Step 1, local target matching removed. `descriptorsMatch` and `hasStrongDescriptor` are gone from `document-inspection-session.js`. `resolveHandles` already refuses unless the current source has the same document id, revision view and Word revision token as the handle's snapshot. An equal token means the canonical source is unchanged, so a field-by-field descriptor comparison could never fail. The apply path then resolves every target strictly in the library (`strictTargets: true`, `expectedRevision: true`), so `preflightOperations` would only repeat that check. Library inspection always returns strong descriptors, so the strong-descriptor filter and its "omitted" warning were dead. Production lines 4,436 → 4,415. Offline 44/44.
 - Step 2, redundant copies trimmed. Handles store only the paragraph index, since the descriptor returned to the compiler is always re-read from the fresh library inspection, so the deep clone and freeze helpers are gone. Session and cursor IDs use `crypto.randomUUID` (WebView2 over HTTPS and Node), without the old fallbacks. The intent compiler's `WEAK_DOCUMENT_EDIT_TARGET` check is removed: resolved descriptors always come from the library and are always strong. The handle-kind check stays. Production lines 4,415 → 4,382. Offline 44/44.
 - Step 3: one helper now builds the `inspectDocumentParts` options for fresh queries and cursor continuations, replacing three copies (one was unreachable). Production lines 4,382 → 4,363. Offline 44/44.
+- **Done (2026-10-17).** Host lanes on the final state: Office.js passed (20 cases, 26 checks including the stale-handle refusal control, 3 checkpoint restores), the Word oracle gives 88 PASS / 0 FAIL, and the NDA replay passes 16/16 (51/51 checks, 40 chat requests, 0 auxiliary). Artifacts: `.cache/reliability/wp2-officejs`, `wp2-oracle`, `.cache/golden/wp2-direct`. WP2 total: 4,436 → 4,363 production lines, with no library change needed.
 
 ### WP3: Upstream revision policy and verification; retire workarounds
 
