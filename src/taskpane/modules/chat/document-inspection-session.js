@@ -14,32 +14,8 @@ const MAX_SEARCH_CHARS = 1000;
 const MAX_STORED_HANDLES = 400;
 const MAX_STORED_CURSORS = 100;
 
-let fallbackId = 0;
-
-function opaqueId(prefix) {
-  const cryptoApi = globalThis.crypto;
-  if (typeof cryptoApi?.randomUUID === 'function') return `${prefix}_${cryptoApi.randomUUID()}`;
-  if (typeof cryptoApi?.getRandomValues === 'function') {
-    const bytes = cryptoApi.getRandomValues(new Uint8Array(16));
-    return `${prefix}_${Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')}`;
-  }
-  fallbackId += 1;
-  return `${prefix}_${Date.now().toString(36)}_${fallbackId.toString(36)}_${Math.random().toString(36).slice(2)}`;
-}
-
-function clonePlain(value) {
-  if (Array.isArray(value)) return value.map(clonePlain);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, clonePlain(nested)]));
-  }
-  return value;
-}
-
-function freezeDeep(value) {
-  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
-  for (const nested of Object.values(value)) freezeDeep(nested);
-  return Object.freeze(value);
-}
+// Word's WebView2 (served over HTTPS) and Node both provide crypto.randomUUID.
+const opaqueId = prefix => `${prefix}_${globalThis.crypto.randomUUID()}`;
 
 function sessionError(code, message) {
   const error = new Error(message);
@@ -148,10 +124,6 @@ function compactSelection(selection, nextCursor) {
   };
 }
 
-function descriptorSnapshot(paragraph) {
-  return freezeDeep(clonePlain(paragraph));
-}
-
 /**
  * Creates an app-owned handle store for one Word document identity.
  *
@@ -234,12 +206,12 @@ export function createDocumentInspectionSession({
     return currentSnapshot;
   }
 
-  function makeHandle(kind, descriptor, snapshot, extras = {}) {
+  function makeHandle(kind, paragraph, snapshot, extras = {}) {
     nextHandleNumber += 1;
     const handle = `${sessionId}_h${nextHandleNumber.toString(36)}`;
     handles.set(handle, {
       kind,
-      descriptor: descriptorSnapshot(descriptor),
+      index: paragraph.index,
       documentId: snapshot.documentId,
       revision: snapshot.revision,
       revisionView: snapshot.revisionView,
@@ -258,7 +230,7 @@ export function createDocumentInspectionSession({
       }
       const saved = cursors.get(cursor);
       if (!saved || saved.generation !== generation) throw sessionError('STALE_CURSOR', 'This inspection cursor has expired. Inspect the current source again.');
-      const savedOptions = clonePlain(saved.options);
+      const savedOptions = saved.options;
       return {
         ...savedOptions,
         after: saved.after,
@@ -484,14 +456,14 @@ export function createDocumentInspectionSession({
       // An equal revision token means the canonical source is unchanged, so each handle's
       // descriptor still resolves. The apply path resolves it again strictly in the library
       // (strictTargets + expectedRevision); no local descriptor comparison is needed.
-      const indexes = [...new Set(entries.map(({ entry }) => entry.descriptor.index))];
+      const indexes = [...new Set(entries.map(({ entry }) => entry.index))];
       const freshInspection = inspectDocumentParts(snapshot.parts, { revisionView, indexes });
       if (freshInspection?.status !== 'ok') {
         throw sessionError(freshInspection?.error?.code || 'CANONICAL_INSPECTION_FAILED', freshInspection?.error?.message || 'The current Word source could not be inspected.');
       }
       const freshByIndex = new Map((freshInspection.paragraphs || []).map(item => [item.index, item]));
       const targets = entries.map(({ handle, entry }) => {
-        const current = freshByIndex.get(entry.descriptor.index);
+        const current = freshByIndex.get(entry.index);
         if (!current) {
           invalidate();
           throw sessionError('STALE_TARGET_DESCRIPTOR', 'The inspected target no longer matches the current canonical source.');
@@ -502,7 +474,7 @@ export function createDocumentInspectionSession({
           ...(entry.kind === 'document-end' ? { position: 'after' } : {}),
           fullTextInspected: entry.fullTextInspected === true,
           location: describeLocation(current),
-          descriptor: clonePlain(current)
+          descriptor: current
         };
       });
 

@@ -106,6 +106,7 @@ Work:
 
 **Progress (2026-10-17):**
 - Step 1, local target matching removed. `descriptorsMatch` and `hasStrongDescriptor` are gone from `document-inspection-session.js`. `resolveHandles` already refuses unless the current source has the same document id, revision view and Word revision token as the handle's snapshot. An equal token means the canonical source is unchanged, so a field-by-field descriptor comparison could never fail. The apply path then resolves every target strictly in the library (`strictTargets: true`, `expectedRevision: true`), so `preflightOperations` would only repeat that check. Library inspection always returns strong descriptors, so the strong-descriptor filter and its "omitted" warning were dead. Production lines 4,436 → 4,415. Offline 44/44.
+- Step 2, redundant copies trimmed. Handles store only the paragraph index, since the descriptor returned to the compiler is always re-read from the fresh library inspection, so the deep clone and freeze helpers are gone. Session and cursor IDs use `crypto.randomUUID` (WebView2 over HTTPS and Node), without the old fallbacks. The intent compiler's `WEAK_DOCUMENT_EDIT_TARGET` check is removed: resolved descriptors always come from the library and are always strong. The handle-kind check stays. Production lines 4,415 → 4,382. Offline 44/44.
 
 ### WP3: Upstream revision policy and verification; retire workarounds
 

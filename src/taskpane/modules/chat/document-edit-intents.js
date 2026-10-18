@@ -148,13 +148,8 @@ function location(target) {
 }
 function checkedDescriptor(target, index, expectedKind, field = 'target') {
   if (target?.kind !== expectedKind) fail('INVALID_DOCUMENT_EDIT_TARGET', `This action requires an inspected ${expectedKind === 'document-end' ? 'document-end' : 'paragraph'} handle.`, index, field, true);
-  const descriptor = target.descriptor;
-  if (!record(descriptor) || !Number.isInteger(descriptor.index) || descriptor.index < 1
-    || typeof descriptor.exactText !== 'string' || typeof descriptor.fingerprint !== 'string'
-    || !descriptor.fingerprint || typeof descriptor.inTable !== 'boolean') {
-    fail('WEAK_DOCUMENT_EDIT_TARGET', 'The target has no strong canonical descriptor. Inspect the current source again.', index, field, true);
-  }
-  return descriptor;
+  // Resolved handles carry the library's own inspection descriptor, which is always strong.
+  return target.descriptor;
 }
 function checkedInsertionTarget(descriptor, index) {
   if (descriptor.inTable || descriptor.table || descriptor.list || descriptor.headingLevel
