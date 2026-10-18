@@ -50,9 +50,9 @@ The incident plan remains open for the unresolved library requirements.
 ## Reproduction
 
 ```powershell
-node docs/library-issues/completed/2026-10-01-word-reject-table-append-paragraph-export.mjs `
+node scripts/word-desktop/export-table-append-reject-all.mjs `
   --export-dir .cache/table-append-host
-node docs/library-issues/completed/2026-10-01-table-append-tracked-formatting-reproducer.mjs
+# formatting reproducer removed 2026-10-17 (fixed in 0.8.4); see the closeout report
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-wp6-word.ps1 -FixtureManifest .cache/table-append-host/manifest.json -ArtifactsDir .cache/table-append-word -CaseName public-library-table-append-reject-all -TimeoutSeconds 180
 ```
 
@@ -64,5 +64,5 @@ the specified `.cache` directories. No live Gemini request or PDF export is part
 of this incident validation.
 
 See the [incident plan](../plans/completed/2026-09-30-table-creation-reliability.md) and the
-[separate formatting report](../library-issues/completed/2026-10-01-table-append-tracked-formatting.md)
-and [Word Reject All paragraph report](../library-issues/completed/2026-10-01-word-reject-table-append-paragraph.md).
+[separate formatting report](2026-10-17-library-issues-closeout.md)
+and [Word Reject All paragraph report](2026-10-17-library-issues-closeout.md).

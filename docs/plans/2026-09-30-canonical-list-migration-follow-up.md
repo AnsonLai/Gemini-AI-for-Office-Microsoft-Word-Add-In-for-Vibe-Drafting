@@ -30,7 +30,7 @@ evidence, not validation of the future capabilities below.
 `numberingXml` (see the [0.8.4 validation](../validation-reports/2026-10-02-docx-redline-v084.md)),
 but still lacks plain-to-list conversion and list-format changes. It also
 introduced a numbering-continuity regression ([separate list operations restart
-numbering](../library-issues/completed/2026-10-02-separate-list-operations-restart-numbering.md))
+numbering](../validation-reports/2026-10-17-library-issues-closeout.md))
 that blocks canonical `convert_headers_to_list`. The acceptance criteria and the
 no-consumer-side-workaround stance below are unchanged.
 
@@ -50,7 +50,7 @@ numbering-style changes are still refused before writing (KB-4 in
 [`KNOWN_BUGS.md`](./KNOWN_BUGS.md)). The old `reproduce-plain-header-conversion.mjs` reproducer is
 obsolete (now refused, `BATCH_OPERATION_FAILED`); the capability moved to
 `list-format` `convert-plain`. All library issues are resolved
-([index](../library-issues/README.md)); the no-consumer-side-workaround stance is
+([index](../validation-reports/2026-10-17-library-issues-closeout.md)); the no-consumer-side-workaround stance is
 unchanged.
 
 ## Current consumer behavior
@@ -74,7 +74,7 @@ upstream prerequisites and independent host checks in this plan.
 
 Library plan: `C:/Users/Phara/Desktop/Projects/Docx Redline JS/docs/plans/2026-09-30-canonical-list-operations.md`.
 The published 0.8.3 release explicitly excluded canonical plain-to-list
-conversion and list-format changes. [Capability report](../library-issues/completed/2026-09-30-canonical-list-operations.md).
+conversion and list-format changes. [Capability report](../validation-reports/2026-10-17-library-issues-closeout.md).
 
 Required behavior includes:
 
@@ -167,7 +167,7 @@ not an existing API to code against yet.
       ([2026-10-14 list-format validation](../validation-reports/2026-10-14-list-format-intents.md)).
 - [ ] Browser/MCP facade fidelity and atomic batch behavior pass.
 - [ ] Retired helpers have no active callers; docs and durable reports are updated.
-- [ ] All recorded library issues are resolved, `docs/library-issues/` is deleted,
+- [x] All recorded library issues are resolved, `docs/library-issues/` is deleted,
       and its incoming links are removed or updated.
 
-**Next action (2026-10-14):** WP1 and WP2 are done for `convert_to_list`, `change_list_format` and `continue_list`. Remaining: browser/MCP facade parity for `list-format`, a live-provider check of step 12, and library-issues cleanup, which is unblocked: the underscore defect is fixed in 0.10.0 (2026-10-17) and no library report remains open. `paragraph-format.numbering` and range-scoped changes stay unexposed until there is a product need. No consumer-side OOXML workaround is authorized by this plan.
+**Next action (2026-10-17):** WP1 and WP2 are done for `convert_to_list`, `change_list_format` and `continue_list`. The library-issues cleanup is done: every report was resolved by 0.10.0, the folder is deleted, and its contents are summarized in the [closeout](../validation-reports/2026-10-17-library-issues-closeout.md). Remaining: browser/MCP facade parity for `list-format`, the retired-helper check, and a live-provider check of step 12. `paragraph-format.numbering` and range-scoped changes stay unexposed until there is a product need. No consumer-side OOXML workaround is authorized by this plan.

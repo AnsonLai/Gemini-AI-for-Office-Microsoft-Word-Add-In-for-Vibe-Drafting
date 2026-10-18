@@ -63,7 +63,7 @@ If WP1–WP3 land as proposed, roughly 1,000–1,200 consumer lines become libra
    - Fix: choose the provider explicitly, keeping xmldom as the default lane and adding a named `jsdom` lane. Don't let an unrelated dev dependency choose it.
 3. **Triage the `jsdom` failures.** They are `browser_document_session_tests` (generated `ns1` prefix not declared, `PACKAGE_OPERATION_FAILED`), `docx_cross_host_parity_tests` (`BATCH_OPERATION_FAILED`), `ooxml_formatting_visual_tests` and `golden-guardrail`.
    - Word runs the add-in in a browser DOM, which is closer to `jsdom` than to xmldom, so these may be real browser-path library defects.
-   - Reproduce each with public APIs. If one is a library defect, file it in `docs/library-issues/` with a reproducer.
+   - Reproduce each with public APIs. If one is a library defect, document it with a portable reproducer (see the rule in [KNOWN_BUGS.md](KNOWN_BUGS.md)).
    - Decide whether the `jsdom` lane becomes a required gate.
 
 **Exit:** the 0.9.0 work is committed; the default suite is green on an explicit provider; each `jsdom` failure is either filed upstream or explained.
@@ -160,7 +160,7 @@ These items have no library dependency and can start right after WP0.
 
 **Exit:** governed by the list plan's own acceptance.
 
-**Done (2026-10-14):** three list actions are exposed as one-to-one `list-format` mappings, adding 112 production lines (4,437 → 4,549). Offline is 49/49; Office.js passes with 20 cases; the oracle gives 88/0; the real-Word NDA replay is 16/16 with step 12 applied. See the [2026-10-14 list-format validation](../validation-reports/2026-10-14-list-format-intents.md). The list plan's facade-parity and library-issues cleanup items remain.
+**Done (2026-10-14):** three list actions are exposed as one-to-one `list-format` mappings, adding 112 production lines (4,437 → 4,549). Offline is 49/49; Office.js passes with 20 cases; the oracle gives 88/0; the real-Word NDA replay is 16/16 with step 12 applied. See the [2026-10-14 list-format validation](../validation-reports/2026-10-14-list-format-intents.md). The list plan's facade-parity item remains; its library-issues cleanup was done on 2026-10-17 ([closeout](../validation-reports/2026-10-17-library-issues-closeout.md)).
 
 ## Separate track: release readiness (not simplification)
 

@@ -75,7 +75,7 @@ all thread siblings. No private helper or consumer XML merge was copied.
 The retained Word path now refuses adding comments whenever existing comments
 are present, including whole mixed batches, before checkpoint/write. Text edits
 preserving existing threads remain supported. The versioned guide and source
-summary explain this restriction. The [dated transport report and public repro](../library-issues/completed/2026-10-02-word-existing-comments-delta-transport.md)
+summary explain this restriction. The [dated transport report and public repro](2026-10-17-library-issues-closeout.md)
 preserve the evidence and API dependency. This is a consumer transport limitation,
 rather than a claimed library mutation defect or an upstream fix.
 

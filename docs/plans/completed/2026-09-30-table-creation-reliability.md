@@ -19,8 +19,8 @@ The final Word run passed 13 of 20 checks: plain accepted table content and
 both native insertions pass; tracked Reject All paragraph structure and
 underline fidelity fail. See the
 [validation report](../../validation-reports/2026-10-01-table-creation-reliability.md),
-[tracked-formatting report](../../library-issues/completed/2026-10-01-table-append-tracked-formatting.md),
-and [Reject All paragraph report](../../library-issues/completed/2026-10-01-word-reject-table-append-paragraph.md).
+[tracked-formatting report](../../validation-reports/2026-10-17-library-issues-closeout.md),
+and [Reject All paragraph report](../../validation-reports/2026-10-17-library-issues-closeout.md).
 
 **2026-10-01 follow-up:** A later pasted log shows two successive P4 proposals
 without `anchorText`, each refused as `STALE_DOCUMENT_CONTEXT` with
@@ -64,8 +64,8 @@ Ocean/Valley/Canyon and Meadow/Desert/Island.
   empty paragraph after the seven source paragraphs. The formatting fixture's
   Accept All loses underline, and its Reject All also leaves an extra empty
   paragraph. See the [host report](../../validation-reports/2026-10-01-table-creation-reliability.md)
-  and [tracked-formatting report](../../library-issues/completed/2026-10-01-table-append-tracked-formatting.md)
-  and [Reject All paragraph report](../../library-issues/completed/2026-10-01-word-reject-table-append-paragraph.md).
+  and [tracked-formatting report](../../validation-reports/2026-10-17-library-issues-closeout.md)
+  and [Reject All paragraph report](../../validation-reports/2026-10-17-library-issues-closeout.md).
 - When one proposal edits P7 and another appends at P8, the consumer maps both
   to P7. The library refuses overlapping source targets atomically with
   `OVERLAPPING_SOURCE_TARGETS`. Compatible requests need one consumer operation.

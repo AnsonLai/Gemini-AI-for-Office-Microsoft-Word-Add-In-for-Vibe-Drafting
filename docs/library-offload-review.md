@@ -103,7 +103,7 @@ parallel fixes. Remaining canonical plain-to-list/header conversion and list
 format changes belong to the [fresh migration follow-up](plans/2026-09-30-canonical-list-migration-follow-up.md).
 The original agentic plan is closed with deferred scope, not full migration.
 Once all issues are resolved, that follow-up requires retaining necessary
-validation evidence, deleting `docs/library-issues/` and updating incoming links.
+validation evidence, deleting `docs/library-issues/` and updating incoming links (done 2026-10-17; see the [closeout](validation-reports/2026-10-17-library-issues-closeout.md)).
 
 ## Evidence and testing ownership
 

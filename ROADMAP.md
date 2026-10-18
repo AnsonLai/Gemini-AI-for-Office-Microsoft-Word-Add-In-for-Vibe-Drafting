@@ -18,7 +18,7 @@ Word Online requires separate affected-operation checks before being advertised
 with equivalent editing guarantees. These are validation requirements, rather
 than new product features.
 
-No library issues are open as of 0.9.0 (see the [issue index](docs/library-issues/README.md));
+No library issues are open as of 0.10.0 (see the [closeout](docs/validation-reports/2026-10-17-library-issues-closeout.md));
 their independent reproducers and Word fixtures stay runnable. Remaining
 consumer-side bugs and the Word JavaScript API inventory are in
 [KNOWN_BUGS.md](docs/plans/KNOWN_BUGS.md). A published library fix permits a tested

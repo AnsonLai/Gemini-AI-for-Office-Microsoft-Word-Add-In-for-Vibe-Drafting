@@ -52,7 +52,7 @@ The original WP5 report remains historical evidence for the rejected blanket
 guards. Replay does not certify model drafting quality. Live fast/slow provider checks remain required before shipping; Word
 Online is not certified by desktop evidence.
 
-No [library issues](docs/library-issues/README.md) are open as of 0.9.0. Remaining
+No [library issues](docs/validation-reports/2026-10-17-library-issues-closeout.md) are open as of 0.10.0. Remaining
 consumer-side bugs and the Word JavaScript API inventory are in
 [KNOWN_BUGS.md](docs/plans/KNOWN_BUGS.md), notably KB-1 (a body-final table append
 via live insertion leaves an extra paragraph on Reject All, so table append stays
@@ -63,8 +63,8 @@ proof that a capability is certified.
 
 Historical incidents and prior milestones remain in dated plans/reports. The
 [September list follow-up](docs/plans/2026-09-30-canonical-list-migration-follow-up.md)
-stays open (upstream capabilities released; consumer adoption not started) and
-owns the `docs/library-issues/` cleanup. The
+stays open (browser/MCP facade parity and retired-helper checks remain); its
+library-issues cleanup was done on 2026-10-17. The
 [table incident](docs/plans/completed/2026-09-30-table-creation-reliability.md) is
 closed (2026-10-12) and retains its upstream evidence; the former native-command
 migration queue is superseded by the approved smaller product scope.

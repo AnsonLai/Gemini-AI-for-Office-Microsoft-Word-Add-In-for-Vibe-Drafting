@@ -62,7 +62,7 @@ reports preserve the earlier evidence and do not add current host-validation
 results. Plain or text-changing header-to-list conversion and list-format
 changes still lack supported canonical operations. A marker-prefixed
 `1. Header` to `1. Header` operation on bare `document.xml` can fail with
-`RECEIPT_RECONCILIATION_FAILED`. See the [library follow-ups](docs/library-issues/README.md)
+`RECEIPT_RECONCILIATION_FAILED`. See the [library issues closeout](docs/validation-reports/2026-10-17-library-issues-closeout.md)
 and [canonical migration follow-up](docs/plans/2026-09-30-canonical-list-migration-follow-up.md).
 Do not infer complete canonical migration from passing native fallback checks.
 

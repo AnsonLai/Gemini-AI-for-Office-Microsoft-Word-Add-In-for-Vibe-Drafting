@@ -10,7 +10,7 @@ This file tracks two things:
 
 The goal is to use the library wherever possible. Each Word API use must say why it exists and what would let us remove it.
 
-Library defects still go in [`../library-issues/`](../library-issues/README.md), with a portable reproducer. This file links to them and does not duplicate them.
+**Library defects** (`@ansonlai/docx-redline-js`, which the owner maintains) get a short report here or in the library repo, with a portable reproducer that uses only public APIs and exits 0 while the defect reproduces and 1 once fixed. Never work around a library defect in the add-in. Resolved reports from the former `docs/library-issues/` folder are summarized in the [closeout](../validation-reports/2026-10-17-library-issues-closeout.md).
 
 ## Open bugs and gaps
 
@@ -18,7 +18,7 @@ Library defects still go in [`../library-issues/`](../library-issues/README.md),
 
 - **Where:** the production Word insertion of a library-prepared table append at the end of the body, in [`word-operation-runner.js`](../../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js). The library's own output is correct.
 - **Evidence (2026-10-12, Word 16 desktop):**
-  - Exporter: [`2026-10-01-word-reject-table-append-paragraph-export.mjs`](../library-issues/completed/2026-10-01-word-reject-table-append-paragraph-export.mjs).
+  - Exporter: [`export-table-append-reject-all.mjs`](../../scripts/word-desktop/export-table-append-reject-all.mjs) (`--export-dir <dir>` writes the fixtures and `manifest.json`).
   - Oracle command: `verify-wp6-word.ps1 -CaseName public-library-table-append-reject-all`.
   - The source, tracked, Accept All and Reject All checks pass on the 0.9.0 package: 7 paragraphs and no revisions after `Revisions.RejectAll()`.
   - The oracle's native-insert lane fails Reject All with 8 paragraphs against 7, plus a trailing empty paragraph. That lane inserts the production adapter's payload into a live document with COM `Range.InsertXML`.
@@ -51,7 +51,7 @@ Library defects still go in [`../library-issues/`](../library-issues/README.md),
 - **Host evidence (2026-10-14):** five new Office.js capability cases plus one refusal control all pass. The Word oracle gives 88 PASS / 0 FAIL, with labels read from `ListFormat.ListString`. The real-Word NDA replay passes 16/16 (51/51 checks) with step 12 applied. See the [2026-10-14 list-format validation](../validation-reports/2026-10-14-list-format-intents.md).
 - **Still open:** the live-provider lane, Word Online, and browser/MCP facade parity. Not exposed: range-scoped changes, `paragraph-format.numbering`, depth/indent changes, table lists, `detach`.
 - Tracked in the [canonical list migration follow-up](2026-09-30-canonical-list-migration-follow-up.md) (WP1 to WP3).
-- **Exit condition:** that plan's remaining acceptance items are met (facade parity; library-issues cleanup).
+- **Exit condition:** that plan's remaining acceptance items are met (browser/MCP facade parity; retired helpers). The library-issues cleanup is done (2026-10-17).
 
 ### KB-5: `TRACKING_POLICY_MISMATCH` guard (retired by phase-2 WP3, 2026-10-17)
 
@@ -67,14 +67,14 @@ Library defects still go in [`../library-issues/`](../library-issues/README.md),
 
 ### KB-7: Library Markdown pre-processor collapses literal underscore runs (closed 2026-10-17, fixed in 0.10.0)
 
-- **Where:** `@ansonlai/docx-redline-js` 0.8.4 and 0.9.0, `pipeline/markdown-processor.js` (`preprocessMarkdown`, the `__x__` and `_x_` patterns). Report: [`2026-10-12-table-reconciliation-underscore-collapse.md`](../library-issues/completed/2026-10-12-table-reconciliation-underscore-collapse.md).
+- **Where:** `@ansonlai/docx-redline-js` 0.8.4 and 0.9.0, `pipeline/markdown-processor.js` (`preprocessMarkdown`, the `__x__` and `_x_` patterns). Report: `2026-10-12-table-reconciliation-underscore-collapse.md` (in git history, see the [closeout](../validation-reports/2026-10-17-library-issues-closeout.md)).
 - **Evidence (2026-10-12):**
   - `tests/addin/integration_tests.mjs`, case "Add Date Row", prints `KNOWN_LIBRARY_DEFECT:` under its PASS line. A `table-reconciliation` on the sample NDA signature table shrinks `_________________________` to `_` in Accept All, including cells the edit did not change.
   - The case keeps its strict assertions. The marker is printed only when the sole mismatch is this underscore collapse. Any other mismatch still fails.
-  - Reproducer: [`2026-10-12-table-reconciliation-underscore-collapse-reproducer.mjs`](../library-issues/completed/2026-10-12-table-reconciliation-underscore-collapse-reproducer.mjs) (exit 0 while it reproduces; 0.8.4 behaves the same).
+  - Reproducer: `2026-10-12-table-reconciliation-underscore-collapse-reproducer.mjs` (in git history; exit 0 while it reproduces; 0.8.4 behaves the same).
 - **User impact today:** the table-reconciliation route is not reachable. `rewrite_paragraph` and `replace_text` forbid line breaks, and the route needs a multi-line pipe table. Insertions refuse targets and text that `preprocessMarkdown` would change (`plainParagraph`, `checkedInsertionTarget`). `replace_text` is safe because the library refuses a localized replacement it cannot round-trip (`PATCH_ROUNDTRIP_MISMATCH`). **However, `rewrite_paragraph` is exposed through the same root cause.** It sends a `redline` with `structuredContent: false`, and the library still runs `preprocessMarkdown` on it. Rewriting a paragraph whose text holds an underscore run (signature or date line, `__x__`) returns `status: 'ok'` with the run shrunk. Example: `_________________________` with ` (sign)` appended accepts as `_____ (sign)`. `document-tools.js` verifies Word against the prepared text, not the requested text, so nothing catches it. Signature-block rewrites are the likely trigger.
 - **Exit condition:** a published library fix, with the reproducer exiting 1. Then remove the known-defect gate from "Add Date Row" (the `squash`/`knownDefect` logic and the marker). Consider a guard that compares the requested `rewrite_paragraph` text with the prepared text before the interim period ends.
-- **Closed (2026-10-17):** fixed in the published 0.10.0. Underscore emphasis follows CommonMark flanking rules, and a caller's `structuredContent: false` keeps inline Markdown literal. The reproducer exits 1, the "Add Date Row" known-defect gate is removed, and the report is in `library-issues/completed/`. The Office.js, Word oracle and NDA replay lanes pass on 0.10.0 ([validation](../validation-reports/2026-10-17-docx-redline-v0100.md)).
+- **Closed (2026-10-17):** fixed in the published 0.10.0. Underscore emphasis follows CommonMark flanking rules, and a caller's `structuredContent: false` keeps inline Markdown literal. The reproducer exits 1, the "Add Date Row" known-defect gate is removed, and the report was moved to `library-issues/completed/` (folder since removed). The Office.js, Word oracle and NDA replay lanes pass on 0.10.0 ([validation](../validation-reports/2026-10-17-docx-redline-v0100.md)).
 - **Related observation (not filed):** a `list-change` whose kept item carries `-` markers on a decimal list converts the list to a new bullet list (new `numId`, bullet labels). The only diagnostic is "Paragraph expanded to list fragment". The 0.9.0 README ("List operations") and `AGENT_KNOWLEDGE_BASE.md` say retyped markers keep the old numbering and warn `LIST_FORMAT_NOT_APPLIED`. Checked on the sample's decimal list with a single-paragraph target. This looks like a gap against the documented contract, probably on the single-paragraph or fragment path. It is not filed because Reject All and the multi-paragraph target form were not checked. The add-in avoids it by deriving markers from the target list's kind (`listInsertionMarkers`).
 
 ### KB-8: Test XML provider was chosen silently; the `jsdom` lane fails 5 suites (all provider-specific, none a user defect)
@@ -97,7 +97,7 @@ Library defects still go in [`../library-issues/`](../library-issues/README.md),
 | `addin/integration_tests` ("Parties to Table") | B | Text-to-table over two NDA paragraphs: `PACKAGE_OPERATION_FAILED`, unbound `ns1` (the later `w:p` elements use `ns1:paraId` without a declaration). xmldom and Chromium: `ok`, Accept All resolves. |
 | `phase4/golden-guardrail` | C | Correct output, provider-specific bytes. `table_reconcile`: xmldom and Chromium emit redundant `xmlns:w` on imported children, and their output is byte-identical after id/date normalization (3085 chars). `jsdom` omits them (2304). `comment_package_injection`: xmldom keeps the XML declaration plus a newline, Chromium keeps the declaration without the newline (1 char shorter), and `jsdom` drops the declaration. All are equivalent XML. The baseline is an xmldom-byte baseline, so any other provider (Chromium included) mismatches on `comment_package_injection`. Hashes were not changed. |
 
-- **Class A (library defects that also occur in Chromium):** none found. No `docs/library-issues` report was filed.
+- **Class A (library defects that also occur in Chromium):** none found. No library report was filed.
 - **Library robustness (optional, not a defect):** the `xmlns:` strip regexes assume the provider keeps prefixes. Re-using the original prefixes explicitly, or checking that every prefix in a stripped fragment is bound in the target context, would make the library tolerant of spec-style serializers such as `jsdom`'s. Only worth doing if a `jsdom`/Node-based consumer matters. It is not a user issue.
 - **User impact:** none observed. Production runs on Chromium, where all five scenarios pass. Not tested: Word hosts that fall back to the legacy IE11/EdgeHTML webview, which this add-in does not target.
 - **Exit condition (recommendation):**

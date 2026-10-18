@@ -1,6 +1,6 @@
-// Manual-only fixture exporter for the open Word Reject All table-append issue.
+// Manual-only fixture exporter for the Word Reject All table-append lane (KB-1).
 // It uses only public library APIs; it does not call a model or provider.
-import '../../../tests/setup-xml-provider.mjs';
+import '../../tests/setup-xml-provider.mjs';
 
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -74,7 +74,7 @@ assert.deepEqual(state(rejected.oxml).paragraphs, paragraphs, 'the public engine
 const args = process.argv.slice(2);
 const outputOption = args.indexOf('--export-dir');
 assert.ok(outputOption >= 0 && args[outputOption + 1] && !args[outputOption + 1].startsWith('--'),
-    'usage: node docs/library-issues/completed/2026-10-01-word-reject-table-append-paragraph-export.mjs --export-dir .cache/word-reject-table-append');
+    'usage: node scripts/word-desktop/export-table-append-reject-all.mjs --export-dir .cache/word-reject-table-append');
 const outputDir = resolve(args[outputOption + 1]);
 mkdirSync(outputDir, { recursive: true });
 for (const [name, xml] of [

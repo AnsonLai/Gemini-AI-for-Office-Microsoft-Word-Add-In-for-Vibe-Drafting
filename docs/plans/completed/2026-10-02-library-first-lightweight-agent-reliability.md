@@ -31,7 +31,7 @@ The owner closed this plan after the 0.9.0 upgrade.
 - The WP5 engine blocker is fixed in `@ansonlai/docx-redline-js@0.9.0`: untracked pure insertion on a revised target now succeeds and survives Reject All. Both exact pins (add-in and MCP) are updated.
 - The unchanged default 14-case Office.js capability manifest passes, including `direct-literal-replacement-preserves-comment-threads` with its original applied-edit expectation. Offline: 46 of 46 suites (3 entrypoints excluded). The 16-prompt direct replay passes 49/49 checks. Evidence: [0.9.0 validation](../../validation-reports/2026-10-12-docx-redline-v090.md).
 - Live fast/slow provider replay and Word Online operation checks were not run. They stay as separate shipping gates, not part of this plan's closure.
-- Remaining consumer-side bugs (KB-1 to KB-6) and the Word JavaScript API inventory are in [`KNOWN_BUGS.md`](../KNOWN_BUGS.md). All library issues are resolved ([index](../../library-issues/README.md)).
+- Remaining consumer-side bugs (KB-1 to KB-6) and the Word JavaScript API inventory are in [`KNOWN_BUGS.md`](../KNOWN_BUGS.md). All library issues are resolved ([index](../../validation-reports/2026-10-17-library-issues-closeout.md)).
 
 The sections below are the historical record. Statements that WP5 is reopened or blocked, and the 0.8.4 pin, describe the state before 2026-10-12.
 
@@ -74,7 +74,7 @@ disabled. Independent Word Reject All consequently removes the requested clean
 wording. A specific prepared-output tracking-policy check now prevents that write
 before checkpointing; existing foreign carriers remain allowed. Do not replace
 the failing capability with a passing refusal or silently remove it from scope.
-The [public upstream reproducer](../../library-issues/completed/2026-10-02-generate-redlines-false-cross-author-insertion.md)
+The [public upstream reproducer](../../validation-reports/2026-10-17-library-issues-closeout.md)
 documents the engine defect. A published fix, both exact pin updates and the
 unchanged host gate must pass before closing WP5. A separate revised-target lexical
 replacement verifies the supported delete/insert path without concealing the
@@ -172,7 +172,7 @@ The 0.8.4 report records 57 offline suites passing, four excluded entrypoints, s
 
 ### Current upstream constraints
 
-The [library issue index](../../library-issues/README.md) and [list migration follow-up](../2026-09-30-canonical-list-migration-follow-up.md) identify constraints that remain relevant:
+The [library issue index](../../validation-reports/2026-10-17-library-issues-closeout.md) and [list migration follow-up](../2026-09-30-canonical-list-migration-follow-up.md) identify constraints that remain relevant:
 
 - Plain/text-changing header-to-list conversion and list-format changes do not yet have the required supported canonical behavior.
 - Separate list operations in 0.8.4 can restart non-adjacent header numbering: A/A instead of A/B. The historical native conversion avoided this regression; conversion is now refused and that executor is deleted.

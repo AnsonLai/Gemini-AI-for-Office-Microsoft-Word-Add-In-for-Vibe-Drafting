@@ -16,11 +16,11 @@ installed package, followed by independent checks.
 
 | Report | Result on 0.9.0 |
 | --- | --- |
-| [Separate list operations restart numbering](../library-issues/completed/2026-10-02-separate-list-operations-restart-numbering.md) | Fixed. Reproducer prints "NOT REPRODUCED: both headers share one list" (A., B., one `numId`). |
-| [Weak-target soft-break deletion](../library-issues/completed/2026-10-02-weak-target-soft-break-deletion.md) | Fixed. Reproducer: NOT REPRODUCED. |
-| [`generateRedlines: false` cross-author insertion](../library-issues/completed/2026-10-02-generate-redlines-false-cross-author-insertion.md) | Fixed. Reject All keeps the clean text. The reproducer's defect assertion now throws, so it exits 1. |
-| [Word Reject All after final table append](../library-issues/completed/2026-10-01-word-reject-table-append-paragraph.md) | Fixed at package level. The public-library package passes source, tracked, Accept All and Reject All in Word using `Revisions.RejectAll()`. The live-insert lane still fails: see KB-1. |
-| [Canonical list capabilities](../library-issues/completed/2026-09-30-canonical-list-operations.md) | Released as `list-format` (`convert-plain`, `change-format`, `join`) and `paragraph-format.numbering`. `reproduce-plain-header-conversion.mjs` is now refused (`BATCH_OPERATION_FAILED`, strict list conversion): the reproducer is obsolete because the capability moved to `list-format` `convert-plain`. Consumer adoption is tracked in the [list plan](../plans/2026-09-30-canonical-list-migration-follow-up.md) and KB-4. |
+| [Separate list operations restart numbering](2026-10-17-library-issues-closeout.md) | Fixed. Reproducer prints "NOT REPRODUCED: both headers share one list" (A., B., one `numId`). |
+| [Weak-target soft-break deletion](2026-10-17-library-issues-closeout.md) | Fixed. Reproducer: NOT REPRODUCED. |
+| [`generateRedlines: false` cross-author insertion](2026-10-17-library-issues-closeout.md) | Fixed. Reject All keeps the clean text. The reproducer's defect assertion now throws, so it exits 1. |
+| [Word Reject All after final table append](2026-10-17-library-issues-closeout.md) | Fixed at package level. The public-library package passes source, tracked, Accept All and Reject All in Word using `Revisions.RejectAll()`. The live-insert lane still fails: see KB-1. |
+| [Canonical list capabilities](2026-10-17-library-issues-closeout.md) | Released as `list-format` (`convert-plain`, `change-format`, `join`) and `paragraph-format.numbering`. `reproduce-plain-header-conversion.mjs` is now refused (`BATCH_OPERATION_FAILED`, strict list conversion): the reproducer is obsolete because the capability moved to `list-format` `convert-plain`. Consumer adoption is tracked in the [list plan](../plans/2026-09-30-canonical-list-migration-follow-up.md) and KB-4. |
 
 ## Test and oracle changes (no `src/` change)
 
@@ -71,8 +71,8 @@ This was an environment fault, not a product defect.
   [plan](../plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md).
 - The table-creation incident plan: see the
   [plan](../plans/completed/2026-09-30-table-creation-reliability.md).
-- Library issues: every report in `docs/library-issues/` is now in
-  [`completed/`](../library-issues/completed/); the open table is empty.
+- Library issues: every report in `docs/library-issues/` was then in
+  `completed/`; the open table was empty (folder removed 2026-10-17, see the [closeout](2026-10-17-library-issues-closeout.md)).
 
 ## What remains
 

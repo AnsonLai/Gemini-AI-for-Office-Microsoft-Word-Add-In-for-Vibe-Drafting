@@ -24,4 +24,4 @@ parts. Restore uses a derived comparison for proven Word-generated metadata,
 guarded by canonical comment relationship/anchor equality, without changing XML
 payloads or ordinary freshness checks.
 
-Current behavior: [tool contracts](agentic-tool-contracts.md). Measured changes and host evidence: [reliability plan](./plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md). Unsupported engine shapes remain in [library issues](library-issues/README.md); removal of native fallback does not close them.
+Current behavior: [tool contracts](agentic-tool-contracts.md). Measured changes and host evidence: [reliability plan](./plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md). Resolved library reports are summarized in the [library issues closeout](validation-reports/2026-10-17-library-issues-closeout.md); open engine defects go in [KNOWN_BUGS.md](plans/KNOWN_BUGS.md). Removal of native fallback does not close them.

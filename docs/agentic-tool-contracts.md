@@ -46,7 +46,7 @@ New-comment output from 0.8.4 is a merge delta. The Word transport composes the
 published comments merge and sibling reconciliation helpers over in-memory
 parts, then assembles the existing Flat OPC insertion payload. It does not
 replace existing comment definitions with the delta or switch to a full-DOCX
-Word facade. The [dated transport report](./library-issues/completed/2026-10-02-word-existing-comments-delta-transport.md)
+Word facade. The [dated transport report](validation-reports/2026-10-17-library-issues-closeout.md) (in git history; see the closeout)
 records the regression and correction evidence.
 
 Pending revisions alone do not prohibit an edit. For single-paragraph wording

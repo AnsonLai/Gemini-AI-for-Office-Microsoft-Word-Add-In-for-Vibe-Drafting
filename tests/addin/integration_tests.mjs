@@ -385,7 +385,7 @@ async function runNdaTests() {
     await check('Add Date Row', async () => {
         const name = 'Add Date Row';
         // The underscore signature lines must survive Accept All unchanged (fixed in 0.10.0; see
-        // docs/library-issues/completed/2026-10-12-table-reconciliation-underscore-collapse.md).
+        // KB-7 in docs/plans/KNOWN_BUGS.md).
         const blank = '___________________';
         const run = await applyToSampleDocument(name, (source) => {
             const [header] = findParagraphs(source, p => p.inTable && p.exactText === 'DISCLOSING PARTY:', name, 1);

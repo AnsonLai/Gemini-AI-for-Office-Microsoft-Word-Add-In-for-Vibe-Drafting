@@ -21,7 +21,7 @@ The runner discovers tests recursively and runs each in a separate Node process.
 Manual performance, desktop fixture generation and XML setup entrypoints are
 excluded. Historical package-version skips are printed separately. The former
 paid redline-schema eval is retired; the direct taskpane live lane below replaces
-it. Public engine issue reproducers remain under `docs/library-issues/`.
+it. Resolved engine issue reproducers are in git history (see the [closeout](../docs/validation-reports/2026-10-17-library-issues-closeout.md)); the KB-1 Word table-append exporter is `word-desktop/export-table-append-reject-all.mjs`.
 
 ## Genuine Office.js and independent Word
 

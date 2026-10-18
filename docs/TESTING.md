@@ -32,7 +32,7 @@ restoration. Excluded/inapplicable checks are never added to pass totals.
 The earlier table-append and Undo incidents retain dated evidence in their
 [incident plan](plans/completed/2026-09-30-table-creation-reliability.md),
 [Word report](validation-reports/2026-10-01-table-creation-reliability.md) and
-[library issue index](library-issues/README.md) (no open issues as of 0.9.0; remaining consumer bugs in [KNOWN_BUGS.md](plans/KNOWN_BUGS.md)). Structural table creation
+[library issues closeout](validation-reports/2026-10-17-library-issues-closeout.md) (no open issues as of 0.10.0; remaining consumer bugs in [KNOWN_BUGS.md](plans/KNOWN_BUGS.md)). Structural table creation
 is now refused by the Word agent. Keep independent library reproducers runnable;
 retirement does not close upstream bugs. Desktop is the initial target;
 Word Online requires separate affected-operation checks before equivalent

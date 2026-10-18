@@ -17,8 +17,8 @@ both native insertions pass; tracked Reject All leaves an extra paragraph,
 while Accept All loses underline in the formatting fixture. See the
 [incident plan](docs/plans/completed/2026-09-30-table-creation-reliability.md),
 [host report](docs/validation-reports/2026-10-01-table-creation-reliability.md),
-[tracked-formatting report](docs/library-issues/completed/2026-10-01-table-append-tracked-formatting.md),
-and [Reject All paragraph report](docs/library-issues/completed/2026-10-01-word-reject-table-append-paragraph.md).
+[tracked-formatting report](docs/validation-reports/2026-10-17-library-issues-closeout.md),
+and [Reject All paragraph report](docs/validation-reports/2026-10-17-library-issues-closeout.md).
 No full live chat/model reproduction is claimed. Update (2026-10-02): as of 0.8.4, `UNSUPPORTED_TABLE_FORMATTING` refuses only changing the text of a paragraph that carries the author's own pending formatting while adding a table; Accept All keeps underline, and Word Reject All still left one extra empty paragraph after a final table append. Update (2026-10-12): the incident plan is closed. The Reject All paragraph is fixed at package level in 0.9.0; the live-insert residual is KB-1 in [KNOWN_BUGS.md](docs/plans/KNOWN_BUGS.md), and table append stays refused.
 
 ### Undo/stale-context follow-up
