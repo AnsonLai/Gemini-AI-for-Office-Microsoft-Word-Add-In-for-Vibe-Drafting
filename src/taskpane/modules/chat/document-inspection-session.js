@@ -222,6 +222,18 @@ export function createDocumentInspectionSession({
     return handle;
   }
 
+  function libraryOptions({ search, range, around, limit, after }) {
+    return {
+      revisionView,
+      excerptLength: Math.min(maxTextChars, 240),
+      ...(search ? { search } : {}),
+      ...(range ? { range } : {}),
+      ...(around ? { around } : {}),
+      ...(after != null ? { after } : {}),
+      limit
+    };
+  }
+
   function normalizeInspectOptions(options = {}) {
     const cursor = options.cursor == null ? null : String(options.cursor);
     if (cursor) {
@@ -230,21 +242,8 @@ export function createDocumentInspectionSession({
       }
       const saved = cursors.get(cursor);
       if (!saved || saved.generation !== generation) throw sessionError('STALE_CURSOR', 'This inspection cursor has expired. Inspect the current source again.');
-      const savedOptions = saved.options;
-      return {
-        ...savedOptions,
-        after: saved.after,
-        cursor,
-        libraryOptions: {
-          revisionView,
-          excerptLength: Math.min(maxTextChars, 240),
-          ...(savedOptions.search ? { search: savedOptions.search } : {}),
-          ...(savedOptions.range ? { range: savedOptions.range } : {}),
-          ...(savedOptions.around ? { around: savedOptions.around } : {}),
-          after: saved.after,
-          limit: savedOptions.limit
-        }
-      };
+      const continued = { ...saved.options, after: saved.after };
+      return { ...continued, cursor, libraryOptions: libraryOptions(continued) };
     }
 
     const search = options.search == null ? null : String(options.search).trim();
@@ -260,21 +259,8 @@ export function createDocumentInspectionSession({
     if (!Number.isInteger(limit) || limit < 1 || limit > maxResults) {
       throw sessionError('INVALID_INSPECTION_OPTIONS', `limit must be between 1 and ${maxResults}.`);
     }
-    return {
-      search,
-      range,
-      around,
-      limit,
-      includeDocumentEnd: options.includeDocumentEnd === true,
-      libraryOptions: {
-        revisionView,
-        excerptLength: Math.min(maxTextChars, 240),
-        ...(search ? { search } : {}),
-        ...(range ? { range } : {}),
-        ...(around ? { around } : {}),
-        limit
-      }
-    };
+    const query = { search, range, around, limit };
+    return { ...query, includeDocumentEnd: options.includeDocumentEnd === true, libraryOptions: libraryOptions(query) };
   }
 
   function targetView(paragraph, handle, inspection, handleByIndex, totalBudget, remainingTargets) {
@@ -332,12 +318,7 @@ export function createDocumentInspectionSession({
       }
       activateSnapshot(snapshot);
 
-      const selectedInspection = inspectDocumentParts(snapshot.parts, normalized.libraryOptions || {
-        revisionView,
-        excerptLength: Math.min(maxTextChars, 240),
-        after: normalized.after,
-        limit: normalized.limit
-      });
+      const selectedInspection = inspectDocumentParts(snapshot.parts, normalized.libraryOptions);
       if (selectedInspection?.status !== 'ok') {
         throw sessionError(selectedInspection?.error?.code || 'CANONICAL_INSPECTION_FAILED', selectedInspection?.error?.message || 'The Word source could not be inspected.');
       }
