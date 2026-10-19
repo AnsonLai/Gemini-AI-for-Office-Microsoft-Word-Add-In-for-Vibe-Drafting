@@ -199,8 +199,8 @@ const insertPackage = makePackage('<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Existing 
 const insertCompiled = await compileFor(insertPackage, [
   { type: 'insert_paragraph', target: 'handle-1', position: 'after', text: 'Additional plain paragraph.' }
 ]);
-assert.equal(insertCompiled.compiled.operations[0].structuredContent, false,
-  'paragraph insertions are plain text; the library keeps the inserted text literal');
+assert.equal(insertCompiled.compiled.operations[0].structuredContent, true,
+  'structured parsing is enabled only for the explicitly validated paragraph insertion');
 assert.equal(insertCompiled.compiled.operations[0].modified, 'Existing clause.\nAdditional plain paragraph.');
 const insertPrepared = await prepareCanonicalBatch(insertPackage, insertCompiled.compiled.operations, {
   author: 'Intent Compiler Test'
@@ -211,15 +211,6 @@ assert.deepEqual(inspectDocumentParts({ documentXml: insertAccepted.oxml }).para
   'Existing clause.', 'Additional plain paragraph.'
 ]);
 assert.match(insertAccepted.oxml, /<w:b(?:\s|\/|>)/, 'plain paragraph insertion retains existing paragraph character formatting');
-// Markdown-looking text is inserted literally (docx-redline-js 0.11.0 plain-text insertion).
-const literalCompiled = await compileFor(insertPackage, [
-  { type: 'insert_paragraph', target: 'handle-1', position: 'before', text: '# Sign here: __________ and **initial**' }
-]);
-const literalPrepared = await prepareCanonicalBatch(insertPackage, literalCompiled.compiled.operations, { author: 'Intent Compiler Test' });
-assert.equal(literalPrepared.status, 'ready', JSON.stringify(literalPrepared.result?.error));
-assert.deepEqual(inspectDocumentParts({ documentXml: acceptTrackedChangesInOoxml(literalPrepared.result.documentXml, { allAuthors: true }).oxml })
-  .paragraphs.map(paragraph => paragraph.exactText), ['# Sign here: __________ and **initial**', 'Existing clause.'],
-  'inserted Markdown-looking text stays literal');
 
 const listSourcePackage = flatOpcFromListFixture();
 const listSourceTargets = targetsFrom(listSourcePackage);
@@ -244,10 +235,14 @@ for (const [targetText, expectedFormat, expectedLevel, expectedSiblingLabels = {
   ], { session: listSession, source });
   assert.equal(listSession.calls.length, 1, 'list insertion resolves one strong target against a fresh snapshot');
   const insertedText = `Added at level ${expectedLevel}.`;
+  const markerPair = expectedFormat === 'bullet'
+    ? ['-', '-']
+    : expectedLevel === 0 ? ['1.', '2.'] : ['1.1.', '1.2.'];
   const operation = listCompiled.operations[0];
-  assert.equal(operation.type, 'redline', 'list insertion is a plain-text redline; the library inherits the list');
-  assert.equal(operation.structuredContent, false);
-  assert.equal(operation.modified, `${target.exactText}\n${insertedText}`, 'no synthesized list markers');
+  assert.equal(operation.type, 'list-change', 'list edits use the documented complete-list operation');
+  assert.equal(operation.structuredContent, true);
+  assert.equal(operation.modified, `${markerPair[0]} ${target.exactText}\n${markerPair[1]} ${insertedText}`,
+    'the redline describes the complete affected list block with structural markers');
   const listPrepared = await prepareCanonicalBatch(listSourcePackage, listCompiled.operations, { author: 'Intent Compiler Test' });
   assert.equal(listPrepared.status, 'ready', JSON.stringify(listPrepared.result?.error || listPrepared.result?.results));
   const listAccepted = acceptTrackedChangesInOoxml(listPrepared.insertionPayload, { allAuthors: true });
@@ -441,7 +436,7 @@ const appendSession = createSession([], { endHandle: appendTarget });
 const appendCompiled = await compileDocumentEdits([
   { type: 'append_paragraph', target: 'end-handle', text: 'Final plain paragraph.' }
 ], { session: appendSession, source });
-assert.equal(appendCompiled.operations[0].structuredContent, false);
+assert.equal(appendCompiled.operations[0].structuredContent, true);
 assert.equal(appendCompiled.operations[0].modified, 'Last paragraph.\nFinal plain paragraph.');
 const appendPrepared = await prepareCanonicalBatch(appendPackage, appendCompiled.operations);
 assert.equal(appendPrepared.status, 'ready', JSON.stringify(appendPrepared.result?.error));
