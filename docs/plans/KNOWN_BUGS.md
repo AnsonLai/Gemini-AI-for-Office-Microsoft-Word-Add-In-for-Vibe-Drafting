@@ -1,6 +1,6 @@
 # Known bugs and host-boundary exceptions
 
-**Updated:** 2026-10-17, phase-2 WP3 on `@ansonlai/docx-redline-js` 0.10.0 (exact pin). The browser demo and MCP server were removed the same day.
+**Updated:** 2026-10-18, on `@ansonlai/docx-redline-js` 0.11.0 (exact pin). The browser demo and MCP server were removed the same day.
 Previous: 2026-10-12, after the 0.9.0 upgrade ([validation](../validation-reports/2026-10-12-docx-redline-v090.md)).
 
 This file tracks two things:
@@ -76,6 +76,14 @@ The goal is to use the library wherever possible. Each Word API use must say why
 - **Exit condition:** a published library fix, with the reproducer exiting 1. Then remove the known-defect gate from "Add Date Row" (the `squash`/`knownDefect` logic and the marker). Consider a guard that compares the requested `rewrite_paragraph` text with the prepared text before the interim period ends.
 - **Closed (2026-10-17):** fixed in the published 0.10.0. Underscore emphasis follows CommonMark flanking rules, and a caller's `structuredContent: false` keeps inline Markdown literal. The reproducer exits 1, the "Add Date Row" known-defect gate is removed, and the report was moved to `library-issues/completed/` (folder since removed). The Office.js, Word oracle and NDA replay lanes pass on 0.10.0 ([validation](../validation-reports/2026-10-17-docx-redline-v0100.md)).
 - **Related observation (not filed):** a `list-change` whose kept item carries `-` markers on a decimal list converts the list to a new bullet list (new `numId`, bullet labels). The only diagnostic is "Paragraph expanded to list fragment". The 0.9.0 README ("List operations") and `AGENT_KNOWLEDGE_BASE.md` say retyped markers keep the old numbering and warn `LIST_FORMAT_NOT_APPLIED`. Checked on the sample's decimal list with a single-paragraph target. This looks like a gap against the documented contract, probably on the single-paragraph or fragment path. It is not filed because Reject All and the multi-paragraph target form were not checked. The add-in avoids it by deriving markers from the target list's kind (`listInsertionMarkers`).
+
+### KB-9: Plain-text "after" insertion tracks the new paragraph's mark (library 0.11.0)
+
+- **Where:** `@ansonlai/docx-redline-js` 0.11.0, the plain-adjacency insertion route used by a `structuredContent: false` redline whose `modified` adds a paragraph after the target.
+- **Behaviour:** the new paragraph's own mark gets the `<w:ins>`. The structured route (`structuredContent: true`) marks the target's mark, which is Word-native. At body end the plain route therefore tracks the document's final paragraph mark, which Word cannot reject cleanly. Library Reject All still reports the right text.
+- **Evidence (2026-10-18):** with the plugin's insertions switched to plain text, the Word oracle failed `direct-basic-underline-format` (Reject All 55 vs 56 paragraphs) because a previous case's tracked-append seed left `<w:p><w:pPr><w:rPr><w:ins w:author="Other reviewer"/></w:rPr></w:pPr></w:p>` at body end, carried over by Word's `insertFileFromBase64` Replace. Reproduced twice; the structured encoding passes 88/0. A minimal reproducer was sent to the library session.
+- **User impact today:** none. The plugin reverted to the structured insertion recipe (`c82c190`).
+- **Exit condition:** a library release that marks the target's mark for "after" insertions on the plain route. Then re-apply the plain-text insertions (phase-2 WP1 step 6) and pass Office.js, the Word oracle and the NDA replay.
 
 ### KB-8: Test XML provider was chosen silently; the `jsdom` lane fails 5 suites (all provider-specific, none a user defect)
 
