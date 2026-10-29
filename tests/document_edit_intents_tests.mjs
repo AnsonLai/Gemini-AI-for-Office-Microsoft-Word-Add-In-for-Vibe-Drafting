@@ -625,4 +625,30 @@ await combo([{ type: 'change_list_format', target: RESTART, format: 'lowerLetter
 const crossItem = await compileLists([{ type: 'change_list_format', target: BULLET, format: 'decimal' }, { type: 'rewrite_paragraph', target: handleOf('Bullet Root B'), text: 'Changed.' }]);
 assert.equal(crossItem.operations.length, 2, 'cross-item composition is not pre-judged by the add-in');
 
+// KB-11: soft line breaks inside one paragraph would become a single list item.
+{
+  const softBreakPackage = makePackage([
+    '<w:p><w:r><w:t>A. First recital.</w:t><w:br/><w:t>B. Second recital.</w:t></w:r></w:p>',
+    '<w:p><w:r><w:t>A. Plain one.</w:t></w:r></w:p>',
+    '<w:p><w:r><w:t>B. Two</w:t><w:br/><w:t>C. Three</w:t></w:r></w:p>',
+    '<w:p><w:r><w:t>D. Plain four.</w:t></w:r></w:p>'
+  ].join(''));
+  const softTargets = targetsFrom(softBreakPackage);
+  assert.match(softTargets[0].exactText, /[\r\n]/, 'the fixture has a soft break');
+  await assert.rejects(
+    () => compileDocumentEdits([{ type: 'convert_to_list', target: 'handle-1' }], { session: createSession(softTargets), source: { documentId: 'doc-1' } }),
+    error => error instanceof DocumentEditIntentError && error.code === 'UNSUPPORTED_DOCUMENT_EDIT_TARGET' && /line breaks/.test(error.message),
+    'a soft-break target is refused before preparation'
+  );
+  const parts = inspectWordSource(softBreakPackage).parts;
+  await assert.rejects(
+    () => compileDocumentEdits([{ type: 'convert_to_list', target: 'handle-2', through: 'handle-4' }], { session: createSession(softTargets), source: { documentId: 'doc-1', parts } }),
+    error => error instanceof DocumentEditIntentError && error.code === 'UNSUPPORTED_DOCUMENT_EDIT_TARGET' && /line breaks/.test(error.message),
+    'a soft break in the middle of a through range is refused too'
+  );
+  const plainPackage = makePackage('<w:p><w:r><w:t>A. Plain one.</w:t></w:r></w:p><w:p><w:r><w:t>B. Plain two.</w:t></w:r></w:p>');
+  const plainCompiled = await compileDocumentEdits([{ type: 'convert_to_list', target: 'handle-1', through: 'handle-2' }],
+    { session: createSession(targetsFrom(plainPackage)), source: { documentId: 'doc-1', parts: inspectWordSource(plainPackage).parts } });
+  assert.equal(plainCompiled.operations[0].type, 'list-format', 'plain paragraphs still convert');
+}
 console.log('PASS: typed document edit intent compiler tests');

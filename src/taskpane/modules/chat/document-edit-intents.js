@@ -1,4 +1,4 @@
-import { analyzeStructuredContent, preprocessMarkdown } from '@ansonlai/docx-redline-js';
+import { analyzeStructuredContent, inspectDocumentParts, preprocessMarkdown } from '@ansonlai/docx-redline-js';
 
 const TEXT_ACTIONS = new Set(['replace_text', 'rewrite_paragraph', 'delete_paragraph', 'insert_paragraph', 'append_paragraph', 'insert_list_item']);
 const FORMAT_KEYS = new Set(['bold', 'italic', 'underline', 'strikethrough', 'highlight']);
@@ -195,6 +195,14 @@ function checkedPlainListCandidate(descriptor, index, field) {
   if (descriptor.inTable || descriptor.table || descriptor.list) {
     fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'convert_to_list requires plain non-list paragraphs outside tables. Existing list items change with change_list_format or continue_list.', index, field);
   }
+  softBreakFreeListCandidate(descriptor.exactText, index, field);
+}
+// Soft line breaks inside one paragraph ("A. ...", "B. ..." on separate lines) would become
+// one list item holding every line, so convert_to_list refuses them (KB-11).
+function softBreakFreeListCandidate(text, index, field) {
+  if (/[\r\n]/.test(String(text || ''))) {
+    fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'convert_to_list needs one item per paragraph; this paragraph has line breaks inside it (Shift+Enter), so it would become a single list item. Split it into separate paragraphs first.', index, field);
+  }
 }
 function checkedListItem(descriptor, index, field) {
   if (descriptor.inTable || descriptor.table || !record(descriptor.list)) {
@@ -307,6 +315,10 @@ export async function compileDocumentEdits(edits, { session, source } = {}) {
         if (edit.through) {
           const through = checkRelated(edit.through, 'through', checkedPlainListCandidate);
           if (through.index <= descriptor.index) fail('INVALID_DOCUMENT_EDIT', 'through must be a later paragraph than target.', actionIndex, 'through');
+          const between = result?.source?.parts && inspectDocumentParts(result.source.parts, {
+            revisionView: 'accepted', range: { start: descriptor.index, end: through.index }
+          });
+          for (const paragraph of between?.paragraphs || []) softBreakFreeListCandidate(paragraph.exactText, actionIndex, 'through');
         }
       } else {
         checkedListItem(descriptor, actionIndex, 'target');

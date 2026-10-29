@@ -90,6 +90,7 @@ The goal is to use the library wherever possible. Each Word API use must say why
 - **Evidence:** live step 3 ("make the recitals a list"). The recitals are one paragraph with soft line breaks (`A. …` / `B. …` / `C. …`). `convert_to_list` succeeded and was verified, but Accept All shows one list item `A.` that still contains the B and C lines, and the model told the user the recitals were now an A, B, C list.
 - **Cause:** library `list-format convert-plain` strips only the first typed marker and does not refuse a paragraph whose soft-break lines carry further markers. Post-commit verification passes because Word committed exactly what was prepared.
 - **Options:** the plugin refuses `convert_to_list` on targets containing soft breaks (a product-scope rule like the insertion refusals), and/or the library refuses multi-marker soft-break paragraphs (`LIST_MARKER_UNSUPPORTED`). Library work is parked by the owner.
+- **Fix (2026-10-28, owner chose it):** `convert_to_list` refuses before preparation (`UNSUPPORTED_DOCUMENT_EDIT_TARGET`) when the target, the `through` paragraph or any paragraph between them contains a soft line break, and asks the user to split it into separate paragraphs. Editing guide v6 states the rule. Pinned by `document_edit_intents_tests`. The library-side refusal is still worth raising when library work resumes. **Still to confirm:** live step 3.
 
 ### KB-9: Plain-text "after" insertion tracks the new paragraph's mark (library 0.11.0)
 
