@@ -246,9 +246,10 @@ export function createDocumentInspectionSession({
       return { ...continued, cursor, libraryOptions: libraryOptions(continued) };
     }
 
-    const search = options.search == null ? null : String(options.search).trim();
-    if (search != null && (!search || search.length > MAX_SEARCH_CHARS)) {
-      throw sessionError('INVALID_INSPECTION_OPTIONS', `Search must contain 1 to ${MAX_SEARCH_CHARS} characters.`);
+    // An empty search means "read from the top" rather than an error (KB-12).
+    const search = options.search == null || !String(options.search).trim() ? null : String(options.search).trim();
+    if (search != null && search.length > MAX_SEARCH_CHARS) {
+      throw sessionError('INVALID_INSPECTION_OPTIONS', `Search must contain at most ${MAX_SEARCH_CHARS} characters.`);
     }
     const range = normalizeRange(options.range);
     const around = options.around == null ? 0 : options.around;

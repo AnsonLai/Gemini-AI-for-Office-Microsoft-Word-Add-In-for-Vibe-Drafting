@@ -235,4 +235,16 @@ const staleCommentsExtensible = await resolveOne(dependencySession, commentsExte
 assert.equal(staleCommentsExtensible.status, 'error');
 assert.equal(staleCommentsExtensible.error.code, 'STALE_DOCUMENT_SOURCE', 'the canonical token includes comments extensible parts supplied through additionalParts');
 
+// KB-12: an empty or blank search reads from the top instead of failing.
+{
+  parts = documentParts(['Alpha clause', 'Middle paragraph', 'Beta clause', 'Final paragraph']);
+  const blankSession = createDocumentInspectionSession({ readSource: sourceReader, maxResults: 4, maxTextChars: 128 });
+  for (const search of ['', '   ']) {
+    const result = await blankSession.inspect({ search, limit: 2 });
+    assert.equal(result.status, 'ok', JSON.stringify(result.error));
+    assert.deepEqual(result.targets.map(target => target.text), ['Alpha clause', 'Middle paragraph'], 'a blank search starts at the top');
+  }
+  const tooLong = await blankSession.inspect({ search: 'x'.repeat(1001) });
+  assert.equal(tooLong.error.code, 'INVALID_INSPECTION_OPTIONS');
+}
 console.log('PASS: canonical source-bound inspection handles, ranges, cursors, freshness and invalidation');

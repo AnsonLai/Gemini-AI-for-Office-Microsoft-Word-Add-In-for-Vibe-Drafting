@@ -651,4 +651,30 @@ assert.equal(crossItem.operations.length, 2, 'cross-item composition is not pre-
     { session: createSession(targetsFrom(plainPackage)), source: { documentId: 'doc-1', parts: inspectWordSource(plainPackage).parts } });
   assert.equal(plainCompiled.operations[0].type, 'list-format', 'plain paragraphs still convert');
 }
+// KB-12: validation messages a model can act on in one retry.
+{
+  const fieldPackage = makePackage('<w:p><w:r><w:t>One clause.</w:t></w:r></w:p>');
+  const fieldTargets = targetsFrom(fieldPackage);
+  await assert.rejects(
+    () => compileDocumentEdits([{ type: 'rewrite_paragraph', target: 'handle-1', replace: 'New clause.' }], { session: createSession(fieldTargets), source: { documentId: 'doc-1' } }),
+    error => error instanceof DocumentEditIntentError && error.code === 'INVALID_DOCUMENT_EDIT' && /Its fields are: target, text/.test(error.message),
+    'an unsupported field names the action fields'
+  );
+  await assert.rejects(
+    () => compileDocumentEdits([{ type: 'rewrite_paragraph', target: 'handle-1', text: ['Line one', 'Line two'].join(String.fromCharCode(10)) }], { session: createSession(fieldTargets), source: { documentId: 'doc-1' } }),
+    error => error instanceof DocumentEditIntentError && /replace_text/.test(error.message),
+    'a rewrite with line breaks points to replace_text'
+  );
+  const listPackage = flatOpcFromListFixture();
+  const listTargets = targetsFrom(listPackage);
+  const anchor = listTargets.find(item => item.exactText === 'Bullet Root A');
+  const withAfter = await compileDocumentEdits([{ type: 'insert_list_item', target: anchor.handle, position: 'after', text: 'Added with an explicit position.' }],
+    { session: createSession(listTargets), source: { documentId: 'doc-1' } });
+  assert.equal(withAfter.operations.length, 1, 'insert_list_item accepts position "after"');
+  await assert.rejects(
+    () => compileDocumentEdits([{ type: 'insert_list_item', target: anchor.handle, position: 'before', text: 'Not supported.' }], { session: createSession(listTargets), source: { documentId: 'doc-1' } }),
+    error => error instanceof DocumentEditIntentError && /previous list item/.test(error.message),
+    'insert_list_item refuses position "before" with a recovery hint'
+  );
+}
 console.log('PASS: typed document edit intent compiler tests');

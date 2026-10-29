@@ -69,9 +69,14 @@ function validateEdit(edit, index) {
   if (!record(edit) || typeof edit.type !== 'string' || !FIELDS[edit.type]) {
     fail('UNSUPPORTED_DOCUMENT_EDIT', 'This edit action is unsupported. Use a supported text, paragraph, list, comment, or basic-formatting action.', index, 'type');
   }
+  // A list item is always inserted after its target, so an explicit "after" is accepted (KB-12).
+  if (edit.type === 'insert_list_item' && edit.position !== undefined) {
+    if (edit.position !== 'after') fail('UNSUPPORTED_DOCUMENT_EDIT', 'insert_list_item adds the item after its target; to add an item before it, target the previous list item.', index, 'position');
+    edit = Object.fromEntries(Object.entries(edit).filter(([key]) => key !== 'position'));
+  }
   const allowed = new Set(['type', ...FIELDS[edit.type]]);
   const extra = Object.keys(edit).find(key => !allowed.has(key));
-  if (extra) fail('INVALID_DOCUMENT_EDIT', `Field "${extra}" is not supported for ${edit.type}.`, index, extra);
+  if (extra) fail('INVALID_DOCUMENT_EDIT', `Field "${extra}" is not supported for ${edit.type}. Its fields are: ${FIELDS[edit.type].join(', ')}.`, index, extra);
   const value = { ...edit, target: text(edit.target, index, 'target') };
 
   if (edit.type === 'replace_text') {
@@ -81,7 +86,7 @@ function validateEdit(edit, index) {
     if (value.find === value.replace) fail('UNSUPPORTED_LITERAL_NOOP', 'A literal replacement must change the matched text. Use rewrite_paragraph with the complete desired paragraph to confirm an already-satisfied state.', index, 'replace');
   } else if (edit.type === 'rewrite_paragraph') {
     value.text = text(edit.text, index, 'text');
-    if (/[\r\n]/.test(value.text)) fail('UNSUPPORTED_DOCUMENT_EDIT', 'A paragraph rewrite must contain one paragraph. Use a paragraph insertion for a new paragraph.', index, 'text');
+    if (/[\r\n]/.test(value.text)) fail('UNSUPPORTED_DOCUMENT_EDIT', 'A paragraph rewrite must contain one paragraph without line breaks. Use a paragraph insertion for a new paragraph. If the paragraph already contains line breaks (Shift+Enter), change its wording with replace_text instead.', index, 'text');
   } else if (edit.type === 'insert_paragraph' || edit.type === 'append_paragraph' || edit.type === 'insert_list_item') {
     value.text = text(edit.text, index, 'text');
     plainParagraph(value.text, index, 'text');

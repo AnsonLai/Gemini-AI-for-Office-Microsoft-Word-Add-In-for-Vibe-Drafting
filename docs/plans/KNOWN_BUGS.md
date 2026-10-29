@@ -92,6 +92,19 @@ The goal is to use the library wherever possible. Each Word API use must say why
 - **Options:** the plugin refuses `convert_to_list` on targets containing soft breaks (a product-scope rule like the insertion refusals), and/or the library refuses multi-marker soft-break paragraphs (`LIST_MARKER_UNSUPPORTED`). Library work is parked by the owner.
 - **Fix (2026-10-28, owner chose it):** `convert_to_list` refuses before preparation (`UNSUPPORTED_DOCUMENT_EDIT_TARGET`) when the target, the `through` paragraph or any paragraph between them contains a soft line break, and asks the user to split it into separate paragraphs. Editing guide v6 states the rule. Pinned by `document_edit_intents_tests`. The library-side refusal is still worth raising when library work resumes. **Still to confirm:** live step 3. Replay host lanes on the fix (2026-10-28): Office.js passed (20 cases), Word oracle 88/0, NDA replay 16/16.
 
+### KB-12: Second live run, both models (2026-10-29)
+
+- **Runs:** fast `gemini-flash-latest` (`.cache/golden/live-fast-2`) failed 8 of 51 checks, down from 16. Steps 3, 10, 12, 13 and 14 now pass, which confirms KB-10 and KB-11. Slow `gemini-2.5-pro` (`.cache/golden/live-slow`, first run) failed 20 of 51.
+- **Plugin issues fixed (2026-10-29):**
+  - An empty `search` was refused ("Search must contain 1 to 1000 characters"). Fast step 1 opened with `search: ""` and never recovered. A blank search now reads from the top.
+  - Unsupported-field errors now list the action's fields. Both models sent `position` with `insert_list_item` and `replace` with `rewrite_paragraph`, then needed a retry (fast/slow step 7, slow step 8) or failed twice (slow step 16).
+  - `insert_list_item` accepts `position: "after"` (its only position). `"before"` gets a recovery hint.
+  - A `rewrite_paragraph` containing line breaks now says to use `replace_text` for a paragraph that already has Shift+Enter breaks. Slow step 16 tried to rewrite the soft-break recitals.
+- **Model behaviour addressed in editing guide v7:** the slow model asked for content instead of inspecting or drafting (steps 1, 2), declined a document review as legal advice (step 14), and gave up on a bold label in a new paragraph rather than inserting and then formatting (fast step 1). Guide v7 asks it to inspect before replying, never ask for text it can find or draft, treat review comments as expected, use only each action's fields, insert-then-format new formatted text, and use `replace_text` in soft-break paragraphs.
+- **Not product defects:** slow step 3 (correctly refused the soft-break recitals and explained why), steps 9 and 11 (correctly refused unsupported structure with no change), slow step 13 (asked which date, since the NDA has no calendar date), slow step 10 (asked whether "BC" means "British Columbia"). The live checker scores some correct refusals as failures because it looks for refusal wording or the absence of any `apply_document_edits` call.
+- **Unexplained:** fast step 5 timed out at 207 s after two provider requests returned no status. That looks like provider latency or retries; the edit itself was well formed. Watch it on the next run.
+- **Next:** re-run both live profiles on guide v7.
+
 ### KB-9: Plain-text "after" insertion tracks the new paragraph's mark (library 0.11.0)
 
 - **Where:** `@ansonlai/docx-redline-js` 0.11.0, the plain-adjacency insertion route used by a `structuredContent: false` redline whose `modified` adds a paragraph after the target.
