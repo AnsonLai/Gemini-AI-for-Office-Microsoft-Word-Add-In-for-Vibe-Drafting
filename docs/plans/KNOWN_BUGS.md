@@ -103,6 +103,7 @@ The goal is to use the library wherever possible. Each Word API use must say why
 - **Model behaviour addressed in editing guide v7:** the slow model asked for content instead of inspecting or drafting (steps 1, 2), declined a document review as legal advice (step 14), and gave up on a bold label in a new paragraph rather than inserting and then formatting (fast step 1). Guide v7 asks it to inspect before replying, never ask for text it can find or draft, treat review comments as expected, use only each action's fields, insert-then-format new formatted text, and use `replace_text` in soft-break paragraphs.
 - **Not product defects:** slow step 3 (correctly refused the soft-break recitals and explained why), steps 9 and 11 (correctly refused unsupported structure with no change), slow step 13 (asked which date, since the NDA has no calendar date), slow step 10 (asked whether "BC" means "British Columbia"). The live checker scores some correct refusals as failures because it looks for refusal wording or the absence of any `apply_document_edits` call.
 - **Unexplained:** fast step 5 timed out at 207 s after two provider requests returned no status. That looks like provider latency or retries; the edit itself was well formed. Watch it on the next run.
+- **Replay host lanes on the fixes (2026-10-29):** Office.js passed (20 cases), Word oracle 88/0, NDA replay 16/16.
 - **Next:** re-run both live profiles on guide v7.
 
 ### KB-9: Plain-text "after" insertion tracks the new paragraph's mark (library 0.11.0)
