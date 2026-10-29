@@ -77,6 +77,19 @@ The goal is to use the library wherever possible. Each Word API use must say why
 - **Closed (2026-10-17):** fixed in the published 0.10.0. Underscore emphasis follows CommonMark flanking rules, and a caller's `structuredContent: false` keeps inline Markdown literal. The reproducer exits 1, the "Add Date Row" known-defect gate is removed, and the report was moved to `library-issues/completed/` (folder since removed). The Office.js, Word oracle and NDA replay lanes pass on 0.10.0 ([validation](../validation-reports/2026-10-17-docx-redline-v0100.md)).
 - **Related observation (not filed):** a `list-change` whose kept item carries `-` markers on a decimal list converts the list to a new bullet list (new `numId`, bullet labels). The only diagnostic is "Paragraph expanded to list fragment". The 0.9.0 README ("List operations") and `AGENT_KNOWLEDGE_BASE.md` say retyped markers keep the old numbering and warn `LIST_FORMAT_NOT_APPLIED`. Checked on the sample's decimal list with a single-paragraph target. This looks like a gap against the documented contract, probably on the single-paragraph or fragment path. It is not filed because Reject All and the multi-paragraph target form were not checked. The add-in avoids it by deriving markers from the target list's kind (`listInsertionMarkers`).
 
+### KB-10: Live Gemini Flash runs out of model turns while inspecting (first live run, 2026-10-28)
+
+- **Evidence:** the first live NDA run (`--mode live --profile fast --model gemini-flash-latest`, `.cache/golden/live-fast`) finished 16/16 steps but failed 16 of 51 checks. In steps 5 (bold signature labels), 10 (unbold "British Columbia"), 12 (headers to list), 13 (highlight the date) and 14 (review comments), the model made one narrow `inspect_document` search per turn (for example `"1."`, `"2."`, `"3."`…) and used all six model turns without an edit. The user saw "Stopped after the maximum number of model turns without a final response." Step 1 also hit the limit after a verified edit.
+- **Why replay didn't catch it:** the deterministic replay batches read-only calls into one turn; the live model does not. No earlier live baseline exists.
+- **User impact:** about a third of ordinary requests do nothing with the default fast model. **Release blocker for v2.3.0.0.**
+- **Options (owner decision):** let read-only inspection turns count against a separate, larger inspection cap instead of the six-turn budget (mutation budgets unchanged); have the editing guide ask for one broad inspection or parallel searches; or raise the turn limit. Re-run both live profiles afterwards.
+
+### KB-11: `convert_to_list` on a soft-break paragraph makes one list item (live step 3)
+
+- **Evidence:** live step 3 ("make the recitals a list"). The recitals are one paragraph with soft line breaks (`A. …` / `B. …` / `C. …`). `convert_to_list` succeeded and was verified, but Accept All shows one list item `A.` that still contains the B and C lines, and the model told the user the recitals were now an A, B, C list.
+- **Cause:** library `list-format convert-plain` strips only the first typed marker and does not refuse a paragraph whose soft-break lines carry further markers. Post-commit verification passes because Word committed exactly what was prepared.
+- **Options:** the plugin refuses `convert_to_list` on targets containing soft breaks (a product-scope rule like the insertion refusals), and/or the library refuses multi-marker soft-break paragraphs (`LIST_MARKER_UNSUPPORTED`). Library work is parked by the owner.
+
 ### KB-9: Plain-text "after" insertion tracks the new paragraph's mark (library 0.11.0)
 
 - **Where:** `@ansonlai/docx-redline-js` 0.11.0, the plain-adjacency insertion route used by a `structuredContent: false` redline whose `modified` adds a paragraph after the target.
