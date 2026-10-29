@@ -361,3 +361,35 @@ for (const outcome of ['indeterminate', 'partial', 'applied_with_host_error']) {
 }
 
 console.log('PASS: inspect/apply agent loop, single-mutation policy, truthful outcomes, history, freshness and cancellation');
+
+// KB-10: read-only inspection turns draw on their own allowance, so a model that searches
+// one term per turn still reaches its edit; the total stays bounded.
+{
+  const inspectTurn = term => model(call('inspect_document', { search: term, limit: 8 }));
+  const test = harness([
+    ...['1.', '2.', '3.', '4.', '5.', '6.', '7.'].map(inspectTurn),
+    model(call('apply_document_edits')),
+    final(),
+  ], { inspectDocument: async () => ({ status: 'ok', targets: [] }), applyDocumentEdits: async () => applied() });
+  await test.run();
+  assert.equal(test.state.stopReason, 'response', 'seven inspection turns no longer exhaust the six-turn budget');
+  assert.equal(test.requests.length, 9);
+  assert.equal(test.state.inspectionTurns, 7);
+  assert.equal(test.state.records.filter(record => record.mutating && record.written).length, 1);
+}
+{
+  const test = harness(Array.from({ length: 14 }, (_, index) => model(call('inspect_document', { search: `term ${index}` }))),
+    { inspectDocument: async () => ({ status: 'ok', targets: [] }) });
+  await test.run();
+  assert.equal(test.state.stopReason, 'max_turns', 'eight inspection credits plus six turns is the hard bound');
+  assert.equal(test.requests.length, 14);
+}
+{
+  // A turn that edits still uses the ordinary budget.
+  const test = harness(Array.from({ length: 6 }, () => model(call('apply_document_edits'))),
+    { applyDocumentEdits: async () => applied() });
+  await test.run();
+  assert.equal(test.state.inspectionTurns, 0);
+  assert.equal(test.requests.length, 6);
+}
+console.log('PASS: inspection turns use a separate allowance (KB-10)');

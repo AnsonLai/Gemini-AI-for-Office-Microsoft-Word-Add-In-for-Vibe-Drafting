@@ -83,6 +83,7 @@ The goal is to use the library wherever possible. Each Word API use must say why
 - **Why replay didn't catch it:** the deterministic replay batches read-only calls into one turn; the live model does not. No earlier live baseline exists.
 - **User impact:** about a third of ordinary requests do nothing with the default fast model. **Release blocker for v2.3.0.0.**
 - **Options (owner decision):** let read-only inspection turns count against a separate, larger inspection cap instead of the six-turn budget (mutation budgets unchanged); have the editing guide ask for one broad inspection or parallel searches; or raise the turn limit. Re-run both live profiles afterwards.
+- **Fix (2026-10-28, owner chose it):** a turn whose calls are all known read-only `inspect_document` calls uses an allowance of eight inspection turns before the six-turn budget, so a request is still bounded at 14 turns plus the 180-second timeout. Mutation and failure budgets are unchanged. Editing guide v6 asks for distinctive search words, several inspections in one response, and one paged query for many targets. Pinned by `document_agent_loop_tests`. **Still to confirm:** re-run both live profiles.
 
 ### KB-11: `convert_to_list` on a soft-break paragraph makes one list item (live step 3)
 

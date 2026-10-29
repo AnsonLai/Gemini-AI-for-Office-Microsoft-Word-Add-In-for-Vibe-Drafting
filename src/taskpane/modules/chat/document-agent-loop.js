@@ -134,13 +134,16 @@ function completedWork(records) {
  */
 export async function runDocumentAgentLoop({
   state, registry, loadRegistry, requestModel, refreshContext,
-  signal, requestStartTime, now = Date.now, maxLoops = 6,
+  signal, requestStartTime, now = Date.now, maxLoops = 6, maxInspectionTurns = 8,
   maxNoProgressToolLoops = 2, totalTimeoutMs = 180000, historyLimit = 10,
   onEvent = () => {},
 }) {
   let guard = {};
   let staleContextRefreshUsed = false;
   state.loopCount = 0;
+  // Turns whose calls are all read-only inspection draw on their own allowance first,
+  // so a model that searches one term per turn still reaches its edit (KB-10).
+  state.inspectionTurns = 0;
   state.stopReason = null;
   state.records ||= [];
   const emit = event => onEvent(event);
@@ -166,7 +169,7 @@ export async function runDocumentAgentLoop({
   };
   emit({ type: 'run_start' });
   try {
-    while (state.loopCount < maxLoops && !state.stopReason) {
+    while (state.loopCount - state.inspectionTurns < maxLoops && !state.stopReason) {
       if (interrupt()) break;
       state.loopCount++;
       emit({ type: 'turn_start', turn: state.loopCount });
@@ -241,6 +244,8 @@ export async function runDocumentAgentLoop({
         continue;
       }
 
+      if (plannedCalls.every(({ description }) => description.known === true && description.mutating !== true)
+        && state.inspectionTurns < maxInspectionTurns) state.inspectionTurns++;
       let attempted = 0;
       let successful = 0;
       let confirmed = false;
@@ -332,7 +337,7 @@ export async function runDocumentAgentLoop({
       }
     }
     if (!state.stopReason) {
-      stop('max_turns', getMaxLoopStopMessage({ keepLooping: true, loopCount: state.loopCount, maxLoops,
+      stop('max_turns', getMaxLoopStopMessage({ keepLooping: true, loopCount: state.loopCount - state.inspectionTurns, maxLoops,
         confirmedWrites: state.records.some(record => record.written === true) }));
     }
     state.history = maintainHistoryWindow(state.history, historyLimit);
