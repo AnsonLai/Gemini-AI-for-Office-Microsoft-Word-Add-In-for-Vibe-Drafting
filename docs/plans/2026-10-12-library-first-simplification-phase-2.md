@@ -186,8 +186,19 @@ These items have no library dependency and can start right after WP0.
 These don't reduce the plugin, but they gate users actually getting today's work:
 
 - **Deploy.** The hosted add-in has none of the 0.9.0 upgrade, the #2 sanitizer and CSP, or the #3 custom-model fixes until a deployment.
-- **Live models and Word Online.** Run the live fast/slow provider replay and the Word Online checks. Both are still unrun shipping gates.
-- **Issue #3.** Decide on automatic model fallback after transient retries run out.
+- **Live models.** Fast live NDA run (`live-fast-5`, 2026-10-30): 47/51 checks, and the four misses were checker strictness (since tuned). The slow model needs one run after the KB-13 timeout changes. A second document now exists for live runs: `--scenario privacy` (see below).
+- **Second test document (2026-10-30).** `tests/fixtures/golden/privacy-notice.docx` is a short privacy notice for a fictional clinic, authored through Word COM by `scripts/create-privacy-notice-fixture.ps1`. It has headings, two bullet lists, a numbered list, a contact table and a signature line. `scripts/golden/privacy-direct-scenario.mjs` holds ten requests: nine supported edits (replace, bold, add a bullet, rewrite, comment, highlight in a table cell, change list numbering, delete, append) and one refused table restructure. Run it with `node scripts/run-golden-scenario.mjs --scenario privacy --launch`, adding `--mode live` for a live model. `tests/privacy_scenario_tests.mjs` checks that every replay target exists and that no step passes before its edit.
+- **Live checker tuning (2026-10-30).** `golden-checks.mjs` now scores the outcome rather than the route. A refusal step passes when nothing was written and the document is unchanged, even if the model first tried an edit that the tools refused, and plain no-change wording counts as an explicit refusal. A clarifying question still fails. An edit step tolerates an earlier batch that was refused before writing (a stale handle or an unsupported field), provided every write is verified once and a later batch succeeds. NDA step 5 checks that the words "By" and "Title" are bold, as the prompt asks, rather than the colons. Pinned by `golden_scenario_tests`.
+
+### Deferred (owner decision, 2026-10-30)
+
+These are known and intentionally left for after v2.3.0.0:
+
+- **Issue #3, automatic model fallback.** After transient retries run out, the add-in does not switch to another model on its own. Custom model IDs in Settings (shipped) are the workaround; decide later whether to fall back automatically.
+- **Word Online.** Not re-checked for this release by the owner's choice; listed as a known issue in the release notes.
+- **Host paragraph count for the export tail.** The last expedient Word API use (KNOWN_BUGS "Expedient uses to retire").
+- **KB-1** (body-final table append, not exposed), **KB-8** (jsdom diagnostic lane), and the **1,572 pre-existing Prettier lint errors**.
+- **Library-side KB-11 refusal.** Asked of the library for 0.11.1 (2026-10-30). The plugin guard stays until a library release refuses these paragraphs itself.
 - **Dev certificate.** The local HTTPS dev certificate lasts 30 days. Renew it before host lanes; it last expired on 2026-10-03.
 
 ## Measures

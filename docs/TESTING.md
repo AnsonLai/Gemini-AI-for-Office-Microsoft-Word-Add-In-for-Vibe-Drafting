@@ -13,6 +13,7 @@ links frozen baseline and each milestone's actual evidence.
 | Independent desktop Word | Save/reopen without repair; source/tracked/Accept All/Reject All text, numbering identity/continuation/restart, comments, inline formatting and table cells; restored body checkpoint | Scoped fixtures and Word build, rather than universal document fidelity. |
 | Direct NDA taskpane replay | The original sixteen user prompts through the real UI and loop; intended edits, explicit unchanged refusals, author attribution, paired tool receipts, turns and actual commits | Mocked model output does not establish drafting quality. |
 | Live direct NDA gate | Actual configured fast/slow provider proposals, validity/turns, retained edits, refusals, over-editing/regressions and host outcomes | Opt-in credentials and provider usage; mandatory before shipping the changed prompt. |
+| Privacy notice scenario (`--scenario privacy`) | Ten requests on a second Word-authored document (headings, two bullet lists, a numbered list, a contact table), replay or live | Guards against tuning the agent to the NDA alone. |
 | Benchmark/startup | Observational direct compile/preparation and package phases; deferred module loading | No universal latency threshold or correctness claim. |
 
 Use existing lanes and Word-authored fixtures, with expectations independent of

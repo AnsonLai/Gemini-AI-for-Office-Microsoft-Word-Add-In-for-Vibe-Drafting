@@ -4,6 +4,7 @@
 //   node scripts/run-golden-scenario.mjs --launch                 # deterministic replay
 //   $env:GEMINI_API_KEY='...'; node scripts/run-golden-scenario.mjs --mode live --launch
 //   node scripts/run-golden-scenario.mjs --cleanup                # remove the sideload registration
+//   node scripts/run-golden-scenario.mjs --scenario privacy --launch   # second document: privacy notice
 //
 // Uses existing localhost development certificates; never installs trust.
 // Serves on port 3001 so the developer's dev server (3000) and its stored
@@ -17,6 +18,7 @@ import { homedir } from 'node:os';
 import { dirname, extname, join, resolve } from 'node:path';
 import { scenario as legacyScenario } from './golden/nda-scenario.mjs';
 import { scenario as directScenario } from './golden/nda-direct-scenario.mjs';
+import { scenario as privacyScenario } from './golden/privacy-direct-scenario.mjs';
 import { authorAttribution, buildDocumentModel, scoreStep } from './golden/golden-checks.mjs';
 import { createReplayQueue, createStepObservationCollector, resolveGoldenModelSettings } from './golden/golden-replay.mjs';
 
@@ -49,7 +51,10 @@ const mode = argument('--mode', 'replay');
 if (!['replay', 'live'].includes(mode)) throw new Error('--mode must be replay or live');
 const protocol = argument('--protocol', 'direct');
 if (!['legacy', 'direct'].includes(protocol)) throw new Error('--protocol must be legacy or direct');
-const scenario = protocol === 'direct' ? directScenario : legacyScenario;
+const scenarioName = argument('--scenario', 'nda');
+if (!['nda', 'privacy'].includes(scenarioName)) throw new Error('--scenario must be nda or privacy');
+if (scenarioName === 'privacy' && protocol !== 'direct') throw new Error('--scenario privacy runs only with the direct protocol');
+const scenario = scenarioName === 'privacy' ? privacyScenario : protocol === 'direct' ? directScenario : legacyScenario;
 const captureSourceDiagnostics = flag('--source-diagnostics');
 if (captureSourceDiagnostics && (protocol !== 'direct' || mode !== 'replay'
     || scenario.fixture !== 'tests/fixtures/golden/sample-nda.docx')) {

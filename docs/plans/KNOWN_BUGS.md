@@ -59,11 +59,12 @@ The goal is to use the library wherever possible. Each Word API use must say why
 - 0.9.0 fixed that bug and enforces the same rule itself (`REVISION_FIDELITY_VIOLATION` / `UNTRACKED_CREATED_REVISION`). The guard never fired on the certified cases during the 0.9.x cycle.
 - **Retired:** the guard is removed from `document-tools.js`; the library's refusal is relied on. The untracked capability cases in `document_tools_tests.mjs` still pass.
 
-### KB-6: Revision-fidelity refusals reach the model unmapped
+### KB-6: Revision-fidelity refusals reach the model unmapped (closed 2026-10-30, no mapping needed)
 
 - 0.9.0 refuses edits that would break Reject All (`REVISION_FIDELITY_VIOLATION`, default `enforce`). We never pass `verifyRevisionFidelity`, which is correct.
 - [`document-tools.js`](../../src/taskpane/modules/chat/document-tools.js) passes the library's `error.recovery` through verbatim. No retained case hits this in the current gates, but the model gets the library's recovery text, not a product-specific instruction.
 - **Exit condition:** a deterministic test showing the agent's response to a `REVISION_FIDELITY_VIOLATION`. Map it only if that test shows the model mishandles the library guidance.
+- **Closed (2026-10-30):** `document_agent_loop_tests` now feeds the loop a receipt with the library's real refusal shape (`REVISION_FIDELITY_VIOLATION`, `recovery.action: narrow_or_change_operation`, `sameArgumentsSafe: false`, a hint). The model receives the code, the recovery action and the unsafe-retry flag. Nothing is written. A second attempt with the same arguments stops with `no_progress`, and a narrowed retry is allowed and succeeds. The library guidance is enough, so no product-specific mapping was added.
 
 ### KB-7: Library Markdown pre-processor collapses literal underscore runs (closed 2026-10-17, fixed in 0.10.0)
 

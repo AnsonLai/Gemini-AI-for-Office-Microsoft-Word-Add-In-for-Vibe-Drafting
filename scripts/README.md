@@ -135,6 +135,8 @@ shipping the changed tool prompt:
 # With GEMINI_API_KEY supplied securely in this shell:
 node scripts/run-golden-scenario.mjs --mode live --profile fast --model gemini-flash-latest --launch --artifacts-dir .cache/golden/live-fast
 node scripts/run-golden-scenario.mjs --mode live --profile slow --slow-model gemini-2.5-pro --launch --artifacts-dir .cache/golden/live-slow
+node scripts/run-golden-scenario.mjs --scenario privacy --launch --artifacts-dir .cache/golden/privacy-direct
+node scripts/run-golden-scenario.mjs --scenario privacy --mode live --profile fast --model gemini-flash-latest --launch --artifacts-dir .cache/golden/privacy-live-fast
 ```
 
 `--profile fast` or `slow` sends every prompt (including the think-button step)
