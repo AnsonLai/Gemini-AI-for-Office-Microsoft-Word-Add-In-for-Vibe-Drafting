@@ -345,7 +345,8 @@ for (const outcome of ['indeterminate', 'partial', 'applied_with_host_error']) {
 {
   let clock = 1, edits = 0;
   const test = harness([model(call('apply_document_edits'))], {
-    applyDocumentEdits: async () => { edits++; clock = 300001; return applied(); // just past the 300 s default request limit },
+    // The clock jumps just past the 300 s default request limit.
+    applyDocumentEdits: async () => { edits++; clock = 300001; return applied(); },
   }, { now: () => clock });
   await test.run();
   assert.equal(test.state.stopReason, 'timeout');
