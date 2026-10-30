@@ -394,3 +394,49 @@ console.log('PASS: inspect/apply agent loop, single-mutation policy, truthful ou
   assert.equal(test.requests.length, 6);
 }
 console.log('PASS: inspection turns use a separate allowance (KB-10)');
+
+// KB-6: a library REVISION_FIDELITY_VIOLATION reaches the model with its recovery, is never
+// written, stops a same-arguments retry, and does not block a narrowed retry.
+{
+  const fidelityRefusal = () => ({
+    status: 'error', success: false, completion: false, verified: false,
+    written: false, writeAttempted: false, mutationOutcome: 'refused',
+    message: 'No changes made. The batch was refused.',
+    error: {
+      code: 'BATCH_OPERATION_FAILED', message: 'The batch was refused.',
+      failedOperations: [{
+        editIndex: 0, code: 'REVISION_FIDELITY_VIOLATION',
+        message: 'Operation would not restore the source on Reject All.',
+        recovery: { action: 'narrow_or_change_operation', sameArgumentsSafe: false, hint: 'Retry with a smaller target range.' },
+      }],
+    },
+  });
+  const sameArgs = { edits: [{ type: 'rewrite_paragraph', target: 'h1', text: 'Rewritten clause.' }] };
+  const narrower = { edits: [{ type: 'replace_text', target: 'h1', find: 'old', replace: 'new' }] };
+
+  // Same arguments twice: refused, recovery visible to the model, stopped by the failure budget.
+  let calls = 0;
+  const repeat = harness([
+    model(call('apply_document_edits', sameArgs)),
+    model(call('apply_document_edits', sameArgs)),
+  ], { applyDocumentEdits: async () => { calls++; return fidelityRefusal(); } });
+  await repeat.run();
+  const seen = JSON.stringify(repeat.requests.at(-1));
+  assert.match(seen, /REVISION_FIDELITY_VIOLATION/, 'the model sees the library refusal code');
+  assert.match(seen, /narrow_or_change_operation/, 'the model sees the library recovery action');
+  assert.match(seen, /sameArgumentsSafe/, 'the model sees that the same arguments are unsafe');
+  assert.equal(calls, 2);
+  assert.equal(repeat.state.stopReason, 'no_progress', 'a repeated refused proposal stops instead of looping');
+  assert.equal(repeat.state.records.some(record => record.written || record.writeAttempted), false, 'nothing is written');
+
+  // A narrowed retry after the refusal is allowed and succeeds.
+  const narrowed = harness([
+    model(call('apply_document_edits', sameArgs)),
+    model(call('apply_document_edits', narrower)),
+    final('Changed only the wording, because the full rewrite could not be undone cleanly.'),
+  ], { applyDocumentEdits: async args => (args.edits[0].type === 'replace_text' ? applied() : fidelityRefusal()) });
+  await narrowed.run();
+  assert.equal(narrowed.state.stopReason, 'response');
+  assert.equal(narrowed.state.records.filter(record => record.written).length, 1, 'only the narrowed edit is written');
+}
+console.log('PASS: revision-fidelity refusals reach the model and stop same-argument retries (KB-6)');
