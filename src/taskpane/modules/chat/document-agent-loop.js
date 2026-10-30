@@ -135,7 +135,7 @@ function completedWork(records) {
 export async function runDocumentAgentLoop({
   state, registry, loadRegistry, requestModel, refreshContext,
   signal, requestStartTime, now = Date.now, maxLoops = 6, maxInspectionTurns = 8,
-  maxNoProgressToolLoops = 2, totalTimeoutMs = 180000, historyLimit = 10,
+  maxNoProgressToolLoops = 2, totalTimeoutMs = 300000, historyLimit = 10,
   onEvent = () => {},
 }) {
   let guard = {};

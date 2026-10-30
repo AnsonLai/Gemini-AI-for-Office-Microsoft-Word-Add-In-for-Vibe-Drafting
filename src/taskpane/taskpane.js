@@ -148,8 +148,9 @@ let checkpointMigrationDone = false;
 
 // Timeout limits for API calls
 const TIMEOUT_LIMITS = {
-  FETCH_TIMEOUT_MS: 60000,        // 60s timeout per individual API call
-  TOTAL_REQUEST_TIMEOUT_MS: 180000 // 3 min total timeout for entire request (including tool loops)
+  // Thinking models can take over a minute on one turn (KB-13).
+  FETCH_TIMEOUT_MS: 120000,       // 2 min timeout per individual API call
+  TOTAL_REQUEST_TIMEOUT_MS: 300000 // 5 min total timeout for entire request (including tool loops)
 };
 
 // Global abort controller for cancelling requests

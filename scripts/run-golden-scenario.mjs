@@ -62,7 +62,7 @@ const modelSettings = resolveGoldenModelSettings({
     fastModel: argument('--model', null),
     slowModel: argument('--slow-model', null)
 });
-const stepTimeoutMs = Number(argument('--step-timeout', mode === 'live' ? '300' : '120')) * 1000;
+const stepTimeoutMs = Number(argument('--step-timeout', mode === 'live' ? '480' : '120')) * 1000;
 const lastStep = Number(argument('--until', String(scenario.steps.length)));
 const steps = scenario.steps.slice(0, lastStep);
 
