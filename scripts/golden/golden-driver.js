@@ -70,17 +70,21 @@ globalThis.fetch = async (input, init = {}) => {
         return new Response(await response.text(), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     const step = currentStep;
+    const started = Date.now();
     let response;
     try {
         response = await nativeFetch(input, init);
     } catch (error) {
         // Do not serialize fetch errors: some runtimes include the full URL,
         // which carries the API key. The boolean preserves the failed exchange.
-        await recordLiveExchange({ step, model, payload, status: null, response: null, requestError: true });
+        // Record only the kind of failure: an AbortError is the client's own timeout,
+        // deadline or a cancel; anything else is a network failure (KB-13).
+        await recordLiveExchange({ step, model, payload, status: null, response: null, requestError: true,
+            requestErrorKind: error?.name === 'AbortError' ? 'aborted' : 'network', elapsedMs: Date.now() - started });
         throw error;
     }
     const responseText = await response.clone().text();
-    await recordLiveExchange({ step, model, payload, status: response.status, response: responseText });
+    await recordLiveExchange({ step, model, payload, status: response.status, response: responseText, elapsedMs: Date.now() - started });
     return response;
 };
 

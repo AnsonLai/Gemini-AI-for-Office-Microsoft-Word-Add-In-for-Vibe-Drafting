@@ -9,6 +9,9 @@ export class GeminiRequestError extends Error {
 }
 
 const cancelled = () => new GeminiRequestError('REQUEST_CANCELLED', 'Request cancelled by user');
+const deadlineReached = () => new GeminiRequestError('REQUEST_DEADLINE', 'The request timed out before Gemini responded. Please try again.');
+// Below this much remaining time, a new attempt or retry is not started (KB-13).
+const MIN_ATTEMPT_MS = 5000;
 const transientStatuses = new Set([408, 429, 500, 502, 503, 504]);
 
 function pause(ms, signal) {
@@ -30,14 +33,19 @@ export async function requestGemini({ model, apiKey, payload, ...options }) {
 }
 
 export async function requestGeminiJson(url, payload, {
-  signal, timeoutMs = 90000, maxAttempts = 3, backoffMs = 1000,
-  fetchImpl = globalThis.fetch, sleep = pause, random = Math.random,
+  signal, timeoutMs = 90000, maxAttempts = 3, backoffMs = 1000, deadline = Infinity,
+  fetchImpl = globalThis.fetch, sleep = pause, random = Math.random, now = Date.now,
 } = {}) {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new GeminiRequestError('REQUEST_CONFIGURATION', 'Request timeout must be positive.');
   const attempts = Math.min(3, Math.max(1, Math.floor(maxAttempts) || 1));
   const body = JSON.stringify(payload);
   for (let attempt = 0; attempt < attempts; attempt++) {
     if (signal?.aborted) throw cancelled();
+    // An optional absolute deadline (ms since epoch) bounds every attempt and retry,
+    // so a request cannot outlast its overall time limit.
+    const remaining = deadline - now();
+    if (remaining < MIN_ATTEMPT_MS) throw deadlineReached();
+    const attemptTimeoutMs = Math.min(timeoutMs, remaining);
     const controller = new AbortController();
     let timer;
     let onAbort;
@@ -47,7 +55,7 @@ export async function requestGeminiJson(url, payload, {
       timer = setTimeout(() => {
         controller.abort();
         reject(new GeminiRequestError('REQUEST_TIMEOUT', 'Gemini request timed out. Please try again.'));
-      }, timeoutMs);
+      }, attemptTimeoutMs);
     });
     let failure;
     try {
@@ -81,6 +89,7 @@ export async function requestGeminiJson(url, payload, {
       || (failure.code === 'REQUEST_HTTP' && transientStatuses.has(failure.status));
     if (!retryable || attempt === attempts - 1) throw failure;
     const delay = Math.min(10000, Math.max(0, backoffMs) * (2 ** attempt)) * (0.5 + random() * 0.5);
+    if (deadline - now() - delay < MIN_ATTEMPT_MS) throw failure;
     await sleep(delay, signal);
   }
 }

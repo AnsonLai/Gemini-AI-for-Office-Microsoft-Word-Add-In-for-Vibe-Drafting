@@ -176,4 +176,35 @@ assert.match(providerWrapper, /timeoutMs:\s*TIMEOUT_LIMITS\.FETCH_TIMEOUT_MS/);
   assert.equal(state.records[0].written, true, 'provider failure preserves confirmed host-write evidence');
 }
 
+// KB-13: an absolute deadline bounds every attempt and retry.
+{
+  // No attempt starts when less than five seconds remain.
+  let clock = 1000, sent = 0;
+  await assert.rejects(requestGeminiJson(url, payload, {
+    deadline: 4000, now: () => clock, fetchImpl: async () => { sent++; return new Response('{}'); },
+  }), { code: 'REQUEST_DEADLINE' });
+  assert.equal(sent, 0, 'nothing is sent after the deadline');
+
+  // An attempt's timeout is capped by the time remaining, and no retry starts without time for it.
+  clock = 0; sent = 0;
+  const realSetTimeout = globalThis.setTimeout;
+  const scheduled = [];
+  globalThis.setTimeout = (fn, ms, ...rest) => { scheduled.push(ms); return realSetTimeout(fn, Math.min(ms, 5), ...rest); };
+  try {
+    await assert.rejects(requestGeminiJson(url, payload, {
+      timeoutMs: 120000, maxAttempts: 3, deadline: 8000, now: () => clock, sleep: async () => {},
+      fetchImpl: async () => { sent++; clock = 7000; return new Promise(() => {}); },
+    }), { code: 'REQUEST_TIMEOUT' });
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+  assert.equal(sent, 1, 'the retry is skipped because it would not fit before the deadline');
+  assert.equal(scheduled[0], 8000, 'the first attempt is capped at the 8 s remaining, not the 120 s default');
+
+  // Without a deadline, behaviour is unchanged.
+  clock = 0; sent = 0;
+  const ok = await requestGeminiJson(url, payload, { now: () => clock, fetchImpl: async () => { sent++; return new Response(JSON.stringify({ candidates: [] })); } });
+  assert.deepEqual(ok, { candidates: [] });
+  assert.equal(sent, 1);
+}
 console.log('PASS: centralized Gemini requests, bounded recovery, cancellation, timeout, safe diagnostics and no tool replay');

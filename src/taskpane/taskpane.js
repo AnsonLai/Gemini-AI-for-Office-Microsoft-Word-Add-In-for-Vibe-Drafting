@@ -1112,7 +1112,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
           tools,
           safetySettings: SAFETY_SETTINGS_BLOCK_NONE,
           generationConfig: { maxOutputTokens: modelProfile.maxOutputTokens },
-        }, modelProfile.retries, 1000, requestController.signal),
+        }, modelProfile.retries, 1000, requestController.signal, requestStartTime + TIMEOUT_LIMITS.TOTAL_REQUEST_TIMEOUT_MS),
         refreshContext: () => captureRefreshedDocumentContext(createWordDocumentSourceReader({
           loadSupport: () => wordOperationSupportPromise, getDocumentId,
         })),
@@ -1209,11 +1209,12 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
 }
 
 // Retries provider transport only. Tool execution remains in the caller.
-async function callGeminiWithRetry(url, payload, retries = 3, backoff = 1000, signal = currentRequestController?.signal) {
+async function callGeminiWithRetry(url, payload, retries = 3, backoff = 1000, signal = currentRequestController?.signal, deadline = Infinity) {
   return requestGeminiJson(url, payload, {
     signal,
     timeoutMs: TIMEOUT_LIMITS.FETCH_TIMEOUT_MS,
     maxAttempts: retries,
     backoffMs: backoff,
+    deadline,
   });
 }
