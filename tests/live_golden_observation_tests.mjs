@@ -122,4 +122,19 @@ assert.match(runnerSource, /closeAllConnections\?\.\(\)/);
 assert.match(driverSource, /await pendingModelLogs/);
 assert.match(driverSource, /await recordLiveExchange/);
 
+// Gemini sometimes ends with an empty STOP turn after a verified edit. That is counted on its
+// own, not as an invalid response; an empty turn anywhere else is still invalid.
+{
+  const emptyStop = { candidates: [{ content: { role: 'model' }, finishReason: 'STOP' }] };
+  const closing = createStepObservationCollector(prompt);
+  closing.record({ payload: chatPayload(afterApply), response: JSON.stringify(emptyStop), status: 200 });
+  closing.record({ payload: chatPayload(afterInspect), response: JSON.stringify(emptyStop), status: 200 });
+  const refusedApply = [...afterInspect, { role: 'model', parts: [applyCall] },
+    { role: 'user', parts: [functionResponse('apply_document_edits', { ...completeReceipt, written: false, verified: false })] }];
+  closing.record({ payload: chatPayload(refusedApply), response: JSON.stringify(emptyStop), status: 200 });
+  const summary = closing.summary();
+  assert.equal(summary.emptyClosingTurns, 1, 'only the empty turn after a verified write is a closing turn');
+  assert.equal(summary.invalidResponses, 2, 'empty turns after an inspection or a refused edit stay invalid');
+}
+
 console.log('live_golden_observation_tests passed');

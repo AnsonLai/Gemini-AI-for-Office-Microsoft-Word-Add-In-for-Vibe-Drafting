@@ -261,7 +261,8 @@ export const scenario = {
         done
       ],
       checks: [
-        { type: 'highlight', label: 'agreement date is highlighted', text: { regex: 'date|effective' } }
+        { type: 'highlight', label: 'agreement date is highlighted', text: { regex: 'date|effective' } },
+        { type: 'comments', label: 'no unrequested comments', min: 0, max: 0 }
       ]
     },
     {

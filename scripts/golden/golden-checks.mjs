@@ -304,8 +304,13 @@ export function evaluateScopeDisposition(previousModel, model, transcript, repla
     const writeCalls = (Array.isArray(replay?.served) ? replay.served : [])
         .filter(item => item?.part?.functionCall?.name === 'apply_document_edits');
     const writeReceipts = replay?.functionResponseHistory?.apply_document_edits || [];
+    // The last call's receipt only reaches the log in a later request. When the add-in's
+    // retry-loop stop says no changes were made, that stop is the last call's outcome.
+    const stoppedWithoutChanges = replies.some(message => /^System:.*retry loop.*no changes were made/is.test(message));
+    const receiptsCover = writeReceipts.length === writeCalls.length
+        || (stoppedWithoutChanges && writeReceipts.length === writeCalls.length - 1);
     const noWriteCall = Array.isArray(replay?.served) && (writeCalls.length === 0
-        || (writeReceipts.length === writeCalls.length
+        || (receiptsCover
             && writeReceipts.every(receipt => receipt?.written === false && receipt?.writeAttempted === false)));
     const noNestedCalls = replay?.requestCounts?.aux === 0 && replay?.requestCounts?.other === 0;
     const unchanged = Boolean(previousModel)
@@ -562,11 +567,16 @@ const CHECKS = {
         return { ok, detail: `table has ${table.rows.length} rows` };
     },
 
-    /** Number of comments, bounded by min/max. */
-    comments(model, check) {
-        const count = model.comments.length;
-        const ok = count >= (check.min ?? 1) && count <= (check.max ?? Infinity) && model.commentAnchors.length >= Math.min(count, check.min ?? 1);
-        return { ok, detail: `${count} comment(s), ${model.commentAnchors.length} anchor(s)` };
+    /**
+     * Comments bounded by min/max. On its own step, count only comments that step added, so an
+     * earlier step's extra comment cannot fail it; as a later regression, the comments must remain.
+     */
+    comments(model, check, context = {}) {
+        const before = context.own && context.previousModel ? new Set(context.previousModel.comments.map(comment => comment.id)) : null;
+        const count = before ? model.comments.filter(comment => !before.has(comment.id)).length : model.comments.length;
+        const max = context.own === false ? Infinity : (check.max ?? Infinity);
+        const ok = count >= (check.min ?? 1) && count <= max && model.commentAnchors.length >= Math.min(count, check.min ?? 1);
+        return { ok, detail: `${count} ${before ? 'new ' : ''}comment(s), ${model.commentAnchors.length} anchor(s)` };
     },
 
     /** Some highlighted text matches `text`. */
@@ -616,7 +626,7 @@ export function scoreStep(model, steps, stepIndex, passedBefore = null, context 
             const key = checkKey(step, checkIndex);
             if (!own && (check.persist === false || step.persist === false)) return;
             if (!own && passedBefore && !passedBefore.has(key)) return;
-            const outcome = evaluateCheck(model, check, context);
+            const outcome = evaluateCheck(model, check, { ...context, own });
             results.push({
                 key,
                 step: step.id,

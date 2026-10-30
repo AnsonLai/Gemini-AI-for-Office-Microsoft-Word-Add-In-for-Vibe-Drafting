@@ -42,6 +42,7 @@ export function createStepObservationCollector(requestPrompt) {
     let latestPayload = null;
     let exchanges = 0;
     let invalidResponses = 0;
+    let emptyClosingTurns = 0;
 
     return {
         record({ payload, response, status } = {}) {
@@ -58,7 +59,10 @@ export function createStepObservationCollector(requestPrompt) {
             const firstCandidate = successfulStatus && Array.isArray(parsed?.candidates) ? parsed.candidates[0] : null;
             const parts = Array.isArray(firstCandidate?.content?.parts) ? firstCandidate.content.parts : null;
             if (!parts) {
-                invalidResponses++;
+                // Gemini sometimes ends with an empty STOP turn after a verified edit; the
+                // add-in then reports the edit receipt itself, so the user still gets an answer.
+                if (firstCandidate?.finishReason === 'STOP' && followsVerifiedEdit(payload)) emptyClosingTurns++;
+                else invalidResponses++;
                 return;
             }
             for (const part of parts) served.push({ kind, part });
@@ -82,7 +86,8 @@ export function createStepObservationCollector(requestPrompt) {
                 functionResponses,
                 functionResponseHistory,
                 exchanges,
-                invalidResponses
+                invalidResponses,
+                emptyClosingTurns
             };
         }
     };
@@ -170,6 +175,16 @@ function latestFunctionResponse(payload, toolName, requestPrompt = null) {
         }
     }
     return null;
+}
+
+function followsVerifiedEdit(payload) {
+    const last = Array.isArray(payload?.contents) ? payload.contents.at(-1) : null;
+    const responses = (Array.isArray(last?.parts) ? last.parts : []).map(part => part?.functionResponse).filter(Boolean);
+    return responses.some(response => {
+        if (response.name !== 'apply_document_edits') return false;
+        const result = parseFunctionResponse(response);
+        return result?.written === true && result?.verified === true;
+    });
 }
 
 function parseFunctionResponse(functionResponse) {

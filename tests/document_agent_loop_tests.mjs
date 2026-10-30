@@ -255,6 +255,22 @@ function responseTurn(state) {
   assert.equal(test.requests.length, 3);
 }
 
+// A no-progress stop tells the user nothing changed and why the last attempt was refused.
+{
+  const test = harness([
+    model(call('apply_document_edits')),
+    model(call('apply_document_edits')),
+  ], {
+    applyDocumentEdits: async () => refused('CONFLICTING_DOCUMENT_EDITS', {
+      message: 'No changes made. Only one text-changing action can target a source paragraph per batch.' }),
+  });
+  await test.run();
+  assert.equal(test.state.stopReason, 'no_progress');
+  const stopMessage = test.events.find(event => event.type === 'stop').message;
+  assert.match(stopMessage, /no changes were made/);
+  assert.match(stopMessage, /Last reason: Only one text-changing action can target a source paragraph per batch\.$/);
+}
+
 // Uncertain writes stop the request and retain host evidence instead of replaying.
 for (const outcome of ['indeterminate', 'partial', 'applied_with_host_error']) {
   let calls = 0;

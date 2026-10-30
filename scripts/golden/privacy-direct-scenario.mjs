@@ -89,7 +89,10 @@ const steps = [
       apply([{ type: 'format_text', target: handle({ equals: EMAIL }), find: EMAIL, properties: { highlight: 'yellow' } }]),
       done
     ],
-    checks: [{ type: 'highlight', label: 'the email address is highlighted', text: { includes: EMAIL } }]
+    checks: [
+      { type: 'highlight', label: 'the email address is highlighted', text: { includes: EMAIL } },
+      { type: 'comments', label: 'no unrequested comments', min: 0, max: 0 }
+    ]
   },
   {
     id: '07-rights-letters',

@@ -167,6 +167,7 @@ export async function runDocumentAgentLoop({
     }
     return false;
   };
+  let lastRefusal = null;
   emit({ type: 'run_start' });
   try {
     while (state.loopCount - state.inspectionTurns < maxLoops && !state.stopReason) {
@@ -296,6 +297,7 @@ export async function runDocumentAgentLoop({
             let serialized;
             try { serialized = JSON.stringify(args); } catch { serialized = '[unserializable-args]'; }
             signatures.push(`${name}|${serialized}|${execution.resultText || ''}`);
+            lastRefusal = mutation?.message || execution.rawResult?.message || lastRefusal;
           }
         }
         emit({ type: 'tool_end', ...execution, checkpointIndex: execution.checkpointIndex });
@@ -333,7 +335,11 @@ export async function runDocumentAgentLoop({
       guard = progress.state;
       if (progress.countedFailure) emit({ type: 'mutation_failure', failures: guard.consecutiveNoProgressToolLoops, signatureChanged: progress.signatureChanged });
       if (progress.shouldStop) {
-        stop('no_progress', 'Stopped to prevent a retry loop: repeated document edit attempts are failing with no applied changes.');
+        // Say why it stopped, so the user is not left with only a generic stop line.
+        const reason = lastRefusal ? ` Last reason: ${String(lastRefusal).replace(/^No changes made\.\s*/i, '')}` : '';
+        stop('no_progress', state.records.some(record => record.written === true)
+          ? `Stopped to prevent a retry loop: repeated document edit attempts are failing.${reason} Inspect the document before retrying.`
+          : `Stopped to prevent a retry loop: repeated document edit attempts were refused, and no changes were made.${reason}`);
       }
     }
     if (!state.stopReason) {

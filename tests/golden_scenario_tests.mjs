@@ -255,6 +255,31 @@ assert.notEqual(semanticDocumentSnapshot(splitRunsModel), semanticDocumentSnapsh
 assert.equal(evaluateScopeDisposition(splitRunsModel, changedRunFormat,
   ['Gemini:\n\nI can’t convert list structure; it is unsupported and unchanged.'], refusedReplay, refusalCheck).ok, false,
   'a format change cannot be hidden by adjacent-run coalescing');
+// A retry-loop stop that says no changes were made settles the last refused call, whose
+// receipt never reaches a later request. Without that stop line, a missing receipt still fails.
+{
+  const applyPart = { kind: 'chat', part: { functionCall: { name: 'apply_document_edits', args: {} } } };
+  const refusedReceipt = { status: 'error', written: false, writeAttempted: false };
+  const stoppedReplay = { served: [applyPart, applyPart], requestCounts: { chat: 3, aux: 0, other: 0 },
+    functionResponseHistory: { apply_document_edits: [refusedReceipt] } };
+  const stopLine = 'System: Stopped to prevent a retry loop: repeated document edit attempts were refused, and no changes were made. Last reason: Only one text-changing action can target a source paragraph per batch.';
+  assert.equal(evaluateScopeDisposition(beforeScope, afterScope, ['User: rewrite it', stopLine], stoppedReplay, refusalCheck).ok, true,
+    'a no-change retry-loop stop is a refusal outcome');
+  assert.equal(evaluateScopeDisposition(beforeScope, afterScope, ['User: rewrite it', 'Gemini: I could not do that; it is not supported.'], stoppedReplay, refusalCheck).ok, false,
+    'a missing receipt without the stop line is not assumed to be unwritten');
+}
+
+// The comments check counts only comments its own step added; later steps only need them kept.
+{
+  const withComments = ids => ({ ...beforeScope, comments: ids.map(id => ({ id, text: `c${id}` })), commentAnchors: ids.map(id => ({ id })) });
+  const check = { type: 'comments', min: 1, max: 2 };
+  const own = previous => ({ own: true, previousModel: previous });
+  assert.equal(evaluateCheck(withComments(['3', '7', '24']), check, own(withComments(['3']))).ok, true, 'an earlier step\'s comment does not count');
+  assert.equal(evaluateCheck(withComments(['3', '7', '24', '25']), check, own(withComments(['3']))).ok, false, 'three new comments exceed the limit');
+  assert.equal(evaluateCheck(withComments(['3', '7', '24']), check, { own: false }).ok, true, 'later steps may add more comments');
+  assert.equal(evaluateCheck(withComments([]), check, { own: false }).ok, false, 'later steps must not remove them all');
+  assert.equal(evaluateCheck(withComments(['3']), { type: 'comments', min: 0, max: 0 }, own(withComments([]))).ok, false, 'an unrequested comment fails');
+}
 const changedRunText = structuredClone(mergedRunsModel);
 changedRunText.paragraphs[0].text += ' amended';
 changedRunText.paragraphs[0].runs[1].text += ' amended';

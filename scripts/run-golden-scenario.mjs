@@ -225,7 +225,7 @@ async function scoreCompletedStep(index, meta) {
             applyDocumentEditCalls: applyCalls,
             applyDocumentEditReceipts: applyResponses,
             latestApplyDocumentEditReceipt: replay.functionResponses?.apply_document_edits ?? null,
-            ...(mode === 'live' ? { exchanges: replay.exchanges, invalidResponses: replay.invalidResponses } : {})
+            ...(mode === 'live' ? { exchanges: replay.exchanges, invalidResponses: replay.invalidResponses, emptyClosingTurns: replay.emptyClosingTurns } : {})
         } : null,
         durationMs: meta.durationMs,
         docx: file,
