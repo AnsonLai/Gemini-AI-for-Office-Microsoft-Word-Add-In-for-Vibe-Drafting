@@ -219,7 +219,11 @@ listeners[0].on('listening', async () => {
             const { OfficeAddinManifest } = require('office-addin-manifest');
             await settings.registerAddIn(manifestPath);
             addInRegistered = true;
-            const sideloadFile = await generateSideloadFile('word', await OfficeAddinManifest.readManifestFile(manifestPath));
+            // A fixed-name sideload document can be held open by a leftover Word, which then
+            // blocks the new Word on a File In Use dialog; open a copy that belongs to this run.
+            const sideloadFile = join(directory, `sideload-${Date.now()}.docx`);
+            mkdirSync(directory, { recursive: true });
+            copyFileSync(await generateSideloadFile('word', await OfficeAddinManifest.readManifestFile(manifestPath)), sideloadFile);
             const wordExe = argument('--word-exe') || 'C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE';
             const word = spawn(wordExe, ['/x', sideloadFile], { detached: true, stdio: 'ignore' });
             word.unref();

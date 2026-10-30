@@ -12,7 +12,7 @@
 import '../tests/setup-xml-provider.mjs';
 import { createServer } from 'node:https';
 import { execFileSync, spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, extname, join, resolve } from 'node:path';
@@ -429,7 +429,12 @@ servers[0].on('listening', async () => {
             const { generateSideloadFile } = require('office-addin-dev-settings/lib/sideload.js');
             const { OfficeAddinManifest } = require('office-addin-manifest');
             await devSettings.registerAddIn(manifestPath);
-            const sideloadFile = await generateSideloadFile('word', await OfficeAddinManifest.readManifestFile(manifestPath));
+            const sharedSideloadFile = await generateSideloadFile('word', await OfficeAddinManifest.readManifestFile(manifestPath));
+            // The generated document always has the same name. A Word left over from an earlier
+            // run keeps it open, and the new Word then waits on a "File In Use" dialog, so the
+            // add-in never starts. Open a copy that belongs to this run instead.
+            const sideloadFile = join(artifacts, `sideload-${Date.now()}.docx`);
+            copyFileSync(sharedSideloadFile, sideloadFile);
             const wordExe = argument('--word-exe', 'C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE');
             const word = spawn(wordExe, ['/x', sideloadFile], { detached: true, stdio: 'ignore' });
             word.unref();

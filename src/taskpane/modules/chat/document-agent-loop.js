@@ -168,6 +168,7 @@ export async function runDocumentAgentLoop({
     return false;
   };
   let lastRefusal = null;
+  let lastTurnCompletion = null;
   emit({ type: 'run_start' });
   try {
     while (state.loopCount - state.inspectionTurns < maxLoops && !state.stopReason) {
@@ -248,6 +249,7 @@ export async function runDocumentAgentLoop({
       if (plannedCalls.every(({ description }) => description.known === true && description.mutating !== true)
         && state.inspectionTurns < maxInspectionTurns) state.inspectionTurns++;
       let attempted = 0;
+      lastTurnCompletion = null;
       let successful = 0;
       let confirmed = false;
       let stale = false;
@@ -292,7 +294,10 @@ export async function runDocumentAgentLoop({
           attempted++;
           confirmed ||= mutation?.written === true;
           stale ||= isNoWriteStaleContextRefusal(mutation);
-          if (execution.success) successful++;
+          if (execution.success) {
+            successful++;
+            if (mutation?.written === true) lastTurnCompletion = execution.completionText || mutation?.message || lastTurnCompletion;
+          }
           else {
             let serialized;
             try { serialized = JSON.stringify(args); } catch { serialized = '[unserializable-args]'; }
@@ -343,8 +348,12 @@ export async function runDocumentAgentLoop({
       }
     }
     if (!state.stopReason) {
-      stop('max_turns', getMaxLoopStopMessage({ keepLooping: true, loopCount: state.loopCount - state.inspectionTurns, maxLoops,
-        confirmedWrites: state.records.some(record => record.written === true) }));
+      // The turn limit can land right after a verified edit, before the model's closing reply:
+      // report that edit rather than a generic stop.
+      stop('max_turns', lastTurnCompletion
+        ? `${lastTurnCompletion} (The model reached its turn limit before writing a summary.)`
+        : getMaxLoopStopMessage({ keepLooping: true, loopCount: state.loopCount - state.inspectionTurns, maxLoops,
+          confirmedWrites: state.records.some(record => record.written === true) }));
     }
     state.history = maintainHistoryWindow(state.history, historyLimit);
     return state;

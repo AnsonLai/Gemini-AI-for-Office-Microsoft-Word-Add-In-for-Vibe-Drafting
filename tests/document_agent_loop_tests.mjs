@@ -409,6 +409,17 @@ console.log('PASS: inspect/apply agent loop, single-mutation policy, truthful ou
   assert.equal(test.state.inspectionTurns, 0);
   assert.equal(test.requests.length, 6);
 }
+{
+  // When the turn limit lands right after a verified edit, the stop reports that edit.
+  const test = harness([
+    ...Array.from({ length: 13 }, (_, index) => model(call('inspect_document', { search: `${index + 1}.` }))),
+    model(call('apply_document_edits')),
+  ], { inspectDocument: async () => ({ status: 'ok', targets: [] }), applyDocumentEdits: async () => applied({ message: 'Applied and verified 9 requested edit(s).' }) });
+  await test.run();
+  assert.equal(test.state.stopReason, 'max_turns');
+  const stopMessage = test.events.find(event => event.type === 'stop').message;
+  assert.match(stopMessage, /^Applied and verified 9 requested edit\(s\)\. \(The model reached its turn limit/);
+}
 console.log('PASS: inspection turns use a separate allowance (KB-10)');
 
 // KB-6: a library REVISION_FIDELITY_VIOLATION reaches the model with its recovery, is never
