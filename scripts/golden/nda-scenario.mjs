@@ -127,8 +127,9 @@ export const scenario = {
         done
       ],
       checks: [
-        { type: 'format', label: 'every "By:" is bold', find: 'By:', paragraph: { startsWith: 'By:' }, inTable: true, all: true, expect: { bold: true } },
-        { type: 'format', label: 'every "Title:" is bold', find: 'Title:', paragraph: { startsWith: 'Title:' }, inTable: true, all: true, expect: { bold: true } }
+        // The prompt asks for "the By and Title", so the label words must be bold; the colon may or may not be.
+        { type: 'format', label: 'every "By" label is bold', find: 'By', paragraph: { startsWith: 'By:' }, inTable: true, all: true, expect: { bold: true } },
+        { type: 'format', label: 'every "Title" label is bold', find: 'Title', paragraph: { startsWith: 'Title:' }, inTable: true, all: true, expect: { bold: true } }
       ]
     },
     {

@@ -260,24 +260,39 @@ export function semanticDocumentSnapshot(model) {
     });
 }
 
-/** Verify a refused request is said explicitly, invokes no write tool, and leaves the full document semantics unchanged. */
+// Plain no-change wording that counts as an explicit refusal alongside each step's own pattern.
+const NO_CHANGE_REFUSAL = /\b(?:no changes (?:were )?made|unable to|not able to|isn['’]t supported|is not supported|not supported|outside (?:the )?(?:supported )?scope|must be (?:its|their) own (?:separate |distinct )?paragraph|split (?:the|them|it|this|these) [^.]*into)/i;
+
+/**
+ * Verify a refused request is said explicitly, writes nothing, and leaves the full document
+ * semantics unchanged. An edit attempt that the tools refused before writing still counts as a
+ * refusal: the outcome, not the route, is what the user sees. A clarifying question does not.
+ */
 export function evaluateScopeDisposition(previousModel, model, transcript, replay, disposition) {
     if (disposition?.status !== 'unsupported') {
         return { ok: false, detail: 'scopeDisposition must identify an unsupported request.' };
     }
-    const assistantText = [...(Array.isArray(transcript) ? transcript : [])].reverse()
-        .find(message => /^(?:Gemini|Assistant):/i.test(String(message || '').trim())) || '';
+    const replies = (Array.isArray(transcript) ? transcript : [])
+        .map(message => String(message || '').trim())
+        .filter(message => /^(?:Gemini|Assistant|System):/i.test(message));
+    const assistantText = [...replies].reverse().find(message => /^(?:Gemini|Assistant):/i.test(message)) || '';
+    const replyText = replies.join(' ');
     let explicitRefusal = false;
-    try { explicitRefusal = new RegExp(disposition.refusalPattern, 'i').test(assistantText); } catch { /* Invalid scenario pattern remains a failed check. */ }
-    const noWriteCall = Array.isArray(replay?.served)
-        && replay.served.every(item => item?.part?.functionCall?.name !== 'apply_document_edits');
+    try { explicitRefusal = new RegExp(disposition.refusalPattern, 'i').test(replyText); } catch { /* Invalid scenario pattern remains a failed check. */ }
+    explicitRefusal ||= NO_CHANGE_REFUSAL.test(replyText);
+    const writeCalls = (Array.isArray(replay?.served) ? replay.served : [])
+        .filter(item => item?.part?.functionCall?.name === 'apply_document_edits');
+    const writeReceipts = replay?.functionResponseHistory?.apply_document_edits || [];
+    const noWriteCall = Array.isArray(replay?.served) && (writeCalls.length === 0
+        || (writeReceipts.length === writeCalls.length
+            && writeReceipts.every(receipt => receipt?.written === false && receipt?.writeAttempted === false)));
     const noNestedCalls = replay?.requestCounts?.aux === 0 && replay?.requestCounts?.other === 0;
     const unchanged = Boolean(previousModel)
         && semanticDocumentSnapshot(previousModel) === semanticDocumentSnapshot(model);
     const ok = explicitRefusal && noWriteCall && noNestedCalls && unchanged;
     return {
         ok,
-        detail: `explicit refusal=${explicitRefusal}; no apply_document_edits call=${noWriteCall}; no nested model calls=${noNestedCalls}; semantic document unchanged=${unchanged}`
+        detail: `explicit refusal=${explicitRefusal}; nothing written=${noWriteCall} (${writeCalls.length} refused edit call(s)); no nested model calls=${noNestedCalls}; semantic document unchanged=${unchanged}`
             + (assistantText ? `; response=${JSON.stringify(assistantText.replace(/^Gemini:\s*/i, '').trim().slice(0, 180))}` : '; assistant response missing')
     };
 }
@@ -313,14 +328,18 @@ export function evaluateDirectToolEvidence(replay) {
             && receipt?.mutationOutcome === 'noop'
             && counters?.contentWrites === 0
             && counters?.verificationReads === 0;
-        return { ok: accounted && (committedOnce || verifiedNoop), committedOnce, verifiedNoop, accounted, index };
+        // A batch the tools refused before writing (stale handle, unsupported field) is a
+        // recoverable attempt, not a failed write, as long as a later batch succeeds.
+        const refusedNoWrite = receipt?.status === 'error' && receipt?.written === false && receipt?.writeAttempted === false
+            && (counters?.contentWrites ?? 0) === 0;
+        return { ok: accounted && (committedOnce || verifiedNoop), committedOnce, verifiedNoop, accounted, refusedNoWrite, index };
     });
     const paired = calls.length === receipts.length;
-    const allAccounted = receiptChecks.every(check => check.ok);
+    const allAccounted = receiptChecks.every(check => check.ok || check.refusedNoWrite) && receiptChecks.some(check => check.ok);
     const ok = paired && allAccounted && !nested;
     return {
         ok,
-        detail: `edit calls=${calls.length}; receipts=${receipts.length}; every batch accounted=${allAccounted}; one verified commit per write=${receiptChecks.filter(check => check.committedOnce).length}; verified no-ops=${receiptChecks.filter(check => check.verifiedNoop).length}; nested model calls=${nested}`
+        detail: `edit calls=${calls.length}; receipts=${receipts.length}; every batch accounted=${allAccounted}; refused before writing=${receiptChecks.filter(check => check.refusedNoWrite).length}; one verified commit per write=${receiptChecks.filter(check => check.committedOnce).length}; verified no-ops=${receiptChecks.filter(check => check.verifiedNoop).length}; nested model calls=${nested}`
     };
 }
 

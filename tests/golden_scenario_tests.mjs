@@ -320,4 +320,43 @@ const passed = new Set();
 const regressed = scoreStep(model, scenario.steps, 3, passed).filter(result => !result.own);
 assert.equal(regressed.length, 0, 'never-passed earlier checks are not repeated');
 
+// Live checker tuning: score the outcome, not the route, without hiding a write.
+{
+  const refusedReceipt = { status: 'error', success: false, written: false, writeAttempted: false, mutationOutcome: 'refused',
+    counters: { sourceReads: 1, contentWrites: 0, verificationReads: 0 } };
+  const toolRefused = {
+    served: [{ kind: 'chat', part: { functionCall: { name: 'apply_document_edits' } } }],
+    functionResponseHistory: { apply_document_edits: [refusedReceipt] },
+    requestCounts: { chat: 2, aux: 0, other: 0 }
+  };
+  // An edit the tools refused before writing, explained to the user, is a refusal.
+  assert.equal(evaluateScopeDisposition(beforeScope, afterScope,
+    ['System: No changes made. convert_to_list needs one item per paragraph.', 'Gemini: No changes made. Split the paragraph first.'],
+    toolRefused, refusalCheck).ok, true, 'a tool-refused attempt with an explanation counts as a refusal');
+  // Plain wording outside the step's own pattern still counts when nothing changed.
+  assert.equal(evaluateScopeDisposition(beforeScope, afterScope,
+    ['Gemini: Each recital must be its own paragraph before it can become a list item.'],
+    refusedReplay, refusalCheck).ok, true, 'plain no-change wording counts as an explicit refusal');
+  // A clarifying question is not a refusal.
+  assert.equal(evaluateScopeDisposition(beforeScope, afterScope,
+    ['Gemini: Which recitals would you like me to change?'], refusedReplay, refusalCheck).ok, false,
+    'a clarifying question does not pass a refusal check');
+  // An attempt whose receipt shows a write never counts as a refusal.
+  assert.equal(evaluateScopeDisposition(beforeScope, afterScope, ['Gemini: No changes made.'], {
+    ...toolRefused, functionResponseHistory: { apply_document_edits: [{ ...refusedReceipt, writeAttempted: true }] }
+  }, refusalCheck).ok, false, 'an attempted write cannot pass as a refusal');
+
+  // A batch refused before writing, followed by a verified commit, is accounted.
+  const recovered = {
+    served: [{ kind: 'chat', part: { functionCall: { name: 'apply_document_edits' } } }, { kind: 'chat', part: { functionCall: { name: 'apply_document_edits' } } }],
+    functionResponseHistory: { apply_document_edits: [refusedReceipt, commitReceipt] },
+    requestCounts: { chat: 3, aux: 0, other: 0 }
+  };
+  assert.equal(evaluateDirectToolEvidence(recovered).ok, true, 'a stale or invalid first batch that wrote nothing is tolerated');
+  assert.equal(evaluateDirectToolEvidence({ ...toolRefused }).ok, false, 'only refused batches never pass an edit step');
+  assert.equal(evaluateDirectToolEvidence({
+    ...recovered,
+    functionResponseHistory: { apply_document_edits: [{ ...refusedReceipt, written: true }, commitReceipt] }
+  }).ok, false, 'a partially written failed batch still fails');
+}
 console.log('golden_scenario_tests passed');
