@@ -682,4 +682,41 @@ assert.equal(crossItem.operations.length, 2, 'cross-item composition is not pre-
     'insert_list_item refuses position "before" with a recovery hint'
   );
 }
+// The paragraph mark is tracked only by a w:ins inside w:pPr/w:rPr, not by inserted runs.
+const paragraphMarkTracked = paragraph => /<w:ins\b/.test(paragraph.match(/<w:pPr>[\s\S]*?<\/w:pPr>/)?.[0] || '');
+// KB-14: a list item added after a list that ends the document leaves the body's final
+// paragraph mark untracked (Word cannot reject a tracked final mark) and does not retype the target.
+{
+  const numberingXml = '<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="1"/></w:num></w:numbering>';
+  const item = text => '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>' + text + '</w:t></w:r></w:p>';
+  const endPackage = buildDocumentFragmentPackage('<w:p><w:r><w:t>Intro.</w:t></w:r></w:p>' + item('First item') + item('Last item'),
+    { appendTrailingParagraph: false, includeNumbering: true, numberingXml });
+  const endTargets = targetsFrom(endPackage);
+  const last = endTargets.at(-1);
+  assert.equal(last.exactText, 'Last item');
+  const compiled = await compileDocumentEdits([{ type: 'insert_list_item', target: last.handle, text: 'Added item' }],
+    { session: createSession(endTargets), source: { documentId: 'doc-1' } });
+  const prepared = await prepareCanonicalBatch(endPackage, compiled.operations, { author: 'Intent Compiler Test' });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared.result?.error || prepared.result?.results));
+  const body = prepared.result.documentXml.slice(prepared.result.documentXml.indexOf('<w:body>'), prepared.result.documentXml.indexOf('<w:sectPr'));
+  const paragraphs = body.split(/(?=<w:p[ >])/).filter(part => part.startsWith('<w:p'));
+  assert.equal(paragraphMarkTracked(paragraphs.at(-1)), false, "the body's final paragraph mark stays untracked");
+  assert.doesNotMatch(body, /<w:delText[^>]*>Last item</, 'the target item is not deleted and retyped');
+  const accepted = inspectWordSource(acceptTrackedChangesInOoxml(prepared.result.documentXml, { allAuthors: true }).oxml).inspection.paragraphs;
+  assert.deepEqual(accepted.map(paragraph => paragraph.exactText), ['Intro.', 'First item', 'Last item', 'Added item']);
+}
+// KB-9: appending a plain paragraph at the end of the body marks the target's mark as the
+// inserted break; the new final paragraph mark stays untracked (fails on docx-redline-js 0.11.0).
+{
+  const endPackage = makePackage('<w:p><w:r><w:t>First paragraph.</w:t></w:r></w:p><w:p><w:r><w:t>Last paragraph.</w:t></w:r></w:p>');
+  const endTarget = { ...targetsFrom(endPackage).at(-1), handle: 'end-handle', kind: 'document-end', position: 'after', fullTextInspected: false };
+  const compiled = await compileDocumentEdits([{ type: 'append_paragraph', target: 'end-handle', text: 'Appended paragraph.' }],
+    { session: createSession([], { endHandle: endTarget }), source: { documentId: 'doc-1' } });
+  const prepared = await prepareCanonicalBatch(endPackage, compiled.operations, { author: 'Intent Compiler Test' });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared.result?.error || prepared.result?.results));
+  const body = prepared.result.documentXml.slice(prepared.result.documentXml.indexOf('<w:body>'), prepared.result.documentXml.indexOf('<w:sectPr'));
+  const paragraphs = body.split(/(?=<w:p[ >])/).filter(part => part.startsWith('<w:p'));
+  assert.equal(paragraphMarkTracked(paragraphs.at(-1)), false, "the body's final paragraph mark stays untracked");
+  assert.equal(paragraphMarkTracked(paragraphs.at(-2)), true, "the target's mark is the inserted break");
+}
 console.log('PASS: typed document edit intent compiler tests');
