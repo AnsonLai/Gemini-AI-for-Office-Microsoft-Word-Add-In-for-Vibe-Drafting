@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { runDocumentAgentLoop } from '../src/taskpane/modules/chat/document-agent-loop.js';
+import { CLOSING_SUMMARY_PROMPT, runDocumentAgentLoop } from '../src/taskpane/modules/chat/document-agent-loop.js';
 import { createToolRegistry } from '../src/taskpane/modules/chat/tool-registry.js';
 import { sanitizeHistory } from '../src/taskpane/modules/chat/chat-history.js';
 
@@ -210,6 +210,36 @@ function responseTurn(state) {
   await test.run();
   assert.equal(test.events.find(event => event.type === 'response').text, 'The edit was refused.');
   assert.notEqual(test.events.find(event => event.type === 'response').text, 'Task completed successfully.');
+}
+
+// An empty closing turn after this request's edit gets one request for the model's own summary,
+// so a partly done request can say what was left out.
+{
+  const emptyStop = { candidates: [{ finishReason: 'STOP' }] };
+  const test = harness([model(call('apply_document_edits')), emptyStop, final('I rewrote the paragraph; bullets are not supported, so I left them out.')], {
+    applyDocumentEdits: async () => applied(),
+  });
+  await test.run();
+  assert.equal(test.requests.length, 3);
+  assert.equal(test.requests[2].at(-1).role, 'user');
+  assert.ok(test.requests[2].at(-1).parts.some(part => part.functionResponse), 'the summary request rides on the edit result turn');
+  assert.equal(test.requests[2].at(-1).parts.at(-1).text, CLOSING_SUMMARY_PROMPT);
+  assert.equal(test.events.find(event => event.type === 'response').text, 'I rewrote the paragraph; bullets are not supported, so I left them out.');
+}
+{
+  // Asked only once: a second empty turn falls back to the edit receipt.
+  const emptyStop = { candidates: [{ finishReason: 'STOP' }] };
+  const test = harness([model(call('apply_document_edits')), emptyStop, emptyStop], { applyDocumentEdits: async () => applied() });
+  await test.run();
+  assert.equal(test.requests.length, 3);
+  assert.equal(test.events.find(event => event.type === 'response').text, 'The requested edits were applied.');
+}
+{
+  // A write from an earlier request does not trigger it.
+  const test = harness([{ candidates: [{ finishReason: 'STOP' }] }]);
+  test.state.records.push({ mutating: true, written: true, success: true, message: 'Earlier edit.' });
+  await test.run();
+  assert.equal(test.requests.length, 1);
 }
 
 // A no-op is a healthy success and resets the two-cycle no-progress guard.

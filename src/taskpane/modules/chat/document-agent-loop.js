@@ -39,6 +39,9 @@ function recordText(record) {
     : 'The last document operation was not confirmed. Inspect the document before retrying.';
 }
 
+// Sent once when the model closes with an empty turn after an edit in this request.
+export const CLOSING_SUMMARY_PROMPT = 'Reply to the user with a short summary of what you changed, and say plainly which parts of the request you did not or could not do. Do not call any tools.';
+
 function latestMutationRecord(records) {
   return [...records].reverse().find(record => record.mutating === true);
 }
@@ -168,6 +171,8 @@ export async function runDocumentAgentLoop({
     return false;
   };
   let lastRefusal = null;
+  let closingSummaryRequested = false;
+  const recordsAtStart = state.records.length;
   let lastTurnCompletion = null;
   emit({ type: 'run_start' });
   try {
@@ -204,6 +209,19 @@ export async function runDocumentAgentLoop({
         const modelText = parts.find(part => typeof part?.text === 'string' && part.text.trim() && !part.thought)?.text;
         const lastMutation = latestMutationRecord(state.records);
         const unresolvedFailure = unresolvedFailureRecord(state.records);
+        // Gemini sometimes closes with an empty turn after an edit. The receipt alone cannot say
+        // what part of the request was left undone, so ask once for the model's own summary.
+        if (!modelText && !unresolvedFailure && !closingSummaryRequested
+          && state.records.slice(recordsAtStart).some(record => record.mutating === true && record.written === true)
+          && state.loopCount - state.inspectionTurns < maxLoops) {
+          closingSummaryRequested = true;
+          const nudge = { text: CLOSING_SUMMARY_PROMPT };
+          const last = state.history.at(-1);
+          if (last?.role === 'user') last.parts = [...(last.parts || []), nudge];
+          else state.history.push({ role: 'user', parts: [nudge] });
+          emit({ type: 'closing_summary_requested' });
+          continue;
+        }
         const responseText = unresolvedFailure
           ? recordText(unresolvedFailure)
           : modelText || recordText(lastMutation) || 'The model stopped without a final response.';
