@@ -104,7 +104,16 @@ The goal is to use the library wherever possible. Each Word API use must say why
 - **Not product defects:** slow step 3 (correctly refused the soft-break recitals and explained why), steps 9 and 11 (correctly refused unsupported structure with no change), slow step 13 (asked which date, since the NDA has no calendar date), slow step 10 (asked whether "BC" means "British Columbia"). The live checker scores some correct refusals as failures because it looks for refusal wording or the absence of any `apply_document_edits` call.
 - **Unexplained:** fast step 5 timed out at 207 s after two provider requests returned no status. That looks like provider latency or retries; the edit itself was well formed. Watch it on the next run.
 - **Replay host lanes on the fixes (2026-10-29):** Office.js passed (20 cases), Word oracle 88/0, NDA replay 16/16.
-- **Next:** re-run both live profiles on guide v7.
+- **Third run on guide v7 (2026-10-30):** fast (`live-fast-3`) failed 8 of 51 checks, and steps 1, 7, 10, 13 and 14 now pass. Slow (`live-slow-2`) failed 9 of 51, down from 20.
+  - **Remaining product issue (KB-13):** fast steps 5 and 11 ran out of time. In both, Gemini Flash requests that think for thousands of tokens got no response within the client's 60 s per-request timeout. Each step failed after three attempts, so step 5 hit the 180 s request limit and step 11 ended with "The AI response failed after tool execution". Fast step 5 also timed out in the second run.
+  - **Model judgement, not product defects:** slow step 1 asks for the instruction text instead of drafting it; slow step 10 asks whether "BC" means "British Columbia"; steps 3, 4 and 11 refuse unsupported structure with no change, which the checker scores as a failure when the refusal wording is missing or an edit was attempted; fast step 2 recovered from a stale handle with a fresh inspection.
+  - **Minor:** step 12 (both models) converted all nine headers correctly, then kept inspecting and ended with "Stopped after the maximum number of model turns" instead of a summary.
+
+### KB-13: Long-thinking Gemini requests exceed the 60 s per-call timeout (live run, 2026-10-30)
+
+- **Where:** `TIMEOUT_LIMITS` in `taskpane.js`: `FETCH_TIMEOUT_MS` 60 s per provider call (three attempts) and `TOTAL_REQUEST_TIMEOUT_MS` 180 s per user request.
+- **Evidence:** `live-fast-3` steps 5 and 11 (`gemini-flash-latest`). The turns that succeeded around the failures used up to about 6,000 thinking tokens. The failures took about 60 s each, which is consistent with the client timeout rather than rate limiting (the driver records only `requestError`, so the code is inferred).
+- **Options (owner decision):** raise the per-call timeout (for example to 120 s) and the request limit (for example to 300 s); cap the thinking budget for the fast profile; or accept the occasional timeout. The UI keeps working throughout, and a timeout never writes or replays an edit.
 
 ### KB-9: Plain-text "after" insertion tracks the new paragraph's mark (library 0.11.0)
 
