@@ -121,12 +121,33 @@ function paragraphRuns(paragraph) {
  *
  * @param {Uint8Array} bytes - exported .docx (may contain tracked changes)
  */
+/**
+ * Markup for counting logical revisions. Word's background proofing inserts w:proofErr markers
+ * and splits runs, duplicating a run's tracked formatting change across the pieces. Counting raw
+ * elements would then report a document change where there is none, so ids, rsids and proofing
+ * markers are dropped and adjacent runs with identical properties are merged first.
+ */
+export function logicalRevisionMarkup(xml) {
+    let markup = String(xml || '')
+        .replace(/<w:proofErr\b[^>]*\/>/g, '')
+        .replace(/ w:(?:id|rsid\w*|date)="[^"]*"/g, '');
+    // Run properties can nest a w:rPr inside w:rPrChange, so match up to the run's own w:t
+    // without crossing into another run.
+    const adjacentRuns = /<w:r>(<w:rPr>(?:(?!<w:r>|<\/w:r>)[\s\S])*?<\/w:rPr>)<w:t(?: xml:space="preserve")?>([^<]*)<\/w:t><\/w:r><w:r>\1<w:t(?: xml:space="preserve")?>([^<]*)<\/w:t><\/w:r>/g;
+    for (let previous = ''; previous !== markup;) {
+        previous = markup;
+        markup = markup.replace(adjacentRuns, '<w:r>$1<w:t xml:space="preserve">$2$3</w:t></w:r>');
+    }
+    return markup;
+}
+
 export async function buildDocumentModel(bytes) {
     const tracked = unzipDocx(bytes);
     const trackedXml = decoder.decode(tracked.get('word/document.xml'));
-    const revisionCount = (trackedXml.match(/<w:(ins|del|rPrChange|pPrChange)\b/g) || []).length;
+    const countingXml = logicalRevisionMarkup(trackedXml);
+    const revisionCount = (countingXml.match(/<w:(ins|del|rPrChange|pPrChange)\b/g) || []).length;
     const revisionAuthors = {};
-    for (const match of trackedXml.matchAll(/<w:(?:ins|del|moveFrom|moveTo|rPrChange|pPrChange|numberingChange|tblPrChange|trPrChange|tcPrChange|sectPrChange)\b[^>]*\bw:author="([^"]*)"/g)) {
+    for (const match of countingXml.matchAll(/<w:(?:ins|del|moveFrom|moveTo|rPrChange|pPrChange|numberingChange|tblPrChange|trPrChange|tcPrChange|sectPrChange)\b[^>]*\bw:author="([^"]*)"/g)) {
         revisionAuthors[match[1]] = (revisionAuthors[match[1]] || 0) + 1;
     }
 

@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { openDocx } from '@ansonlai/docx-redline-js';
 import { scenario } from '../scripts/golden/nda-scenario.mjs';
 import { scenario as directScenario } from '../scripts/golden/nda-direct-scenario.mjs';
+import { logicalRevisionMarkup } from '../scripts/golden/golden-checks.mjs';
 import { buildDocumentModel, evaluateCheck, evaluateDirectToolEvidence, evaluateScopeDisposition, scoreStep, semanticDocumentSnapshot } from '../scripts/golden/golden-checks.mjs';
 import { classifyRequest, createReplayQueue, extractContext, extractLatestFunctionResponse, extractLatestInspection, resolveReferences } from '../scripts/golden/golden-replay.mjs';
 import { createFunctionResponse } from '../src/taskpane/modules/chat/document-agent-loop.js';
@@ -358,5 +359,20 @@ assert.equal(regressed.length, 0, 'never-passed earlier checks are not repeated'
     ...recovered,
     functionResponseHistory: { apply_document_edits: [{ ...refusedReceipt, written: true }, commitReceipt] }
   }).ok, false, 'a partially written failed batch still fails');
+}
+// Word's background proofing splits runs and duplicates a run's tracked formatting change;
+// counting logical revisions keeps that from looking like a document change.
+{
+  const tracked = '<w:rPr><w:b/><w:rPrChange w:id="7" w:author="A" w:date="2026-10-30T00:00:00Z"><w:rPr/></w:rPrChange></w:rPr>';
+  const trackedSplit = '<w:rPr><w:b/><w:rPrChange w:id="9" w:author="A" w:date="2026-10-30T00:00:00Z"><w:rPr/></w:rPrChange></w:rPr>';
+  const count = xml => (logicalRevisionMarkup(xml).match(/<w:rPrChange\b/g) || []).length;
+  const whole = `<w:p><w:r w:rsidR="1">${tracked}<w:t>By:</w:t></w:r></w:p>`;
+  const split = `<w:p><w:r w:rsidR="1">${tracked}<w:t>By</w:t></w:r><w:proofErr w:type="gramEnd"/><w:r w:rsidR="2">${trackedSplit}<w:t>:</w:t></w:r></w:p>`;
+  assert.equal(count(whole), 1);
+  assert.equal(count(split), 1, 'a run split by proofing still counts as one tracked change');
+  const different = `<w:p><w:r>${tracked}<w:t>By</w:t></w:r><w:r><w:rPr><w:i/><w:rPrChange w:id="9" w:author="A"><w:rPr/></w:rPrChange></w:rPr><w:t>:</w:t></w:r></w:p>`;
+  assert.equal(count(different), 2, 'runs with different formatting are not merged');
+  const added = split + `<w:p><w:r>${tracked}<w:t>New</w:t></w:r></w:p>`;
+  assert.equal(count(added), 2, 'a genuinely new tracked change still counts');
 }
 console.log('golden_scenario_tests passed');
