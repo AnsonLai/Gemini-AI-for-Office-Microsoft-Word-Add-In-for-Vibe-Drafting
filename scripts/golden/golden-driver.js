@@ -155,24 +155,31 @@ async function runStep(step, index) {
 Office.onReady(async info => {
     if (!session) return;
     if (info.host !== Office.HostType.Word) return;
+    let phase = 'startup';
     try {
         // The taskpane wires its chat handlers in its own Office.onReady callback.
+        phase = 'waiting for taskpane handlers';
         await waitFor(() => typeof document.getElementById('send-button')?.onclick === 'function', 30000, 'taskpane chat handlers');
+        phase = 'claiming fixture';
         const claim = await post('/golden/claim', {});
         const { fixture } = await claim.json();
         // Seed this disposable document with the fixture (tracking off).
+        phase = `loading fixture (${fixture?.length ?? 0} base64 chars)`;
         await Word.run(async context => {
             context.document.changeTrackingMode = Word.ChangeTrackingMode.off;
             context.document.body.insertFileFromBase64(fixture, Word.InsertLocation.replace);
             await context.sync();
         });
         await delay(1000);
+        phase = 'running steps';
         for (const [index, step] of session.steps.entries()) {
             await runStep(step, index);
         }
         await post('/golden/done', { status: 'completed', host: info, diagnostics: Office.context.diagnostics });
     } catch (error) {
-        await post('/golden/done', { status: 'aborted', error: error.message, step: currentStep,
+        // Office errors carry the failing API and reason in code/debugInfo; message alone is often just "GeneralException".
+        await post('/golden/done', { status: 'aborted', error: error.message, step: currentStep, phase,
+            code: error.code, debugInfo: error.debugInfo, host: info, diagnostics: Office.context?.diagnostics,
             console: consoleLines.slice(-50) }).catch(() => {});
     }
 });

@@ -257,7 +257,7 @@ function finish(summary) {
     report.status = complete && !ownFailures.length && !regressions.length && !replayProblems.length && !modelProblems.length ? 'passed' : 'failed';
     report.finishedAt = new Date().toISOString();
     report.host = summary.host || null;
-    if (summary.status !== 'completed') report.abort = { error: summary.error, step: summary.step, console: summary.console };
+    if (summary.status !== 'completed') report.abort = { error: summary.error, step: summary.step, phase: summary.phase, code: summary.code, debugInfo: summary.debugInfo, console: summary.console };
     report.totals = {
         steps: `${report.steps.length}/${steps.length}`,
         checks: report.steps.reduce((total, step) => total + step.own.length, 0),
@@ -275,7 +275,7 @@ function finish(summary) {
     writeFileSync(join(artifacts, 'report.json'), JSON.stringify(report, null, 2));
     writeFileSync(join(artifacts, 'report.md'), renderMarkdown(report));
     console.log(`\nGolden scenario ${report.status.toUpperCase()} (${mode}): ${JSON.stringify(report.totals)}`);
-    if (report.abort) console.log(`Aborted at ${report.abort.step}: ${report.abort.error}`);
+    if (report.abort) console.log(`Aborted at ${report.abort.step ?? report.abort.phase}: ${report.abort.error}${report.abort.debugInfo ? ` (${JSON.stringify(report.abort.debugInfo)})` : ''}`);
     console.log(`Artifacts: ${artifacts}`);
     process.exitCode = report.status === 'passed' ? 0 : 1;
     // Close only the disposable Word instance this run started (its document is a temp file).
@@ -295,7 +295,7 @@ function renderMarkdown(data) {
         : data.model ? data.model : '';
     const lines = [`# Golden scenario: ${data.scenario} (${data.mode}${modelLabel ? `, ${modelLabel}` : ''})`, '',
         `Status: **${data.status}** — ${JSON.stringify(data.totals)}`, `Started ${data.startedAt}, finished ${data.finishedAt}.`, ''];
-    if (data.abort) lines.push(`Aborted at \`${data.abort.step}\`: ${data.abort.error}`, '');
+    if (data.abort) lines.push(`Aborted at \`${data.abort.step ?? data.abort.phase}\`: ${data.abort.error}`, '');
     lines.push('| Step | Result | Checks |', '| --- | --- | --- |');
     for (const step of data.steps) {
         const failed = step.own.filter(result => !result.ok);
