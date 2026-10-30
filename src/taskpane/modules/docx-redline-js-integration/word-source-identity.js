@@ -111,9 +111,27 @@ function normalizeSettingsXml(xml) {
   return serializeXml(document);
 }
 
+// Word gives footnote and endnote paragraphs new w14:paraId/textId values on every body
+// export, even with no edit, so a footnoted document would look changed on each read (KB-16).
+// Those IDs never identify edit targets, so the token omits them in these parts only.
+const NOTES_PARTS = new Set(['word/footnotes.xml', 'word/endnotes.xml']);
+
+function normalizeNotesXml(xml) {
+  if (typeof xml !== 'string') return xml;
+  const document = parseXml(normalizeDocumentXml(xml, null));
+  for (const element of elementsIncludingRoot(document)) {
+    if (element.namespaceURI === NS_W && localName(element) === 'p') {
+      element.removeAttributeNS(NS_W14, 'paraId');
+      element.removeAttributeNS(NS_W14, 'textId');
+    }
+  }
+  return serializeXml(document);
+}
+
 function normalizedAdditionalPart(name, payload) {
   const normalizedName = String(name || '').replace(/^\//, '');
   if (normalizedName === 'word/settings.xml') return normalizeSettingsXml(payload);
+  if (NOTES_PARTS.has(normalizedName)) return normalizeNotesXml(payload);
   if (normalizedName.startsWith('word/') && normalizedName.endsWith('.xml') && typeof payload === 'string') return normalizeDocumentXml(payload, null);
   return payload;
 }

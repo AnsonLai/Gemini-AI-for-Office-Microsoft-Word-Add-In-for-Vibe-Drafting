@@ -269,4 +269,20 @@ const texts = ['Alpha clause', 'Second paragraph', 'Beta clause', 'Fourth paragr
   assert.notEqual(alpha, sixth);
 }
 
+// KB-16: Word gives footnote and endnote paragraphs new w14:paraId/textId values on every
+// export. That alone must not change the token; a change to note text still must.
+{
+  const notes = (root, paraId, text) => `<w:${root}s xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml">`
+    + `<w:${root} w:id="1"><w:p w14:paraId="${paraId}" w14:textId="77777777" w:rsidR="00C816A6"><w:r><w:t>${text}</w:t></w:r></w:p></w:${root}></w:${root}s>`;
+  const withNotes = (paraId, text = 'Service providers are bound.', rsid) => ({
+    ...documentParts(texts, rsid ? { rsid } : {}),
+    additionalParts: { '/word/footnotes.xml': notes('footnote', paraId, text), '/word/endnotes.xml': notes('endnote', paraId, 'End.') }
+  });
+  const first = await computeWordSourceRevisionToken(withNotes('141AECF0'));
+  const reexported = await computeWordSourceRevisionToken(withNotes('33A537D1', undefined, '00BE3784'));
+  assert.equal(reexported.value, first.value, 'a re-export that only renumbers note paragraph IDs and rsids keeps the token');
+  const edited = await computeWordSourceRevisionToken(withNotes('141AECF0', 'Service providers are not bound.'));
+  assert.notEqual(edited.value, first.value, 'changed footnote text changes the token');
+}
+
 console.log('PASS: inspection session rsid-stable handles, content-change expiry, cursor continuation, document end, store limits and opaque IDs');

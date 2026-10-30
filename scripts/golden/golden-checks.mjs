@@ -225,8 +225,10 @@ export async function buildDocumentModel(bytes) {
         }))
         : [];
     const anchors = descendants(doc, 'commentRangeStart').map(node => attr(node, 'id'));
+    // Footnote references in the accepted view (KB-15: an edit must not drop them on Accept All).
+    const footnoteReferences = descendants(doc, 'footnoteReference').map(node => attr(node, 'id'));
 
-    return { paragraphs, tables, comments, commentAnchors: anchors, revisionCount, revisionAuthors };
+    return { paragraphs, tables, comments, commentAnchors: anchors, footnoteReferences, revisionCount, revisionAuthors };
 }
 
 /**
@@ -577,6 +579,13 @@ const CHECKS = {
         const max = context.own === false ? Infinity : (check.max ?? Infinity);
         const ok = count >= (check.min ?? 1) && count <= max && model.commentAnchors.length >= Math.min(count, check.min ?? 1);
         return { ok, detail: `${count} ${before ? 'new ' : ''}comment(s), ${model.commentAnchors.length} anchor(s)` };
+    },
+
+    /** Every footnote reference id in `ids` is still in the accepted document. */
+    footnotes(model, check) {
+        const present = new Set(model.footnoteReferences || []);
+        const missing = check.ids.filter(id => !present.has(String(id)));
+        return { ok: missing.length === 0, detail: missing.length ? `missing footnote reference(s) ${missing.join(', ')}; present: ${[...present].join(', ') || 'none'}` : `footnote references ${check.ids.join(', ')} present` };
     },
 
     /** Some highlighted text matches `text`. */

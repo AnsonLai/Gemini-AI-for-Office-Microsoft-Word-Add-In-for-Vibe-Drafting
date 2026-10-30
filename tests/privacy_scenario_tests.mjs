@@ -2,7 +2,7 @@ import './setup-xml-provider.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { openDocx } from '@ansonlai/docx-redline-js';
-import { buildDocumentModel, scoreStep } from '../scripts/golden/golden-checks.mjs';
+import { buildDocumentModel, evaluateCheck, scoreStep } from '../scripts/golden/golden-checks.mjs';
 import { scenario } from '../scripts/golden/privacy-direct-scenario.mjs';
 
 // The second golden document (a Word-authored privacy notice) is well-formed for the runner:
@@ -20,6 +20,8 @@ assert.equal(new Set(scenario.steps.map(step => step.id)).size, scenario.steps.l
 assert.ok(paragraphs.some(paragraph => paragraph.list?.format === 'bullet') && paragraphs.some(paragraph => paragraph.list?.format === 'decimal'),
   'the fixture has bullet and numbered lists');
 assert.ok(paragraphs.some(paragraph => paragraph.inTable), 'the fixture has a table');
+assert.deepEqual((await buildDocumentModel(bytes)).footnoteReferences, ['1'], 'the sharing paragraph carries one footnote reference');
+assert.equal(evaluateCheck({ footnoteReferences: [] }, { type: 'footnotes', ids: ['1'] }).ok, false, 'a lost footnote reference fails the check');
 
 for (const step of scenario.steps) {
   assert.ok(step.prompt && step.replay?.length, `${step.id} has a prompt and a replay plan`);

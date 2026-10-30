@@ -68,7 +68,9 @@ const steps = [
     ],
     checks: [
       { type: 'text', label: 'the sharing section says the clinic never sells personal information', text: { regex: 'never sell', flags: 'i' } },
-      { type: 'text', label: 'the existing sharing wording is kept', text: { includes: 'service providers who help us run the clinic' } }
+      { type: 'text', label: 'the existing sharing wording is kept', text: { includes: 'service providers who help us run the clinic' } },
+      // The paragraph ends with a footnote reference (library issue #6, KB-15).
+      { type: 'footnotes', label: 'the sharing footnote reference survives the rewrite', ids: ['1'] }
     ]
   },
   {

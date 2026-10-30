@@ -21,7 +21,7 @@ $paragraphs = @(
     @{ text = 'To process payments and insurance claims.'; list = 'use' },
     @{ text = 'To send appointment reminders.'; list = 'use' },
     @{ text = 'Sharing Your Information'; style = 'Heading 1' },
-    @{ text = 'We share your information only with other health professionals involved in your care, your insurer, and service providers who help us run the clinic.' },
+    @{ text = 'We share your information only with other health professionals involved in your care, your insurer, and service providers who help us run the clinic.'; footnote = 'Service providers are bound by written confidentiality agreements.' },
     @{ text = 'Your Rights'; style = 'Heading 1' },
     @{ text = 'Ask to see the information we hold about you.'; list = 'rights' },
     @{ text = 'Ask us to correct information that is wrong.'; list = 'rights' },
@@ -61,6 +61,11 @@ try {
         $template = if ($name -eq 'rights') { $number } else { $bullet }
         $document.Range($start, $end).ListFormat.ApplyListTemplateWithLevel($template, $false, 0, 2, 1)
     }
+    # One footnote at the end of the sharing paragraph (the shape of library issue #6). Step 04
+    # rewrites this paragraph, so the scenario checks that the reference survives Accept All.
+    $sharingIndex = @(for ($i = 0; $i -lt $paragraphs.Count; $i++) { if ($paragraphs[$i].footnote) { $i + 1 } })[0]
+    $sharingEnd = $document.Paragraphs.Item($sharingIndex).Range.End - 1
+    $document.Footnotes.Add($document.Range($sharingEnd, $sharingEnd), [Type]::Missing, $paragraphs[$sharingIndex - 1].footnote) | Out-Null
     # Contact table last, so earlier paragraph indexes stay valid while authoring.
     $tableIndexes = @(for ($i = 0; $i -lt $paragraphs.Count; $i++) { if ($paragraphs[$i].table) { $i + 1 } })
     $tableRange = $document.Range($document.Paragraphs.Item($tableIndexes[0]).Range.Start, $document.Paragraphs.Item($tableIndexes[-1]).Range.End - 1)

@@ -152,6 +152,32 @@ async function runStep(step, index) {
     currentStep = null;
 }
 
+// When an edit is refused as stale, log which source part changed and where, so a
+// spurious STALE_DOCUMENT_SOURCE can be traced to the Word export detail behind it.
+globalThis.__WORD_SOURCE_DIAGNOSTICS__ = ({ before, after, beforeHostParagraphCount, afterHostParagraphCount }) => {
+    const flatten = parts => {
+        const flat = {};
+        for (const [name, value] of Object.entries(parts || {})) {
+            if (name === 'additionalParts' && value && typeof value === 'object') {
+                for (const [part, payload] of Object.entries(value)) {
+                    flat[`additionalParts[${part}]<${typeof payload}>`] = typeof payload === 'string' ? payload : JSON.stringify(payload);
+                }
+            } else flat[name] = typeof value === 'string' ? value : JSON.stringify(value);
+        }
+        return flat;
+    };
+    before = flatten(before); after = flatten(after);
+    const names = [...new Set([...Object.keys(before), ...Object.keys(after)])];
+    const changed = names.filter(name => before[name] !== after[name]).map(name => {
+        const a = String(before[name] ?? ''), b = String(after[name] ?? '');
+        let i = 0;
+        while (i < a.length && a[i] === b[i]) i++;
+        return { part: name, beforeLength: a.length, afterLength: b.length, at: i,
+            before: a.slice(Math.max(0, i - 120), i + 200), after: b.slice(Math.max(0, i - 120), i + 200) };
+    });
+    console.warn('[StaleSource]', JSON.stringify({ beforeHostParagraphCount, afterHostParagraphCount, changed }));
+};
+
 Office.onReady(async info => {
     if (!session) return;
     if (info.host !== Office.HostType.Word) return;
