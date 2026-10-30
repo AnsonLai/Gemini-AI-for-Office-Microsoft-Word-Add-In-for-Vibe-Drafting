@@ -138,6 +138,17 @@ The goal is to use the library wherever possible. Each Word API use must say why
 - **Fix path:** the library's 0.11.1 pre-release (`caeba20`) fixes structured list regeneration at a container's end, and the plugin moves `insert_list_item` to plain-text redlines, which avoid list regeneration entirely.
 - **Verified on 0.11.1-pre.2 (2026-10-30):** branch `plain-insertions-0111` (current main plus plain-text insertions, `74cf986`, guide wording, regression tests `6edd61e`) passes offline 47/47, Office.js (20 cases), Word oracle 88/0 and the NDA replay 16/16. The new test that appends at body end fails on 0.11.0 and passes on pre.2. **Waiting on:** 0.11.1 on npm; then pin it, merge the branch, and re-run the lanes and live checks.
 
+### KB-15: Tracked edits drop footnote references after Accept All (library 0.11.0 and 0.11.1-pre.2; upstream #6, #7, #8)
+
+- **Where:** any text edit in a paragraph with footnote references, through `applyOperationsToDocumentXml`. The library deletes the word before a reference together with the reference run, then reinserts the word without the reference.
+- **Evidence (2026-10-30, own probe `.cache/fn-repro/probe.mjs`):**
+  - a reference at the paragraph's end: 1 → 0 after Accept All (#6);
+  - a bookmark before a mid-paragraph reference: 1 → 0 (#7);
+  - five references with an edit to the first sentence: 5 → 1 (#8).
+  Reject All gives back every reference, so the library's fidelity check passes, and every operation returns `ok`. The behaviour is the same on 0.11.0 and on 0.11.1-pre.2 (`caeba20`).
+- **Impact:** silent data loss for a reviewer who accepts the AI's edits in a document with footnotes. No gate covers it, because neither golden document has footnotes.
+- **Status:** reported to the library agent on 2026-10-30, asking for a fix in 0.11.1 (or an Accept All fidelity refusal). There is no add-in workaround, by policy. After the fix: add a footnoted paragraph to the oracle or golden fixtures.
+
 ### KB-9: Plain-text "after" insertion tracks the new paragraph's mark (library 0.11.0)
 
 - **Where:** `@ansonlai/docx-redline-js` 0.11.0, the plain-adjacency insertion route used by a `structuredContent: false` redline whose `modified` adds a paragraph after the target.
