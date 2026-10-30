@@ -1,4 +1,4 @@
-import { analyzeStructuredContent, inspectDocumentParts, preprocessMarkdown } from '@ansonlai/docx-redline-js';
+import { inspectDocumentParts } from '@ansonlai/docx-redline-js';
 
 const TEXT_ACTIONS = new Set(['replace_text', 'rewrite_paragraph', 'delete_paragraph', 'insert_paragraph', 'append_paragraph', 'insert_list_item']);
 const FORMAT_KEYS = new Set(['bold', 'italic', 'underline', 'strikethrough', 'highlight']);
@@ -54,14 +54,9 @@ function positiveInteger(value, index, field) {
 }
 
 function plainParagraph(value, index, field) {
+  // Insertions are sent with structuredContent: false, so the library keeps the text literal.
   if (value.includes('\n') || value.includes('\r') || value !== value.trim()) {
     fail('UNSUPPORTED_DOCUMENT_EDIT', 'Inserted content must be one plain paragraph without line breaks or outer whitespace.', index, field);
-  }
-  const analysis = analyzeStructuredContent(value);
-  const markdown = preprocessMarkdown(value);
-  if (!analysis.valid || analysis.blocks.length !== 1 || analysis.blocks[0]?.type !== 'paragraph'
-    || markdown.formatHints.length || markdown.cleanText !== value) {
-    fail('UNSUPPORTED_DOCUMENT_EDIT', 'Inserted content must be plain text; lists, tables, headings, and inline formatting are unsupported.', index, field);
   }
 }
 
@@ -161,40 +156,21 @@ function checkedInsertionTarget(descriptor, index) {
     || (descriptor.styleId && /^heading\b/i.test(String(descriptor.styleId)))) {
     fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'Plain paragraph insertion beside a list, table, or heading is unsupported.', index, 'target');
   }
-  const processed = preprocessMarkdown(descriptor.exactText);
-  const analysis = analyzeStructuredContent(descriptor.exactText);
-  if (descriptor.exactText !== descriptor.exactText.trim() || /[\r\n]/.test(descriptor.exactText)
-    || analysis.blocks.length > 1 || analysis.blocks.some(block => block.type !== 'paragraph')
-    || processed.formatHints.length || processed.cleanText !== descriptor.exactText) {
-    fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'This target has spacing, soft breaks, or structural/formatting markers that cannot be safely preserved by plain insertion.', index, 'target');
+  // Insertion joins the target and new text with a paragraph break, so soft breaks are ambiguous.
+  if (descriptor.exactText !== descriptor.exactText.trim() || /[\r\n]/.test(descriptor.exactText)) {
+    fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'This target has outer spacing or soft breaks that plain insertion cannot preserve.', index, 'target');
   }
 }
 function checkedListInsertionTarget(descriptor, index) {
+  // The library gives the new item the target's list and level; Word evidence covers bullet/decimal levels 0-1.
   const list = descriptor.list;
   if (descriptor.inTable || descriptor.table || !record(list) || !['bullet', 'decimal'].includes(list.format)
-    || typeof list.numId !== 'string' || !/^[1-9]\d*$/.test(list.numId)
-    || !Number.isInteger(list.level) || ![0, 1].includes(list.level)
-    || descriptor.headingLevel || (descriptor.styleId && /^heading\b/i.test(String(descriptor.styleId)))) {
-    fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'List insertion is supported only beside a fully inspected level 0 or 1 bullet/decimal list item outside tables and headings.', index, 'target');
-  }
-  const processed = preprocessMarkdown(descriptor.exactText);
-  const analysis = analyzeStructuredContent(descriptor.exactText);
-  if (!descriptor.exactText || descriptor.exactText !== descriptor.exactText.trim() || /[\r\n]/.test(descriptor.exactText)
-    || analysis.blocks.length !== 1 || analysis.blocks.some(block => block.type !== 'paragraph')
-    || processed.formatHints.length || processed.cleanText !== descriptor.exactText) {
-    fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'List insertion requires one non-empty plain-text list paragraph without soft breaks or inline formatting markers.', index, 'target');
+    || ![0, 1].includes(list.level)
+    || descriptor.headingLevel || (descriptor.styleId && /^heading\b/i.test(String(descriptor.styleId)))
+    || !descriptor.exactText || descriptor.exactText !== descriptor.exactText.trim() || /[\r\n]/.test(descriptor.exactText)) {
+    fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'List insertion is supported only beside a non-empty level 0 or 1 bullet/decimal list item without soft breaks, outside tables and headings.', index, 'target');
   }
   return list;
-}
-function listInsertionMarkers(list, index) {
-  if (list.format === 'bullet') return { current: '-', next: '-' };
-  const segments = typeof list.label === 'string' ? list.label.trim().replace(/\.$/, '').split('.') : [];
-  if (segments.length !== list.level + 1 || segments.some(segment => !/^\d+$/.test(segment))) {
-    fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'Decimal list insertion requires a simple inspected decimal label at the target level.', index, 'target');
-  }
-  return list.level === 0
-    ? { current: '1.', next: '2.' }
-    : { current: '1.1.', next: '1.2.' };
 }
 function checkedPlainListCandidate(descriptor, index, field) {
   if (descriptor.inTable || descriptor.table || descriptor.list) {
@@ -302,7 +278,7 @@ export async function compileDocumentEdits(edits, { session, source } = {}) {
     if (!append && target.fullTextInspected !== true) fail('TARGET_TEXT_NOT_FULLY_INSPECTED', 'This target was only partially shown. Inspect the complete paragraph before editing it.', actionIndex, 'target', true);
     if (append && target.position !== 'after') fail('INVALID_DOCUMENT_EDIT_TARGET', 'The document-end handle does not describe an append position.', actionIndex, 'target', true);
     if (edit.type === 'append_paragraph' || edit.type === 'insert_paragraph') checkedInsertionTarget(descriptor, actionIndex);
-    if (edit.type === 'insert_list_item') listInsertionMarkers(checkedListInsertionTarget(descriptor, actionIndex), actionIndex);
+    if (edit.type === 'insert_list_item') checkedListInsertionTarget(descriptor, actionIndex);
     if (edit.type === 'delete_paragraph' && (descriptor.inTable || descriptor.table || descriptor.list)) {
       fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'Deleting a paragraph is supported only for plain non-list paragraphs outside tables.', actionIndex, 'target');
     }
@@ -358,25 +334,21 @@ export async function compileDocumentEdits(edits, { session, source } = {}) {
         expected.expectedDeleted = true;
         break;
       case 'insert_list_item': {
-        const markers = listInsertionMarkers(checkedListInsertionTarget(descriptor, actionIndex), actionIndex);
-        operation = {
-          type: 'list-change', target,
-          modified: `${markers.current} ${descriptor.exactText}\n${markers.next} ${edit.text}`,
-          structuredContent: true
-        };
+        // A plain-text redline adds the new paragraph as a sibling in the target's list and level.
+        operation = { type: 'redline', target, modified: `${descriptor.exactText}\n${edit.text}`, structuredContent: false };
         expected.expectedParagraphs = [descriptor.exactText, edit.text];
         expected.expectedListInsertion = { format: descriptor.list.format, level: descriptor.list.level };
         break;
       }
       case 'insert_paragraph': {
         const current = descriptor.exactText;
-        operation = { type: 'redline', target, modified: edit.position === 'before' ? `${edit.text}\n${current}` : `${current}\n${edit.text}`, structuredContent: true };
+        operation = { type: 'redline', target, modified: edit.position === 'before' ? `${edit.text}\n${current}` : `${current}\n${edit.text}`, structuredContent: false };
         expected.expectedParagraphs = edit.position === 'before' ? [edit.text, current] : [current, edit.text];
         break;
       }
       case 'append_paragraph': {
         const current = descriptor.exactText;
-        operation = { type: 'redline', target, modified: current ? `${current}\n${edit.text}` : edit.text, structuredContent: true };
+        operation = { type: 'redline', target, modified: current ? `${current}\n${edit.text}` : edit.text, structuredContent: false };
         expected.expectedParagraphs = current ? [current, edit.text] : [edit.text];
         break;
       }
