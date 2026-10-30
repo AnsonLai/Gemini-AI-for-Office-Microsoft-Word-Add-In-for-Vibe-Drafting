@@ -123,7 +123,8 @@ The goal is to use the library wherever possible. Each Word API use must say why
 - **Where:** main's `insert_list_item` encoding, a `list-change` with typed markers and `structuredContent: true`, which goes through the library's list regeneration.
 - **Evidence (2026-10-30, offline probe on 0.11.0):** with a decimal list item as the body's last paragraph, inserting an item after it gives the new final paragraph a tracked inserted mark (`<w:pPr>…<w:rPr><w:ins/></w:rPr></w:pPr>`), the same mark Word cannot reject cleanly (see KB-9). It also redlines the target item as deleted and re-typed. Library Accept All and Reject All read correctly, so only Word shows the problem. No gate covers this shape: the NDA's list insertion is mid-list.
 - **User impact:** adding a list item after a list that ends the document can leave a stray paragraph after Reject All in Word, plus a noisier review. Mid-document list insertion is unaffected.
-- **Fix path:** the library's 0.11.1 pre-release (`caeba20`) fixes structured list regeneration at a container's end, and branch `kb9-plain-insertions` moves `insert_list_item` to plain-text redlines, which avoid list regeneration entirely. Both wait on 0.11.1.
+- **Fix path:** the library's 0.11.1 pre-release (`caeba20`) fixes structured list regeneration at a container's end, and the plugin moves `insert_list_item` to plain-text redlines, which avoid list regeneration entirely.
+- **Verified on 0.11.1-pre.2 (2026-10-30):** branch `plain-insertions-0111` (current main plus plain-text insertions, `74cf986`, guide wording, regression tests `6edd61e`) passes offline 47/47, Office.js (20 cases), Word oracle 88/0 and the NDA replay 16/16. The new test that appends at body end fails on 0.11.0 and passes on pre.2. **Waiting on:** 0.11.1 on npm; then pin it, merge the branch, and re-run the lanes and live checks.
 
 ### KB-9: Plain-text "after" insertion tracks the new paragraph's mark (library 0.11.0)
 
