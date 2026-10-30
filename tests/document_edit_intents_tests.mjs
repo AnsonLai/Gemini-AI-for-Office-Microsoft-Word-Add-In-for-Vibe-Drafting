@@ -719,4 +719,29 @@ const paragraphMarkTracked = paragraph => /<w:ins\b/.test(paragraph.match(/<w:pP
   assert.equal(paragraphMarkTracked(paragraphs.at(-1)), false, "the body's final paragraph mark stays untracked");
   assert.equal(paragraphMarkTracked(paragraphs.at(-2)), true, "the target's mark is the inserted break");
 }
+// KB-15: text edits keep every footnote reference after Accept All and Reject All
+// (library issues #6-#8; fails on docx-redline-js 0.11.0).
+{
+  const run = text => `<w:r><w:t xml:space="preserve">${text}</w:t></w:r>`;
+  const ref = id => `<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:footnoteReference w:id="${id}"/></w:r>`;
+  const refs = xml => (xml.match(/<w:footnoteReference\b/g) || []).length;
+  const cases = [
+    ['reference ends the paragraph', `<w:p>${run('The buyer pays the deposit within ten days.')}${ref(1)}</w:p>`,
+      target => ({ type: 'replace_text', target: target.handle, find: 'The buyer', replace: 'The purchaser' })],
+    ['bookmark before a reference', `<w:p><w:bookmarkStart w:id="10" w:name="b"/>${run('The buyer pays.')}<w:bookmarkEnd w:id="10"/>${ref(1)}${run(' The seller holds it in escrow.')}</w:p>`,
+      target => ({ type: 'replace_text', target: target.handle, find: 'in escrow', replace: 'in a separate escrow account' })],
+    ['several references, whole-paragraph rewrite', `<w:p>${['One pays.', 'Two holds.', 'Three signs.'].map((text, index) => `${run(text)}${ref(index + 1)}${run(' ')}`).join('')}${run('The donor keeps a record.')}</w:p>`,
+      target => ({ type: 'rewrite_paragraph', target: target.handle, text: target.exactText.replace('One pays.', 'One pays promptly.') })],
+  ];
+  for (const [name, paragraphXml, edit] of cases) {
+    const footnotePackage = makePackage(paragraphXml);
+    const targets = targetsFrom(footnotePackage);
+    const compiled = await compileDocumentEdits([edit(targets[0])], { session: createSession(targets), source: { documentId: 'doc-1' } });
+    const prepared = await prepareCanonicalBatch(footnotePackage, compiled.operations, { author: 'Intent Compiler Test' });
+    assert.equal(prepared.status, 'ready', `${name}: ${JSON.stringify(prepared.result?.error || prepared.result?.results)}`);
+    const before = refs(paragraphXml);
+    assert.equal(refs(acceptTrackedChangesInOoxml(prepared.result.documentXml, { allAuthors: true }).oxml), before, `${name}: Accept All keeps every reference`);
+    assert.equal(refs(rejectTrackedChangesInOoxml(prepared.result.documentXml, { allAuthors: true }).oxml), before, `${name}: Reject All keeps every reference`);
+  }
+}
 console.log('PASS: typed document edit intent compiler tests');
