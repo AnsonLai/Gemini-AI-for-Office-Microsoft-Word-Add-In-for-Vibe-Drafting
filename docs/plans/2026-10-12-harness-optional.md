@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-12 (America/Vancouver)
 **Status:** Optional and parked. Not scheduled; start only when a trigger below becomes real.
-**Related:** [Library-first simplification, phase 2](2026-10-12-library-first-simplification-phase-2.md), which this was split out of. [Phase-1 plan owner decisions](completed/2026-10-02-library-first-lightweight-agent-reliability.md#approved-owner-decisions-2026-10-02).
+**Related:** [Library-first simplification, phase 2](completed/2026-10-12-library-first-simplification-phase-2.md), which this was split out of. [Phase-1 plan owner decisions](completed/2026-10-02-library-first-lightweight-agent-reliability.md#approved-owner-decisions-2026-10-02).
 
 > **Recommendation (Claude, 2026-10-12): adopting a Pi harness is a bad idea for now.**
 >

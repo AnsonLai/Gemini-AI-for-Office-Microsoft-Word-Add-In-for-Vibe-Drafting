@@ -1,17 +1,19 @@
 # Library-first simplification, phase 2
 
 **Date:** 2026-10-12 (America/Vancouver)
-**Status:** WP0 complete (2026-10-12); WP5 complete for the exposed list actions (2026-10-14); WP4 complete except the host paragraph count (2026-10-16). WP3 complete and merged 2026-10-17 on `docx-redline-js` 0.10.0. WP1 is re-scoped: the Word host layer stays in the plugin (owner decision, 2026-10-17); 4 deep imports wait on a library decision. WP2 complete as plugin-only cleanup (2026-10-17). The browser demo and MCP server were removed as obsolete spikes on 2026-10-17, and the list follow-up plan is complete and archived.
+**Status:** Complete (2026-10-30). Shipped in add-in v2.3.0.0 on `@ansonlai/docx-redline-js` 0.11.1 (exact pin). All work packages are done: WP0 (2026-10-12), WP5 (2026-10-14), WP4 (2026-10-16), WP2 and WP3 (2026-10-17), and WP1 with the plain-text insertions on 0.11.1 (2026-10-30). Production code is 4,362 lines in 19 files (from 4,437 in 20), and `src/` imports only the package root and `/standalone-runner`. What is still open moved to [KNOWN_BUGS](../KNOWN_BUGS.md): the host paragraph count for the export tail, KB-1, and the deferred items.
+
+**Original status (kept for the record):** WP0 complete (2026-10-12); WP5 complete for the exposed list actions (2026-10-14); WP4 complete except the host paragraph count (2026-10-16). WP3 complete and merged 2026-10-17 on `docx-redline-js` 0.10.0. WP1 is re-scoped: the Word host layer stays in the plugin (owner decision, 2026-10-17); 4 deep imports wait on a library decision. WP2 complete as plugin-only cleanup (2026-10-17). The browser demo and MCP server were removed as obsolete spikes on 2026-10-17, and the list follow-up plan is complete and archived.
 **Baseline:**
 - Exact `@ansonlai/docx-redline-js@0.9.0` in the add-in and MCP.
 - HEAD `a98f339` plus the uncommitted 0.9.0 upgrade work.
-- **4,437 production lines across 20 files** (`node scripts/count-document-agent-code.mjs`). For comparison: 8,632 lines at the WP0 baseline of the [phase-1 plan](completed/2026-10-02-library-first-lightweight-agent-reliability.md), and 4,402 at its WP5 close.
+- **4,437 production lines across 20 files** (`node scripts/count-document-agent-code.mjs`). For comparison: 8,632 lines at the WP0 baseline of the [phase-1 plan](2026-10-02-library-first-lightweight-agent-reliability.md), and 4,402 at its WP5 close.
 
 **Related:**
-- [Known bugs and the Word JS API inventory](KNOWN_BUGS.md)
-- [Canonical list migration follow-up](completed/2026-09-30-canonical-list-migration-follow-up.md)
-- [0.9.0 validation](../validation-reports/2026-10-12-docx-redline-v090.md)
-- [Harness (optional)](2026-10-12-harness-optional.md): a parked Pi-style harness idea, split out of this plan on 2026-10-12
+- [Known bugs and the Word JS API inventory](../KNOWN_BUGS.md)
+- [Canonical list migration follow-up](2026-09-30-canonical-list-migration-follow-up.md)
+- [0.9.0 validation](../../validation-reports/2026-10-12-docx-redline-v090.md)
+- [Harness (optional)](../2026-10-12-harness-optional.md): a parked Pi-style harness idea, split out of this plan on 2026-10-12
 
 ## Goal
 
@@ -20,14 +22,14 @@ Before `docx-redline-js` existed, this plugin carried its own OOXML engine, nati
 **North star:** the plugin is three thin things:
 
 1. **Taskpane UI and settings.**
-2. **A small agent loop.** This is the current Gemini loop. Keep it small and give it a harness-like shape when it is touched for other reasons: named lifecycle events, schema-defined tools, and the safety policy in one module. Adopting a third-party harness such as Pi is a separate, parked option: see [Harness (optional)](2026-10-12-harness-optional.md), which recommends against it for now.
+2. **A small agent loop.** This is the current Gemini loop. Keep it small and give it a harness-like shape when it is touched for other reasons: named lifecycle events, schema-defined tools, and the safety policy in one module. Adopting a third-party harness such as Pi is a separate, parked option: see [Harness (optional)](../2026-10-12-harness-optional.md), which recommends against it for now.
 3. **A Word host adapter.** It reads the body package, writes one package, manages tracking state, and confirms the result.
 
 Everything that *understands or transforms a document* lives in `docx-redline-js`. What remains in the plugin is the UI, the loop and the Word boundary. A new document capability should arrive as a library release plus a thin intent mapping, never as plugin logic.
 
 ## Rules for every package
 
-- **Upstream first.** Propose the API in the library repository, release it, update both exact pins, and delete the consumer code in the same consumer commit. No consumer-side OOXML workarounds and no patched `node_modules` (see the [ownership rule](../../.agent/rules/docx-redline-js-ownership.md)).
+- **Upstream first.** Propose the API in the library repository, release it, update both exact pins, and delete the consumer code in the same consumer commit. No consumer-side OOXML workarounds and no patched `node_modules` (see the [ownership rule](../../../.agent/rules/docx-redline-js-ownership.md)).
 - **Net reduction or no merge.** Each package reports `count-document-agent-code.mjs` before and after. A smaller plugin paired with a larger replacement module in the plugin does not count.
 - **Public entry points only.** The consumer imports the package root, or documented subpaths the library commits to keeping stable. Today `src/` uses six internal subpaths (`services/package-parts.js`, `services/package-builder.js`, `services/comment-thread-parts.js`, `document/zip-archive.js`, `adapters/xml-adapter.js`, `standalone-runner`). Each one is coupling to library internals that a release can break.
 - **Same gates, unchanged expectations.** For every package that touches editing or transport, run:
@@ -58,12 +60,12 @@ If WP1–WP3 land as proposed, roughly 1,000–1,200 consumer lines become libra
 ### WP0: Land 0.9.0 and restore a deterministic suite (prerequisite)
 
 1. **Commit the 0.9.0 work.** Make the pending upgrade (pins, tests, docs, KNOWN_BUGS, oracle change) one commit, separate from the issue fixes already on `main`.
-2. **Make the XML provider explicit.** `d5809b9` added `jsdom` as a dev dependency for the chat security tests. [`tests/setup-xml-provider.mjs`](../../tests/setup-xml-provider.mjs) silently prefers `jsdom` whenever it is installed, so every library-facing suite switched DOM implementations.
+2. **Make the XML provider explicit.** `d5809b9` added `jsdom` as a dev dependency for the chat security tests. [`tests/setup-xml-provider.mjs`](../../../tests/setup-xml-provider.mjs) silently prefers `jsdom` whenever it is installed, so every library-facing suite switched DOM implementations.
    - Evidence (2026-10-12): with `jsdom` installed, 43 suites pass and 5 fail. With it moved aside, all 46 library suites pass, and only the two new `jsdom`-based UI tests fail.
    - Fix: choose the provider explicitly, keeping xmldom as the default lane and adding a named `jsdom` lane. Don't let an unrelated dev dependency choose it.
 3. **Triage the `jsdom` failures.** They are `browser_document_session_tests` (generated `ns1` prefix not declared, `PACKAGE_OPERATION_FAILED`), `docx_cross_host_parity_tests` (`BATCH_OPERATION_FAILED`), `ooxml_formatting_visual_tests` and `golden-guardrail`.
    - Word runs the add-in in a browser DOM, which is closer to `jsdom` than to xmldom, so these may be real browser-path library defects.
-   - Reproduce each with public APIs. If one is a library defect, document it with a portable reproducer (see the rule in [KNOWN_BUGS.md](KNOWN_BUGS.md)).
+   - Reproduce each with public APIs. If one is a library defect, document it with a portable reproducer (see the rule in [KNOWN_BUGS.md](../KNOWN_BUGS.md)).
    - Decide whether the `jsdom` lane becomes a required gate.
 
 **Exit:** the 0.9.0 work is committed; the default suite is green on an explicit provider; each `jsdom` failure is either filed upstream or explained.
@@ -74,7 +76,7 @@ If WP1–WP3 land as proposed, roughly 1,000–1,200 consumer lines become libra
 - None of the five jsdom-lane failures is a user defect. Each was compared against real Chromium (Edge 155 headless running the library bundle):
   - Four are jsdom-specific (class B). jsdom gives undeclared-namespace attributes generated `nsN` prefixes, and the library's regex removal of `xmlns:` declarations from serialized fragments only works when the original prefixes survive.
   - `golden-guardrail` is serializer byte differences only (class C). Chromium matches xmldom byte-for-byte on `table_reconcile`.
-- The add-in never calls `configureXmlProvider`, so in Word the library uses WebView2's native DOM. Details are in [KNOWN_BUGS KB-8](KNOWN_BUGS.md).
+- The add-in never calls `configureXmlProvider`, so in Word the library uses WebView2's native DOM. Details are in [KNOWN_BUGS KB-8](../KNOWN_BUGS.md).
 - Optional library hardening (do not depend on serializer prefix preservation) is noted in KB-8. Nothing was filed, because no user-facing defect exists.
 
 ### WP1: Word Flat OPC body layer (re-scoped 2026-10-17)
@@ -96,7 +98,7 @@ Step 2 replaced `getPartSpec` with a local part table (4,330 → 4,335). Two dee
 Step 3 (2026-10-17): sent the library owner a request for a general-purpose, parts-level comment merge (string in, string out, with sibling reconciliation and the existing-thread-metadata refusal), or else documented exports of those two. WP1 waits on that decision. Until then the two imports stay, with the library pinned exact.
 Host lanes on steps 1–2 (2026-10-17): Office.js passed (20 cases, 26 checks, 3 restores), the Word oracle gives 88 PASS / 0 FAIL, and the NDA replay passes 16/16 (51/51). Artifacts: `.cache/reliability/wp1-officejs`, `wp1-oracle`, `.cache/golden/wp1-direct`.
 Step 4 (2026-10-17): the owner approved a library `mergeCommentParts` for 0.11.0. Branch `wp1-comment-merge` (`e232326`) switches the comment merge to it, which drops the last two deep imports (`MemoryZip`, `reconcileCommentSiblingParts`) and the zip-shaped helpers, and adds a test for the existing-thread-metadata refusal. Production lines 4,335 → 4,297. Against the 0.11.0-pre.1 tarball: offline 44/44, Office.js passed (20 cases, 26 checks, 3 restores), Word oracle 88/0, NDA replay 16/16. Results were sent to the library. **Waiting on:** 0.11.0 on npm. Then pin it, re-run the gates and merge the branch, which completes WP1.
-Step 5 (2026-10-18): `docx-redline-js` 0.11.0 is published (tag `v0.11.0` at `5831860`) and pinned exact. The comment-merge commit is on main (`63f0315`), so `src/` imports only the library root and `/standalone-runner`. **The WP1 import goal is met.** Production lines 4,297. Host lanes on this state: Office.js passed (20 cases, 26 checks, 3 restores), Word oracle 88 PASS / 0 FAIL, NDA replay 16/16 (51/51). See the [0.11.0 validation](../validation-reports/2026-10-18-docx-redline-v0110.md).
+Step 5 (2026-10-18): `docx-redline-js` 0.11.0 is published (tag `v0.11.0` at `5831860`) and pinned exact. The comment-merge commit is on main (`63f0315`), so `src/` imports only the library root and `/standalone-runner`. **The WP1 import goal is met.** Production lines 4,297. Host lanes on this state: Office.js passed (20 cases, 26 checks, 3 restores), Word oracle 88 PASS / 0 FAIL, NDA replay 16/16 (51/51). See the [0.11.0 validation](../../validation-reports/2026-10-18-docx-redline-v0110.md).
 Step 6 (2026-10-18, reverted): switching `insert_paragraph`, `append_paragraph` and `insert_list_item` to plain-text (`structuredContent: false`) redlines, dropping the list-marker synthesis and Markdown guards (4,297 → 4,268), passed offline and Office.js. But the Word oracle failed `direct-basic-underline-format` (Reject All 55 vs 56 paragraphs), reproducibly. Cause: in 0.11.0 the plain-text path marks the *new* paragraph's mark as inserted for an "after" insertion. At body end that is the document's final paragraph mark, which Word cannot reject, and a tracked-append seed carried it into the next case. The structured path marks the target's mark. Reverted (`c82c190`) and reported to the library with a reproducer (KNOWN_BUGS KB-9). Re-apply once a library fix passes all three lanes.
 Step 7 (2026-10-18): the library fixed KB-9 for 0.11.1 (master `e51bea6`). Branch `kb9-plain-insertions` (`88a2d55`) re-applies the plain-text insertions. Against the 0.11.1-pre.1 tarball: offline 47/47, Office.js passed (20 cases, 26 checks, 3 restores), Word oracle 88/0 including `direct-basic-underline-format`, NDA replay 16/16. Results were sent to the library. **Waiting on:** 0.11.1 on npm. Then pin it, merge the branch (4,297 → 4,268 lines) and re-run the lanes.
 Step 8 (2026-10-30): `docx-redline-js` 0.11.1 is published (tag `v0.11.1` at `2044e5e`) and pinned exact. It fixes KB-9, KB-14 and the footnote loss (KB-15, upstream #6-#8) and adds the library-side KB-11 refusal. The plain-text insertions (`74cf986`) are on main, so phase-2 WP1 is complete.
@@ -137,7 +139,7 @@ Work:
 - Plugin branch `phase2-wp1-wp3`: plain-text replace/rewrite operations send `existingRevisions: 'auto'` instead of choosing `slice-cross-author` locally; post-commit verification uses `compareDocumentInspections` instead of the local `acceptedShape`/`reviewSegments`; the `TRACKING_POLICY_MISMATCH` guard (KB-5) and the "Add Date Row" known-defect gate (KB-7) are removed.
 - Production lines 4,478 → 4,436. Root and MCP pins are exact 0.10.0 (published 2026-10-17, tag `v0.10.0` at `04faf9b`); the MCP server was removed later the same day. Offline 49/49, the MCP workflow test, both builds, and the KB-7 reproducer exits 1.
 - 0.10.0 also counts unattributed revisions as another author's (`EXISTING_REVISIONS` instead of `UNSAFE_REVISION_NESTING` under merge-same-author). The plugin maps neither code, so nothing changes here.
-- Host lanes (2026-10-17): Office.js passed (20 cases, 26 checks, 3 restores), the Word oracle gives 88 PASS / 0 FAIL, and the NDA replay passes 16/16 (51/51). See the [0.10.0 validation](../validation-reports/2026-10-17-docx-redline-v0100.md).
+- Host lanes (2026-10-17): Office.js passed (20 cases, 26 checks, 3 restores), the Word oracle gives 88 PASS / 0 FAIL, and the NDA replay passes 16/16 (51/51). See the [0.10.0 validation](../../validation-reports/2026-10-17-docx-redline-v0100.md).
 
 ### WP4: Remove expedient Word JS API uses and dead code
 
@@ -174,13 +176,13 @@ These items have no library dependency and can start right after WP0.
 
 ### WP5: New capabilities only as library releases plus a thin mapping
 
-- Adopt 0.9.0 `list-format` (`convert-plain`, `change-format`, `join`) through the [list migration follow-up](completed/2026-09-30-canonical-list-migration-follow-up.md) WP1–WP3. Each new intent should be a schema entry plus an operation mapping, with no plugin-side numbering or marker logic.
+- Adopt 0.9.0 `list-format` (`convert-plain`, `change-format`, `join`) through the [list migration follow-up](2026-09-30-canonical-list-migration-follow-up.md) WP1–WP3. Each new intent should be a schema entry plus an operation mapping, with no plugin-side numbering or marker logic.
 - Measure the lines added per capability.
 - Re-enabling structural table edits or table append stays out of scope until KB-1 has Office.js evidence.
 
 **Exit:** governed by the list plan's own acceptance.
 
-**Done (2026-10-14):** three list actions are exposed as one-to-one `list-format` mappings, adding 112 production lines (4,437 → 4,549). Offline is 49/49; Office.js passes with 20 cases; the oracle gives 88/0; the real-Word NDA replay is 16/16 with step 12 applied. See the [2026-10-14 list-format validation](../validation-reports/2026-10-14-list-format-intents.md). The list plan's facade-parity item remains; its library-issues cleanup was done on 2026-10-17 ([closeout](../validation-reports/2026-10-17-library-issues-closeout.md)).
+**Done (2026-10-14):** three list actions are exposed as one-to-one `list-format` mappings, adding 112 production lines (4,437 → 4,549). Offline is 49/49; Office.js passes with 20 cases; the oracle gives 88/0; the real-Word NDA replay is 16/16 with step 12 applied. See the [2026-10-14 list-format validation](../../validation-reports/2026-10-14-list-format-intents.md). The list plan's facade-parity item remains; its library-issues cleanup was done on 2026-10-17 ([closeout](../../validation-reports/2026-10-17-library-issues-closeout.md)).
 
 ## Separate track: release readiness (not simplification)
 
@@ -195,14 +197,7 @@ These don't reduce the plugin, but they gate users actually getting today's work
 
 ### Deferred (owner decision, 2026-10-30)
 
-These are known and intentionally left for after v2.3.0.0:
-
-- **Issue #3, automatic model fallback.** After transient retries run out, the add-in does not switch to another model on its own. Custom model IDs in Settings (shipped) are the workaround; decide later whether to fall back automatically.
-- **Word Online.** Not re-checked for this release by the owner's choice; listed as a known issue in the release notes.
-- **Host paragraph count for the export tail.** The last expedient Word API use (KNOWN_BUGS "Expedient uses to retire").
-- **KB-1** (body-final table append, not exposed), **KB-8** (jsdom diagnostic lane), and the **1,572 pre-existing Prettier lint errors**.
-- **Library-side KB-11 refusal.** Shipped in 0.11.1 (`LIST_MARKER_UNSUPPORTED`, reason `soft-break-markers`). The plugin guard also stays: it refuses before preparation with a clearer message. Asked of the library on 2026-10-30.
-- **Dev certificate.** The local HTTPS dev certificate lasts 30 days. Renew it before host lanes; it last expired on 2026-10-03.
+Moved to [KNOWN_BUGS: Deferred after v2.3.0.0](../KNOWN_BUGS.md#deferred-after-v2300) when this plan was archived.
 
 ## Measures
 

@@ -1,41 +1,35 @@
 # Project roadmap
 
-**Updated:** 2026-10-12. The [library-first lightweight harness plan](docs/plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md)
-was closed on 2026-10-12 after the `@ansonlai/docx-redline-js` 0.9.0 upgrade
-([validation](docs/validation-reports/2026-10-12-docx-redline-v090.md)); its linked reports and commits are the implementation record. [STATE.md](STATE.md) describes current scope.
+**Updated:** 2026-10-30, after v2.3.0.0 shipped on `@ansonlai/docx-redline-js` 0.11.1 (exact pin). [STATE.md](STATE.md) describes the current scope.
 
-Keep the product an in-place Word plugin with a small inspect/apply harness.
-The library owns document transformations; the Word adapter reads, commits and
-verifies one Flat OPC body batch while preserving tracking. Preserve ordinary
-formatting, numbering, comments and other reviewers' revisions. Refuse requests
-outside the tested retained actions. Maintain exact matching library pins in
-the add-in and MCP.
+## Direction
 
-Before shipping the changed tool protocol/prompt, complete the documented live
-fast/slow model gate using the original NDA requests, intended edits, refusal,
-turn-count and host-commit evidence. Desktop Word is the initial validated host;
-Word Online requires separate affected-operation checks before being advertised
-with equivalent editing guarantees. These are validation requirements, rather
-than new product features.
+Keep the product an in-place Word add-in with a small inspect/apply agent loop, and keep shrinking it. The library owns every document transformation. The add-in keeps three thin parts: the taskpane UI and settings, the agent loop, and the Word host adapter, which reads the body as Flat OPC, writes one prepared package, and verifies what Word saved. Word-specific glue (Flat OPC handling and Word export noise) stays in the add-in, and the library stays host-independent.
 
-No library issues are open as of 0.10.0 (see the [closeout](docs/validation-reports/2026-10-17-library-issues-closeout.md));
-their independent reproducers and Word fixtures stay runnable. Remaining
-consumer-side bugs and the Word JavaScript API inventory are in
-[KNOWN_BUGS.md](docs/plans/KNOWN_BUGS.md). A published library fix permits a tested
-version upgrade; it does not authorize expanding scope. Broader list
-conversion/depth/styles and table creation/rows remain refused unless the owner
-later approves a capability and its source/accepted/rejected fidelity passes.
-The [September list follow-up](docs/plans/completed/2026-09-30-canonical-list-migration-follow-up.md)
-is open for consumer adoption of the released `list-format` capabilities; the
-[table plan](docs/plans/completed/2026-09-30-table-creation-reliability.md) is closed.
+A new document capability arrives as a library release plus a thin intent mapping, never as add-in logic. A library fix permits a tested version upgrade; it does not by itself widen what the assistant offers.
 
-Local Flat OPC assembly remains a measured consumer responsibility. A future
-supported upstream inspection/preparation API may reduce it if negotiated and
-verified. No complete-DOCX Word facade, binary bridge, Pi runtime adoption,
-general skills, additional tool catalogue, font/layout controls or checkpoint
-branching is scheduled. Browser/MCP facade behavior remains unchanged.
+## Done
 
-Earlier engine extraction, package integration, reliability and performance
-milestones are preserved in [completed plans](docs/plans/completed/) and dated
-[validation reports](docs/validation-reports/). Their native-route evidence is
-historical and does not imply that those commands remain available.
+- **Phase 1, library-first lightweight harness** (closed 2026-10-12): [plan](docs/plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md).
+- **Phase 2, library-first simplification** (closed 2026-10-30, shipped in v2.3.0.0): [plan](docs/plans/completed/2026-10-12-library-first-simplification-phase-2.md). Production code is 4,362 lines in 19 files, and `src/` imports only the library root and `/standalone-runner`.
+
+## Open and deferred
+
+Everything still open is in [KNOWN_BUGS.md](docs/plans/KNOWN_BUGS.md):
+
+- KB-1, body-final table append. It isn't exposed, but it blocks bringing table append back.
+- KB-17, live-model judgement gaps.
+- The deferred list: automatic model fallback (issue #3), Word Online, the last expedient Word API use, and lint.
+
+## Not scheduled
+
+These stay refused unless the owner approves a capability and it passes the source, Accept All and Reject All checks in Word:
+
+- table creation and rows;
+- list depth, indent and range changes;
+- font and layout controls;
+- revision acceptance.
+
+Also not planned: a complete-DOCX Word facade or binary bridge, and a third-party harness (the [harness plan](docs/plans/2026-10-12-harness-optional.md) is parked).
+
+Earlier milestones are kept in [completed plans](docs/plans/completed/) and dated [validation reports](docs/validation-reports/).
