@@ -52,7 +52,9 @@ function unresolvedFailureRecord(records) {
   for (let index = 0; index < records.length; index++) {
     const record = records[index];
     if (record.mutating === true && record.success === true) latestSuccessfulMutation = index;
-    if (record.success !== true) latestFailure = index;
+    // A failed search (a known read-only tool) does not override the model's reply; any other
+    // failure does, so a refused edit or unknown tool is always reported truthfully.
+    if (record.success !== true && record.readOnly !== true) latestFailure = index;
   }
   return latestFailure > latestSuccessfulMutation ? records[latestFailure] : null;
 }
@@ -206,7 +208,9 @@ export async function runDocumentAgentLoop({
       const calls = parts.filter(part => part?.functionCall);
       if (!calls.length) {
         if (interrupt()) break;
-        const modelText = parts.find(part => typeof part?.text === 'string' && part.text.trim() && !part.thought)?.text;
+        let modelText = parts.find(part => typeof part?.text === 'string' && part.text.trim() && !part.thought)?.text;
+        // A model can echo the closing-summary request back; that is not an answer.
+        if (closingSummaryRequested && modelText?.includes(CLOSING_SUMMARY_PROMPT.slice(0, 40))) modelText = undefined;
         const lastMutation = latestMutationRecord(state.records);
         const unresolvedFailure = unresolvedFailureRecord(state.records);
         // Gemini sometimes closes with an empty turn after an edit. The receipt alone cannot say
@@ -304,6 +308,7 @@ export async function runDocumentAgentLoop({
           success: execution.success === true,
           recordSuccess: execution.recordSuccess,
           mutating: execution.mutating === true,
+          readOnly: description.known === true && description.mutating !== true,
           requiresInspection: execution.requiresInspection === true,
           ...execution.hostWriteEvidence,
         });

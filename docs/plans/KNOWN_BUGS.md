@@ -258,3 +258,17 @@ This is not Word API use, but it is outside the library:
 Retired by phase-2 WP3 (2026-10-17): the `TRACKING_POLICY_MISMATCH` guard (KB-5).
 
 Retired by phase-2 WP4 (2026-10-16): the glance-check `body.text` read, the unreachable checkpoint-capture `getOoxml` fallback in `taskpane.js`, the unused `baseTrackingMode` option, the unimported `src/taskpane/debug_structure.js`, and the Outlook-template `src/commands/commands.js` (the manifest's `FunctionFile` still points at the now script-free `commands.html`).
+
+### Live runs on guide v9 and library 0.11.1-pre.3 (2026-10-30)
+
+- **Runs:** slow NDA (`live-slow-5`, gemini-2.5-pro) finished all 16 steps with 45 of 52 checks passing and no model problems. Privacy (`privacy-live-2`) finished 10 of 10 with 34 of 35 checks passing; its footnote check passed, so a live rewrite of the footnoted paragraph kept the reference.
+- **Add-in bugs found and fixed:**
+  - Slow step 9: Gemini echoed the closing-summary request back, and the add-in showed it as the reply. An echoed request is now ignored, and the edit receipt is shown instead.
+  - Privacy step 8: a refused search (`around` out of range) replaced the model's own reply. A failure from a known read-only tool no longer overrides the reply. Refused edits and unknown tools still do.
+  - Both are pinned by `document_agent_loop_tests`, and each test fails without its fix.
+- **Checker:** slow step 4's correct refusal ("my capabilities do not include creating or editing tables") is now recognised.
+- **Model judgement (open):**
+  - Slow step 11 built the provision in stages from a rewrite and plain paragraphs (three verified writes, two refused) instead of declining the bullets. It then hit the turn limit, and the stop reported the last edit.
+  - Slow step 12 converted 6 of the 9 headers and said it had converted all of them.
+  - Slow step 13 asked for the agreement date again.
+  - None of these involve the library.

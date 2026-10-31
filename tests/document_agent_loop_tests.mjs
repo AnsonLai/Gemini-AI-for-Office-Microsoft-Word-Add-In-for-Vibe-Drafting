@@ -235,6 +235,21 @@ function responseTurn(state) {
   assert.equal(test.events.find(event => event.type === 'response').text, 'The requested edits were applied.');
 }
 {
+  // An echo of the summary request is not an answer: fall back to the edit receipt.
+  const emptyStop = { candidates: [{ finishReason: 'STOP' }] };
+  const test = harness([model(call('apply_document_edits')), emptyStop, final(CLOSING_SUMMARY_PROMPT)], { applyDocumentEdits: async () => applied() });
+  await test.run();
+  assert.equal(test.events.find(event => event.type === 'response').text, 'The requested edits were applied.');
+}
+{
+  // A refused search does not replace the model's own reply.
+  const test = harness([model(call('inspect_document', { search: 'Contact', around: 9 })), final('I can’t turn a table into a list; that is not supported.')], {
+    inspectDocument: async () => ({ status: 'error', success: false, message: 'around must be an integer from 0 through 5.', error: { code: 'INVALID_INSPECTION' } }),
+  });
+  await test.run();
+  assert.equal(test.events.find(event => event.type === 'response').text, 'I can’t turn a table into a list; that is not supported.');
+}
+{
   // A write from an earlier request does not trigger it.
   const test = harness([{ candidates: [{ finishReason: 'STOP' }] }]);
   test.state.records.push({ mutating: true, written: true, success: true, message: 'Earlier edit.' });
