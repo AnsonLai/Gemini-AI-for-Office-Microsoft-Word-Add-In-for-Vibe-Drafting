@@ -99,6 +99,7 @@ Step 4 (2026-10-17): the owner approved a library `mergeCommentParts` for 0.11.0
 Step 5 (2026-10-18): `docx-redline-js` 0.11.0 is published (tag `v0.11.0` at `5831860`) and pinned exact. The comment-merge commit is on main (`63f0315`), so `src/` imports only the library root and `/standalone-runner`. **The WP1 import goal is met.** Production lines 4,297. Host lanes on this state: Office.js passed (20 cases, 26 checks, 3 restores), Word oracle 88 PASS / 0 FAIL, NDA replay 16/16 (51/51). See the [0.11.0 validation](../validation-reports/2026-10-18-docx-redline-v0110.md).
 Step 6 (2026-10-18, reverted): switching `insert_paragraph`, `append_paragraph` and `insert_list_item` to plain-text (`structuredContent: false`) redlines, dropping the list-marker synthesis and Markdown guards (4,297 → 4,268), passed offline and Office.js. But the Word oracle failed `direct-basic-underline-format` (Reject All 55 vs 56 paragraphs), reproducibly. Cause: in 0.11.0 the plain-text path marks the *new* paragraph's mark as inserted for an "after" insertion. At body end that is the document's final paragraph mark, which Word cannot reject, and a tracked-append seed carried it into the next case. The structured path marks the target's mark. Reverted (`c82c190`) and reported to the library with a reproducer (KNOWN_BUGS KB-9). Re-apply once a library fix passes all three lanes.
 Step 7 (2026-10-18): the library fixed KB-9 for 0.11.1 (master `e51bea6`). Branch `kb9-plain-insertions` (`88a2d55`) re-applies the plain-text insertions. Against the 0.11.1-pre.1 tarball: offline 47/47, Office.js passed (20 cases, 26 checks, 3 restores), Word oracle 88/0 including `direct-basic-underline-format`, NDA replay 16/16. Results were sent to the library. **Waiting on:** 0.11.1 on npm. Then pin it, merge the branch (4,297 → 4,268 lines) and re-run the lanes.
+Step 8 (2026-10-30): `docx-redline-js` 0.11.1 is published (tag `v0.11.1` at `2044e5e`) and pinned exact. It fixes KB-9, KB-14 and the footnote loss (KB-15, upstream #6-#8) and adds the library-side KB-11 refusal. The plain-text insertions (`74cf986`) are on main, so phase-2 WP1 is complete.
 
 **Exit:** `src/` imports only the library root and documented subpaths; the Word layer shrinks where a general-purpose library primitive replaces local code. Steps that need a library change wait for the library owner's decision.
 
@@ -200,7 +201,7 @@ These are known and intentionally left for after v2.3.0.0:
 - **Word Online.** Not re-checked for this release by the owner's choice; listed as a known issue in the release notes.
 - **Host paragraph count for the export tail.** The last expedient Word API use (KNOWN_BUGS "Expedient uses to retire").
 - **KB-1** (body-final table append, not exposed), **KB-8** (jsdom diagnostic lane), and the **1,572 pre-existing Prettier lint errors**.
-- **Library-side KB-11 refusal.** Asked of the library for 0.11.1 (2026-10-30). The plugin guard stays until a library release refuses these paragraphs itself.
+- **Library-side KB-11 refusal.** Shipped in 0.11.1 (`LIST_MARKER_UNSUPPORTED`, reason `soft-break-markers`). The plugin guard also stays: it refuses before preparation with a clearer message. Asked of the library on 2026-10-30.
 - **Dev certificate.** The local HTTPS dev certificate lasts 30 days. Renew it before host lanes; it last expired on 2026-10-03.
 
 ## Measures
