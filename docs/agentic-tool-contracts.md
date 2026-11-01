@@ -19,9 +19,9 @@ Word regenerates session attributes and an export-only empty tail ID. These conf
 | `replace_text` | `find`, `replace`, optional `occurrence` | Exact literal text within one paragraph, including existing list/table-cell text. Occurrence is 1-based; no paragraph breaks. |
 | `rewrite_paragraph` | `text` | Complete desired literal text for one existing paragraph. |
 | `delete_paragraph` | None | Plain paragraphs; structural list/table deletion refuses. |
-| `insert_paragraph` | `text`, `position:before` or `after` | One plain paragraph beside an inspected nonempty plain paragraph. |
-| `append_paragraph` | `text` | End handle; one paragraph at a supported plain end. |
-| `insert_list_item` | `text` | Same-level insertion after an active bullet/decimal item at library levels 0–1, outside tables. |
+| `insert_paragraph` | `text`, `position:before` or `after` | Plain paragraphs beside an inspected nonempty plain paragraph; each line of `text` becomes its own paragraph (no blank lines, at most 40). |
+| `append_paragraph` | `text` | End handle; plain paragraphs at a supported plain end, one per line of `text`. |
+| `insert_list_item` | `text` | Same-level insertion after an active bullet/decimal item at library levels 0–1, outside tables; one item per line of `text`. |
 | `comment` | `text`, optional `anchor` | One comment on exact original inspected text; existing comments and threads are preserved when adding more. |
 | `format_text` | `find`, optional `occurrence`, `properties` | Boolean bold/italic/underline/strikethrough; highlight `yellow` or `none`. |
 | `convert_to_list` | optional `through`, `format`, `markers`, `start` | Plain, non-list, non-table paragraphs become a new list through the library's `list-format` `convert-plain`. `target` (and a later `through` for a contiguous run) are fully inspected handles. `markers` `typed` (default) strips the typed marker (`1.`, `A.`, `iv.`, `-`) as a tracked deletion and keeps its value as the label; `format` is optional and disambiguates `I.`/`C.`. `markers` `none` keeps the text, requires `format` and accepts `start`. One `convert_to_list` per header converts non-contiguous headers; consecutive values join one list. |

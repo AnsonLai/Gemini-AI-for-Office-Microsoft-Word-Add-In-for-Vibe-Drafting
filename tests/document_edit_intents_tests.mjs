@@ -321,11 +321,11 @@ await assert.rejects(
   'list insertion refuses numbered formats outside bullet and decimal'
 );
 await assert.rejects(
-  () => compileDocumentEdits([{ type: 'insert_list_item', target: 'handle-3', text: 'A\nsecond paragraph.' }], {
+  () => compileDocumentEdits([{ type: 'insert_list_item', target: 'handle-3', text: 'A\n\nsecond item.' }], {
     session: createSession(listSourceTargets), source
   }),
   error => error instanceof DocumentEditIntentError && error.code === 'UNSUPPORTED_DOCUMENT_EDIT',
-  'list item text must remain one plain line'
+  'each line of a list insertion is one non-empty item; blank lines are refused'
 );
 await assert.rejects(
   () => compileDocumentEdits(Array.from({ length: 41 }, () => ({
@@ -742,6 +742,56 @@ const paragraphMarkTracked = paragraph => /<w:ins\b/.test(paragraph.match(/<w:pP
     const before = refs(paragraphXml);
     assert.equal(refs(acceptTrackedChangesInOoxml(prepared.result.documentXml, { allAuthors: true }).oxml), before, `${name}: Accept All keeps every reference`);
     assert.equal(refs(rejectTrackedChangesInOoxml(prepared.result.documentXml, { allAuthors: true }).oxml), before, `${name}: Reject All keeps every reference`);
+  }
+}
+// Several lines in one insertion become separate paragraphs (a poem, an address), so the model
+// never joins lines with slashes. Accept All shows every line; Reject All restores the source.
+{
+  const LINES = ['A steaming hot bowl in Sapporo,', 'Will banish all wintertime sorrow.', 'With pork sliced so neat,', 'And rich miso heat,', 'I’ll order another tomorrow!'];
+  const texts = xml => inspectWordSource(xml).inspection.paragraphs.map(paragraph => paragraph.exactText);
+  const bodyParagraphs = xml => xml.slice(xml.indexOf('<w:body>'), xml.indexOf('<w:sectPr')).split(/(?=<w:p[ >])/).filter(part => part.startsWith('<w:p'));
+  const twoParagraphs = makePackage('<w:p><w:r><w:t>Intro.</w:t></w:r></w:p><w:p><w:r><w:t>Closing.</w:t></w:r></w:p>');
+  const cases = [
+    ['after a paragraph', twoParagraphs, targets => ({ type: 'insert_paragraph', target: targets[0].handle, position: 'after', text: LINES.join('\n') }),
+      ['Intro.', ...LINES, 'Closing.']],
+    ['before a paragraph', twoParagraphs, targets => ({ type: 'insert_paragraph', target: targets[1].handle, position: 'before', text: LINES.join('\r\n') }),
+      ['Intro.', ...LINES, 'Closing.']],
+  ];
+  for (const [name, packageXml, edit, acceptedTexts] of cases) {
+    const { compiled } = await compileFor(packageXml, [edit(targetsFrom(packageXml))]);
+    assert.equal(compiled.expectations[0].expectedParagraphs.length, LINES.length + 1, `${name}: every line is an expected paragraph`);
+    const prepared = await prepareCanonicalBatch(packageXml, compiled.operations, { author: 'Intent Compiler Test' });
+    assert.equal(prepared.status, 'ready', `${name}: ${JSON.stringify(prepared.result?.error || prepared.result?.results)}`);
+    assert.deepEqual(texts(acceptTrackedChangesInOoxml(prepared.result.documentXml, { allAuthors: true }).oxml), acceptedTexts, `${name}: Accept All`);
+    assert.deepEqual(texts(rejectTrackedChangesInOoxml(prepared.result.documentXml, { allAuthors: true }).oxml), ['Intro.', 'Closing.'], `${name}: Reject All`);
+  }
+  // Appending several lines at the body end keeps the final paragraph mark untracked (KB-9).
+  const endTarget = { ...targetsFrom(twoParagraphs).at(-1), handle: 'end-handle', kind: 'document-end', position: 'after', fullTextInspected: false };
+  const appended = await compileDocumentEdits([{ type: 'append_paragraph', target: 'end-handle', text: LINES.join('\n') }],
+    { session: createSession([], { endHandle: endTarget }), source: { documentId: 'doc-1' } });
+  const appendedPrepared = await prepareCanonicalBatch(twoParagraphs, appended.operations, { author: 'Intent Compiler Test' });
+  assert.equal(appendedPrepared.status, 'ready', JSON.stringify(appendedPrepared.result?.error || appendedPrepared.result?.results));
+  assert.equal(paragraphMarkTracked(bodyParagraphs(appendedPrepared.result.documentXml).at(-1)), false, "multi-line append: the body's final paragraph mark stays untracked");
+  assert.deepEqual(texts(acceptTrackedChangesInOoxml(appendedPrepared.result.documentXml, { allAuthors: true }).oxml), ['Intro.', 'Closing.', ...LINES], 'multi-line append: Accept All');
+  assert.deepEqual(texts(rejectTrackedChangesInOoxml(appendedPrepared.result.documentXml, { allAuthors: true }).oxml), ['Intro.', 'Closing.'], 'multi-line append: Reject All');
+  // Several list items in one insertion all join the target's list at its level.
+  const listTarget = listSourceTargets.find(item => item.exactText === 'Bullet Root A');
+  const listCompiled = await compileDocumentEdits([{ type: 'insert_list_item', target: listTarget.handle, text: 'Added one\nAdded two\nAdded three' }],
+    { session: createSession(listSourceTargets), source: { documentId: 'doc-1' } });
+  const listPrepared = await prepareCanonicalBatch(listSourcePackage, listCompiled.operations, { author: 'Intent Compiler Test' });
+  assert.equal(listPrepared.status, 'ready', JSON.stringify(listPrepared.result?.error || listPrepared.result?.results));
+  const listAccepted = inspectWordSource(acceptTrackedChangesInOoxml(listPrepared.insertionPayload, { allAuthors: true }).oxml).inspection.paragraphs;
+  const added = listAccepted.filter(paragraph => paragraph.exactText.startsWith('Added '));
+  assert.deepEqual(added.map(paragraph => paragraph.exactText), ['Added one', 'Added two', 'Added three']);
+  for (const paragraph of added) assert.deepEqual(paragraph.list && { format: paragraph.list.format, level: paragraph.list.level }, { format: 'bullet', level: 0 }, `${paragraph.exactText} joins the bullet list at level 0`);
+  const listTarget0 = listAccepted.find(paragraph => paragraph.exactText === 'Bullet Root A');
+  assert.deepEqual(added.map(paragraph => paragraph.index), [1, 2, 3].map(offset => listTarget0.index + offset), 'the new items follow the target in order');
+  for (const paragraph of added) assert.equal(paragraph.list.numId, listTarget0.list.numId, `${paragraph.exactText} stays in the target's numbering`);
+  assert.deepEqual(texts(rejectTrackedChangesInOoxml(listPrepared.insertionPayload, { allAuthors: true }).oxml), texts(listSourcePackage), 'multi-item list insertion: Reject All restores the source');
+  // Blank or padded lines are refused before anything is prepared.
+  for (const bad of ['Line one\n\nLine two', 'Line one\n  Line two', 'Line one\n']) {
+    await assert.rejects(() => compileFor(twoParagraphs, [{ type: 'insert_paragraph', target: 'handle-1', position: 'after', text: bad }]),
+      error => error instanceof DocumentEditIntentError && error.code === 'UNSUPPORTED_DOCUMENT_EDIT' && /own paragraph/.test(error.message), JSON.stringify(bad));
   }
 }
 console.log('PASS: typed document edit intent compiler tests');

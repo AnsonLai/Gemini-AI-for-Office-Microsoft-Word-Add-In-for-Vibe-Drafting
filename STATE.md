@@ -9,14 +9,14 @@ The add-in gives Gemini two tools: `inspect_document`, which returns focused tex
 **Supported edits:**
 
 - text replacement and paragraph rewrites;
-- paragraph insertion, appending and deletion;
-- list item insertion at the first two levels;
+- paragraph insertion, appending and deletion, where each line of inserted text becomes its own paragraph (since 2026-10-31);
+- list item insertion at the first two levels, one or more items at once;
 - turning paragraphs into a list, changing list numbering, and continuing an earlier list;
 - comments;
 - bold, italic, underline, strikethrough and yellow highlight;
 - table-cell text.
 
-Anything else is refused with no change, and a mixed request with an unsupported part is refused as a whole. The [tool contract](docs/agentic-tool-contracts.md) and the editing guide (v9) give the exact rules.
+Anything else is refused with no change, and a mixed request with an unsupported part is refused as a whole. The [tool contract](docs/agentic-tool-contracts.md) and the editing guide (v10) give the exact rules.
 
 `@ansonlai/docx-redline-js` 0.11.1 (exact pin) does every document transformation. Office.js only does the following:
 

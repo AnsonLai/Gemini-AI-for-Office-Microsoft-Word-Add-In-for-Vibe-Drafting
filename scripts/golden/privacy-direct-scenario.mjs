@@ -17,6 +17,8 @@ const batchEvidence = {
 const EMAIL = 'privacy@maplestreetdental.example';
 const SHARING = { startsWith: 'We share your information only' };
 const USES = ['To provide and coordinate your care.', 'To process payments and insurance claims.', 'To send appointment reminders.'];
+const ADDRESS = ['Maple Street Dental Clinic', '12 Maple Street', 'Springfield'];
+const NEW_USES = ['To meet our legal and regulatory duties.', 'To improve our services.'];
 const RIGHTS = ['Ask to see the information we hold about you.', 'Ask us to correct information that is wrong.', 'Withdraw your consent where we rely on it.'];
 
 const steps = [
@@ -54,7 +56,9 @@ const steps = [
       done
     ],
     checks: [
-      { type: 'list', label: 'the newsletter bullet joins the uses list', items: [...USES, { includes: 'newsletter' }], numFmt: 'bullet' }
+      // Step 12 adds two bullets mid-list later, so check membership and the newsletter's place, not one fixed run.
+      { type: 'sameList', label: 'the newsletter bullet joins the uses list', texts: [...USES.map(text => ({ equals: text })), { includes: 'newsletter' }], numFmt: 'bullet' },
+      { type: 'list', label: 'the newsletter bullet follows the reminders bullet', items: [USES[2], { includes: 'newsletter' }], numFmt: 'bullet' }
     ]
   },
   {
@@ -140,6 +144,35 @@ const steps = [
     checks: [
       { type: 'text', label: 'a paper-copy line is added', text: { regex: 'paper copy', flags: 'i' } },
       { type: 'adjacent', label: 'the paper-copy line follows the signature line', first: { startsWith: 'Patient signature:' }, second: { regex: 'paper copy', flags: 'i' } }
+    ]
+  },
+  {
+    // Several lines in one insertion become separate paragraphs, at the very end of the body.
+    id: '11-postal-address',
+    prompt: 'At the end, add our postal address on three lines: Maple Street Dental Clinic, 12 Maple Street, Springfield.',
+    replay: [
+      inspect('paper copy', { includeDocumentEnd: true }),
+      apply([{ type: 'append_paragraph', target: { $end: true }, text: ADDRESS.join('\n') }]),
+      done
+    ],
+    checks: [
+      { type: 'adjacent', label: 'the address starts after the paper-copy line', first: { regex: 'paper copy', flags: 'i' }, second: { equals: ADDRESS[0] } },
+      { type: 'adjacent', label: 'the second address line is its own paragraph', first: { equals: ADDRESS[0] }, second: { equals: ADDRESS[1] } },
+      { type: 'adjacent', label: 'the third address line is its own paragraph', first: { equals: ADDRESS[1] }, second: { equals: ADDRESS[2] } },
+      { type: 'text', label: 'the address lines are not joined with slashes', text: { includes: 'Clinic / 12' }, absent: true }
+    ]
+  },
+  {
+    // Several list items in one insertion join the target's list, in order.
+    id: '12-two-uses',
+    prompt: 'Under How We Use Your Information, after the payments bullet, add two bullets: one about meeting our legal duties and one about improving our services.',
+    replay: [
+      inspect('To process payments'),
+      apply([{ type: 'insert_list_item', target: handle({ equals: USES[1] }), text: NEW_USES.join('\n') }]),
+      done
+    ],
+    checks: [
+      { type: 'list', label: 'both new bullets join the uses list after the payments bullet', items: [USES[0], USES[1], ...NEW_USES, USES[2]], numFmt: 'bullet' }
     ]
   }
 ];

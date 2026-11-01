@@ -53,11 +53,16 @@ function positiveInteger(value, index, field) {
   return value;
 }
 
-function plainParagraph(value, index, field) {
-  // Insertions are sent with structuredContent: false, so the library keeps the text literal.
-  if (value.includes('\n') || value.includes('\r') || value !== value.trim()) {
-    fail('UNSUPPORTED_DOCUMENT_EDIT', 'Inserted content must be one plain paragraph without line breaks or outer whitespace.', index, field);
+const MAX_INSERTED_LINES = 40;
+// Insertions are sent with structuredContent: false, so the library keeps the text literal.
+// Each line of the text becomes its own new paragraph (a poem, an address, several items).
+function insertedLines(value, index, field) {
+  const lines = value.split(/\r\n|\r|\n/);
+  if (lines.length > MAX_INSERTED_LINES) fail('UNSUPPORTED_DOCUMENT_EDIT', `One insertion can add at most ${MAX_INSERTED_LINES} paragraphs.`, index, field);
+  if (lines.some(line => !line.trim() || line !== line.trim())) {
+    fail('UNSUPPORTED_DOCUMENT_EDIT', 'Each line of inserted text becomes its own paragraph and must be non-empty without outer whitespace. Leave out blank lines.', index, field);
   }
+  return lines;
 }
 
 function validateEdit(edit, index) {
@@ -81,10 +86,11 @@ function validateEdit(edit, index) {
     if (value.find === value.replace) fail('UNSUPPORTED_LITERAL_NOOP', 'A literal replacement must change the matched text. Use rewrite_paragraph with the complete desired paragraph to confirm an already-satisfied state.', index, 'replace');
   } else if (edit.type === 'rewrite_paragraph') {
     value.text = text(edit.text, index, 'text');
-    if (/[\r\n]/.test(value.text)) fail('UNSUPPORTED_DOCUMENT_EDIT', 'A paragraph rewrite must contain one paragraph without line breaks. Use a paragraph insertion for a new paragraph. If the paragraph already contains line breaks (Shift+Enter), change its wording with replace_text instead.', index, 'text');
+    if (/[\r\n]/.test(value.text)) fail('UNSUPPORTED_DOCUMENT_EDIT', 'A paragraph rewrite must contain one paragraph without line breaks. For new multi-line text, use insert_paragraph or append_paragraph, where each line becomes its own paragraph. If the paragraph already contains line breaks (Shift+Enter), change its wording with replace_text instead.', index, 'text');
   } else if (edit.type === 'insert_paragraph' || edit.type === 'append_paragraph' || edit.type === 'insert_list_item') {
     value.text = text(edit.text, index, 'text');
-    plainParagraph(value.text, index, 'text');
+    value.lines = insertedLines(value.text, index, 'text');
+    value.text = value.lines.join('\n');
     if (edit.type === 'insert_paragraph' && !['before', 'after'].includes(edit.position)) {
       fail('INVALID_DOCUMENT_EDIT', 'position must be "before" or "after".', index, 'position');
     }
@@ -336,20 +342,20 @@ export async function compileDocumentEdits(edits, { session, source } = {}) {
       case 'insert_list_item': {
         // A plain-text redline adds the new paragraph as a sibling in the target's list and level.
         operation = { type: 'redline', target, modified: `${descriptor.exactText}\n${edit.text}`, structuredContent: false };
-        expected.expectedParagraphs = [descriptor.exactText, edit.text];
+        expected.expectedParagraphs = [descriptor.exactText, ...edit.lines];
         expected.expectedListInsertion = { format: descriptor.list.format, level: descriptor.list.level };
         break;
       }
       case 'insert_paragraph': {
         const current = descriptor.exactText;
         operation = { type: 'redline', target, modified: edit.position === 'before' ? `${edit.text}\n${current}` : `${current}\n${edit.text}`, structuredContent: false };
-        expected.expectedParagraphs = edit.position === 'before' ? [edit.text, current] : [current, edit.text];
+        expected.expectedParagraphs = edit.position === 'before' ? [...edit.lines, current] : [current, ...edit.lines];
         break;
       }
       case 'append_paragraph': {
         const current = descriptor.exactText;
         operation = { type: 'redline', target, modified: current ? `${current}\n${edit.text}` : edit.text, structuredContent: false };
-        expected.expectedParagraphs = current ? [current, edit.text] : [edit.text];
+        expected.expectedParagraphs = current ? [current, ...edit.lines] : [...edit.lines];
         break;
       }
       case 'comment': {
