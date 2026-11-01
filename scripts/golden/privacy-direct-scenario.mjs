@@ -19,6 +19,9 @@ const SHARING = { startsWith: 'We share your information only' };
 const USES = ['To provide and coordinate your care.', 'To process payments and insurance claims.', 'To send appointment reminders.'];
 const ADDRESS = ['Maple Street Dental Clinic', '12 Maple Street', 'Springfield'];
 const NEW_USES = ['To meet our legal and regulatory duties.', 'To improve our services.'];
+const SECURITY = ['How We Keep Your Information Safe',
+  'We store paper records in locked cabinets and electronic records on secure systems that only authorised staff can access.',
+  'We keep your records for as long as the law requires and then destroy them securely.'];
 const RIGHTS = ['Ask to see the information we hold about you.', 'Ask us to correct information that is wrong.', 'Withdraw your consent where we rely on it.'];
 
 const steps = [
@@ -173,6 +176,23 @@ const steps = [
     ],
     checks: [
       { type: 'list', label: 'both new bullets join the uses list after the payments bullet', items: [USES[0], USES[1], ...NEW_USES, USES[2]], numFmt: 'bullet' }
+    ]
+  },
+  {
+    // Drafted prose of several paragraphs (like recitals) lands as separate paragraphs, not one run-on block.
+    id: '13-security-section',
+    prompt: 'Before Your Rights, add a short section headed How We Keep Your Information Safe, with one paragraph on how we store records and one on how long we keep them.',
+    replay: [
+      // Plain insertion beside a heading is refused, so the section goes after the sharing paragraph.
+      inspect('We share your information only'),
+      apply([{ type: 'insert_paragraph', target: handle(SHARING), position: 'after', text: SECURITY.join('\n') }]),
+      done
+    ],
+    checks: [
+      { type: 'adjacent', label: 'the section starts after the sharing paragraph', first: SHARING, second: { equals: SECURITY[0] } },
+      { type: 'adjacent', label: 'the heading is its own paragraph', first: { equals: SECURITY[0] }, second: { startsWith: 'We store' } },
+      { type: 'adjacent', label: 'each body paragraph is its own paragraph', first: { startsWith: 'We store' }, second: { startsWith: 'We keep' } },
+      { type: 'adjacent', label: 'Your Rights follows the new section', first: { startsWith: 'We keep' }, second: { equals: 'Your Rights' } }
     ]
   }
 ];
