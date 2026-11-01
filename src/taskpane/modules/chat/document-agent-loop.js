@@ -123,6 +123,20 @@ function emitRefusalEvent(name, description, message, emit) {
   });
 }
 
+export const REPEATED_REFUSAL_MESSAGE = 'No changes made. These exact edits were already refused in this request, so they were not sent again. Follow the earlier refusal\'s recovery, or tell the user what was not done.';
+
+/** The executor result for an exactly repeated, already refused edit call (never run). */
+function repeatedRefusal(name, description) {
+  const rawResult = { status: 'error', success: false, written: false, writeAttempted: false, mutationOutcome: 'refused',
+    error: { code: 'REPEATED_REFUSED_EDITS', message: REPEATED_REFUSAL_MESSAGE,
+      recovery: { action: 'change_request', sameArgumentsSafe: false, requiresReinspection: false, requiresUserAuthorization: false } },
+    message: REPEATED_REFUSAL_MESSAGE };
+  return { name, instruction: description?.instruction, mutating: true, rawResult, resultText: JSON.stringify(rawResult),
+    success: false, recordSuccess: false, recordResult: rawResult, mutation: rawResult,
+    hostWriteEvidence: { written: false, writeAttempted: false, mutationOutcome: 'refused' },
+    requiresInspection: false, completionText: REPEATED_REFUSAL_MESSAGE, display: { show: true } };
+}
+
 /** Only describe observed work; a failed tool record is not a successful edit. */
 function completedWork(records) {
   const confirmed = records.filter(record => record.written === true);
@@ -173,6 +187,8 @@ export async function runDocumentAgentLoop({
     return false;
   };
   let lastRefusal = null;
+  // Edit calls refused without any write in this request, by tool name and exact arguments.
+  const refusedEditArgs = new Set();
   let closingSummaryRequested = false;
   const recordsAtStart = state.records.length;
   let lastTurnCompletion = null;
@@ -289,8 +305,12 @@ export async function runDocumentAgentLoop({
           continue;
         }
         let execution;
+        let serializedArgs;
+        try { serializedArgs = JSON.stringify(args); } catch { serializedArgs = null; }
+        const repeat = description.mutating === true && serializedArgs && refusedEditArgs.has(`${name}|${serializedArgs}`);
         try {
-          execution = await registry.execute(name, args);
+          // Exactly repeated edits that were already refused without a write are not sent again.
+          execution = repeat ? repeatedRefusal(name, description) : await registry.execute(name, args);
         } catch (error) {
           if (!cancelled() && error?.name !== 'AbortError') throw error;
           stop('cancelled', 'Request cancelled. Inspect the document if an edit was already in progress.');
@@ -298,6 +318,8 @@ export async function runDocumentAgentLoop({
           continue;
         }
         const mutation = execution.mutation;
+        // After a fresh inspection the model may legitimately send the same call again.
+        if (!execution.mutating && execution.success) refusedEditArgs.clear();
         state.records.push({
           name,
           instruction: execution.instruction,
@@ -319,13 +341,15 @@ export async function runDocumentAgentLoop({
           stale ||= isNoWriteStaleContextRefusal(mutation);
           if (execution.success) {
             successful++;
+            refusedEditArgs.clear(); // The document may have changed, so earlier refusals no longer apply.
             if (mutation?.written === true) lastTurnCompletion = execution.completionText || mutation?.message || lastTurnCompletion;
           }
           else {
-            let serialized;
-            try { serialized = JSON.stringify(args); } catch { serialized = '[unserializable-args]'; }
+            const serialized = serializedArgs ?? '[unserializable-args]';
             signatures.push(`${name}|${serialized}|${execution.resultText || ''}`);
-            lastRefusal = mutation?.message || execution.rawResult?.message || lastRefusal;
+            if (serializedArgs && mutation?.written !== true && mutation?.writeAttempted !== true) refusedEditArgs.add(`${name}|${serializedArgs}`);
+            // A blocked repeat keeps the original refusal as the reason the user sees.
+            if (!repeat) lastRefusal = mutation?.message || execution.rawResult?.message || lastRefusal;
           }
         }
         emit({ type: 'tool_end', ...execution, checkpointIndex: execution.checkpointIndex });

@@ -257,14 +257,30 @@ function responseTurn(state) {
   assert.equal(test.requests.length, 1);
 }
 
-// A no-op is a healthy success and resets the two-cycle no-progress guard.
+// An exact repeat of refused edits is not sent again; the model is told why, and it still
+// counts toward the two-cycle no-progress stop.
 {
   let count = 0;
   const test = harness([
     model(call('apply_document_edits')),
     model(call('apply_document_edits')),
-    model(call('apply_document_edits')),
-    model(call('apply_document_edits')),
+  ], { applyDocumentEdits: async () => { count++; return refused('INVALID_REQUEST'); } });
+  await test.run();
+  assert.equal(count, 1, 'the repeated call never reaches the document tool');
+  assert.ok(JSON.stringify(test.state.history).includes('REPEATED_REFUSED_EDITS'), 'the model sees why the repeat was not sent');
+  assert.equal(test.state.stopReason, 'no_progress');
+}
+
+// A no-op is a healthy success and resets the two-cycle no-progress guard.
+{
+  let count = 0;
+  // Distinct edits each turn, so none is an exact repeat of a refused call.
+  const edit = n => call('apply_document_edits', { edits: [{ type: 'replace_text', target: 'h1', find: 'old', replace: `new ${n}` }] });
+  const test = harness([
+    model(edit(1)),
+    model(edit(2)),
+    model(edit(3)),
+    model(edit(4)),
   ], {
     applyDocumentEdits: async () => {
       count++;
@@ -497,7 +513,7 @@ console.log('PASS: inspection turns use a separate allowance (KB-10)');
   assert.match(seen, /REVISION_FIDELITY_VIOLATION/, 'the model sees the library refusal code');
   assert.match(seen, /narrow_or_change_operation/, 'the model sees the library recovery action');
   assert.match(seen, /sameArgumentsSafe/, 'the model sees that the same arguments are unsafe');
-  assert.equal(calls, 2);
+  assert.equal(calls, 1, 'the exact repeat is not sent to the document tool again');
   assert.equal(repeat.state.stopReason, 'no_progress', 'a repeated refused proposal stops instead of looping');
   assert.equal(repeat.state.records.some(record => record.written || record.writeAttempted), false, 'nothing is written');
 
