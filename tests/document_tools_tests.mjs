@@ -214,6 +214,7 @@ async function apply(harness, edits) {
   assert.equal(receipt.written, false);
   assert.equal(receipt.mutationOutcome, 'refused');
   assert.equal(receipt.error.code, 'STALE_DOCUMENT_CONTEXT');
+  assert.equal(receipt.error.recovery?.action, 'reinspect', 'a stale refusal tells the model to inspect again');
   assert.equal(harness.counts.contentWrites, 0);
   assert.equal(harness.events.some(event => event.startsWith('insertOoxml:')), false);
 }

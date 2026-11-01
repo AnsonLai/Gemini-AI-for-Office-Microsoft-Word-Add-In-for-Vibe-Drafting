@@ -6,6 +6,7 @@ import { compileDocumentEdits } from './document-edit-intents.js';
 import { queueHostParagraphCount } from './word-document-source.js';
 
 const fail = (code, message) => Object.assign(new Error(message), { code });
+const staleCodes = ['STALE_DOCUMENT_CONTEXT', 'STALE_DOCUMENT_SOURCE', 'STALE_TARGET_DESCRIPTOR', 'DOCUMENT_IDENTITY_CHANGED', 'STALE_OR_UNKNOWN_HANDLE'];
 function sourceParts(source) {
   const parts = Object.fromEntries(['documentXml', 'commentsXml', 'commentsExtendedXml', 'commentsIdsXml', 'commentsExtensibleXml', 'numberingXml', 'stylesXml'].map(key => [key, source[key] || null]));
   parts.additionalParts = source.additionalParts || Object.fromEntries([
@@ -116,7 +117,7 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
         result = { ...settledBatch, status: 'error', verified: false,
           written: settledBatch?.written === true, writeAttempted: settledBatch?.writeAttempted === true || counts.contentWrites > 0,
           mutationOutcome: settledBatch?.written ? 'applied_with_host_error' : settledBatch?.writeAttempted || counts.contentWrites > 0 ? 'indeterminate' : 'refused', error: {
-          code: ['STALE_DOCUMENT_SOURCE', 'STALE_TARGET_DESCRIPTOR', 'DOCUMENT_IDENTITY_CHANGED', 'STALE_OR_UNKNOWN_HANDLE'].includes(error.code) ? 'STALE_DOCUMENT_CONTEXT'
+          code: staleCodes.includes(error.code) ? 'STALE_DOCUMENT_CONTEXT'
             : error.code || (settledBatch?.written ? 'WORD_RUN_POST_COMMIT_ERROR' : counts.contentWrites > 0 ? 'WORD_HOST_OUTCOME_UNCERTAIN' : 'DOCUMENT_BATCH_FAILED'), message: error.message,
           ...(error.recovery ? { recovery: error.recovery } : {}),
         } };
@@ -131,6 +132,10 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
           ...(item.error.recovery ? { recovery: item.error.recovery } : {})
         }));
       if (result.written || result.writeAttempted || result.error?.code?.startsWith('STALE')) session.invalidate();
+      // A stale source always permits one fresh inspection, so say so even when the raiser did not.
+      if (result.error && !result.error.recovery && staleCodes.includes(result.error.code)) {
+        result = { ...result, error: { ...result.error, recovery: { action: 'reinspect', sameArgumentsSafe: false, requiresReinspection: true, requiresUserAuthorization: false } } };
+      }
       const receipt = {
         status: success ? 'ok' : 'error', success, completion: success, verified: result.verified === true,
         written: result.written === true, writeAttempted: result.writeAttempted === true,
