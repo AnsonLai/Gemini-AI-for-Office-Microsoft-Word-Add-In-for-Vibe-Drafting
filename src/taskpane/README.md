@@ -2,7 +2,7 @@
 
 This directory contains the in-place Word plugin, settings, chat UI, lightweight
 inspect/apply harness and Office.js body transport. The add-in pins exact
-`@ansonlai/docx-redline-js@0.9.0`.
+`@ansonlai/docx-redline-js` (exact version in `package.json`).
 
 `taskpane.js` keeps UI and host concerns. Portable `document-agent-loop.js`
 coordinates bounded provider/tool exchanges; `tool-registry.js` declares exactly
