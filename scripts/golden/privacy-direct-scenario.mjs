@@ -194,6 +194,20 @@ const steps = [
       { type: 'adjacent', label: 'each body paragraph is its own paragraph', first: { startsWith: 'We store' }, second: { startsWith: 'We keep' } },
       { type: 'adjacent', label: 'Your Rights follows the new section', first: { startsWith: 'We keep' }, second: { equals: 'Your Rights' } }
     ]
+  },
+  {
+    // Several separate pieces of one paragraph are formatted in one batch (live report: bold every all-caps word).
+    id: '14-bold-every-your',
+    prompt: 'In the sharing paragraph, bold every "your".',
+    replay: [
+      inspect('We share your information only'),
+      apply([1, 2, 3, 4].map(occurrence => ({ type: 'format_text', target: handle(SHARING), find: 'your', occurrence, properties: { bold: true } }))),
+      done
+    ],
+    checks: [
+      ...[1, 2, 3, 4].map(occurrence => ({ type: 'format', label: `"your" ${occurrence} of 4 in the sharing paragraph is bold`, find: 'your', paragraph: SHARING, occurrence, expect: { bold: true } })),
+      { type: 'format', label: 'other words in the sharing paragraph are not bold', find: 'health professionals', paragraph: SHARING, occurrence: 1, expect: { bold: false } }
+    ]
   }
 ];
 

@@ -800,4 +800,22 @@ const paragraphMarkTracked = paragraph => /<w:ins\b/.test(paragraph.match(/<w:pP
       error => error instanceof DocumentEditIntentError && error.code === 'UNSUPPORTED_DOCUMENT_EDIT' && /own paragraph/.test(error.message), JSON.stringify(bad));
   }
 }
+// Several format_text actions in one paragraph bold each piece (live report: "bold the full-caps words").
+{
+  const recitals = makePackage('<w:p><w:r><w:t xml:space="preserve">RECITALS: WHEREAS, Provider owns it; WHEREAS, Customer wants it. NOW, THEREFORE, agreed.</w:t></w:r></w:p>');
+  const bold = (find, occurrence) => ({ type: 'format_text', target: 'handle-1', find, ...(occurrence ? { occurrence } : {}), properties: { bold: true } });
+  const { compiled } = await compileFor(recitals, [bold('RECITALS'), bold('WHEREAS', 1), bold('WHEREAS', 2), bold('NOW'), bold('THEREFORE')]);
+  assert.equal(compiled.operations.length, 5, 'one library format operation per piece');
+  const prepared = await prepareCanonicalBatch(recitals, compiled.operations, { author: 'Intent Compiler Test' });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared.result?.error));
+  const boldRuns = xml => [...xml.slice(xml.indexOf('<w:body>')).matchAll(/<w:r\b[^>]*>([\s\S]*?)<\/w:r>/g)]
+    .filter(match => /<w:b\b(?![^>]*w:val="(?:0|false)")/.test(match[1])).map(match => match[1].match(/<w:t[^>]*>([^<]*)/)?.[1]);
+  assert.deepEqual(boldRuns(acceptTrackedChangesInOoxml(prepared.result.documentXml, { allAuthors: true }).oxml), ['RECITALS', 'WHEREAS', 'WHEREAS', 'NOW', 'THEREFORE'], 'Accept All bolds exactly the requested pieces');
+  assert.deepEqual(boldRuns(rejectTrackedChangesInOoxml(prepared.result.documentXml, { allAuthors: true }).oxml), [], 'Reject All removes the bold');
+  // Overlapping pieces are refused with a clear message before the library sees them.
+  for (const edits of [[bold('WHEREAS', 1), bold('WHEREAS, Provider')], [bold('RECITALS'), { ...bold('RECITALS'), properties: { bold: false } }]]) {
+    await assert.rejects(() => compileFor(recitals, edits),
+      error => error.code === 'UNSUPPORTED_DOCUMENT_EDIT_COMBINATION' && /must not overlap/.test(error.message), JSON.stringify(edits.map(edit => edit.find)));
+  }
+}
 console.log('PASS: typed document edit intent compiler tests');

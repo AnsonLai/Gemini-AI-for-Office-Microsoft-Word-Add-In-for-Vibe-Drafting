@@ -210,6 +210,24 @@ function resolvedTargets(result, handles) {
   return map;
 }
 
+// Several format_text actions may share a paragraph when their text does not overlap.
+// The library refuses overlapping spans only with an internal receipt error, so name it here.
+function overlappingFormat(formats, targets) {
+  const spans = [];
+  for (const item of formats) {
+    const paragraph = targets.get(item.edit.target).descriptor.exactText || '';
+    const starts = [];
+    for (let at = paragraph.indexOf(item.edit.find); at >= 0; at = paragraph.indexOf(item.edit.find, at + 1)) starts.push(at);
+    // A missing or ambiguous match is the library's to report.
+    const start = item.edit.occurrence ? starts[item.edit.occurrence - 1] : starts.length === 1 ? starts[0] : undefined;
+    if (start === undefined) continue;
+    const end = start + item.edit.find.length;
+    if (spans.some(span => start < span.end && span.start < end)) return item;
+    spans.push({ start, end });
+  }
+  return null;
+}
+
 function combinations(items, targets) {
   const groups = new Map();
   const groupFor = handle => {
@@ -248,7 +266,8 @@ function combinations(items, targets) {
     const index = item => item.actionIndex;
     if (textActions.length > 1) fail('CONFLICTING_DOCUMENT_EDITS', 'Only one text-changing action can target a source paragraph per batch.', index(textActions[1]), 'target');
     if (group.comments.length > 1) fail('UNSUPPORTED_DOCUMENT_EDIT_COMBINATION', 'Use one comment per source paragraph in a batch.', index(group.comments[1]), 'target');
-    if (group.formats.length > 1) fail('UNSUPPORTED_DOCUMENT_EDIT_COMBINATION', 'Combine formatting properties into one format_text action per source paragraph.', index(group.formats[1]), 'target');
+    const overlap = overlappingFormat(group.formats, targets);
+    if (overlap) fail('UNSUPPORTED_DOCUMENT_EDIT_COMBINATION', 'Formatted text in one paragraph must not overlap. Use one format_text per separate piece of text, and put all properties for the same text in one format_text.', index(overlap), 'find');
     if (textActions.length && group.comments.length) {
       const rewrite = textActions.length === 1 && textActions[0].edit.type === 'rewrite_paragraph'
         ? textActions[0]

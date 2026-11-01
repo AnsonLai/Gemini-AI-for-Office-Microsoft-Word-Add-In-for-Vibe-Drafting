@@ -28,6 +28,12 @@ The goal is to use the library wherever possible. Each Word API use must say why
 - **Not yet established:** whether Office.js `body.insertOoxml` behaves like COM `InsertXML` here. COM evidence does not certify Office.js.
 
 
+### KB-18: Overlapping format operations fail with an internal receipt error (library, 0.11.1)
+
+Two `format` operations on one paragraph whose text overlaps (for example `WHEREAS` and `WHEREAS, Provider`, or bold on and bold off for the same word) are refused safely, but with `RECEIPT_RECONCILIATION_FAILED` ("Committed revision id '1000' (kind: rPrChange) was not found in word/document.xml"). Nothing is written. Separate, non-overlapping format operations on one paragraph work and pass Accept All and Reject All.
+
+**Add-in today:** the intent compiler refuses overlapping `format_text` spans in one paragraph with a clear message before the library runs (2026-10-31). That check stays as a validation rule either way. **Library ask:** refuse overlapping format spans with a specific code and message. Reproducer: one paragraph `RECITALS: WHEREAS, Provider owns it.`, operations `{ type: 'format', textToFormat: 'WHEREAS', properties: { bold: true } }` and `{ type: 'format', textToFormat: 'WHEREAS, Provider', properties: { bold: true } }` in one batch.
+
 ### KB-17: Live-model judgement gaps (live runs, 2026-10-30)
 
 Seen with gemini-2.5-pro on guide v9 (`live-slow-5`). None involves the library, and every edit was verified, so nothing was written incorrectly:
