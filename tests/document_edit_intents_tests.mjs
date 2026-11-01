@@ -818,4 +818,69 @@ const paragraphMarkTracked = paragraph => /<w:ins\b/.test(paragraph.match(/<w:pP
       error => error.code === 'UNSUPPORTED_DOCUMENT_EDIT_COMBINATION' && /must not overlap/.test(error.message), JSON.stringify(edits.map(edit => edit.find)));
   }
 }
+// Per-paragraph limits the library handles (audit 2026-10-31): several replacements, insert
+// before and after, and several comments on one paragraph each go in one batch.
+{
+  const SRC = 'The Provider shall notify the Customer, and the Provider shall pay within ten days.';
+  const pkg = makePackage(`<w:p><w:r><w:t>Intro.</w:t></w:r></w:p><w:p><w:r><w:t xml:space="preserve">${SRC}</w:t></w:r></w:p><w:p><w:r><w:t>Closing.</w:t></w:r></w:p>`);
+  const texts = xml => inspectWordSource(xml).inspection.paragraphs.map(paragraph => paragraph.exactText);
+  const run = async edits => {
+    const { compiled } = await compileFor(pkg, edits);
+    const prepared = await prepareCanonicalBatch(pkg, compiled.operations, { author: 'Intent Compiler Test' });
+    return { compiled, prepared };
+  };
+  const ready = ({ prepared }, label) => {
+    assert.equal(prepared.status, 'ready', `${label}: ${JSON.stringify(prepared.result?.error || prepared.result?.results)}`);
+    assert.deepEqual(texts(rejectTrackedChangesInOoxml(prepared.insertionPayload, { allAuthors: true }).oxml), ['Intro.', SRC, 'Closing.'], `${label}: Reject All restores the source`);
+    return texts(acceptTrackedChangesInOoxml(prepared.insertionPayload, { allAuthors: true }).oxml);
+  };
+  const replace = (find, replaceWith, occurrence) => ({ type: 'replace_text', target: 'handle-2', find, replace: replaceWith, ...(occurrence ? { occurrence } : {}) });
+
+  const several = await run([replace('notify', 'inform'), replace('ten', 'thirty'), replace('Provider', 'Vendor', 1), replace('Provider', 'Vendor', 2)]);
+  assert.equal(several.compiled.operations.length, 1, 'replacements on one paragraph merge into one library operation');
+  assert.equal(several.compiled.operations[0].replacements.length, 4);
+  assert.equal(several.compiled.expectations.length, 4, 'every requested edit keeps its own expectation');
+  assert.deepEqual(ready(several, 'several replacements')[1], 'The Vendor shall inform the Customer, and the Vendor shall pay within thirty days.');
+
+  const bothSides = await run([
+    { type: 'insert_paragraph', target: 'handle-2', position: 'after', text: 'After one.\nAfter two.' },
+    { type: 'insert_paragraph', target: 'handle-2', position: 'before', text: 'Before.' }
+  ]);
+  assert.equal(bothSides.compiled.operations.length, 1, 'insert before and after merge into one redline');
+  assert.deepEqual(ready(bothSides, 'insert before and after'), ['Intro.', 'Before.', SRC, 'After one.', 'After two.', 'Closing.']);
+
+  const comments = await run([
+    { type: 'comment', target: 'handle-2', anchor: 'notify', text: 'Who notifies?' },
+    { type: 'comment', target: 'handle-2', anchor: 'ten days', text: 'Too short?' }
+  ]);
+  ready(comments, 'two comments');
+  assert.equal((comments.prepared.result.commentsXml.match(/<w:comment\b/g) || []).length, 2, 'both comments are added');
+
+  // Overlapping replacements reach the library, which refuses them with a specific reason.
+  const overlapping = await run([replace('Provider shall', 'Vendor must', 1), replace('shall notify', 'must inform')]);
+  assert.equal(overlapping.prepared.status, 'refused');
+  assert.equal(overlapping.prepared.result.results[0].error.code, 'OVERLAPPING_PATCHES');
+
+  // Still refused: two insertions on one side, and replacement mixed with insertion.
+  for (const [edits, pattern] of [
+    [[{ type: 'insert_paragraph', target: 'handle-2', position: 'after', text: 'A.' }, { type: 'insert_paragraph', target: 'handle-2', position: 'after', text: 'B.' }], /single insertion, one paragraph per line/],
+    [[replace('ten', 'thirty'), { type: 'insert_paragraph', target: 'handle-2', position: 'after', text: 'A.' }], /Several replace_text edits can/],
+  ]) {
+    await assert.rejects(() => compileFor(pkg, edits), error => error.code === 'CONFLICTING_DOCUMENT_EDITS' && pattern.test(error.message), String(pattern));
+  }
+}
+// KB-19 (library 0.11.1): a replacement in a paragraph whose bold is still a pending
+// same-author format change drops that bold. Reported, not worked around; this prints a
+// KNOWN_LIBRARY_DEFECT line while the library still drops it.
+{
+  const AUTHOR = 'Intent Compiler Test';
+  const pending = makePackage(`<w:p><w:r><w:t xml:space="preserve">This notice explains how </w:t></w:r><w:r><w:rPr><w:b/><w:rPrChange w:id="900" w:author="${AUTHOR}" w:date="2026-10-31T00:00:00Z"><w:rPr/></w:rPrChange></w:rPr><w:t>Maple Clinic</w:t></w:r><w:r><w:t xml:space="preserve"> collects your information.</w:t></w:r></w:p>`);
+  const { compiled } = await compileFor(pending, [{ type: 'replace_text', target: 'handle-1', find: 'collects', replace: 'gathers' }]);
+  const prepared = await prepareCanonicalBatch(pending, compiled.operations, { author: AUTHOR });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared.result?.error));
+  const accepted = acceptTrackedChangesInOoxml(prepared.insertionPayload, { allAuthors: true }).oxml;
+  const boldKept = [...accepted.slice(accepted.indexOf('<w:body>')).matchAll(/<w:r\b[^>]*>([\s\S]*?)<\/w:r>/g)]
+    .some(match => /<w:b\b(?![^>]*w:val="(?:0|false)")/.test(match[1]) && /Maple Clinic/.test(match[1]));
+  if (!boldKept) console.log('KNOWN_LIBRARY_DEFECT: KB-19 a replacement drops a pending same-author bold in the same paragraph (docx-redline-js 0.11.1)');
+}
 console.log('PASS: typed document edit intent compiler tests');

@@ -28,6 +28,12 @@ The goal is to use the library wherever possible. Each Word API use must say why
 - **Not yet established:** whether Office.js `body.insertOoxml` behaves like COM `InsertXML` here. COM evidence does not certify Office.js.
 
 
+### KB-19: A replacement drops a pending same-author bold in the same paragraph (library, 0.11.1)
+
+Found 2026-10-31 by the privacy replay in real Word. With track changes on, bold a phrase (a pending `rPrChange` by the add-in's author), then change other wording in the same paragraph with `replace_text`: the bold is gone after Accept All. Nothing reports it, because the prepared package itself has no bold, so the add-in's after-write check matches. It happens with one replacement as well as several. Settled (accepted) bold is kept, and with a different author the library refuses the replacement instead.
+
+**Impact:** a user who bolds words and then edits that paragraph's wording in the same review session silently loses the bold. **Add-in:** no workaround (library defect). `tests/document_edit_intents_tests.mjs` prints a `KNOWN_LIBRARY_DEFECT: KB-19` line while it reproduces. **Library ask:** keep pending same-author run formatting through a localized replacement. Reproducer: paragraph runs `This notice explains how ` + `Maple Clinic` (`<w:b/>` with `<w:rPrChange w:author="A"><w:rPr/></w:rPrChange>`) + ` collects your information.`; operation `{ type: 'replace', replacements: [{ find: 'collects', replace: 'gathers' }] }` with author `A`; Accept All has no bold.
+
 ### KB-18: Overlapping format operations fail with an internal receipt error (library, 0.11.1)
 
 Two `format` operations on one paragraph whose text overlaps (for example `WHEREAS` and `WHEREAS, Provider`, or bold on and bold off for the same word) are refused safely, but with `RECEIPT_RECONCILIATION_FAILED` ("Committed revision id '1000' (kind: rPrChange) was not found in word/document.xml"). Nothing is written. Separate, non-overlapping format operations on one paragraph work and pass Accept All and Reject All.

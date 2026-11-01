@@ -574,8 +574,18 @@ const CHECKS = {
      * earlier step's extra comment cannot fail it; as a later regression, the comments must remain.
      */
     comments(model, check, context = {}) {
-        const before = context.own && context.previousModel ? new Set(context.previousModel.comments.map(comment => comment.id)) : null;
-        const count = before ? model.comments.filter(comment => !before.has(comment.id)).length : model.comments.length;
+        // Word may renumber existing comment ids on save, so new comments are counted by text.
+        let count = model.comments.length;
+        const before = context.own && context.previousModel ? context.previousModel.comments.map(comment => comment.text) : null;
+        if (before) {
+            const remaining = [...before];
+            count = model.comments.filter(comment => {
+                const at = remaining.indexOf(comment.text);
+                if (at < 0) return true;
+                remaining.splice(at, 1);
+                return false;
+            }).length;
+        }
         const max = context.own === false ? Infinity : (check.max ?? Infinity);
         const ok = count >= (check.min ?? 1) && count <= max && model.commentAnchors.length >= Math.min(count, check.min ?? 1);
         return { ok, detail: `${count} ${before ? 'new ' : ''}comment(s), ${model.commentAnchors.length} anchor(s)` };

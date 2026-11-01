@@ -264,8 +264,19 @@ function combinations(items, targets) {
       return !(edit.type === 'rewrite_paragraph' && edit.text === descriptor.exactText);
     });
     const index = item => item.actionIndex;
-    if (textActions.length > 1) fail('CONFLICTING_DOCUMENT_EDITS', 'Only one text-changing action can target a source paragraph per batch.', index(textActions[1]), 'target');
-    if (group.comments.length > 1) fail('UNSUPPORTED_DOCUMENT_EDIT_COMBINATION', 'Use one comment per source paragraph in a batch.', index(group.comments[1]), 'target');
+    // Several replace_text merge into one library replacement list; one insertion before and one
+    // after merge into one redline. Any other pair of text changes on one paragraph conflicts.
+    if (textActions.length > 1) {
+      const allReplacements = textActions.every(({ edit }) => edit.type === 'replace_text');
+      const inserts = textActions.every(({ edit }) => edit.type === 'insert_paragraph');
+      const sides = inserts && new Set(textActions.map(({ edit }) => edit.position));
+      if (!allReplacements && !(inserts && textActions.length === 2 && sides.size === 2)) {
+        const message = inserts
+          ? 'One paragraph takes at most one insertion before it and one after it. Put every new paragraph for one side in a single insertion, one paragraph per line.'
+          : 'These text changes cannot share a source paragraph in one batch. Several replace_text edits can, and so can one insertion before and one after. For other combinations use one rewrite_paragraph, or apply the second change after fresh inspection.';
+        fail('CONFLICTING_DOCUMENT_EDITS', message, index(textActions[1]), 'target');
+      }
+    }
     const overlap = overlappingFormat(group.formats, targets);
     if (overlap) fail('UNSUPPORTED_DOCUMENT_EDIT_COMBINATION', 'Formatted text in one paragraph must not overlap. Use one format_text per separate piece of text, and put all properties for the same text in one format_text.', index(overlap), 'find');
     if (textActions.length && group.comments.length) {
@@ -275,10 +286,12 @@ function combinations(items, targets) {
       if (!rewrite) fail('COMMENT_ANCHOR_REQUIRES_REINSPECTION', 'A text replacement, insertion, or deletion cannot share a source paragraph with a comment. Apply the text change, inspect the result, then add the comment.', index(group.comments[0]), 'anchor', true);
       const paragraph = targets.get(rewrite.edit.target).descriptor.exactText;
       const proposed = rewrite.edit.text;
-      const anchor = group.comments[0].edit.anchor || paragraph;
-      const uniqueIn = value => value.indexOf(anchor) >= 0 && value.indexOf(anchor) === value.lastIndexOf(anchor);
-      if (!uniqueIn(paragraph) || !uniqueIn(proposed)) {
-        fail('COMMENT_ANCHOR_REQUIRES_REINSPECTION', 'A rewrite and comment can share a batch only when the original comment anchor remains unique in the proposed paragraph. Otherwise apply the rewrite, inspect the result, then add the comment.', index(group.comments[0]), 'anchor', true);
+      for (const comment of group.comments) {
+        const anchor = comment.edit.anchor || paragraph;
+        const uniqueIn = value => value.indexOf(anchor) >= 0 && value.indexOf(anchor) === value.lastIndexOf(anchor);
+        if (!uniqueIn(paragraph) || !uniqueIn(proposed)) {
+          fail('COMMENT_ANCHOR_REQUIRES_REINSPECTION', 'A rewrite and comment can share a batch only when the original comment anchor remains unique in the proposed paragraph. Otherwise apply the rewrite, inspect the result, then add the comment.', index(comment), 'anchor', true);
+        }
       }
     }
     if (textActions.length && group.formats.length) fail('UNSUPPORTED_DOCUMENT_EDIT_COMBINATION', 'Formatting and text changes to the same source paragraph cannot share a library batch.', index(group.formats[0]), 'target');
@@ -340,14 +353,18 @@ export async function compileDocumentEdits(edits, { session, source } = {}) {
   combinations(items, targets);
 
   const operations = [], operationActions = [], expectations = [], locations = [];
+  // Text changes that share a paragraph merge into one library operation (see combinations()).
+  const merged = new Map();
   for (const { edit, actionIndex } of items) {
     const resolved = targets.get(edit.target), descriptor = resolved.descriptor, target = targetDescriptor(descriptor);
     let operation, expected = { action: edit.type, handle: edit.target, target, sourceText: descriptor.exactText };
+    const key = `${edit.type}|${identity(descriptor)}`;
     switch (edit.type) {
       case 'replace_text': {
         const replacement = { find: edit.find, replace: edit.replace, ...(edit.occurrence ? { occurrence: edit.occurrence } : {}) };
-        operation = { type: 'replace', target, replacements: [replacement], structuredContent: false };
         expected.replacement = replacement;
+        if (merged.has(key)) merged.get(key).replacements.push(replacement);
+        else merged.set(key, operation = { type: 'replace', target, replacements: [replacement], structuredContent: false });
         break;
       }
       case 'rewrite_paragraph':
@@ -368,8 +385,14 @@ export async function compileDocumentEdits(edits, { session, source } = {}) {
       }
       case 'insert_paragraph': {
         const current = descriptor.exactText;
-        operation = { type: 'redline', target, modified: edit.position === 'before' ? `${edit.text}\n${current}` : `${current}\n${edit.text}`, structuredContent: false };
         expected.expectedParagraphs = edit.position === 'before' ? [...edit.lines, current] : [current, ...edit.lines];
+        const earlier = merged.get(key);
+        if (earlier) {
+          // The other side was inserted first; add this side to the same redline.
+          earlier.modified = edit.position === 'before' ? `${edit.text}\n${earlier.modified}` : `${earlier.modified}\n${edit.text}`;
+        } else {
+          merged.set(key, operation = { type: 'redline', target, modified: edit.position === 'before' ? `${edit.text}\n${current}` : `${current}\n${edit.text}`, structuredContent: false });
+        }
         break;
       }
       case 'append_paragraph': {

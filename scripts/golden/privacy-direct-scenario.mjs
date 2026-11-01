@@ -16,6 +16,7 @@ const batchEvidence = {
 };
 const EMAIL = 'privacy@maplestreetdental.example';
 const SHARING = { startsWith: 'We share your information only' };
+const CONTACT_DETAILS = { startsWith: 'Contact details such as' };
 const USES = ['To provide and coordinate your care.', 'To process payments and insurance claims.', 'To send appointment reminders.'];
 const ADDRESS = ['Maple Street Dental Clinic', '12 Maple Street', 'Springfield'];
 const NEW_USES = ['To meet our legal and regulatory duties.', 'To improve our services.'];
@@ -208,6 +209,38 @@ const steps = [
       ...[1, 2, 3, 4].map(occurrence => ({ type: 'format', label: `"your" ${occurrence} of 4 in the sharing paragraph is bold`, find: 'your', paragraph: SHARING, occurrence, expect: { bold: true } })),
       { type: 'format', label: 'other words in the sharing paragraph are not bold', find: 'health professionals', paragraph: SHARING, occurrence: 1, expect: { bold: false } }
     ]
+  },
+  {
+    // Two separate wording changes in one paragraph go in one batch. (Not the opening paragraph:
+    // its pending same-author bold from step 02 is lost by any later replacement, KB-19.)
+    id: '15-two-word-changes',
+    prompt: 'In the contact details bullet, change "name" to "full name" and "email" to "email address".',
+    replay: [
+      inspect('Contact details such as'),
+      apply([
+        { type: 'replace_text', target: handle(CONTACT_DETAILS), find: 'name', replace: 'full name' },
+        { type: 'replace_text', target: handle(CONTACT_DETAILS), find: 'email', replace: 'email address' }
+      ]),
+      done
+    ],
+    checks: [
+      { type: 'text', label: 'both words are changed in the contact details bullet', text: { equals: 'Contact details such as your full name, address, phone number and email address.' } },
+      { type: 'listItem', label: 'the contact details bullet is still a bullet', text: { startsWith: 'Contact details such as' }, numFmt: 'bullet' }
+    ]
+  },
+  {
+    // Two comments on one paragraph go in one batch.
+    id: '16-two-comments',
+    prompt: 'On the billing bullet, add one comment on "Billing" asking finance to confirm, and one on "insurance" asking which insurers we work with.',
+    replay: [
+      inspect('Billing and insurance'),
+      apply([
+        { type: 'comment', target: handle({ equals: 'Billing and insurance information.' }), anchor: 'Billing', text: 'Finance: please confirm.' },
+        { type: 'comment', target: handle({ equals: 'Billing and insurance information.' }), anchor: 'insurance', text: 'Which insurers do we work with?' }
+      ]),
+      done
+    ],
+    checks: [{ type: 'comments', label: 'two review comments were added', min: 2, max: 2 }]
   }
 ];
 
