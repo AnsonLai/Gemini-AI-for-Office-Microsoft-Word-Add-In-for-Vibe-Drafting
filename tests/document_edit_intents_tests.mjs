@@ -788,6 +788,12 @@ const paragraphMarkTracked = paragraph => /<w:ins\b/.test(paragraph.match(/<w:pP
   assert.deepEqual(added.map(paragraph => paragraph.index), [1, 2, 3].map(offset => listTarget0.index + offset), 'the new items follow the target in order');
   for (const paragraph of added) assert.equal(paragraph.list.numId, listTarget0.list.numId, `${paragraph.exactText} stays in the target's numbering`);
   assert.deepEqual(texts(rejectTrackedChangesInOoxml(listPrepared.insertionPayload, { allAuthors: true }).oxml), texts(listSourcePackage), 'multi-item list insertion: Reject All restores the source');
+  // A heading cannot be the target, but the refusal says how to reach the same place from a plain neighbour.
+  const headingTargets = targetsFrom(twoParagraphs).map((item, index) => index === 1 ? { ...item, headingLevel: 1 } : item);
+  await assert.rejects(() => compileDocumentEdits([{ type: 'insert_paragraph', target: 'handle-2', position: 'before', text: LINES.join('\n') }],
+    { session: createSession(headingTargets), source: { documentId: 'doc-1' } }),
+    error => error.code === 'UNSUPPORTED_DOCUMENT_EDIT_TARGET' && /insert after the plain paragraph above it/.test(error.message)
+      && error.recovery.action === 'reinspect', 'a heading target is refused with retargeting advice');
   // Blank or padded lines are refused before anything is prepared.
   for (const bad of ['Line one\n\nLine two', 'Line one\n  Line two', 'Line one\n']) {
     await assert.rejects(() => compileFor(twoParagraphs, [{ type: 'insert_paragraph', target: 'handle-1', position: 'after', text: bad }]),

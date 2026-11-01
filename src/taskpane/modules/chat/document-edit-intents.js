@@ -160,7 +160,8 @@ function checkedDescriptor(target, index, expectedKind, field = 'target') {
 function checkedInsertionTarget(descriptor, index) {
   if (descriptor.inTable || descriptor.table || descriptor.list || descriptor.headingLevel
     || (descriptor.styleId && /^heading\b/i.test(String(descriptor.styleId)))) {
-    fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'Plain paragraph insertion beside a list, table, or heading is unsupported.', index, 'target');
+    // New paragraphs take the target's paragraph style, so the target must be a plain body paragraph.
+    fail('UNSUPPORTED_DOCUMENT_EDIT_TARGET', 'The target of a plain paragraph insertion must be a plain body paragraph, because new paragraphs take its style; a heading, list item or table cell cannot be the target. Retarget the same place from a plain neighbour: to add text just before a heading, insert after the plain paragraph above it; to add text under a heading, insert before the plain paragraph below it. Use insert_list_item to add list items. If there is no plain neighbour, say so.', index, 'target', true);
   }
   // Insertion joins the target and new text with a paragraph break, so soft breaks are ambiguous.
   if (descriptor.exactText !== descriptor.exactText.trim() || /[\r\n]/.test(descriptor.exactText)) {

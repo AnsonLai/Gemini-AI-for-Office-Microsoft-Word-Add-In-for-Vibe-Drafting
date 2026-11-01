@@ -175,7 +175,7 @@ const steps = [
       done
     ],
     checks: [
-      { type: 'list', label: 'both new bullets join the uses list after the payments bullet', items: [USES[0], USES[1], ...NEW_USES, USES[2]], numFmt: 'bullet' }
+      { type: 'list', label: 'both new bullets join the uses list after the payments bullet', items: [USES[0], USES[1], { regex: 'legal', flags: 'i' }, { regex: 'improv', flags: 'i' }, USES[2]], numFmt: 'bullet' }
     ]
   },
   {
