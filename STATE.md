@@ -1,6 +1,6 @@
 # Project state: Gemini Word add-in
 
-**Updated:** 2026-10-30, at release v2.3.0.0 ([release notes](docs/release/v2.3.0.0.md)). Open bugs, deferred work and the Word JS API inventory are in [KNOWN_BUGS.md](docs/plans/KNOWN_BUGS.md).
+**Updated:** 2026-10-31, at release v2.3.0.1 ([release notes](docs/release/v2.3.0.1.md); previous: [v2.3.0.0](docs/release/v2.3.0.0.md)). Open bugs, deferred work and the Word JS API inventory are in [KNOWN_BUGS.md](docs/plans/KNOWN_BUGS.md).
 
 ## What the add-in does
 
@@ -8,12 +8,12 @@ The add-in gives Gemini two tools: `inspect_document`, which returns focused tex
 
 **Supported edits:**
 
-- text replacement and paragraph rewrites;
+- text replacement (several per paragraph) and paragraph rewrites;
 - paragraph insertion, appending and deletion, where each line of inserted text becomes its own paragraph (since 2026-10-31);
 - list item insertion at the first two levels, one or more items at once;
 - turning paragraphs into a list, changing list numbering, and continuing an earlier list;
-- comments;
-- bold, italic, underline, strikethrough and yellow highlight;
+- comments, several per paragraph;
+- bold, italic, underline, strikethrough and yellow highlight, on several separate pieces of one paragraph;
 - table-cell text.
 
 Anything else is refused with no change, and a mixed request with an unsupported part is refused as a whole. The [tool contract](docs/agentic-tool-contracts.md) and the editing guide (v10) give the exact rules.
@@ -33,6 +33,14 @@ Anything else is refused with no change, and a mixed request with an unsupported
   - two failed edit cycles before a stop that says why;
   - one request for a closing summary if the model ends silently after an edit;
   - a 120-second limit per model call and 300 seconds per request.
+
+## Evidence for v2.3.0.1 (2026-10-31, on the 0.11.1 pin)
+
+- Offline suite: 48/48.
+- Real-Word replays: privacy notice 16/16 steps (65 checks, six new steps for multi-paragraph insertion, several formats, replacements and comments in one paragraph); NDA 16/16 (52 checks).
+- Live run (privacy notice, configured models): every new capability worked; the two failed checks were wording-strict checks, since loosened and rechecked against the live output.
+- Office.js validation: 20 cases passed. Independent desktop Word Accept All/Reject All oracle: 88/0.
+- Open library defect found in this release: KB-19 (a replacement drops a pending same-author bold).
 
 ## Evidence for v2.3.0.0 (2026-10-30, on the 0.11.1 pin)
 

@@ -53,7 +53,7 @@ marked.setOptions({
 
 // ==================== CONFIGURATION CONSTANTS ====================
 
-const RELEASE_MARKER = "v2.3.0.0";
+const RELEASE_MARKER = "v2.3.0.1";
 const DEFAULT_AUTHOR = "Gemini AI";
 const GLANCE_COLLAPSED_STORAGE_KEY = "glanceCollapsed";
 
