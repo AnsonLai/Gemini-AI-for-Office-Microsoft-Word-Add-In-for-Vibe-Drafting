@@ -23,6 +23,9 @@ const NEW_USES = ['To meet our legal and regulatory duties.', 'To improve our se
 const SECURITY = ['How We Keep Your Information Safe',
   'We store paper records in locked cabinets and electronic records on secure systems that only authorised staff can access.',
   'We keep your records for as long as the law requires and then destroy them securely.'];
+// The live model drafts its own wording, so the body paragraphs are matched by topic.
+const STORAGE = { regex: '^We (store|keep)', flags: 'i' };
+const RETENTION = { regex: '^We (keep|retain|hold) .*(as long|until|destroy)', flags: 'i' };
 const RIGHTS = ['Ask to see the information we hold about you.', 'Ask us to correct information that is wrong.', 'Withdraw your consent where we rely on it.'];
 
 const steps = [
@@ -191,9 +194,9 @@ const steps = [
     ],
     checks: [
       { type: 'adjacent', label: 'the section starts after the sharing paragraph', first: SHARING, second: { equals: SECURITY[0] } },
-      { type: 'adjacent', label: 'the heading is its own paragraph', first: { equals: SECURITY[0] }, second: { startsWith: 'We store' } },
-      { type: 'adjacent', label: 'each body paragraph is its own paragraph', first: { startsWith: 'We store' }, second: { startsWith: 'We keep' } },
-      { type: 'adjacent', label: 'Your Rights follows the new section', first: { startsWith: 'We keep' }, second: { equals: 'Your Rights' } }
+      { type: 'adjacent', label: 'the heading is its own paragraph', first: { equals: SECURITY[0] }, second: STORAGE },
+      { type: 'adjacent', label: 'each body paragraph is its own paragraph', first: STORAGE, second: RETENTION },
+      { type: 'adjacent', label: 'Your Rights follows the new section', first: RETENTION, second: { equals: 'Your Rights' } }
     ]
   },
   {
