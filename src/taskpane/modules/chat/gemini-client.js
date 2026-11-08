@@ -23,20 +23,28 @@ function pause(ms, signal) {
   });
 }
 
-export function geminiEndpoint(model, apiKey) {
-  if (!model || !apiKey) throw new GeminiRequestError('REQUEST_CONFIGURATION', 'Set a Gemini model and API key in Settings.');
-  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+// The key travels in the x-goog-api-key header, never in the URL, so it stays
+// out of URL logs, proxies and error reports.
+export function geminiEndpoint(model) {
+  if (!model) throw new GeminiRequestError('REQUEST_CONFIGURATION', 'Set a Gemini model and API key in Settings.');
+  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 }
 
 export async function requestGemini({ model, apiKey, payload, ...options }) {
-  return requestGeminiJson(geminiEndpoint(model, apiKey), payload, options);
+  return requestGeminiJson(geminiEndpoint(model), payload, { ...options, apiKey });
 }
 
 export async function requestGeminiJson(url, payload, {
-  signal, timeoutMs = 90000, maxAttempts = 3, backoffMs = 1000, deadline = Infinity,
+  apiKey, signal, timeoutMs = 90000, maxAttempts = 3, backoffMs = 1000, deadline = Infinity,
   fetchImpl = globalThis.fetch, sleep = pause, random = Math.random, now = Date.now,
 } = {}) {
+  if (typeof apiKey !== 'string' || !apiKey.trim()) throw new GeminiRequestError('REQUEST_CONFIGURATION', 'Set a Gemini model and API key in Settings.');
+  // A header cannot carry what a URL could encode (spaces, invisible or non-ASCII
+  // characters from a bad paste); say so instead of failing as a network error.
+  const key = apiKey.trim();
+  if (/[^\x21-\x7e]/.test(key)) throw new GeminiRequestError('REQUEST_CONFIGURATION', 'The saved API key contains characters that are not allowed. Paste it again in Settings.');
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new GeminiRequestError('REQUEST_CONFIGURATION', 'Request timeout must be positive.');
+  const headers = { 'Content-Type': 'application/json', 'x-goog-api-key': key };
   const attempts = Math.min(3, Math.max(1, Math.floor(maxAttempts) || 1));
   const body = JSON.stringify(payload);
   for (let attempt = 0; attempt < attempts; attempt++) {
@@ -62,7 +70,7 @@ export async function requestGeminiJson(url, payload, {
       return await Promise.race([interrupt, (async () => {
         let response;
         try {
-          response = await fetchImpl(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: controller.signal });
+          response = await fetchImpl(url, { method: 'POST', headers, body, signal: controller.signal });
         } catch {
           throw new GeminiRequestError('REQUEST_NETWORK', 'Could not reach Gemini. Check your connection and try again.');
         }

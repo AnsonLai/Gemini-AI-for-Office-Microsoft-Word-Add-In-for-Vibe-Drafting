@@ -2,13 +2,13 @@ import './setup-xml-provider.mjs';
 import assert from 'node:assert/strict';
 import { buildDocumentCommentsPackage, buildDocumentFragmentPackage } from '@ansonlai/docx-redline-js/services/package-builder.js';
 import { inspectWordSource } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
-import { computeWordRestorationToken } from '../src/taskpane/modules/docx-redline-js-integration/word-source-identity.js';
-import { restoreBodyCheckpoint } from '../src/taskpane/modules/chat/checkpoint-restoration.js';
+import { computeWordRestorationToken, computeWordRevertGuardToken } from '../src/taskpane/modules/docx-redline-js-integration/word-source-identity.js';
+import { restoreBodyCheckpoint, CHANGED_SINCE_EDIT_MESSAGE } from '../src/taskpane/modules/chat/checkpoint-restoration.js';
 
 globalThis.Word = { ChangeTrackingMode: { off: 'Off', trackAll: 'TrackAll' } };
 const snapshot = buildDocumentFragmentPackage('<w:p><w:r><w:t>Saved provision.</w:t></w:r></w:p>', { appendTrailingParagraph: false });
-function harness({ checkpoint = snapshot, failureSync, transform, postRunError, documentChanged, controller, cancelDuringCommit } = {}) {
-  let current = checkpoint, syncs = 0, writes = 0, identity = 'document';
+function harness({ checkpoint = snapshot, failureSync, transform, postRunError, documentChanged, controller, cancelDuringCommit, currentXml, guardToken } = {}) {
+  let current = currentXml ?? checkpoint, syncs = 0, writes = 0, identity = 'document';
   const modes = [];
   let mode = 'TrackAll';
   const document = { load() {}, body: {
@@ -26,6 +26,7 @@ function harness({ checkpoint = snapshot, failureSync, transform, postRunError, 
   return {
     async restore(value = checkpoint) { return restoreBodyCheckpoint(value, {
       getDocumentId: () => identity, signal: controller?.signal,
+      ...(guardToken !== undefined ? { guardToken } : {}),
       run: async callback => { const result = await callback(context); if (postRunError) throw new Error('Word.run failed after callback.'); return result; },
     }); },
     state: () => ({ writes, mode, modes }),
@@ -156,3 +157,39 @@ assert.equal((await host.restore()).verified, true, 'cancellation preserves sett
 assert.equal(host.state().writes, 1);
 
 console.log('PASS: checkpoint restoration verifies a single replacement, tracking restoration and uncertain-write evidence');
+
+// Revert guard: nothing is written when the document changed after the checkpointed edit.
+const afterEdit = buildDocumentFragmentPackage('<w:p><w:r><w:t>Edited provision.</w:t></w:r></w:p>', { appendTrailingParagraph: false });
+const afterEditToken = (await computeWordRevertGuardToken(inspectWordSource(afterEdit).parts)).value;
+host = harness({ currentXml: afterEdit, guardToken: afterEditToken });
+receipt = await host.restore();
+assert.equal(receipt.verified, true, 'an unchanged post-edit document reverts without asking');
+assert.equal(host.state().writes, 1);
+
+const laterTyping = buildDocumentFragmentPackage('<w:p><w:r><w:t>Edited provision, then typed by the user.</w:t></w:r></w:p>', { appendTrailingParagraph: false });
+host = harness({ currentXml: laterTyping, guardToken: afterEditToken });
+receipt = await host.restore();
+const laterTypingToken = (await computeWordRevertGuardToken(inspectWordSource(laterTyping).parts)).value;
+assert.deepEqual(receipt, { success: false, verified: false, written: false, writeAttempted: false, changedSinceEdit: true, currentToken: laterTypingToken, message: CHANGED_SINCE_EDIT_MESSAGE });
+assert.deepEqual(host.state(), { writes: 0, mode: 'TrackAll', modes: [] }, 'a changed document is never replaced or retracked without confirmation');
+
+// "Revert anyway" discards exactly the state the user was shown, and asks again about anything newer.
+host = harness({ currentXml: laterTyping, guardToken: receipt.currentToken });
+assert.equal((await host.restore()).verified, true, 'confirming discards the state shown in the question');
+assert.equal(host.state().writes, 1);
+const typedAgain = buildDocumentFragmentPackage('<w:p><w:r><w:t>Edited provision, then typed by the user, and more.</w:t></w:r></w:p>', { appendTrailingParagraph: false });
+host = harness({ currentXml: typedAgain, guardToken: receipt.currentToken });
+assert.equal((await host.restore()).changedSinceEdit, true, 'a stale confirmation never discards newer changes');
+assert.equal(host.state().writes, 0);
+
+// Word's background proofing after the edit (proofing marks, split runs) is not a change.
+const proofed = buildDocumentFragmentPackage('<w:p><w:r><w:t xml:space="preserve">Edited </w:t></w:r><w:proofErr w:type="spellStart"/><w:r><w:t>provision.</w:t></w:r><w:proofErr w:type="spellEnd"/><w:r><w:lastRenderedPageBreak/></w:r></w:p>', { appendTrailingParagraph: false });
+host = harness({ currentXml: proofed, guardToken: afterEditToken });
+assert.equal((await host.restore()).verified, true, 'proofing noise alone reverts without asking');
+
+host = harness({ currentXml: afterEdit, guardToken: null });
+receipt = await host.restore();
+assert.equal(receipt.changedSinceEdit, true, 'an unknown post-edit state is treated as changed');
+assert.equal(host.state().writes, 0);
+
+console.log('PASS: revert guard refuses to discard changes made after the checkpointed edit');

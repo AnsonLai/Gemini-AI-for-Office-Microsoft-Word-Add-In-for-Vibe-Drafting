@@ -5,6 +5,7 @@ import { buildDocumentFragmentPackage, buildDocumentCommentsPackage } from '@ans
 import { inspectWordSource } from '../src/taskpane/modules/docx-redline-js-integration/word-operation-runner.js';
 import { createDocumentInspectionSession } from '../src/taskpane/modules/chat/document-inspection-session.js';
 import { createDocumentTools } from '../src/taskpane/modules/chat/document-tools.js';
+import { computeWordRevertGuardToken } from '../src/taskpane/modules/docx-redline-js-integration/word-source-identity.js';
 
 globalThis.Word = {
   ChangeTrackingMode: { off: 'Off', trackAll: 'TrackAll' },
@@ -99,7 +100,8 @@ function createHarness(text, options = {}) {
       if (options.rejectAfterRun) throw options.rejectAfterRun;
       return result;
     },
-    onReceipt: receipt => receipts.push(receipt)
+    onReceipt: receipt => receipts.push(receipt),
+    ...(options.onVerifiedWrite ? { onVerifiedWrite: options.onVerifiedWrite } : {})
   });
 
   return {
@@ -581,3 +583,29 @@ for (const metadata of [
 }
 
 console.log('PASS: direct document tools checkpoint, freshness, single-write, verification, no-op, cancellation and failure receipts');
+
+// A verified write reports the post-edit document token so Revert can detect later changes.
+{
+  const reported = [];
+  const harness = createHarness('Token clause.', { onVerifiedWrite: report => { reported.push(report); } });
+  const target = await harness.handleFor('Token clause.');
+  const receipt = await apply(harness, [{ type: 'replace_text', target, find: 'Token', replace: 'Tracked' }]);
+  assert.equal(receipt.success, true, JSON.stringify(receipt));
+  const expected = await computeWordRevertGuardToken(inspectWordSource(harness.currentXml).parts);
+  assert.deepEqual(reported, [{ checkpointIndex: 1, revisionToken: expected.value }]);
+}
+{
+  const harness = createHarness('Token clause.', { onVerifiedWrite: () => { throw new Error('storage failure'); } });
+  const target = await harness.handleFor('Token clause.');
+  const receipt = await apply(harness, [{ type: 'replace_text', target, find: 'Token', replace: 'Tracked' }]);
+  assert.equal(receipt.success, true, 'a failed token report never changes a verified edit outcome');
+  assert.equal(receipt.verified, true);
+}
+{
+  const reported = [];
+  const harness = createHarness('Token clause.', { onVerifiedWrite: report => { reported.push(report); } });
+  const target = await harness.handleFor('Token clause.');
+  await apply(harness, [{ type: 'replace_text', target, find: 'Missing', replace: 'Tracked' }]);
+  assert.deepEqual(reported, [], 'a refused batch reports no post-edit token');
+}
+console.log('PASS: verified writes report the post-edit token for the revert guard');

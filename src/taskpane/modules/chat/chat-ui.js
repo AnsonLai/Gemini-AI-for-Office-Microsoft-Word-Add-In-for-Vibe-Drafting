@@ -230,6 +230,25 @@ function addRetryButton(messageElement, originalMessage) {
   messageElement.appendChild(buttonContainer);
 }
 
+// Office add-ins cannot use window.confirm, so confirmations live in the chat.
+function addConfirmButtons(messageElement, { confirmLabel, cancelLabel, onConfirm, onCancel = () => {} }) {
+  const buttonContainer = document.createElement("div");
+  buttonContainer.className = "revert-btn-container";
+  const makeButton = (label, handler) => {
+    const button = document.createElement("button");
+    button.className = "revert-checkpoint-btn";
+    button.textContent = label;
+    button.onclick = () => {
+      buttonContainer.remove();
+      handler();
+    };
+    buttonContainer.appendChild(button);
+  };
+  makeButton(confirmLabel, onConfirm);
+  makeButton(cancelLabel, onCancel);
+  messageElement.appendChild(buttonContainer);
+}
+
 function hideAllRetryButtons() {
   const retryContainers = document.querySelectorAll(".retry-btn-container");
   retryContainers.forEach(container => {
@@ -251,6 +270,7 @@ export {
   addMessageToChat,
   updateSystemMessage,
   addRetryButton,
+  addConfirmButtons,
   hideAllRetryButtons,
   removeMessage
 };

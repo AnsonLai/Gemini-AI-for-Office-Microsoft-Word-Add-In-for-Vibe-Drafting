@@ -4,7 +4,9 @@ import {
   makeCheckpointRecord,
   idsToEvict,
   migrateLegacyCheckpoints,
-  MAX_CHECKPOINTS
+  idsToPrune,
+  MAX_CHECKPOINTS,
+  OTHER_SESSION_MAX_AGE_MS
 } from '../src/taskpane/modules/storage/checkpoint-store.js';
 
 function testFormatAutoCheckpointLabel() {
@@ -61,7 +63,32 @@ function testMigrateLegacyCheckpoints() {
   assert.deepStrictEqual(migrateLegacyCheckpoints(null), []);
 }
 
+function testMakeCheckpointRecordSession() {
+  assert.deepStrictEqual(makeCheckpointRecord('auto', '<x/>', 5, 'pane-a'), { timestamp: 5, label: 'auto', ooxml: '<x/>', sessionId: 'pane-a' });
+}
+
+function testIdsToPrune() {
+  const now = 10 * OTHER_SESSION_MAX_AGE_MS;
+  const fresh = now - 1000;
+  const stale = now - OTHER_SESSION_MAX_AGE_MS - 1;
+  const records = [];
+  // 12 own checkpoints: only the 2 oldest go, however old the others' are.
+  for (let i = 1; i <= 12; i++) records.push({ id: i, sessionId: 'mine', timestamp: stale });
+  records.push({ id: 20, sessionId: 'other', timestamp: fresh }); // another open pane: kept
+  records.push({ id: 21, sessionId: 'other', timestamp: stale }); // abandoned pane: pruned
+  records.push({ id: 22, timestamp: fresh });                      // untagged legacy, still fresh: kept
+  records.push({ id: 23 });                                        // no timestamp: pruned
+  assert.deepStrictEqual(idsToPrune(records, { sessionId: 'mine', now }).sort((a, b) => a - b), [1, 2, 21, 23]);
+  // Another document's activity never evicts this session's checkpoints.
+  const busyOther = Array.from({ length: 15 }, (_, i) => ({ id: 100 + i, sessionId: 'other', timestamp: fresh }));
+  const mine = [{ id: 1, sessionId: 'mine', timestamp: fresh }];
+  assert.deepStrictEqual(idsToPrune([...mine, ...busyOther], { sessionId: 'other', now }), [100, 101, 102, 103, 104]);
+  assert.deepStrictEqual(idsToPrune(null), []);
+}
+
 testFormatAutoCheckpointLabel();
+testMakeCheckpointRecordSession();
+testIdsToPrune();
 testMakeCheckpointRecord();
 testIdsToEvictUnderCap();
 testIdsToEvictOverCap();

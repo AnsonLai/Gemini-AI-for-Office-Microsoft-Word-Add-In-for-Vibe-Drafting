@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createToolRegistry, getToolDeclarations } from '../src/taskpane/modules/chat/tool-registry.js';
 import { runDocumentAgentLoop } from '../src/taskpane/modules/chat/document-agent-loop.js';
 
-const EXPECTED_NAMES = ['inspect_document', 'apply_document_edits'];
+const EXPECTED_NAMES = ['inspect_document', 'apply_document_edits', 'search_web'];
 const LEGACY_NAMES = [
   'apply_redlines', 'insert_comment', 'highlight_text', 'perform_research',
   'navigate_to_section', 'edit_list', 'insert_list_item', 'edit_table',
@@ -48,7 +48,7 @@ function testDeclarationsAndRecoveryNames() {
   assert.deepEqual(registry.recoveryToolNames, EXPECTED_NAMES);
   assert.equal(Object.isFrozen(registry.recoveryToolNames), true);
   tools.pop();
-  assert.equal(getToolDeclarations()[0].function_declarations.length, 2,
+  assert.equal(getToolDeclarations()[0].function_declarations.length, 3,
     'caller mutations must not alter the authoritative definitions');
   assert.equal(registry.describe('inspect_document').mutating, false);
   assert.equal(registry.describe('apply_document_edits').mutating, true);
@@ -206,7 +206,33 @@ async function testLegacyCapabilitiesRefuseBeforeExecutor() {
   assert.equal(executorCalls, 0, 'unsupported legacy tools are refused before reaching any document executor');
 }
 
+async function testSearchWebDeclarationAndValidation() {
+  const search = getToolDeclarations()[0].function_declarations.find(tool => tool.name === 'search_web');
+  assert.deepEqual(search.parameters.required, ['query']);
+  assert.deepEqual(Object.keys(search.parameters.properties), ['query']);
+  const calls = [];
+  const registry = createToolRegistry({ searchWeb: async args => { calls.push(args); return { status: 'ok', answer: 'Filed in 2019.', sources: [] }; } });
+  const described = registry.describe('search_web');
+  assert.equal(described.known, true);
+  assert.equal(described.mutating, false);
+  assert.equal(described.refreshesTargets, false, 'a search never yields fresh edit handles');
+  assert.equal(described.progressText, 'Searching the web...');
+  assert.equal(registry.describe('inspect_document').refreshesTargets, true);
+  for (const invalid of [{}, { query: '' }, { query: '   ' }, { query: 7 }, { query: 'x'.repeat(301) }, { query: 'ok', search: 'extra' }]) {
+    const result = await registry.execute('search_web', invalid);
+    assert.equal(result.success, false, JSON.stringify(invalid));
+    assert.ok(['INVALID_SEARCH_QUERY', 'INVALID_TOOL_ARGUMENTS'].includes(result.rawResult.error.code));
+  }
+  assert.equal(calls.length, 0, 'invalid searches never reach the executor');
+  const result = await registry.execute('search_web', { query: 'When was Acme Corp incorporated?' });
+  assert.equal(result.success, true);
+  assert.equal(result.mutating, false);
+  assert.equal(result.display.show, false);
+  assert.deepEqual(calls, [{ query: 'When was Acme Corp incorporated?' }]);
+}
+
 testDeclarationsAndRecoveryNames();
+await testSearchWebDeclarationAndValidation();
 await testDirectArgumentValidationAndExecutorMapping();
 await testVerifiedNoopRefusedAndUncertainReceiptsReachUi();
 await testLegacyCapabilitiesRefuseBeforeExecutor();

@@ -125,6 +125,14 @@
       <span class="accordion-icon">&#9654;</span>
     </div>
     <div id="glance-settings-content" class="accordion-content" style="display: none;">
+      <label class="toggle-switch-label">
+        <span>Run Glance checks when the pane opens</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="glance-autorun-toggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </label>
+      <p class="settings-hint">Each check sends the full document text to Gemini. When this is off, press refresh on the Glance panel to run them.</p>
       <p class="settings-hint">Drag to reorder. Edit labels and questions.</p>
       <div id="glance-settings-list">
         <!-- Dynamic Settings Cards will be injected here -->

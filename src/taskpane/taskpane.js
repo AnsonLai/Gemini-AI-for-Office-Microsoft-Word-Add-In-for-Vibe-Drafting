@@ -22,6 +22,7 @@ import {
   addMessageToChat,
   updateSystemMessage,
   addRetryButton,
+  addConfirmButtons,
   hideAllRetryButtons,
   removeMessage
 } from './modules/chat/chat-ui.js';
@@ -32,11 +33,15 @@ import {
 import { runDocumentAgentLoop } from './modules/chat/document-agent-loop.js';
 import { createToolRegistry, getToolDeclarations } from './modules/chat/tool-registry.js';
 import { createWordDocumentSourceReader } from './modules/chat/word-document-source.js';
+import { createWebSearch } from './modules/chat/web-search.js';
 import { DOCUMENT_EDITING_GUIDE, summarizeDocumentSource } from './modules/chat/document-editing-guide.js';
 import { getModelProfile } from './modules/config/model-profiles.js';
+import { glanceResponseText, parseGlanceResults } from './modules/glance/glance-results.js';
 import {
   saveCheckpoint,
   getCheckpoint,
+  updateCheckpoint,
+  pruneCheckpoints,
   importCheckpoints,
   formatAutoCheckpointLabel,
   migrateLegacyCheckpoints
@@ -56,6 +61,8 @@ marked.setOptions({
 const RELEASE_MARKER = "v2.3.0.1";
 const DEFAULT_AUTHOR = "Gemini AI";
 const GLANCE_COLLAPSED_STORAGE_KEY = "glanceCollapsed";
+// Off by default: an automatic check sends the whole document to Gemini unasked.
+const GLANCE_AUTORUN_STORAGE_KEY = "glanceAutoRun";
 
 globalThis.__GEMINI_TASKPANE_RELEASE__ = RELEASE_MARKER;
 
@@ -229,17 +236,21 @@ Office.onReady((info) => {
       renderGlanceSettings();
     };
 
+    document.getElementById("glance-autorun-toggle").onchange = (e) => {
+      saveGlanceAutoRun(e.target.checked);
+    };
+
     // Check for API key on load
     if (!loadApiKey()) {
       showWelcomeScreen();
-    } else if (TASKPANE_STARTUP_PROFILE_ENABLED) {
-      // Keep the normal Glance view visible while the local startup profile avoids provider calls.
-      renderGlanceMain();
     } else {
-      // Run Glance checks if key exists
       renderGlanceMain();
-      runGlanceChecks();
+      // The local startup profile never makes provider calls.
+      if (loadGlanceAutoRun() && !TASKPANE_STARTUP_PROFILE_ENABLED) runGlanceChecks();
     }
+
+    // Drop other panes' stale checkpoints (full document copies) early.
+    void ensureCheckpointMigration();
 
     // Accordion Event Listeners
     setupAccordion("glance-settings-header", "glance-settings-content");
@@ -321,12 +332,12 @@ function showWelcomeScreen() {
 
     <div class="feature-explanation">
       <h3>Document Tools</h3>
-      <p>Chat with an assistant who can access to tools that can <strong>edit text</strong>, <strong>search Google</strong>, <strong>highlight key info</strong>, and <strong>leave comments</strong>.  These tools allow the assistant to interact with your document naturally and help you with your tasks.</p>
+      <p>Chat with an assistant that can <strong>edit text</strong> as tracked changes, <strong>format and highlight</strong> key info, <strong>leave comments</strong>, and <strong>search the web</strong> with Google when a question needs facts the document does not contain.</p>
     </div>
 
     <div class="feature-explanation">
       <h3>Glance Checks</h3>
-      <p>Set up custom criteria (like <em>Grammar</em> or <em>Factual Accuracy</em>) to automatically check every document you open.  You can customize these questions in Settings.</p>
+      <p>Set up custom criteria (like <em>Grammar</em> or <em>Factual Accuracy</em>) and check a document with one click. You can customize these questions in Settings, and choose to run them automatically when the pane opens.</p>
     </div>
 
     <div class="feature-explanation">
@@ -337,7 +348,7 @@ function showWelcomeScreen() {
     <div class="feature-explanation">
       <h3>Model Choices</h3>
       <p><strong>Fast Model:</strong> This model is used for regular chats and is great for quick edits and simple questions.  It is fast and cheap.</p>
-      <p><strong>Slow Model:</strong> This model is used when you select "Think".  It provides deep analysis and basic online searches.  It is slower and more expensive, but provides more thorough results.</p>
+      <p><strong>Slow Model:</strong> This model is used when you select "Think". It reasons more deeply, so it is slower and more expensive, but gives more thorough results. Both models can search the web.</p>
     </div>
 
     <div class="welcome-footer">
@@ -400,6 +411,7 @@ function showSettingsView() {
   }
   // Render Glance settings
   renderGlanceSettings();
+  document.getElementById("glance-autorun-toggle").checked = loadGlanceAutoRun();
 
   // Load redline setting
   const redlineEnabled = loadRedlineSetting();
@@ -473,7 +485,7 @@ function saveApiKey() {
   const redlineAuthor = document.getElementById("redline-author-input").value;
 
   if (apiKey && apiKey.trim() !== "") {
-    localStorage.setItem("geminiApiKey", apiKey);
+    localStorage.setItem("geminiApiKey", apiKey.trim());
     localStorage.setItem("geminiModelFast", fastModel);
     localStorage.setItem("geminiModelSlow", slowModel);
     localStorage.setItem("geminiSystemMessage", systemMessage);
@@ -482,8 +494,7 @@ function saveApiKey() {
     // Glance settings are saved automatically on change
     showMainView();
     addMessageToChat("System", "Settings saved successfully.");
-    // Re-run checks with new settings
-    runGlanceChecks();
+    if (loadGlanceAutoRun()) runGlanceChecks();
   } else {
     addMessageToChat("System", "API Key cannot be empty.");
   }
@@ -604,6 +615,18 @@ function saveGlanceSettings(settings) {
   localStorage.setItem("glanceSettings", JSON.stringify(settings));
 }
 
+function loadGlanceAutoRun() {
+  return localStorage.getItem(GLANCE_AUTORUN_STORAGE_KEY) === "true";
+}
+
+function saveGlanceAutoRun(enabled) {
+  localStorage.setItem(GLANCE_AUTORUN_STORAGE_KEY, enabled.toString());
+}
+
+function countWords(paragraphs) {
+  return paragraphs.reduce((count, paragraph) => count + paragraph.exactText.split(/\s+/).filter(Boolean).length, 0);
+}
+
 function loadGlanceCollapsedState() {
   return localStorage.getItem(GLANCE_COLLAPSED_STORAGE_KEY) === "true";
 }
@@ -658,17 +681,26 @@ function renderGlanceMain() {
   if (container) container.style.display = "block";
   applyGlanceCollapsedState();
 
+  const idle = loadGlanceAutoRun() ? "Waiting for analysis..." : "Press refresh to run this check.";
   settings.forEach(item => {
+    // Built with textContent: titles are free text and must never be parsed as HTML.
     const div = document.createElement("div");
     div.className = "glance-item";
     div.id = `glance-item-${item.id}`;
-    div.innerHTML = `
-      <div class="glance-header">
-        <span id="glance-indicator-${item.id}" class="glance-indicator gray"></span>
-        <span class="glance-title">${item.title}</span>
-      </div>
-      <p id="glance-summary-${item.id}" class="glance-summary">Waiting for analysis...</p>
-    `;
+    const header = document.createElement("div");
+    header.className = "glance-header";
+    const indicator = document.createElement("span");
+    indicator.id = `glance-indicator-${item.id}`;
+    indicator.className = "glance-indicator gray";
+    const title = document.createElement("span");
+    title.className = "glance-title";
+    title.textContent = item.title;
+    header.append(indicator, title);
+    const summary = document.createElement("p");
+    summary.id = `glance-summary-${item.id}`;
+    summary.className = "glance-summary";
+    summary.textContent = idle;
+    div.append(header, summary);
     list.appendChild(div);
   });
 }
@@ -684,15 +716,17 @@ function renderGlanceSettings() {
     card.dataset.index = index;
     card.dataset.id = item.id;
 
-    // Slimmer layout: Drag handle on left, inputs stacked but compact
+    // Static markup only; the saved title and question are set as values below.
     card.innerHTML = `
       <div class="glance-card-header-row">
-        <input type="text" class="ms-TextField-field glance-title-input" value="${item.title}" placeholder="Title">
+        <input type="text" class="ms-TextField-field glance-title-input" placeholder="Title">
         <span class="drag-handle" title="Drag to reorder">☰</span>
         <button class="delete-card-btn" title="Delete">✕</button>
       </div>
-      <textarea class="ms-TextField-field glance-question-input" placeholder="Question (e.g. Is the grammar correct?)" rows="2">${item.question}</textarea>
+      <textarea class="ms-TextField-field glance-question-input" placeholder="Question (e.g. Is the grammar correct?)" rows="2"></textarea>
     `;
+    card.querySelector(".glance-title-input").value = item.title ?? "";
+    card.querySelector(".glance-question-input").value = item.question ?? "";
 
     // Event Listeners
     card.querySelector(".delete-card-btn").onclick = () => {
@@ -792,6 +826,9 @@ function handleDragEnd(e) {
   });
 }
 
+// Only the latest Glance run may update the cards; starting a new run cancels the old one.
+let glanceController = null;
+
 async function runGlanceChecks() {
   const geminiApiKey = loadApiKey();
   if (!geminiApiKey) return;
@@ -799,16 +836,27 @@ async function runGlanceChecks() {
   const settings = loadGlanceSettings();
   if (settings.length === 0) return;
 
-  // Update UI to showing loading
-  settings.forEach(item => {
+  glanceController?.abort();
+  const controller = new AbortController();
+  glanceController = controller;
+  const isCurrent = () => glanceController === controller && !controller.signal.aborted;
+  const showAll = (status, text) => settings.forEach(item => {
     const indicator = document.getElementById(`glance-indicator-${item.id}`);
     const summary = document.getElementById(`glance-summary-${item.id}`);
-    if (indicator) indicator.className = "glance-indicator gray";
-    if (summary) summary.innerText = "Checking...";
+    if (indicator) indicator.className = `glance-indicator ${status}`;
+    if (summary) summary.textContent = text;
   });
 
+  showAll("gray", "Checking...");
+
   try {
-    const { inspection } = await createWordDocumentSourceReader({ loadSupport: loadWordOperationSupport, getDocumentId })();
+    const { inspection } = await createWordDocumentSourceReader({ loadSupport: loadWordOperationSupport, getDocumentId, signal: controller.signal })();
+    if (!isCurrent()) return;
+    // Glance sends the full document text, so it must stay within the size limit.
+    if (countWords(inspection.paragraphs) > DOCUMENT_LIMITS.MAX_WORDS) {
+      showAll("gray", "This document is too long for Glance checks.");
+      return;
+    }
     const docText = inspection.paragraphs.map(paragraph => paragraph.exactText).join('\n');
 
     const model = loadModel('fast'); // Use fast model for glance checks
@@ -841,51 +889,39 @@ async function runGlanceChecks() {
       safetySettings: SAFETY_SETTINGS_BLOCK_NONE
     };
 
-    const result = await requestGemini({ model, apiKey: geminiApiKey, payload, signal: currentRequestController?.signal, timeoutMs: TIMEOUT_LIMITS.FETCH_TIMEOUT_MS });
-    const candidate = result.candidates[0];
-    let text = candidate.content.parts[0].text;
+    const result = await requestGemini({ model, apiKey: geminiApiKey, payload, signal: controller.signal, timeoutMs: TIMEOUT_LIMITS.FETCH_TIMEOUT_MS });
+    if (!isCurrent()) return;
+    const results = parseGlanceResults(glanceResponseText(result), settings.map(item => item.id));
 
-    // Robust JSON Extraction: Find the first '{' and the last '}'
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      text = jsonMatch[0];
-    } else {
-      // Fallback cleanup if regex fails (though regex is preferred)
-      text = text.replace(/^```json\s*/, "").replace(/^```\s*/, "").replace(/```$/, "").trim();
-    }
-
-    const json = JSON.parse(text);
-
-    // Update UI
     settings.forEach(item => {
-      const res = json[item.id];
-      if (res) {
-        const indicator = document.getElementById(`glance-indicator-${item.id}`);
-        const summary = document.getElementById(`glance-summary-${item.id}`);
-        if (indicator) {
-          indicator.className = `glance-indicator ${res.status}`;
-          // Add pulse animation
-          indicator.classList.add("pulse");
-          setTimeout(() => indicator.classList.remove("pulse"), 500);
-        }
-        if (summary) summary.innerText = res.summary;
-      }
-    });
-
-
-  } catch (error) {
-    console.error("Glance check failed:", error);
-    settings.forEach(item => {
+      const indicator = document.getElementById(`glance-indicator-${item.id}`);
       const summary = document.getElementById(`glance-summary-${item.id}`);
-      if (summary) summary.innerText = "Error running check.";
+      const res = results[item.id];
+      if (!res) {
+        if (summary) summary.textContent = "No answer for this check.";
+        return;
+      }
+      if (indicator) {
+        indicator.className = `glance-indicator ${res.status}`;
+        indicator.classList.add("pulse");
+        setTimeout(() => indicator.classList.remove("pulse"), 500);
+      }
+      if (summary) summary.textContent = res.summary;
     });
+  } catch (error) {
+    if (!isCurrent()) return;
+    console.error("Glance check failed:", error);
+    showAll("gray", "Error running check.");
+  } finally {
+    if (glanceController === controller) glanceController = null;
   }
 }
 
 // --- Checkpoint Management (IndexedDB-backed; see modules/storage/checkpoint-store.js) ---
 
 /**
- * One-time migration of any legacy localStorage checkpoints into IndexedDB.
+ * One-time migration of any legacy localStorage checkpoints into IndexedDB,
+ * then removal of other sessions' stale checkpoints (full document copies).
  * Runs at most once per session; clears the legacy key afterward.
  */
 async function ensureCheckpointMigration() {
@@ -893,16 +929,22 @@ async function ensureCheckpointMigration() {
   checkpointMigrationDone = true; // set first so a failure doesn't retry every save
   try {
     const legacyJson = localStorage.getItem("docCheckpoints");
-    if (!legacyJson) return;
-    const legacy = JSON.parse(legacyJson);
-    const records = migrateLegacyCheckpoints(legacy);
-    if (records.length > 0) {
-      await importCheckpoints(records);
-      console.log(`Migrated ${records.length} checkpoint(s) from localStorage to IndexedDB.`);
+    if (legacyJson) {
+      const legacy = JSON.parse(legacyJson);
+      const records = migrateLegacyCheckpoints(legacy);
+      if (records.length > 0) {
+        await importCheckpoints(records);
+        console.log(`Migrated ${records.length} checkpoint(s) from localStorage to IndexedDB.`);
+      }
+      localStorage.removeItem("docCheckpoints");
     }
-    localStorage.removeItem("docCheckpoints");
   } catch (e) {
     console.warn("Checkpoint migration skipped:", e);
+  }
+  try {
+    await pruneCheckpoints(documentInstanceId);
+  } catch (e) {
+    console.warn("Checkpoint pruning skipped:", e);
   }
 }
 
@@ -914,7 +956,7 @@ async function ensureCheckpointMigration() {
 async function createAutoCheckpoint(toolName, sourceOoxml) {
   try {
     await ensureCheckpointMigration();
-    return await saveCheckpoint(formatAutoCheckpointLabel(toolName), sourceOoxml);
+    return await saveCheckpoint(formatAutoCheckpointLabel(toolName), sourceOoxml, { sessionId: documentInstanceId });
   } catch (error) {
     // The direct batch executor refuses a write when this returns -1.
     console.error("Error saving checkpoint:", error);
@@ -922,8 +964,18 @@ async function createAutoCheckpoint(toolName, sourceOoxml) {
   }
 }
 
-async function restoreCheckpoint(id) {
-  currentRequestController?.abort();
+/**
+ * Revert the body to the state before checkpoint `id`'s edit. Nothing is
+ * written when the document changed after that edit (later edits or the user's
+ * typing); the user is asked first. "Revert anyway" carries the state shown at
+ * that moment, so anything changed after the question is asked about again.
+ */
+async function restoreCheckpoint(id, { confirmedToken } = {}) {
+  // Never race an in-flight edit: its write could land after the restore.
+  if (currentRequestController) {
+    addMessageToChat('System', 'Wait for the current request to finish, or cancel it, before reverting.');
+    return;
+  }
   const restoreController = new AbortController();
   currentRequestController = restoreController;
   const controls = ['chat-input', 'send-button', 'think-button'].map(id => document.getElementById(id)).filter(Boolean);
@@ -932,15 +984,28 @@ async function restoreCheckpoint(id) {
   try {
     const record = await getCheckpoint(id);
     if (!record?.ooxml) {
-      if (currentRequestController === restoreController) addMessageToChat('Error', 'Invalid or missing checkpoint.');
+      if (currentRequestController === restoreController) addMessageToChat('Error', 'This checkpoint is no longer available.');
       return;
     }
     if (restoreController.signal.aborted) return;
     msgElement = addMessageToChat('System', 'Reverting to checkpoint...');
     const { restoreBodyCheckpoint } = await import('./modules/chat/checkpoint-restoration.js');
-    const result = await restoreBodyCheckpoint(record.ooxml, { getDocumentId, signal: restoreController.signal });
+    const result = await restoreBodyCheckpoint(record.ooxml, {
+      getDocumentId, signal: restoreController.signal,
+      guardToken: confirmedToken ?? (typeof record.afterToken === 'string' ? record.afterToken : null),
+    });
     if (currentRequestController === restoreController) {
-      if (result?.success === true && result?.verified === true) {
+      if (result?.changedSinceEdit === true) {
+        updateSystemMessage(msgElement, confirmedToken
+          ? 'The document changed again after you chose to revert. Reverting will also undo those newer changes.'
+          : result.message);
+        addConfirmButtons(msgElement, {
+          confirmLabel: 'Revert anyway',
+          cancelLabel: 'Keep document',
+          onConfirm: () => restoreCheckpoint(id, { confirmedToken: result.currentToken }),
+          onCancel: () => updateSystemMessage(msgElement, 'Revert cancelled. The document was not changed.'),
+        });
+      } else if (result?.success === true && result?.verified === true) {
         chatHistory = [];
         const chatMessages = document.getElementById('chat-messages');
         if (chatMessages) chatMessages.innerHTML = '';
@@ -1042,7 +1107,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
     const docSelection = documentSource.selectionText.slice(0, 2000);
     // --- Check Document Size ---
     if (currentRequestController !== requestController) return;
-    const wordCount = documentSource.inspection.paragraphs.reduce((count, paragraph) => count + paragraph.exactText.split(/\s+/).length, 0);
+    const wordCount = countWords(documentSource.inspection.paragraphs);
     const estimatedTokens = Math.ceil(wordCount * DOCUMENT_LIMITS.TOKEN_MULTIPLIER);
 
     if (wordCount > DOCUMENT_LIMITS.MAX_WORDS) {
@@ -1066,7 +1131,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
     }
 
     const geminiModel = loadModel(modelType);
-    const apiUrl = geminiEndpoint(geminiModel, geminiApiKey);
+    const apiUrl = geminiEndpoint(geminiModel);
 
     let contextString = "";
     if (docSelection && docSelection.trim() !== "") {
@@ -1093,18 +1158,27 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
 
     // The portable loop owns exchanges and stop decisions; this adapter owns UI/Word I/O.
     const loopState = { history: chatHistory, records: requestRecords };
+    const requestDeadline = requestStartTime + TIMEOUT_LIMITS.TOTAL_REQUEST_TIMEOUT_MS;
+    // search_web runs its own grounded request with the same model, key, deadline and Cancel.
+    const searchWeb = createWebSearch({
+      request: payload => callGeminiWithRetry(apiUrl, payload, modelProfile.retries, 1000, requestController.signal, requestDeadline, geminiApiKey),
+      safetySettings: SAFETY_SETTINGS_BLOCK_NONE,
+    });
     try {
       await runDocumentAgentLoop({
         state: loopState,
         registry: createToolRegistry(),
         loadRegistry: async () => {
           const toolsModule = await loadDocumentTools();
-          return createToolRegistry(toolsModule.createDocumentTools({
+          return createToolRegistry({ searchWeb, ...toolsModule.createDocumentTools({
             session: inspectionSession, getDocumentId, getAuthor: loadRedlineAuthor,
             getGenerateRedlines: loadRedlineSetting,
             persistCheckpoint: source => createAutoCheckpoint('apply_document_edits', source),
+            onVerifiedWrite: ({ checkpointIndex, revisionToken }) => Number.isInteger(checkpointIndex) && typeof revisionToken === 'string'
+              ? updateCheckpoint(checkpointIndex, { afterToken: revisionToken })
+              : undefined,
             signal: requestController.signal,
-          }));
+          }) });
         },
         requestModel: history => callGeminiWithRetry(apiUrl, {
           contents: history,
@@ -1112,7 +1186,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
           tools,
           safetySettings: SAFETY_SETTINGS_BLOCK_NONE,
           generationConfig: { maxOutputTokens: modelProfile.maxOutputTokens },
-        }, modelProfile.retries, 1000, requestController.signal, requestStartTime + TIMEOUT_LIMITS.TOTAL_REQUEST_TIMEOUT_MS),
+        }, modelProfile.retries, 1000, requestController.signal, requestDeadline, geminiApiKey),
         refreshContext: () => captureRefreshedDocumentContext(createWordDocumentSourceReader({
           loadSupport: () => wordOperationSupportPromise, getDocumentId,
         })),
@@ -1209,8 +1283,9 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
 }
 
 // Retries provider transport only. Tool execution remains in the caller.
-async function callGeminiWithRetry(url, payload, retries = 3, backoff = 1000, signal = currentRequestController?.signal, deadline = Infinity) {
+async function callGeminiWithRetry(url, payload, retries = 3, backoff = 1000, signal = currentRequestController?.signal, deadline = Infinity, apiKey = loadApiKey()) {
   return requestGeminiJson(url, payload, {
+    apiKey,
     signal,
     timeoutMs: TIMEOUT_LIMITS.FETCH_TIMEOUT_MS,
     maxAttempts: retries,

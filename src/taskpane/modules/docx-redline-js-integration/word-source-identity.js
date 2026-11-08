@@ -160,6 +160,93 @@ export async function computeWordSourceRevisionToken(parts, options = {}) {
   return computeDocumentPartsRevisionToken(tokenParts(parts, exportTail));
 }
 
+// Word's background proofing and layout add these after a write and split runs at
+// them, so a document nobody touched would otherwise look changed (see
+// logicalRevisionMarkup in scripts/golden/golden-checks.mjs).
+const XML_NS = 'http://www.w3.org/XML/1998/namespace';
+const REVERT_GUARD_NOISE = new Set(['proofErr', 'lastRenderedPageBreak', 'proofState']);
+
+function isSimpleRun(node) {
+  if (node?.nodeType !== 1 || node.namespaceURI !== NS_W || localName(node) !== 'r') return false;
+  const children = Array.from(node.childNodes || []).filter(child => child.nodeType === 1);
+  const text = children.filter(child => child.namespaceURI === NS_W && ['t', 'delText'].includes(localName(child)));
+  const properties = children.filter(child => child.namespaceURI === NS_W && localName(child) === 'rPr');
+  return text.length === 1 && properties.length <= 1 && text.length + properties.length === children.length;
+}
+
+function runParts(run) {
+  const children = Array.from(run.childNodes).filter(child => child.nodeType === 1);
+  const text = children.find(child => localName(child) !== 'rPr');
+  const properties = children.find(child => localName(child) === 'rPr');
+  return { text, key: `${localName(text)}|${properties ? serializeXml(properties) : ''}` };
+}
+
+function normalizeForRevertGuard(xml) {
+  if (typeof xml !== 'string') return xml;
+  const document = parseXml(xml);
+  const elements = elementsIncludingRoot(document);
+  const goBackIds = new Set(elements
+    .filter(element => element.namespaceURI === NS_W && localName(element) === 'bookmarkStart' && element.getAttributeNS(NS_W, 'name') === '_GoBack')
+    .map(element => element.getAttributeNS(NS_W, 'id')));
+  for (const element of elements) {
+    if (element.namespaceURI !== NS_W) continue;
+    const name = localName(element);
+    if (REVERT_GUARD_NOISE.has(name)
+      || ((name === 'bookmarkStart' || name === 'bookmarkEnd') && goBackIds.has(element.getAttributeNS(NS_W, 'id')))) {
+      element.parentNode?.removeChild(element);
+    } else if (name === 'p') {
+      element.removeAttributeNS(NS_W14, 'paraId');
+      element.removeAttributeNS(NS_W14, 'textId');
+    } else if (name === 't' || name === 'delText') {
+      element.removeAttributeNS(XML_NS, 'space');
+    }
+  }
+  // A run left with nothing but properties shows nothing.
+  for (const run of elementsIncludingRoot(document).filter(element => element.namespaceURI === NS_W && localName(element) === 'r')) {
+    if (Array.from(run.childNodes || []).every(child => child.nodeType !== 1 || (child.namespaceURI === NS_W && localName(child) === 'rPr'))) {
+      run.parentNode?.removeChild(run);
+    }
+  }
+  // Merge adjacent runs with identical properties, undoing proofing splits.
+  for (const parent of elementsIncludingRoot(document)) {
+    let previous = null;
+    for (const child of Array.from(parent.childNodes || [])) {
+      if (child.nodeType === 3 && !child.nodeValue.trim()) continue;
+      if (!isSimpleRun(child)) { previous = null; continue; }
+      const current = runParts(child);
+      if (previous && previous.key === current.key) {
+        previous.text.appendChild(document.createTextNode(current.text.textContent));
+        parent.removeChild(child);
+      } else {
+        previous = current;
+      }
+    }
+  }
+  return serializeXml(document);
+}
+
+function normalizeForRevertGuardSafely(xml) {
+  try { return normalizeForRevertGuard(xml); } catch { return xml; }
+}
+
+/**
+ * Token for the Revert guard: was the document changed after an edit? It also
+ * ignores Word's background proofing marks, layout marks, the _GoBack bookmark,
+ * paragraph ids and run splits, which Word adds on its own after a write. Text,
+ * formatting, revisions and comments still count.
+ */
+export async function computeWordRevertGuardToken(parts, options = {}) {
+  const derived = tokenParts(parts, detectExportTailIndex(parts, options));
+  for (const [name, value] of Object.entries(derived)) {
+    if (name.endsWith('Xml') && typeof value === 'string') derived[name] = normalizeForRevertGuardSafely(value);
+  }
+  if (derived.additionalParts && typeof derived.additionalParts === 'object') {
+    derived.additionalParts = Object.fromEntries(Object.entries(derived.additionalParts)
+      .map(([name, payload]) => [name, /\.xml$/i.test(name) && typeof payload === 'string' ? normalizeForRevertGuardSafely(payload) : payload]));
+  }
+  return computeDocumentPartsRevisionToken(derived);
+}
+
 /**
  * Compare a restored body package. Word regenerates body paragraph/text IDs
  * during Replace, even when content is unchanged. Omit only those IDs from this

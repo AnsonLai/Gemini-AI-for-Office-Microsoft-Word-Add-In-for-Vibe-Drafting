@@ -319,7 +319,7 @@ export async function runDocumentAgentLoop({
         }
         const mutation = execution.mutation;
         // After a fresh inspection the model may legitimately send the same call again.
-        if (!execution.mutating && execution.success) refusedEditArgs.clear();
+        if (!execution.mutating && execution.success && description.refreshesTargets !== false) refusedEditArgs.clear();
         state.records.push({
           name,
           instruction: execution.instruction,

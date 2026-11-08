@@ -31,10 +31,16 @@ Inspect focused document text, then apply one source-bound batch of concrete
 changes through `docx-redline-js`. The Word plugin supports text corrections,
 clause rewrites, plain paragraph insertion/deletion, comments, basic inline
 emphasis, narrow same-level list insertion and table-cell text. Unsupported
-structure, fonts, layout, research and revision acceptance are refused. Native
+structure, fonts, layout and revision acceptance are refused. Native
 Word editing fallbacks and secondary AI interpretation are retired.
+
+### Web Search
+When a request needs facts the document does not contain (a law, citation,
+date or company name), the assistant can call `search_web`. It runs a separate
+Gemini request grounded with Google Search and returns a short answer with
+sources, which the assistant treats as reference material, not instructions.
 ### Automated "Glance" Checks
-Set up custom criteria—like "Check for Grammar" or "Verify Factual Accuracy"—and get an instant analysis every time you open a document.
+Set up custom criteria—like "Check for Grammar" or "Verify Factual Accuracy"—and check a document with one click. Each check sends the full document text to Gemini, so running them automatically when the pane opens is off by default (Settings → Glance Settings).
 
 ### Custom Personas
 Tailor the AI's personality and expertise. Make it a helpful tutor, a strict legal editor, or a creative writing coach.
@@ -373,7 +379,7 @@ After deploying the web assets, upload the generated `dist/manifest.xml`:
 
 ⚠️ **Important Security Considerations:**
 
-1. **API keys in localStorage** - Keys are stored in browser storage (not encrypted)
+1. **API keys in localStorage** - Keys are stored in browser storage (not encrypted). They are sent to Gemini only in the `x-goog-api-key` header, never in the request URL.
 2. **Production deployment** - Use environment variables or secure key management
 3. **HTTPS required** - Office Add-ins require HTTPS in production
 

@@ -11,6 +11,7 @@ import { createDocumentInspectionSession } from '../src/taskpane/modules/chat/do
 import {
   computeWordSourceRevisionToken,
   computeWordRestorationToken,
+  computeWordRevertGuardToken,
   detectExportTailIndex
 } from '../src/taskpane/modules/docx-redline-js-integration/word-source-identity.js';
 
@@ -368,3 +369,25 @@ assert.equal(resolved.targets[1].descriptor.paragraphId, '2222BBBB', 'append tar
 assert.equal(resolved.targets[1].descriptor.exactText, 'Tracked accepted text.');
 currentParts = changedRealParaId;
 assert.equal((await session.resolveHandles([inspected.targets[0].handle])).status, 'error', 'a meaningful paragraph identity change still expires real handles');
+
+// Revert guard token: Word's own background changes after a write do not count; edits do.
+{
+  const guard = async (paragraphXml, settingsXml = settingsA) => (await computeWordRevertGuardToken(fixtureParts(paragraphXml, settingsXml))).value;
+  const plain = await guard(`<w:p xmlns:w14="${W14}" w14:paraId="1111AAAA"><w:r><w:rPr><w:i/></w:rPr><w:t>Payment is due in thirty days.</w:t></w:r></w:p>`);
+  const proofed = await guard(`<w:p xmlns:w14="${W14}" w14:paraId="9999FFFF" w14:textId="77777777" w:rsidR="00ABCDEF">`
+    + `<w:bookmarkStart w:id="0" w:name="_GoBack"/><w:bookmarkEnd w:id="0"/>`
+    + `<w:r w:rsidR="00000001"><w:rPr><w:i/></w:rPr><w:lastRenderedPageBreak/><w:t xml:space="preserve">Payment is due in </w:t></w:r>`
+    + `<w:proofErr w:type="spellStart"/><w:r w:rsidR="00000002"><w:rPr><w:i/></w:rPr><w:t>thirty</w:t></w:r><w:proofErr w:type="spellEnd"/>`
+    + `<w:r w:rsidRPr="00000003"><w:rPr><w:i/></w:rPr><w:t xml:space="preserve"> days.</w:t></w:r></w:p>`,
+    settingsA.replace('<w:doNotTrackMoves/>', '<w:doNotTrackMoves/><w:proofState w:spelling="clean" w:grammar="clean"/>'));
+  assert.equal(proofed, plain, 'proofing marks, split runs, layout marks, _GoBack, paragraph ids and rsids are ignored');
+
+  const typed = await guard(`<w:p><w:r><w:rPr><w:i/></w:rPr><w:t>Payment is due in sixty days.</w:t></w:r></w:p>`);
+  const bolded = await guard(`<w:p><w:r><w:rPr><w:i/></w:rPr><w:t xml:space="preserve">Payment is due in </w:t></w:r><w:r><w:rPr><w:b/><w:i/></w:rPr><w:t>thirty</w:t></w:r><w:r><w:rPr><w:i/></w:rPr><w:t xml:space="preserve"> days.</w:t></w:r></w:p>`);
+  const tracked = await guard(`<w:p><w:r><w:rPr><w:i/></w:rPr><w:t>Payment is due in thirty days.</w:t></w:r><w:ins w:id="5" w:author="User" w:date="2026-11-01T00:00:00Z"><w:r><w:rPr><w:i/></w:rPr><w:t> Net.</w:t></w:r></w:ins></w:p>`);
+  const realBookmark = await guard(`<w:p><w:bookmarkStart w:id="0" w:name="Payment"/><w:bookmarkEnd w:id="0"/><w:r><w:rPr><w:i/></w:rPr><w:t>Payment is due in thirty days.</w:t></w:r></w:p>`);
+  for (const [label, token] of [['typing', typed], ['formatting', bolded], ['a tracked insertion', tracked], ['a named bookmark', realBookmark]]) {
+    assert.notEqual(token, plain, `${label} counts as a change`);
+  }
+}
+console.log('PASS: the Revert guard token ignores Word background noise and still sees edits');

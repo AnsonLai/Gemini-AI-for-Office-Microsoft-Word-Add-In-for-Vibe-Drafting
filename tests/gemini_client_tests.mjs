@@ -5,8 +5,9 @@ import { runDocumentAgentLoop } from '../src/taskpane/modules/chat/document-agen
 import { createToolRegistry } from '../src/taskpane/modules/chat/tool-registry.js';
 
 const payload = { contents: [{ parts: [{ text: 'private document' }] }] };
-const url = geminiEndpoint('configured-model', 'secret+key');
-assert.match(url, /configured-model:generateContent\?key=secret%2Bkey$/);
+const url = geminiEndpoint('configured-model');
+assert.equal(url, 'https://generativelanguage.googleapis.com/v1beta/models/configured-model:generateContent');
+assert.doesNotMatch(url, /key=|secret/, 'the API key never appears in the URL');
 const ok = { ok: true, json: async () => ({ candidates: [] }) };
 let calls = 0;
 const delays = [];
@@ -14,6 +15,7 @@ const options = {
   fetchImpl: async (_url, init) => {
     calls++;
     assert.equal(_url, url);
+    assert.equal(init.headers['x-goog-api-key'], 'secret+key', 'the API key travels only in its header');
     assert.equal(init.body, JSON.stringify(payload));
     return calls < 3 ? { ok: false, status: calls === 1 ? 429 : 503 } : ok;
   },
@@ -25,47 +27,47 @@ assert.deepEqual(delays, [500, 1000]);
 
 for (const status of [400, 401, 403, 404, 422]) {
   calls = 0;
-  await assert.rejects(requestGeminiJson(url, payload, { fetchImpl: async () => {
+  await assert.rejects(requestGeminiJson(url, payload, { apiKey: 'secret+key', fetchImpl: async () => {
     calls++; return { ok: false, status, text: async () => 'secret+key private document' };
   } }), error => error.code === 'REQUEST_HTTP' && error.status === status && !/secret|private/.test(error.message));
   assert.equal(calls, 1, `HTTP ${status} must not retry`);
 }
 calls = 0;
-await assert.rejects(requestGeminiJson(url, payload, {
+await assert.rejects(requestGeminiJson(url, payload, { apiKey: 'secret+key',
   maxAttempts: 99, fetchImpl: async () => { calls++; throw new TypeError('URL contains secret+key'); }, sleep: async () => {},
 }), error => error.code === 'REQUEST_NETWORK' && !error.message.includes('secret'));
 assert.equal(calls, 3, 'Hard maximum of three transport attempts');
 
 calls = 0;
-await assert.rejects(requestGeminiJson(url, payload, {
+await assert.rejects(requestGeminiJson(url, payload, { apiKey: 'secret+key',
   fetchImpl: async () => { calls++; return { ok: true, json: async () => { throw new Error('private document'); } }; },
 }), error => error.code === 'REQUEST_RESPONSE');
 assert.equal(calls, 1);
 
 const before = new AbortController(); before.abort();
-await assert.rejects(requestGeminiJson(url, payload, { signal: before.signal, fetchImpl: () => assert.fail('Cancelled request sent') }), { code: 'REQUEST_CANCELLED' });
+await assert.rejects(requestGeminiJson(url, payload, { apiKey: 'secret+key', signal: before.signal, fetchImpl: () => assert.fail('Cancelled request sent') }), { code: 'REQUEST_CANCELLED' });
 const during = new AbortController();
 let internalSignal;
-await assert.rejects(requestGeminiJson(url, payload, {
+await assert.rejects(requestGeminiJson(url, payload, { apiKey: 'secret+key',
   signal: during.signal, fetchImpl: async (_url, init) => { internalSignal = init.signal; during.abort(); return new Promise(() => {}); },
 }), { code: 'REQUEST_CANCELLED' });
 assert.equal(internalSignal.aborted, true);
 
 calls = 0;
-await assert.rejects(requestGeminiJson(url, payload, {
+await assert.rejects(requestGeminiJson(url, payload, { apiKey: 'secret+key',
   timeoutMs: 5, maxAttempts: 2, sleep: async () => {},
   fetchImpl: async (_url, init) => { calls++; internalSignal = init.signal; return new Promise(() => {}); },
 }), { code: 'REQUEST_TIMEOUT' });
 assert.equal(calls, 2);
 assert.equal(internalSignal.aborted, true);
 // Timeout covers response parsing, too, including implementations that ignore abort.
-await assert.rejects(requestGeminiJson(url, payload, {
+await assert.rejects(requestGeminiJson(url, payload, { apiKey: 'secret+key',
   timeoutMs: 5, maxAttempts: 1, fetchImpl: async () => ({ ok: true, json: () => new Promise(() => {}) }),
 }), { code: 'REQUEST_TIMEOUT' });
 
 const waiting = new AbortController();
 calls = 0;
-await assert.rejects(requestGeminiJson(url, payload, {
+await assert.rejects(requestGeminiJson(url, payload, { apiKey: 'secret+key',
   signal: waiting.signal, backoffMs: 10000,
   fetchImpl: async () => { calls++; setTimeout(() => waiting.abort(), 1); return { ok: false, status: 503 }; },
 }), { code: 'REQUEST_CANCELLED' });
@@ -78,9 +80,9 @@ const add = tracked.signal.addEventListener.bind(tracked.signal);
 const remove = tracked.signal.removeEventListener.bind(tracked.signal);
 tracked.signal.addEventListener = (...args) => { listeners++; return add(...args); };
 tracked.signal.removeEventListener = (...args) => { listeners--; return remove(...args); };
-await requestGeminiJson(url, payload, { signal: tracked.signal, fetchImpl: async () => ok });
+await requestGeminiJson(url, payload, { apiKey: 'secret+key', signal: tracked.signal, fetchImpl: async () => ok });
 assert.equal(listeners, 0);
-await assert.rejects(requestGeminiJson(url, payload, { signal: tracked.signal, fetchImpl: async () => ({ ok: false, status: 400 }) }));
+await assert.rejects(requestGeminiJson(url, payload, { apiKey: 'secret+key', signal: tracked.signal, fetchImpl: async () => ({ ok: false, status: 400 }) }));
 assert.equal(listeners, 0);
 
 // Keep every known caller on the audited boundary and avoid raw request diagnostics.
@@ -151,7 +153,7 @@ assert.match(providerWrapper, /timeoutMs:\s*TIMEOUT_LIMITS\.FETCH_TIMEOUT_MS/);
     loadRegistry: async () => registry,
     requestModel: history => {
       modelRequests++;
-      return requestGeminiJson(url, { contents: history }, {
+      return requestGeminiJson(url, { contents: history }, { apiKey: 'secret+key',
         fetchImpl, sleep: async () => {}, random: () => 0, maxAttempts: 3, timeoutMs: 1000
       });
     },
@@ -180,7 +182,7 @@ assert.match(providerWrapper, /timeoutMs:\s*TIMEOUT_LIMITS\.FETCH_TIMEOUT_MS/);
 {
   // No attempt starts when less than five seconds remain.
   let clock = 1000, sent = 0;
-  await assert.rejects(requestGeminiJson(url, payload, {
+  await assert.rejects(requestGeminiJson(url, payload, { apiKey: 'secret+key',
     deadline: 4000, now: () => clock, fetchImpl: async () => { sent++; return new Response('{}'); },
   }), { code: 'REQUEST_DEADLINE' });
   assert.equal(sent, 0, 'nothing is sent after the deadline');
@@ -191,7 +193,7 @@ assert.match(providerWrapper, /timeoutMs:\s*TIMEOUT_LIMITS\.FETCH_TIMEOUT_MS/);
   const scheduled = [];
   globalThis.setTimeout = (fn, ms, ...rest) => { scheduled.push(ms); return realSetTimeout(fn, Math.min(ms, 5), ...rest); };
   try {
-    await assert.rejects(requestGeminiJson(url, payload, {
+    await assert.rejects(requestGeminiJson(url, payload, { apiKey: 'secret+key',
       timeoutMs: 120000, maxAttempts: 3, deadline: 8000, now: () => clock, sleep: async () => {},
       fetchImpl: async () => { sent++; clock = 7000; return new Promise(() => {}); },
     }), { code: 'REQUEST_TIMEOUT' });
@@ -203,8 +205,24 @@ assert.match(providerWrapper, /timeoutMs:\s*TIMEOUT_LIMITS\.FETCH_TIMEOUT_MS/);
 
   // Without a deadline, behaviour is unchanged.
   clock = 0; sent = 0;
-  const ok = await requestGeminiJson(url, payload, { now: () => clock, fetchImpl: async () => { sent++; return new Response(JSON.stringify({ candidates: [] })); } });
+  const ok = await requestGeminiJson(url, payload, { apiKey: 'secret+key', now: () => clock, fetchImpl: async () => { sent++; return new Response(JSON.stringify({ candidates: [] })); } });
   assert.deepEqual(ok, { candidates: [] });
   assert.equal(sent, 1);
 }
+// A missing key is refused before anything is sent.
+for (const apiKey of [undefined, '', '   ']) {
+  await assert.rejects(requestGeminiJson(url, payload, { apiKey, fetchImpl: () => assert.fail('Request sent without a key') }), { code: 'REQUEST_CONFIGURATION' });
+}
+await assert.rejects(requestGemini({ model: '', apiKey: 'secret+key', payload, fetchImpl: () => assert.fail('Request sent without a model') }), { code: 'REQUEST_CONFIGURATION' });
+// Surrounding whitespace is dropped; characters a header cannot carry get a clear settings error, not a network error.
+{
+  let sentKey;
+  await requestGeminiJson(url, payload, { apiKey: '  secret+key\n', fetchImpl: async (_url, init) => { sentKey = init.headers['x-goog-api-key']; return ok; } });
+  assert.equal(sentKey, 'secret+key');
+  for (const apiKey of ['secret key', 'secret​key', 'sécret']) {
+    await assert.rejects(requestGeminiJson(url, payload, { apiKey, fetchImpl: () => assert.fail('Request sent with an unusable key') }),
+      error => error.code === 'REQUEST_CONFIGURATION' && /Paste it again/.test(error.message));
+  }
+}
+
 console.log('PASS: centralized Gemini requests, bounded recovery, cancellation, timeout, safe diagnostics and no tool replay');

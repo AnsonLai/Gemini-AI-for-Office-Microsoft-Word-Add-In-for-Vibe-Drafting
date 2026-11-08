@@ -1,5 +1,5 @@
 import { areRevisionTokensEqual, compareDocumentInspections } from '@ansonlai/docx-redline-js';
-import { computeWordSourceRevisionToken } from '../docx-redline-js-integration/word-source-identity.js';
+import { computeWordRevertGuardToken, computeWordSourceRevisionToken } from '../docx-redline-js-integration/word-source-identity.js';
 import { applyOperationsToDocumentXml } from '@ansonlai/docx-redline-js/standalone-runner';
 import { executePureOoxmlBatch, inspectWordSource } from '../docx-redline-js-integration/word-operation-runner.js';
 import { compileDocumentEdits } from './document-edit-intents.js';
@@ -16,7 +16,7 @@ function sourceParts(source) {
 }
 /** Direct document tools. Word is only a source/commit/state transport. */
 export function createDocumentTools({ session, getDocumentId, getAuthor, getGenerateRedlines, persistCheckpoint, signal,
-  run = callback => Word.run(callback), onReceipt = () => {} }) {
+  run = callback => Word.run(callback), onReceipt = () => {}, onVerifiedWrite = () => {} }) {
   const checkCancelled = () => { if (signal?.aborted) throw fail('REQUEST_CANCELLED', 'Request cancelled before editing.'); };
   return {
     inspectDocument: options => session.inspect(options),
@@ -83,6 +83,7 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
             // A settled write is verified even if cancellation arrived during it.
             try {
               const fresh = body.getOoxml(); counts.verificationReads++;
+              const readVerifiedCount = queueHostParagraphCount(body);
               await context.sync();
               const actual = inspectWordSource(fresh.value);
               if (getDocumentId() !== documentId
@@ -106,6 +107,11 @@ export function createDocumentTools({ session, getDocumentId, getAuthor, getGene
                 }], author, actual.parts, { atomic: true, strictTargets: true, generateRedlines: false });
                 if (verification.status !== 'ok' || verification.hasChanges) throw fail('HOST_VERIFICATION_FAILED', 'Word did not retain the requested formatting.');
               }
+              // Lets Revert tell whether anything changed after this edit. Never alters the outcome.
+              try {
+                const afterToken = await computeWordRevertGuardToken(actual.parts, { hostParagraphCount: readVerifiedCount() });
+                await onVerifiedWrite({ checkpointIndex: batch.checkpointIndex, revisionToken: afterToken.value });
+              } catch { /* Without a token, Revert asks the user before discarding later changes. */ }
               return { ...batch, verified: true };
             } catch (error) {
               return { ...batch, status: 'error', verified: false, requiresInspection: true, mutationOutcome: 'applied_with_host_error', error: { code: error.code || 'HOST_VERIFICATION_FAILED', message: error.message } };
