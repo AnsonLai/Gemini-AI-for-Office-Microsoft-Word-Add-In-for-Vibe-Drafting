@@ -371,6 +371,17 @@ for (const outcome of ['indeterminate', 'partial', 'applied_with_host_error']) {
   assert.equal(test.state.stopReason, 'cancelled');
 }
 
+// A request cancelled before any tool ran leaves no instruction behind for the next request.
+{
+  const controller = new AbortController();
+  const test = harness([() => { controller.abort(); throw new Error('Request cancelled by user'); }], {}, { signal: controller.signal });
+  test.state.history.unshift({ role: 'user', parts: [{ text: 'Earlier question' }] }, { role: 'model', parts: [{ text: 'Earlier answer' }] });
+  await test.run();
+  assert.equal(test.state.stopReason, 'cancelled');
+  assert.deepEqual(test.state.history.map(message => message.parts[0].text), ['Earlier question', 'Earlier answer'],
+    'the cancelled prompt is not sent again with the next request');
+}
+
 {
   const controller = new AbortController();
   const test = harness([model(call('apply_document_edits'))], {

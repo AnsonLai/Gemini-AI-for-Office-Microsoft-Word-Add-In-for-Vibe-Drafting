@@ -841,6 +841,15 @@ hr {
     font-style: italic;
 }
 
+.settings-status {
+    font-size: 0.8rem;
+    color: var(--error-text);
+    background-color: var(--error-bg);
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+}
+
 /* --- Welcome Screen Styles --- */
 .welcome-container {
     padding: 20px;

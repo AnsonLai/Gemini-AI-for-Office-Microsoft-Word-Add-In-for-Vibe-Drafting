@@ -1,11 +1,11 @@
 # Review fixes and follow-ups
 
 **Created:** 2026-11-01, after a code review of the add-in on top of `d410b60` (release marker v2.3.0.1).
-**Status:** Part A is written in the working tree and **not committed** (owner's decision). It was re-reviewed on 2026-11-02, which found and fixed four problems, now folded into the sections below: the Revert check would have warned almost every time because of Word's background proofing; "Revert anyway" never expired and could discard changes made after the warning; a Glance card said "Not checked yet" after a check had run; and a key with characters a header can't carry failed as a network error. Part B is still to do. Part C is the backlog of remaining review findings, none started.
+**Status:** Part A is committed as `110070a` (2026-11-07, at the owner's request, before the Part B checks in Word). It was re-reviewed on 2026-11-02, which found and fixed four problems, now folded into the sections below: the Revert check would have warned almost every time because of Word's background proofing; "Revert anyway" never expired and could discard changes made after the warning; a Glance card said "Not checked yet" after a check had run; and a key with characters a header can't carry failed as a network error. Part B is still to do. Part C is the backlog of remaining review findings, none started.
 
 The review found the core editing pipeline careful and well tested. The problems sat around it: the older UI code in `taskpane.js`, the Revert button, the automatic Glance checks, the API key handling, and the project tooling. This plan records what has been fixed, how to verify it, and what is left.
 
-## Part A: done (uncommitted)
+## Part A: done (committed as `110070a`)
 
 The working tree changes 18 tracked files (+599/−129 lines) and adds 5 new files. `npm test`: 51 suites pass, 0 fail. `npm run build` succeeds.
 
@@ -110,7 +110,9 @@ None of Part A has run inside Word. Do these by hand in Word desktop with the de
 10. **Cancel during search:** press Cancel while "Searching the web..." shows. The request stops cleanly.
 11. **Network check:** in the dev tools network tab, no request URL contains `key=`.
 
-**Exit condition:** all eleven behave as described. Then commit Part A (owner's call) as one or a few commits on `main`.
+Also run checks M1 to M5 from [the state machine fixes plan](2026-11-07-state-machine-fixes.md#manual-checks-in-word), which cover Tier 1 fixes made in the same working tree on 2026-11-07.
+
+**Exit condition:** all eleven behave as described. Part A is already committed, so any failure is fixed in a follow-up commit.
 
 ## Part C: remaining review findings (not started)
 
@@ -202,7 +204,7 @@ Ordered by impact. Each item says where, why, what to do, and when it's done.
 
 ## Suggested order
 
-1. Part B (verify in Word), then commit Part A.
+1. Part B (verify in Word). Part A is committed (`110070a`).
 2. C1 and C2: small, privacy and usability.
 3. C3 (lint) in its own formatting-only commit, so later diffs are readable.
 4. C6, C8, C9: build and housekeeping, each small.

@@ -168,7 +168,8 @@ export async function runDocumentAgentLoop({
   const emit = event => onEvent(event);
   const stop = (reason, message) => {
     state.stopReason = reason;
-    if (reason === 'timeout' && state.records.length === 0 && state.history.at(-1)?.role === 'user') state.history.pop();
+    // With no tool run, an unanswered prompt would be sent again with the next request.
+    if (['timeout', 'cancelled'].includes(reason) && state.records.length === 0 && state.history.at(-1)?.role === 'user') state.history.pop();
     emit({ type: 'stop', reason, message });
   };
   const cancelled = () => signal?.aborted === true;

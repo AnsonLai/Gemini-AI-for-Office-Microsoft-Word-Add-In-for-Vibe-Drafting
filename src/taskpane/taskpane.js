@@ -387,6 +387,7 @@ function switchView(hideId, showId) {
 function showSettingsView() {
   document.getElementById("settings-button").style.display = "none";
   document.getElementById("refresh-chat-button").style.display = "none";
+  showSettingsStatus();
 
   switchView("main-view", "settings-view");
 
@@ -470,6 +471,14 @@ function refreshChat() {
   addMessageToChat("System", "Chat history cleared. Starting new conversation.");
 }
 
+// Settings errors show inside Settings: the chat is hidden while it is open.
+function showSettingsStatus(message = "") {
+  const status = document.getElementById("settings-status");
+  if (!status) return;
+  status.textContent = message;
+  status.hidden = !message;
+}
+
 function saveApiKey() {
   const apiKey = document.getElementById("api-key-input").value;
   let fastModel, slowModel;
@@ -477,7 +486,7 @@ function saveApiKey() {
     fastModel = readModelSetting('fast');
     slowModel = readModelSetting('slow');
   } catch (error) {
-    addMessageToChat('System', error.message);
+    showSettingsStatus(error.message);
     return;
   }
   const systemMessage = document.getElementById("system-message-input").value;
@@ -496,7 +505,7 @@ function saveApiKey() {
     addMessageToChat("System", "Settings saved successfully.");
     if (loadGlanceAutoRun()) runGlanceChecks();
   } else {
-    addMessageToChat("System", "API Key cannot be empty.");
+    showSettingsStatus("API Key cannot be empty.");
   }
 }
 
@@ -667,11 +676,21 @@ function setupAccordion(headerId, contentId) {
 }
 
 
+// The questions the cards were last built from. Rebuilding resets every card,
+// so returning from Settings keeps results unless the questions changed.
+let renderedGlanceSettings = null;
+
 function renderGlanceMain() {
   const list = document.getElementById("glance-list");
   const container = document.getElementById("glance-container");
-  list.innerHTML = "";
   const settings = loadGlanceSettings();
+  const settingsKey = JSON.stringify(settings);
+  if (settingsKey === renderedGlanceSettings) return;
+  renderedGlanceSettings = settingsKey;
+  // A running check asks the old questions; its answers no longer fit the cards.
+  glanceController?.abort();
+  glanceController = null;
+  list.innerHTML = "";
 
   if (settings.length === 0) {
     if (container) container.style.display = "none";
@@ -681,7 +700,7 @@ function renderGlanceMain() {
   if (container) container.style.display = "block";
   applyGlanceCollapsedState();
 
-  const idle = loadGlanceAutoRun() ? "Waiting for analysis..." : "Press refresh to run this check.";
+  const idle = "Press refresh to run this check.";
   settings.forEach(item => {
     // Built with textContent: titles are free text and must never be parsed as HTML.
     const div = document.createElement("div");
@@ -799,12 +818,14 @@ function handleDrop(e) {
   e.stopPropagation();
 
   const targetCard = e.target.closest('.glance-settings-card');
+  const list = document.getElementById("glance-settings-list");
+  const items = Array.from(list.children);
+  const srcIndex = items.indexOf(dragSrcEl);
+  const destIndex = items.indexOf(targetCard);
 
-  if (dragSrcEl !== targetCard && targetCard) {
-    const list = document.getElementById("glance-settings-list");
-    const items = Array.from(list.children);
-    const srcIndex = items.indexOf(dragSrcEl);
-    const destIndex = items.indexOf(targetCard);
+  // Only a card dragged by its handle reorders; dropped text or files never do
+  // (indexOf -1 would otherwise move the last question).
+  if (srcIndex >= 0 && destIndex >= 0 && srcIndex !== destIndex) {
 
     const settings = loadGlanceSettings();
     const [movedItem] = settings.splice(srcIndex, 1);
@@ -819,6 +840,7 @@ function handleDrop(e) {
 function handleDragEnd(e) {
   const card = this.closest('.glance-settings-card');
   if (card) card.style.opacity = '1';
+  dragSrcEl = null;
 
   const items = document.querySelectorAll('.glance-settings-card');
   items.forEach(function (item) {
@@ -830,22 +852,25 @@ function handleDragEnd(e) {
 let glanceController = null;
 
 async function runGlanceChecks() {
-  const geminiApiKey = loadApiKey();
-  if (!geminiApiKey) return;
-
   const settings = loadGlanceSettings();
   if (settings.length === 0) return;
-
-  glanceController?.abort();
-  const controller = new AbortController();
-  glanceController = controller;
-  const isCurrent = () => glanceController === controller && !controller.signal.aborted;
   const showAll = (status, text) => settings.forEach(item => {
     const indicator = document.getElementById(`glance-indicator-${item.id}`);
     const summary = document.getElementById(`glance-summary-${item.id}`);
     if (indicator) indicator.className = `glance-indicator ${status}`;
     if (summary) summary.textContent = text;
   });
+
+  const geminiApiKey = loadApiKey();
+  if (!geminiApiKey) {
+    showAll("gray", "Add your Gemini API key in Settings to run checks.");
+    return;
+  }
+
+  glanceController?.abort();
+  const controller = new AbortController();
+  glanceController = controller;
+  const isCurrent = () => glanceController === controller && !controller.signal.aborted;
 
   showAll("gray", "Checking...");
 
@@ -1084,8 +1109,13 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
   chatMessages.appendChild(loadingMsg);
   chatMessages.scrollTop = chatMessages.scrollHeight;
 
-
-
+  // This request's own prompt, once added; error cleanup removes only this one.
+  let promptTurn = null;
+  // The last tool result shown in the bubble (an edit receipt or a refusal).
+  let shownToolResult = null;
+  // Settings changed while a request runs apply from the next request.
+  const redlineAuthor = loadRedlineAuthor();
+  const generateRedlines = loadRedlineSetting();
 
   try {
     // --- Get Document Context ---
@@ -1145,7 +1175,8 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
       : userMessage;
 
     // Add to history
-    chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+    promptTurn = { role: "user", parts: [{ text: prompt }] };
+    chatHistory.push(promptTurn);
 
     // Maintain rolling window - but ensure we don't break function call/response pairs
     if (chatHistory.length > 10) {
@@ -1171,8 +1202,8 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
         loadRegistry: async () => {
           const toolsModule = await loadDocumentTools();
           return createToolRegistry({ searchWeb, ...toolsModule.createDocumentTools({
-            session: inspectionSession, getDocumentId, getAuthor: loadRedlineAuthor,
-            getGenerateRedlines: loadRedlineSetting,
+            session: inspectionSession, getDocumentId, getAuthor: () => redlineAuthor,
+            getGenerateRedlines: () => generateRedlines,
             persistCheckpoint: source => createAutoCheckpoint('apply_document_edits', source),
             onVerifiedWrite: ({ checkpointIndex, revisionToken }) => Number.isInteger(checkpointIndex) && typeof revisionToken === 'string'
               ? updateCheckpoint(checkpointIndex, { afterToken: revisionToken })
@@ -1205,8 +1236,12 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
             updateSystemMessage(loadingMsg, event.progressText);
           } else if (event.type === 'tool_end') {
             if (event.display.show) {
+              shownToolResult = event.completionText;
               updateSystemMessage(loadingMsg, event.completionText,
                 event.completionWithCheckpoint ? event.checkpointIndex : undefined);
+            } else if (shownToolResult) {
+              // A later inspection or search must not replace an edit's receipt.
+              updateSystemMessage(loadingMsg, shownToolResult);
             }
             const messages = document.getElementById('chat-messages');
             if (loadingMsg && messages) messages.appendChild(loadingMsg);
@@ -1237,17 +1272,21 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
     if (currentRequestController !== requestController) return;
     console.error("Error calling Gemini API:", error);
 
-    // Handle user cancellation specifically
-    if (error.message === 'Request cancelled by user') {
-      removeMessage(loadingMsg);
-      addMessageToChat("System", "Request cancelled.");
+    // Any failure after Cancel (including while reading the document) is a cancellation.
+    if (requestController.signal.aborted || error.message === 'Request cancelled by user') {
+      // Once a tool ran, the bubble holds its receipt and Revert button.
+      if (requestRecords.length === 0) {
+        removeMessage(loadingMsg);
+        if (promptTurn && chatHistory.at(-1) === promptTurn) chatHistory.pop();
+      }
+      addMessageToChat("System", requestRecords.length === 0 ? "Request cancelled." : "Request cancelled. Inspect the document before retrying.");
     } else {
       // Only remove loadingMsg if no tools were executed (meaning it's still a "Thinking" message)
       if (requestRecords.length === 0) {
         removeMessage(loadingMsg);
 
-        // Cleanup history for failed requests (timeout or error)
-        if (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === "user") {
+        // Cleanup history for failed requests (timeout or error), never an earlier request's turn
+        if (promptTurn && chatHistory.at(-1) === promptTurn) {
           console.log("Discarding failed request from history");
           chatHistory.pop();
         }

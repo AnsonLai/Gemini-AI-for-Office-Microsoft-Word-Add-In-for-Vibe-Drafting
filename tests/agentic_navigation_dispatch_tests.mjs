@@ -165,14 +165,18 @@ assert.equal(runPostContextGuard(null, activeController), undefined, 'refresh-cl
 
 const onEventProperty = loopInvocation.arguments[0].properties.find(property => property.key?.name === 'onEvent');
 assert.equal(onEventProperty?.value?.type, 'FunctionExpression', 'the loop UI callback must stay request-scoped');
-function invokeEvent(currentController, requestController, event, requestRecords = []) {
+// `scope` carries the request-local state the callback closes over across events.
+function invokeEvent(currentController, requestController, event, requestRecords = [], scope = {}) {
   const effects = [];
   const callback = new Function(
-    'currentRequestController', 'requestController', 'requestRecords', 'loadingMsg', 'removeMessage', 'addMessageToChat',
+    'scope', 'currentRequestController', 'requestController', 'requestRecords', 'loadingMsg', 'removeMessage', 'addMessageToChat',
     'updateSystemMessage', 'document', 'event',
-    `${taskpaneSource.slice(onEventProperty.value.body.start + 1, onEventProperty.value.body.end - 1)}`
+    `let shownToolResult = scope.shownToolResult ?? null;
+    try {
+      ${taskpaneSource.slice(onEventProperty.value.body.start + 1, onEventProperty.value.body.end - 1)}
+    } finally { scope.shownToolResult = shownToolResult; }`
   );
-  callback(currentController, requestController, requestRecords, 'loading', value => effects.push(['remove', value]),
+  callback(scope, currentController, requestController, requestRecords, 'loading', value => effects.push(['remove', value]),
     (...args) => effects.push(['add', ...args]),
     (...args) => effects.push(['update', ...args]),
     { getElementById: id => ({ appendChild: node => effects.push(['append', id, node]) }) }, event);
@@ -201,6 +205,20 @@ assert.deepEqual(invokeEvent(activeController, activeController, {
 }, [{ name: 'apply_document_edits' }]), [
   ['update', 'loading', 'Applied and verified.', undefined], ['append', 'chat-messages', 'loading']
 ], 'a verified edit result is surfaced through the existing progress UI');
+{
+  // An inspection after an edit shows its progress, then the edit's receipt comes back.
+  const scope = {};
+  const records = [{ name: 'apply_document_edits' }, { name: 'inspect_document' }];
+  invokeEvent(activeController, activeController, {
+    type: 'tool_end', name: 'apply_document_edits', display: { show: true }, completionText: 'Applied and verified 1 requested edit(s).',
+    completionWithCheckpoint: true, checkpointIndex: 4
+  }, records, scope);
+  assert.deepEqual(invokeEvent(activeController, activeController, {
+    type: 'tool_end', name: 'inspect_document', display: { show: false }, completionText: 'Inspection complete.'
+  }, records, scope), [
+    ['update', 'loading', 'Applied and verified 1 requested edit(s).'], ['append', 'chat-messages', 'loading']
+  ], 'a later read-only step cannot leave its progress text in place of the edit receipt');
+}
 assert.deepEqual(invokeEvent({}, activeController, { type: 'response', text: 'Fresh response.' }), [],
   'a superseded request cannot write response UI');
 assert.deepEqual(invokeEvent(null, activeController, { type: 'response', text: 'Fresh response.' }), [],
