@@ -8,9 +8,9 @@
 > [lightweight plan](plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md)
 > for the final measured source reduction. No universal latency gate is added.
 
-Performance observations are separate from fidelity gates. Both consumers pin
-exact `@ansonlai/docx-redline-js@0.9.0`. The dated performance reports below
-measured 0.8.2; they have not been rerun as 0.8.4 or 0.9.0 timing evidence. A slower large document does not justify
+Performance observations are separate from fidelity gates. The add-in pins
+exact `@ansonlai/docx-redline-js@0.11.1`. The dated performance reports below
+measured 0.8.2; they have not been rerun on later versions as timing evidence. A slower large document does not justify
 changing its tracked-change semantics.
 
 The [library offload review](library-offload-review.md) separates delegated

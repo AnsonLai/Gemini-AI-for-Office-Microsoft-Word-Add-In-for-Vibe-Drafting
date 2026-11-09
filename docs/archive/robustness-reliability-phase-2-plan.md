@@ -1,10 +1,10 @@
 # Historical Plan: Robustness & Reliability — Phase 2
 
-> Current execution record: [2026-10-02 library-first lightweight harness](./plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md).
+> Current execution record: [2026-10-02 library-first lightweight harness](../plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md).
 > This July plan remains historical; its tool/native-command designs are retired.
 
 > **Migrated on 2026-08-29:** The open work in this document is consolidated
-> into [`docs/plans/completed/2026-08-29-reliability-and-quality-gates.md`](plans/completed/2026-08-29-reliability-and-quality-gates.md).
+> into [`docs/plans/completed/2026-08-29-reliability-and-quality-gates.md`](../plans/completed/2026-08-29-reliability-and-quality-gates.md).
 > This file is retained for historical detail; use the dated plan as the
 > current source of truth.
 
@@ -12,19 +12,19 @@
 > instructions below are a historical 2026-07 draft, not the live task queue.
 > The September package upgrade, reliability, package boundaries, and OOXML
 > performance plans are complete. The [agentic tools and list reliability
-> plan](plans/completed/2026-08-29-agentic-tools-and-list-reliability.md) is now
+> plan](../plans/completed/2026-08-29-agentic-tools-and-list-reliability.md) is now
 > closed with deferred scope at the user's request. Full canonical list
-> migration transfers to the fresh [follow-up](plans/completed/2026-09-30-canonical-list-migration-follow-up.md),
+> migration transfers to the fresh [follow-up](../plans/completed/2026-09-30-canonical-list-migration-follow-up.md),
 > which depends on separately tracked upstream capabilities.
 > The tracked-text fidelity defects and historical-property inspection findings
 > covered by 0.8.3 (and the 0.8.4 follow-up fixes) are fixed and validated; canonical header conversion and
 > list-format operations remain unsupported and are tracked by the follow-up.
 > Current consumers pin exact
-> `@ansonlai/docx-redline-js@0.9.0`; see [ROADMAP.md](../ROADMAP.md) and
-> [STATE.md](../STATE.md) for the current posture.
+> `@ansonlai/docx-redline-js@0.9.0`; see [ROADMAP.md](../../ROADMAP.md) and
+> [STATE.md](../../STATE.md) for the current posture.
 > For the current file-level ownership split, including the local Flat OPC
 > bridge and consumer-owned reliability/startup work, see the
-> [library offload review](library-offload-review.md).
+> [library offload review](../library-offload-review.md).
 
 > **Audience note:** this plan is written to be executed by a smaller/cheaper model,
 > one work package at a time. It is deliberately prescriptive: exact file paths,

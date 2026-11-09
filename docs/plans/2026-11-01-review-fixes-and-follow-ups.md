@@ -110,7 +110,7 @@ None of Part A has run inside Word. Do these by hand in Word desktop with the de
 10. **Cancel during search:** press Cancel while "Searching the web..." shows. The request stops cleanly.
 11. **Network check:** in the dev tools network tab, no request URL contains `key=`.
 
-Also run checks M1 to M5 from [the state machine fixes plan](2026-11-07-state-machine-fixes.md#manual-checks-in-word), which cover Tier 1 fixes made in the same working tree on 2026-11-07.
+Also run checks M1 to M9 from [the state machine fixes plan](2026-11-07-state-machine-fixes.md#manual-checks-in-word), which cover the Tier 1 and Tier 2 fixes made on 2026-11-07.
 
 **Exit condition:** all eleven behave as described. Part A is already committed, so any failure is fixed in a follow-up commit.
 
@@ -177,7 +177,7 @@ Ordered by impact. Each item says where, why, what to do, and when it's done.
 - **Do:** default to a dated model id, record it next to the golden-scenario results, and change it deliberately with a golden run.
 - **Done when:** the default is a fixed id, and the README says how to change it.
 
-### C8. Remove dead code and unused packages
+### C8. Remove dead code and unused packages (done 2026-11-09, uncommitted)
 
 - **Where and what:**
   - `removeAllFunctionPairs` and `createFreshStartWithContext` in [`chat-history.js:332`](../../src/taskpane/modules/chat/chat-history.js) are exported but never called.
@@ -186,6 +186,7 @@ Ordered by impact. Each item says where, why, what to do, and when it's done.
   - The leftover comment "forum discussion you referenced" at [`chat-history.js:105`](../../src/taskpane/modules/chat/chat-history.js).
 - **Do:** delete them (check tests first, since some may import them), move `caniuse-lite` to dev dependencies or drop it, and rewrite the comment.
 - **Done when:** `npm test` and the build pass, and grep finds no callers.
+- **Done 2026-11-09 (uncommitted):** the six functions (`removeAllFunctionPairs`, `createFreshStartWithContext`, `getLastCheckpoint`, `popLastCheckpoint`, `listCheckpoints`, `clearCheckpoints`) were deleted. `diff-match-patch` and `caniuse-lite` were removed from `package.json` dependencies; both remain installed transitively. The comment was rewritten. `npm test` passes all 52 suites and the build succeeds.
 
 ### C9. Make version numbers agree
 
@@ -196,7 +197,7 @@ Ordered by impact. Each item says where, why, what to do, and when it's done.
 
 ### C10. Docs and tests clean-up
 
-- **Root docs:** seven markdown files sit at the root (`ARCHITECTURE.md`, `PLAN.md`, `README.md`, `ROADMAP.md`, `SPEC.md`, `STATE.md`, `SUMMARY.md`). `PLAN.md` and `SUMMARY.md` are historical and unmaintained. Move them to `docs/` or an archive.
+- **Root docs (done 2026-11-09):** the root now holds `README.md`, `ROADMAP.md` and `STATE.md`; the historical docs are in `docs/archive/`, and `ARCHITECTURE.md` is at `docs/ARCHITECTURE.md`. Original note: seven markdown files sat at the root (`ARCHITECTURE.md`, `PLAN.md`, `README.md`, `ROADMAP.md`, `SPEC.md`, `STATE.md`, `SUMMARY.md`). `PLAN.md` and `SUMMARY.md` are historical and unmaintained. Move them to `docs/` or an archive.
 - **Tests named after history:** suites such as `phase2_dead_code_static_tests` and `docx_redline_v040_compat_tests` guard past phases or old library versions rather than behaviour. Rename the ones that still test behaviour, delete the rest.
 - **Proportion:** about 17,600 lines of tests and scripts for about 4,500 lines of product code. Look for overlapping suites as part of the renaming.
 - **Editing guide:** it has grown one model quirk at a time into a dense list of rules. Regroup it by task (reading, editing, formatting, search) and re-run the golden scenarios after.

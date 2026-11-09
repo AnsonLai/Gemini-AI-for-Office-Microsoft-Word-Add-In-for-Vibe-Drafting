@@ -223,7 +223,7 @@ AIWordPlugin/
 └── README.md
 ```
 
-> The add-in pins [`@ansonlai/docx-redline-js@0.10.0`](https://www.npmjs.com/package/@ansonlai/docx-redline-js). The library owns supported DOCX operations and package lifecycle; local consumers retain tool-to-operation mapping, host I/O, and their UI/session contracts. The add-in also retains its Flat OPC bridge and Office.js adapter. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the system map and [the library offload review](docs/library-offload-review.md) for the file-by-file boundary.
+> The add-in pins [`@ansonlai/docx-redline-js@0.11.1`](https://www.npmjs.com/package/@ansonlai/docx-redline-js). The library owns supported DOCX operations and package lifecycle; local consumers retain tool-to-operation mapping, host I/O, and their UI/session contracts. The add-in also retains its Flat OPC bridge and Office.js adapter. See [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the system map and [the library offload review](docs/library-offload-review.md) for the file-by-file boundary.
 
 ## Development
 
@@ -299,7 +299,7 @@ validation does not certify Word Online.
 The local Flat OPC bridge prepares one atomic library batch and preserves
 transported parts. Word APIs read/insert body OOXML and preserve tracking state.
 No complete-DOCX Word facade upgrade or binary bridge is planned. See
-[ARCHITECTURE.md](ARCHITECTURE.md) and
+[ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 [package boundaries](docs/package-boundaries.md).
 ### OOXML performance measurements
 

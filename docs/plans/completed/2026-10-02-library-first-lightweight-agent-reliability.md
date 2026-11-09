@@ -152,7 +152,7 @@ The target is fewer ways to produce an incorrect document, not merely fewer func
 
 ## What the planning baseline documentation and code established
 
-Reviewed all six Markdown files at the `docs/` root: [tool contracts](../../agentic-tool-contracts.md), [library offload review](../../library-offload-review.md), [package boundaries](../../package-boundaries.md), [performance notes](../../ooxml-performance.md), [testing](../../TESTING.md), and [historical PLAN](../../PLAN.md). Also reviewed [v2.2.0.0](../../release/v2.2.0.0.md), [architecture](../../../ARCHITECTURE.md), current state/roadmap, the active list/table plans, the [0.8.4 validation](../../validation-reports/2026-10-02-docx-redline-v084.md), library follow-ups, and the relevant taskpane/tool/context/adapter implementations.
+Reviewed all six Markdown files at the `docs/` root: [tool contracts](../../agentic-tool-contracts.md), [library offload review](../../library-offload-review.md), [package boundaries](../../package-boundaries.md), [performance notes](../../ooxml-performance.md), [testing](../../TESTING.md), and [historical PLAN](../../archive/robustness-reliability-phase-2-plan.md). Also reviewed [v2.2.0.0](../../release/v2.2.0.0.md), [architecture](../../ARCHITECTURE.md), current state/roadmap, the active list/table plans, the [0.8.4 validation](../../validation-reports/2026-10-02-docx-redline-v084.md), library follow-ups, and the relevant taskpane/tool/context/adapter implementations.
 
 The root `docs/PLAN.md` is a historical July draft with later migration notices. Its old counts, proposed modules, and execution instructions are not the current queue. This plan carries forward the relevant intent without reopening already completed reliability work.
 

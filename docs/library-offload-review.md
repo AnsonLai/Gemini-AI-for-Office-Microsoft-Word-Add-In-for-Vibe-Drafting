@@ -1,7 +1,7 @@
 # Library offload review — August plans and September upgrade
 
 **Historical review:** 2026-09-30
-**Installed library:** Exact `@ansonlai/docx-redline-js@0.9.0` in root and MCP (upgraded from 0.8.4 on 2026-10-12; see the [0.9.0 validation](validation-reports/2026-10-12-docx-redline-v090.md)).
+**Installed library:** Exact `@ansonlai/docx-redline-js@0.9.0` in root and MCP at the time of the review (upgraded from 0.8.4 on 2026-10-12; see the [0.9.0 validation](validation-reports/2026-10-12-docx-redline-v090.md)). The repository now has one `package.json`, pinned to 0.11.1; the browser demo and MCP server this review tabulates were removed on 2026-10-18, so their rows are historical.
 **Purpose:** Internal ownership and maintenance review, separate from release notes.
 
 ## Current scope update — 2026-10-02
@@ -13,7 +13,7 @@ measure the whole affected production surface against the frozen WP0 baseline.
 These deletions simplify local consumer responsibilities; no new upstream code
 or complete-DOCX Word facade was adopted. The retained bridge still extracts
 and assembles Word body Flat OPC around public library operations. Current
-contracts are in [architecture](../ARCHITECTURE.md) and
+contracts are in [architecture](ARCHITECTURE.md) and
 [package boundaries](package-boundaries.md).
 
 The following inventory and counts describe the earlier September state.
@@ -121,5 +121,5 @@ engine success cannot prove rollback after Word attempts a write. Actual
 Office.js and independent Word save/reopen/Accept All/Reject All checks cover
 that host boundary. Native routes require their own verification.
 See the [testing overview](TESTING.md), [verification commands](../scripts/README.md),
-[architecture](../ARCHITECTURE.md), [package boundaries](package-boundaries.md),
+[architecture](ARCHITECTURE.md), [package boundaries](package-boundaries.md),
 and [tool contracts](agentic-tool-contracts.md).

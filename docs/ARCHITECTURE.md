@@ -1,10 +1,11 @@
 # System architecture
 
-The Word plugin uses two document tools: `inspect_document` and
-`apply_document_edits`. A small serial harness lets Gemini propose concrete
-source-bound edits. `@ansonlai/docx-redline-js@0.9.0` owns the transformations;
-Office.js transports the current Word body and preserves host state. Root and
-MCP dependencies keep the same exact library pin.
+The Word plugin uses two document tools, `inspect_document` and
+`apply_document_edits`, plus `search_web` for facts the document does not
+contain. A small serial harness lets Gemini propose concrete source-bound
+edits. `@ansonlai/docx-redline-js@0.11.1` (exact pin in the single root
+`package.json`) owns the transformations; Office.js transports the current Word
+body and preserves host state.
 
 ```mermaid
 flowchart LR
@@ -22,7 +23,8 @@ flowchart LR
 | --- | --- |
 | `taskpane.js` | UI, settings, request cancellation, host identity, lazy module loading and IndexedDB checkpoints. |
 | `document-agent-loop.js` | Complete provider/tool exchanges, six-turn budget, two failed mutation cycles, one proven no-write stale refresh, terminal outcomes and UI events. |
-| `tool-registry.js` | The two declarations, dispatch, validation, progress and completion evidence. |
+| `tool-registry.js` | The three declarations (`inspect_document`, `apply_document_edits`, `search_web`), dispatch, validation, progress and completion evidence. |
+| `web-search.js` | The `search_web` executor: a separate grounded Gemini request that returns a short answer with sources, labelled as reference material rather than instructions. |
 | `document-editing-guide.js` | One compact versioned workflow; owner persona affects drafting, never execution guarantees. |
 | `document-inspection-session.js` | Bounded canonical results and opaque handles/cursors; private strong descriptors bind to document, revision view and all captured parts. |
 | `document-edit-intents.js` | All-intent validation and mapping to public library operations, without Word APIs or secondary AI generation. |
@@ -49,17 +51,19 @@ freshness checks cover Undo and external edits even without reliable events.
 
 Office.js remains for initialization, reads, selection, content transport and
 tracking. The agent has no native paragraph/list/table editing algorithm or
-fallback, and no tool-internal model call. Unsupported structural list/table,
-font, layout, revision-acceptance and research requests refuse. See the
-[tool contract](docs/agentic-tool-contracts.md) for the precise retained actions.
+fallback, and no tool-internal model call for document edits. Supported list
+actions are insertion, conversion of paragraphs to a list, numbering format
+changes and continuing an earlier list. Unsupported table creation, font,
+layout, list depth and revision-acceptance requests refuse. See the
+[tool contract](agentic-tool-contracts.md) for the precise retained actions.
 
 Flat OPC assembly remains consumer code; it was simplified locally rather than
 claimed as a library offload. The owner excluded a complete-DOCX Word facade or
-binary bridge. The browser's `document-session.js` and MCP's
-`docx-document-service.mjs` continue using the library's complete-DOCX facade.
-JSZip remains in browser preview. These consumers were not redesigned here.
+binary bridge. The browser demo and the local MCP server that once used the
+library's complete-DOCX facade were removed from the repository on 2026-10-18;
+the Word add-in is the only product surface.
 
-The [dated implementation plan](docs/plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md)
+The [dated implementation plan](plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md)
 and linked reports distinguish offline checks, real Office.js, independent Word
 Accept All/Reject All, and taskpane replay. Live fast/slow provider checks remain
 a shipping gate. Desktop evidence does not certify Word Online. Checkpoints

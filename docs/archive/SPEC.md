@@ -29,8 +29,8 @@ tracking-on active bullet/decimal `insert_list_item` subset at levels 0–1;
 `edit_list`, header conversion, unsupported insertion shapes, source
 mapping/preparation, Word transport, provider recovery, and lazy startup remain
 consumer-side.
-See [package boundaries](docs/package-boundaries.md) and the
-[library offload review](docs/library-offload-review.md) for the current split.
+See [package boundaries](../package-boundaries.md) and the
+[library offload review](../library-offload-review.md) for the current split.
 
 ## Editing and safety contracts
 
@@ -57,13 +57,13 @@ and live validation evidence must be described separately.
 
 The broader canonical list migration remains open. The v0.8.2 reports recorded
 Reject All paragraph-boundary failures and historical-numbering inspection;
-the v0.8.3 release notes report fixes for those behaviors. The 0.8.4 upgrade is recorded in the [0.8.4 validation](docs/validation-reports/2026-10-02-docx-redline-v084.md) report. The 0.8.4 upgrade is recorded in the [0.8.4 validation](docs/validation-reports/2026-10-02-docx-redline-v084.md) report. Those historical
+the v0.8.3 release notes report fixes for those behaviors. The 0.8.4 upgrade is recorded in the [0.8.4 validation](../validation-reports/2026-10-02-docx-redline-v084.md) report. The 0.8.4 upgrade is recorded in the [0.8.4 validation](../validation-reports/2026-10-02-docx-redline-v084.md) report. Those historical
 reports preserve the earlier evidence and do not add current host-validation
 results. Plain or text-changing header-to-list conversion and list-format
 changes still lack supported canonical operations. A marker-prefixed
 `1. Header` to `1. Header` operation on bare `document.xml` can fail with
-`RECEIPT_RECONCILIATION_FAILED`. See the [library issues closeout](docs/validation-reports/2026-10-17-library-issues-closeout.md)
-and [canonical migration follow-up](docs/plans/completed/2026-09-30-canonical-list-migration-follow-up.md).
+`RECEIPT_RECONCILIATION_FAILED`. See the [library issues closeout](../validation-reports/2026-10-17-library-issues-closeout.md)
+and [canonical migration follow-up](../plans/completed/2026-09-30-canonical-list-migration-follow-up.md).
 Do not infer complete canonical migration from passing native fallback checks.
 
 ## Provider and startup behavior
@@ -82,7 +82,7 @@ successful load.
 
 Offline suites, real desktop Word checks, actual Office.js transport checks,
 browser session checks, and observational performance measurements are separate
-evidence. See [scripts/README.md](scripts/README.md) for commands and
-[ARCHITECTURE.md](ARCHITECTURE.md) for component responsibilities. Current
+evidence. See [scripts/README.md](../../scripts/README.md) for commands and
+[ARCHITECTURE.md](../ARCHITECTURE.md) for component responsibilities. Current
 validation limits and known library behavior are recorded in dated reports;
 none of those results guarantees behavior for every Word build or DOCX.

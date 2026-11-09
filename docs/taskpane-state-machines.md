@@ -4,7 +4,7 @@
 
 The taskpane has no explicit state machine. Its behaviour is spread across module variables, DOM flags, `localStorage` keys and the chat history array. This document names each of those implicit machines, lists the variables that make up its state, compares the states the code means to be in with every combination the variables allow, and records the transitions that reach a bad state.
 
-Line numbers point at the code as of the date above. The fix plan is [2026-11-07-state-machine-fixes.md](plans/2026-11-07-state-machine-fixes.md).
+Line numbers point at the code as of the date above. The fix plan is [2026-11-07-state-machine-fixes.md](plans/2026-11-07-state-machine-fixes.md). The line numbers and "bad state" descriptions below are a snapshot from before the fixes; see the status table after the Summary.
 
 ## Terms
 
@@ -23,6 +23,30 @@ Line numbers point at the code as of the date above. The fix plan is [2026-11-07
 | 5 | Glance cards | 112 | ~9 | 3 |
 | 6 | Settings form | 8 | 3 | 4 |
 | 7 | Glance question drag-and-drop | 6 | 1 | 1 |
+
+### Status as of 2026-11-09
+
+Source: [2026-11-07-state-machine-fixes.md](plans/2026-11-07-state-machine-fixes.md). "Fixed" means fixed in code, with unit tests where possible; the manual Word checks M1 to M9 have not been run.
+
+| Finding | Status |
+| --- | --- |
+| 1a | Fixed (T10) |
+| 1b | Fixed (T12) |
+| 1c | Fixed (T2) |
+| 2a | Fixed (T4) |
+| 2b | Open (owner decision) |
+| 2c | Fixed (T3) |
+| 3a | Fixed (T9) |
+| 3b | By design |
+| Errors after a confirmed edit | Fixed (T11) |
+| 4a | Fixed (T13) |
+| 4b | Open (owner decision) |
+| 5a, 5b | Fixed (T8) |
+| 5c | Fixed (T7) |
+| 6a, 6d | Open (tracked as C5) |
+| 6b | Fixed (T6) |
+| 6c | Fixed (T5) |
+| 7a | Fixed (T1) |
 
 Machines with no problems found are listed at the end.
 

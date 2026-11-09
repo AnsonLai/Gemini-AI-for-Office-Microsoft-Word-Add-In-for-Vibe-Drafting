@@ -1,6 +1,6 @@
 # Consumer package boundaries
 
-Both manifests exact-pin `@ansonlai/docx-redline-js@0.9.0`. The library owns canonical inspection, targeting, literal matching, OOXML mutation, revisions, numbering and DOCX package semantics. Application prompting, scope, harness and Word transport defects are fixed here; engine defects receive upstream reports and independent reproducers.
+The single `package.json` exact-pins `@ansonlai/docx-redline-js@0.11.1`. The library owns canonical inspection, targeting, literal matching, OOXML mutation, revisions, numbering and DOCX package semantics. Application prompting, scope, harness and Word transport defects are fixed here; engine defects receive upstream reports and independent reproducers.
 
 | Surface | Responsibility |
 | --- | --- |

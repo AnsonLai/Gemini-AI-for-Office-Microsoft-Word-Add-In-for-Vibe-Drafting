@@ -1,7 +1,7 @@
 # Agentic-Tools Alignment Plan (List/Bullet Reliability)
 
 > **Migrated on 2026-08-29:** The list-routing work was consolidated into
-> [`2026-08-29-agentic-tools-and-list-reliability.md`](../2026-08-29-agentic-tools-and-list-reliability.md).
+> [`2026-08-29-agentic-tools-and-list-reliability.md`](../../plans/completed/2026-08-29-agentic-tools-and-list-reliability.md).
 > This document is retained in `migrated/` as historical detail.
 
 ## Objective

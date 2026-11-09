@@ -1,7 +1,7 @@
 # State machine fixes
 
 **Created:** 2026-11-07. **Source:** [taskpane state machines](../taskpane-state-machines.md), which describes each finding referenced here by its number (1a, 2a, …).
-**Status:** Tier 1 done and committed (unit-tested where possible; manual Word checks M1 to M5 not yet run). Tier 2 in progress. Builds on Part A of [the 2026-11-01 review plan](2026-11-01-review-fixes-and-follow-ups.md), committed as `110070a`.
+**Status:** Tiers 1 and 2 done (unit-tested where possible; manual Word checks M1 to M9 not yet run). Tier 1 is committed as `3408704`; Tier 2 is in the working tree, uncommitted, as of 2026-11-09. Tier 3 waits on the owner. Builds on Part A of [the 2026-11-01 review plan](2026-11-01-review-fixes-and-follow-ups.md), committed as `110070a`.
 
 ## How each finding is triaged
 
@@ -67,7 +67,7 @@ Add to Part B of the 2026-11-01 plan once the matching fix is in.
 - **M5:** ask for an edit and then a check of the result in one request (for example "bold the title, then confirm it's bold"). The bubble ends with the edit receipt and its Revert button.
 - **M6:** start a request that inspects and edits; press Cancel while "Inspecting the document..." shows. The request stops.
 - **M7:** hard to trigger on demand; covered by unit tests.
-- **M8:** click Revert on a large document and press refresh at once. Refresh is refused until the revert finishes.
+- **M8:** click Revert on a large document and press refresh at once. Refresh is refused until the revert finishes. Then start a request that edits, and press refresh while "Validating the document edit batch..." shows: the refresh button greys out, the request stops, and only then does the chat clear.
 - **M9:** get the "Revert anyway" prompt, start a new request, press "Revert anyway". Expect the refusal message, and the prompt is still there afterwards.
 
 ## Progress
@@ -85,3 +85,24 @@ Add to Part B of the 2026-11-01 plan once the matching fix is in.
     - **T1:** the drop handler needs both cards in the list, and drag end clears `dragSrcEl`.
   - **Also changed:** a cancel after a tool ran keeps the bubble (its receipt and Revert button) and says "Request cancelled. Inspect the document before retrying."
   - **Verified:** `npm test` 51 suites pass, 0 fail; `npm run build` succeeds with only the two known bundle-size warnings (A8). Manual checks M1 to M5 not run.
+  - Committed as `3408704`, on top of Part A (`110070a`).
+- **2026-11-07:** Tier 2 (T10 to T13) done:
+  - **T10** in [`chat-ui.js`](../../src/taskpane/modules/chat/chat-ui.js): `updateSystemMessage` keeps a request's Cancel button when the status text changes. New `removeCancelButton` runs in `sendChatMessage`'s `finally`. A `.chat-message.system > .cancel-request-btn` rule in `taskpane.css` shows it inline after the text.
+  - **T11** in [`document-agent-loop.js`](../../src/taskpane/modules/chat/document-agent-loop.js): a new `catch` ends any failure after a tool ran (no candidates, a `MAX_TOKENS` or `SAFETY` ending with no content, a tools-module load failure, an executor exception) through `stop('provider_error', …)`, as a failed `requestModel` already did. History is cleared and the message says to inspect the document and includes the error. Before any tool ran, errors still reach the taskpane, which may offer Retry. So Retry now never follows a tool run.
+  - **T12** in `taskpane.js`:
+    - **During a revert:** refresh is refused ("Wait for the revert to finish…"), using a new `revertInProgress` flag.
+    - **During a chat request:** refresh cancels it, disables the refresh button, and waits on `currentRequestSettled` (resolved at the end of `sendChatMessage`'s `finally`) before clearing. The request unlocks the UI itself, so nothing can start while a Word write may still be committing.
+    - **Trade-off:** if a `Word.run` never returns, refresh now waits with it instead of unlocking the pane.
+  - **T13:** `addConfirmButtons` keeps the question open when its handler returns `false`. The "Revert anyway" handler returns `false` when a request is running.
+  - **Tests:**
+    - New `tests/chat_ui_controls_tests.mjs` (Cancel kept through status updates and removed at the end; Revert kept; refused confirmation stays open; "Keep document" closes). It fails on the pre-fix `chat-ui.js`.
+    - Three new cases in `tests/document_agent_loop_tests.mjs` (empty and `MAX_TOKENS` replies after an edit end as `provider_error`; before any tool, the error is still thrown). They failed before the fix.
+  - **Verified:** `npm test` 52 suites pass, 0 fail; build succeeds with only the two known warnings. Manual checks M6, M8 and M9 not run.
+- **2026-11-09: review of Tier 2.**
+  - **Hardened in `taskpane.js`:** `settleRequest()` now runs in its own `finally`, so a throw in the request's cleanup cannot leave refresh waiting forever. `revertInProgress` is now cleared unconditionally when a revert ends.
+  - **Open, owner to decide:**
+    - **(a) T11 fires on read-only tool records too.** The catch runs when any tool record exists, including a read-only inspect or search, so a failure after only reading also loses Retry and clears memory. Gating it on a write attempted or confirmed would match "never offer Retry after a write".
+    - **(b) Contradictory stop message.** In that case the stop message can say "The completed tool results remain available in this conversation" while history is cleared on the same line. The older `provider_error` path does the same.
+    - **(c) T12 can wait forever.** If a `Word.run` never returns, refresh waits with it. A timeout on the wait (for example 15 seconds, then a message) would restore a way out.
+    - **(d) T12 loses the receipt.** When the cancelled request's edit lands, refresh still clears the chat, so the receipt and Revert button are lost. Either skip the clear or leave a note in the fresh chat.
+    - **(e) Untracked "Also changed" behaviour.** The cancel-after-a-tool behaviour listed under "Also changed" has no row in the tables and no manual check.

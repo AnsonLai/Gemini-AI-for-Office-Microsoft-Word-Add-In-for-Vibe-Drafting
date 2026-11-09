@@ -19,7 +19,7 @@ is replayed after an uncertain result. The existing Gemini transport and
 IndexedDB checkpoint store remain local consumer responsibilities.
 
 Read the [tool contract](../../docs/agentic-tool-contracts.md),
-[architecture](../../ARCHITECTURE.md) and
+[architecture](../../docs/ARCHITECTURE.md) and
 [implementation plan](../../docs/plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md)
 for supported scope and recorded evidence. Body checkpoints preserve only the
 transported body package. Live model and Word Online validation limits remain

@@ -15,11 +15,11 @@ before writing. The 54-suite offline aggregate and production build pass. The
 final desktop Word run passed 13 of 20 checks: plain accepted table content and
 both native insertions pass; tracked Reject All leaves an extra paragraph,
 while Accept All loses underline in the formatting fixture. See the
-[incident plan](docs/plans/completed/2026-09-30-table-creation-reliability.md),
-[host report](docs/validation-reports/2026-10-01-table-creation-reliability.md),
-[tracked-formatting report](docs/validation-reports/2026-10-17-library-issues-closeout.md),
-and [Reject All paragraph report](docs/validation-reports/2026-10-17-library-issues-closeout.md).
-No full live chat/model reproduction is claimed. Update (2026-10-02): as of 0.8.4, `UNSUPPORTED_TABLE_FORMATTING` refuses only changing the text of a paragraph that carries the author's own pending formatting while adding a table; Accept All keeps underline, and Word Reject All still left one extra empty paragraph after a final table append. Update (2026-10-12): the incident plan is closed. The Reject All paragraph is fixed at package level in 0.9.0; the live-insert residual is KB-1 in [KNOWN_BUGS.md](docs/plans/KNOWN_BUGS.md), and table append stays refused.
+[incident plan](../plans/completed/2026-09-30-table-creation-reliability.md),
+[host report](../validation-reports/2026-10-01-table-creation-reliability.md),
+[tracked-formatting report](../validation-reports/2026-10-17-library-issues-closeout.md),
+and [Reject All paragraph report](../validation-reports/2026-10-17-library-issues-closeout.md).
+No full live chat/model reproduction is claimed. Update (2026-10-02): as of 0.8.4, `UNSUPPORTED_TABLE_FORMATTING` refuses only changing the text of a paragraph that carries the author's own pending formatting while adding a table; Accept All keeps underline, and Word Reject All still left one extra empty paragraph after a final table append. Update (2026-10-12): the incident plan is closed. The Reject All paragraph is fixed at package level in 0.9.0; the live-insert residual is KB-1 in [KNOWN_BUGS.md](../plans/KNOWN_BUGS.md), and table append stays refused.
 
 ### Undo/stale-context follow-up
 
@@ -42,12 +42,12 @@ The user's exact refusal cause remains unconfirmed; the fidelity plan stays open
 ## Package status: v0.8.3 record (current pin 0.10.0)
 
 The add-in uses the public
-`@ansonlai/docx-redline-js@0.10.0` package ([0.10.0 validation](docs/validation-reports/2026-10-17-docx-redline-v0100.md)). The browser demo and MCP server that also used it were removed on 2026-10-17. The v0.8.3 release notes describe fixes for
+`@ansonlai/docx-redline-js@0.10.0` package ([0.10.0 validation](../validation-reports/2026-10-17-docx-redline-v0100.md)). The browser demo and MCP server that also used it were removed on 2026-10-17. The v0.8.3 release notes describe fixes for
 tracked paragraph-boundary behavior, historical paragraph-property
 inspection, list-range numbering through `openDocx`, and explicit list-start
 parsing. The dated v0.8.3 consumer and Word validation is recorded in the [v0.8.3
-report](docs/validation-reports/2026-09-30-docx-redline-v083.md), and the 0.8.4
-upgrade in the [0.8.4 validation](docs/validation-reports/2026-10-02-docx-redline-v084.md) report; the dated
+report](../validation-reports/2026-09-30-docx-redline-v083.md), and the 0.8.4
+upgrade in the [0.8.4 validation](../validation-reports/2026-10-02-docx-redline-v084.md) report; the dated
 v0.8.2 reports below remain historical evidence.
 
 Canonical list migration remains open. Plain or text-changing header-to-list
@@ -55,12 +55,12 @@ conversion and list-format changes still lack supported canonical operations.
 A marker-prefixed `1. Header` to `1. Header` operation on bare `document.xml`
 can fail with `RECEIPT_RECONCILIATION_FAILED`. The original list plan is closed
 with these remaining capabilities transferred to the [canonical migration
-follow-up](docs/plans/completed/2026-09-30-canonical-list-migration-follow-up.md), which
+follow-up](../plans/completed/2026-09-30-canonical-list-migration-follow-up.md), which
 remains open. All five original plans are closed; this follow-up carries the
 uncompleted canonical migration work forward without marking it complete.
 
 The current ownership split is documented in the [library offload
-review](docs/library-offload-review.md): the library owns supported DOCX
+review](../library-offload-review.md): the library owns supported DOCX
 operations, reconciliation and package lifecycle; consumers retain mapping,
 host transport, reliability and UI/session code. The add-in's redline route is
 now a single atomic library batch with a local Flat OPC/Office.js bridge. MCP
@@ -96,7 +96,7 @@ for tracking-on bullet/decimal levels 0–1; broader list paths remain local.
 
 ### Open Work at This v0.8.2 Checkpoint
 
-The [original agentic tools and list reliability plan](docs/plans/completed/2026-08-29-agentic-tools-and-list-reliability.md)
+The [original agentic tools and list reliability plan](../plans/completed/2026-08-29-agentic-tools-and-list-reliability.md)
 remained open. The supported insertion subset and its validation evidence did
 not close the full canonical list migration. Four upstream reports covered
 insertion Reject All leaving an empty paragraph, list-range Reject All merging
@@ -105,7 +105,7 @@ properties treated as active numbering. At that dated checkpoint, no library
 fix release was available; see the v0.8.3 status above.
 
 Current posture and verification records are summarized in
-[STATE.md](STATE.md), [ROADMAP.md](ROADMAP.md), and the linked dated plans.
+[STATE.md](../../STATE.md), [ROADMAP.md](../../ROADMAP.md), and the linked dated plans.
 
 ## [2026-02-13] Documentation Consolidation (GSD Transition)
 
