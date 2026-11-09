@@ -1,6 +1,6 @@
 # Library-only tests: hand-off to docx-redline-js
 
-**Created:** 2026-11-09. **Status:** list written; nothing moved yet. The plugin copies stay until the library side confirms each item is covered or ported.
+**Created:** 2026-11-09. **Status:** the library session reports every suite below ported into the docx-redline-js working tree and passing (173/173), including the "confirm coverage" ones, but not yet committed there. The plugin copies stay until those ports are committed. Not ported: the Word oracle cases and their `verify-wp6-word.ps1` branches (the eight library cases stay in the plugin's `test:word` lane for now), `tests/phase4/*` (owner to decide: port or drop), and the 0.5.4 compat suite (it only prints SKIP, so it can be deleted here without a port). No library release is needed; the tests are not part of the published package.
 
 **Goal:** the plugin leans on `@ansonlai/docx-redline-js` (pinned 0.11.1) for every document transformation, so tests that only exercise the library belong in the library repo (`..\..\Docx Redline JS`). The plugin keeps tests of its own code: the chat loop and tools, the intents compiler, the Flat OPC bridge, storage and UI.
 
