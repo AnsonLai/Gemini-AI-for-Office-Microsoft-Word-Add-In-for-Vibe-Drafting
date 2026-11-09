@@ -101,10 +101,10 @@ function maintainHistoryWindow(history, maxMessages) {
  *   same tool name.
  * - There are no extra function responses for tools that were not called.
  *
- * This mirrors the behaviour described in the Gemini tooling docs and the
- * forum discussion you referenced, and strips out any legacy turns where
- * the counts didn't match (e.g. old code that only returned a single
- * functionResponse for multiple functionCalls).
+ * A function call turn is also dropped when it would follow another model
+ * turn, and a leading model turn is dropped. Turns that break these rules
+ * (e.g. a single functionResponse for multiple functionCalls) are removed
+ * together with their paired turn; the rest of the history is kept.
  */
 function validateHistoryPairs(history) {
   const validated = [];
@@ -325,35 +325,9 @@ function appendFunctionExchange(history, modelTurn, userTurn) {
   return history;
 }
 
-/**
- * Tier 2 Recovery: Remove ALL function call/response pairs from history
- * Keeps only regular text messages
- */
-function removeAllFunctionPairs(history) {
-  return history.filter(msg => {
-    const parts = msg.parts || [];
-    const hasFunctionCall = parts.some(p => p.functionCall);
-    const hasFunctionResponse = parts.some(p => p.functionResponse);
-    return !hasFunctionCall && !hasFunctionResponse;
-  });
-}
-
-/**
- * Tier 3 Recovery: Create fresh start with minimal context
- * Returns new history with just the original user message
- */
-function createFreshStartWithContext(originalUserMessage) {
-  return [{
-    role: "user",
-    parts: [{ text: originalUserMessage }]
-  }];
-}
-
 export {
   maintainHistoryWindow,
   validateHistoryPairs,
   sanitizeHistory,
-  appendFunctionExchange,
-  removeAllFunctionPairs,
-  createFreshStartWithContext
+  appendFunctionExchange
 };

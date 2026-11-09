@@ -35,9 +35,7 @@
   },
   "dependencies": {
     "@ansonlai/docx-redline-js": "0.11.1",
-    "caniuse-lite": "^1.0.30001800",
     "core-js": "^3.36.0",
-    "diff-match-patch": "^1.0.5",
     "dompurify": "^3.4.17",
     "marked": "^17.0.0",
     "regenerator-runtime": "^0.14.1"
