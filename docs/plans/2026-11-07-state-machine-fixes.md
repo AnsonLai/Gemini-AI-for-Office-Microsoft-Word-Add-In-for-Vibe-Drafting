@@ -1,7 +1,7 @@
 # State machine fixes
 
 **Created:** 2026-11-07. **Source:** [taskpane state machines](../taskpane-state-machines.md), which describes each finding referenced here by its number (1a, 2a, …).
-**Status:** Tiers 1 and 2 done (unit-tested where possible; manual Word checks M1 to M9 not yet run). Tier 1 is committed as `3408704`; Tier 2 is in the working tree, uncommitted, as of 2026-11-09. Tier 3 waits on the owner. Builds on Part A of [the 2026-11-01 review plan](2026-11-01-review-fixes-and-follow-ups.md), committed as `110070a`.
+**Status:** Tiers 1 and 2 done (unit-tested where possible; manual Word checks M1 to M9 not yet run). Tier 1 is committed as `3408704`; Tier 2 is committed as `788b442`. Tier 3 waits on the owner. Builds on Part A of [the 2026-11-01 review plan](2026-11-01-review-fixes-and-follow-ups.md), committed as `110070a`.
 
 ## How each finding is triaged
 

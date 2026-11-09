@@ -177,7 +177,7 @@ Ordered by impact. Each item says where, why, what to do, and when it's done.
 - **Do:** default to a dated model id, record it next to the golden-scenario results, and change it deliberately with a golden run.
 - **Done when:** the default is a fixed id, and the README says how to change it.
 
-### C8. Remove dead code and unused packages (done 2026-11-09, uncommitted)
+### C8. Remove dead code and unused packages (done 2026-11-09, committed as `1b03198`)
 
 - **Where and what:**
   - `removeAllFunctionPairs` and `createFreshStartWithContext` in [`chat-history.js:332`](../../src/taskpane/modules/chat/chat-history.js) are exported but never called.
@@ -186,7 +186,7 @@ Ordered by impact. Each item says where, why, what to do, and when it's done.
   - The leftover comment "forum discussion you referenced" at [`chat-history.js:105`](../../src/taskpane/modules/chat/chat-history.js).
 - **Do:** delete them (check tests first, since some may import them), move `caniuse-lite` to dev dependencies or drop it, and rewrite the comment.
 - **Done when:** `npm test` and the build pass, and grep finds no callers.
-- **Done 2026-11-09 (uncommitted):** the six functions (`removeAllFunctionPairs`, `createFreshStartWithContext`, `getLastCheckpoint`, `popLastCheckpoint`, `listCheckpoints`, `clearCheckpoints`) were deleted. `diff-match-patch` and `caniuse-lite` were removed from `package.json` dependencies; both remain installed transitively. The comment was rewritten. `npm test` passes all 52 suites and the build succeeds.
+- **Done 2026-11-09 (`1b03198`):** the six functions (`removeAllFunctionPairs`, `createFreshStartWithContext`, `getLastCheckpoint`, `popLastCheckpoint`, `listCheckpoints`, `clearCheckpoints`) were deleted. `diff-match-patch` and `caniuse-lite` were removed from `package.json` dependencies; both remain installed transitively. The comment was rewritten. `npm test` passes all 52 suites and the build succeeds.
 
 ### C9. Make version numbers agree
 
