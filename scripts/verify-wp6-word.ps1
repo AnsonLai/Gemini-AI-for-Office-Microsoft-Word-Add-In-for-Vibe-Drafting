@@ -112,6 +112,16 @@ function Check-Document($case, [string]$file, [string]$view, [bool]$render, [boo
         # Revisions.AcceptAll/RejectAll match the ribbon; Document.*AllRevisions leaves a body-final table append's tracked mark behind.
         if ($view -eq 'accepted') { $document.Revisions.AcceptAll() }
         if ($view -eq 'rejected') { $document.Revisions.RejectAll() }
+        # Document.Revisions holds the body story only, so header/footer revisions are resolved per part.
+        if (($view -eq 'accepted' -or $view -eq 'rejected') -and $case.expectedHeaderFooterText) {
+            foreach ($part in $case.expectedHeaderFooterText) {
+                $section = $document.Sections.Item([int]$part.section)
+                if ($part.kind -eq 'footer') { $storyParts = $section.Footers } else { $storyParts = $section.Headers }
+                $storyIndex = switch ($part.type) { 'first' { 2 }; 'even' { 3 }; default { 1 } }
+                $storyRevisions = $storyParts.Item($storyIndex).Range.Revisions
+                if ($view -eq 'accepted') { $storyRevisions.AcceptAll() } else { $storyRevisions.RejectAll() }
+            }
+        }
         $actual = Normalize-WordText ([string]$document.Content.Text)
         $expected = if ($view -eq 'source' -and $case.expectedSourceText) { $case.expectedSourceText } elseif ($view -eq 'rejected') { $case.expectedRejectedText } elseif ($view -eq 'source') { $case.expectedRejectedText } else { $case.expectedAcceptedText }
         if ($view -ne 'tracked' -and $case.expectedBodyStructure) {
