@@ -82,4 +82,4 @@ webpack size warnings (taskpane about 795 KiB).
 No provider calls or library-side fixes were used. Broader list fidelity gates
 remain in the active agentic plan; preview is not a Word fidelity oracle.
 Whole-document Word binary insertion remains deferred. See
-[consumer package boundaries](../package-boundaries.md).
+[consumer package boundaries](../../package-boundaries.md).

@@ -1,6 +1,6 @@
 # Reliability, Quality Gates, and Accuracy Verification Plan
 
-> **Retrospective ownership review (2026-09-30):** See the [library offload review](../../library-offload-review.md) for measured code changes, responsibilities delegated to the library, and remaining consumer/native routes. Version pins and validation counts in this closure record describe their dated checkpoints; current consumers pin exact 0.8.3. All five original plans are closed; remaining canonical list work is in the [fresh follow-up](./2026-09-30-canonical-list-migration-follow-up.md).
+> **Retrospective ownership review (2026-09-30):** See the [library offload review](../../archive/library-offload-review.md) for measured code changes, responsibilities delegated to the library, and remaining consumer/native routes. Version pins and validation counts in this closure record describe their dated checkpoints; current consumers pin exact 0.8.3. All five original plans are closed; remaining canonical list work is in the [fresh follow-up](./2026-09-30-canonical-list-migration-follow-up.md).
 
 **Date:** 2026-08-29
 
@@ -14,9 +14,9 @@
 
 Both consumers pin exact `@ansonlai/docx-redline-js@0.8.2`. The [September upgrade](2026-09-09-docx-redline-js-v0.5.4-upgrade.md) is **complete**: its actual Office.js insertion gate passed during this plan. This plan owns ongoing quality-gate maintenance.
 
-The [current validation report](../../validation-reports/2026-09-30-docx-redline-js-v0.8.2.md) records 33 offline suites, 69 live Word checks and successful development/production builds. These are dated results, not a guarantee that future changes pass.
+The [current validation report](../../archive/validation-reports/2026-09-30-docx-redline-js-v0.8.2.md) records 33 offline suites, 69 live Word checks and successful development/production builds. These are dated results, not a guarantee that future changes pass.
 
-The [reliability validation report](../../validation-reports/2026-09-30-reliability-and-quality-gates.md) records the final 35-suite offline run, seven actual Office.js checks, 12 independent Word package/revision checks, both builds, outcome semantics and reproduction commands. Prior upgrade/plan changes were committed as `68da8a4` before implementation began; reliability work is saved as a separate milestone commit before starting the agentic-tools plan.
+The [reliability validation report](../../archive/validation-reports/2026-09-30-reliability-and-quality-gates.md) records the final 35-suite offline run, seven actual Office.js checks, 12 independent Word package/revision checks, both builds, outcome semantics and reproduction commands. Prior upgrade/plan changes were committed as `68da8a4` before implementation began; reliability work is saved as a separate milestone commit before starting the agentic-tools plan.
 
 1. Exact targeting, independent Accept All/Reject All expectations, preserved formatting/relationships, and fail-closed engine failures.
 2. Portable OOXML core tests with host tests in separate lanes.

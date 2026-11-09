@@ -5,7 +5,7 @@ This harness lets you ingest a `.docx` (or an already-unzipped package folder) a
 This is a diagnostic harness. Production browser and MCP editing use the
 library's document facade; local XML inspection here does not mean those
 consumers still rebuild DOCX packages themselves. See the
-[library offload review](../../docs/library-offload-review.md) for ownership and
+[package boundaries](../../docs/package-boundaries.md) for ownership and
 [verification commands](../../scripts/README.md) for independent host checks.
 
 ## Commands
@@ -37,7 +37,7 @@ powershell -ExecutionPolicy Bypass -File tests/docx-harness/docx-xml-harness.ps1
 ### 3) Extract package
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tests/docx-harness/docx-xml-harness.ps1 -Action extract -InputPath "tests/Sample NDA.docx" -OutDir "tests/word-desktop/.tmp/sample-nda-extracted"
+powershell -ExecutionPolicy Bypass -File tests/docx-harness/docx-xml-harness.ps1 -Action extract -InputPath "tests/Sample NDA.docx" -OutDir ".cache/docx-harness/sample-nda-extracted"
 ```
 
 ### 4) Show a specific part

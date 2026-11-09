@@ -4,7 +4,7 @@ The add-in and MCP server now pin exact `@ansonlai/docx-redline-js@0.9.0`
 (from 0.8.4) in `package.json` and `mcp/docx-server/package.json`. This report
 records the verification of the upgrade, the test and oracle changes it
 required, what it closed, and what remains. Earlier dated reports (for example
-[v0.8.4](2026-10-02-docx-redline-v084.md)) remain historical records.
+[v0.8.4](../archive/validation-reports/2026-10-02-docx-redline-v084.md)) remain historical records.
 
 Host: Word 16 desktop (2026-10-12). Remaining consumer-side bugs and the Word
 JavaScript API inventory live in [`docs/plans/KNOWN_BUGS.md`](../plans/KNOWN_BUGS.md).

@@ -42,12 +42,12 @@ The user's exact refusal cause remains unconfirmed; the fidelity plan stays open
 ## Package status: v0.8.3 record (current pin 0.10.0)
 
 The add-in uses the public
-`@ansonlai/docx-redline-js@0.10.0` package ([0.10.0 validation](../validation-reports/2026-10-17-docx-redline-v0100.md)). The browser demo and MCP server that also used it were removed on 2026-10-17. The v0.8.3 release notes describe fixes for
+`@ansonlai/docx-redline-js@0.10.0` package ([0.10.0 validation](validation-reports/2026-10-17-docx-redline-v0100.md)). The browser demo and MCP server that also used it were removed on 2026-10-17. The v0.8.3 release notes describe fixes for
 tracked paragraph-boundary behavior, historical paragraph-property
 inspection, list-range numbering through `openDocx`, and explicit list-start
 parsing. The dated v0.8.3 consumer and Word validation is recorded in the [v0.8.3
 report](../validation-reports/2026-09-30-docx-redline-v083.md), and the 0.8.4
-upgrade in the [0.8.4 validation](../validation-reports/2026-10-02-docx-redline-v084.md) report; the dated
+upgrade in the [0.8.4 validation](validation-reports/2026-10-02-docx-redline-v084.md) report; the dated
 v0.8.2 reports below remain historical evidence.
 
 Canonical list migration remains open. Plain or text-changing header-to-list
@@ -60,7 +60,7 @@ remains open. All five original plans are closed; this follow-up carries the
 uncompleted canonical migration work forward without marking it complete.
 
 The current ownership split is documented in the [library offload
-review](../library-offload-review.md): the library owns supported DOCX
+review](library-offload-review.md): the library owns supported DOCX
 operations, reconciliation and package lifecycle; consumers retain mapping,
 host transport, reliability and UI/session code. The add-in's redline route is
 now a single atomic library batch with a local Flat OPC/Office.js bridge. MCP

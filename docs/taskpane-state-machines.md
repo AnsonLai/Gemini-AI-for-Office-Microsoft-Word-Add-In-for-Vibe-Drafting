@@ -34,16 +34,16 @@ Source: [2026-11-07-state-machine-fixes.md](plans/2026-11-07-state-machine-fixes
 | 1b | Fixed (T12) |
 | 1c | Fixed (T2) |
 | 2a | Fixed (T4) |
-| 2b | Open (owner decision) |
+| 2b | Fixed 2026-11-09 (stop message says memory was cleared) |
 | 2c | Fixed (T3) |
 | 3a | Fixed (T9) |
 | 3b | By design |
 | Errors after a confirmed edit | Fixed (T11) |
 | 4a | Fixed (T13) |
-| 4b | Open (owner decision) |
+| 4b | Left as is (owner expects to replace Revert with Word's Undo) |
 | 5a, 5b | Fixed (T8) |
 | 5c | Fixed (T7) |
-| 6a, 6d | Open (tracked as C5) |
+| 6a, 6d | Fixed 2026-11-09 (all settings save on change; an empty key removes it) |
 | 6b | Fixed (T6) |
 | 6c | Fixed (T5) |
 | 7a | Fixed (T1) |

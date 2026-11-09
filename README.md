@@ -223,7 +223,7 @@ AIWordPlugin/
 └── README.md
 ```
 
-> The add-in pins [`@ansonlai/docx-redline-js@0.11.1`](https://www.npmjs.com/package/@ansonlai/docx-redline-js). The library owns supported DOCX operations and package lifecycle; local consumers retain tool-to-operation mapping, host I/O, and their UI/session contracts. The add-in also retains its Flat OPC bridge and Office.js adapter. See [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the system map and [the library offload review](docs/library-offload-review.md) for the file-by-file boundary.
+> The add-in pins [`@ansonlai/docx-redline-js@0.11.1`](https://www.npmjs.com/package/@ansonlai/docx-redline-js). The library owns supported DOCX operations and package lifecycle; local consumers retain tool-to-operation mapping, host I/O, and their UI/session contracts. The add-in also retains its Flat OPC bridge and Office.js adapter. See [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the system map and [`package-boundaries.md`](docs/package-boundaries.md) for the ownership split.
 
 ## Development
 

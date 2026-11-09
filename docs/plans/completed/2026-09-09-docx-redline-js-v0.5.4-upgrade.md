@@ -1,11 +1,11 @@
 # `@ansonlai/docx-redline-js` v0.8.2 Direct Upgrade Plan
 
-> **Retrospective ownership review (2026-09-30):** See the [library offload review](../../library-offload-review.md) for measured code changes, responsibilities delegated to the library, and remaining consumer/native routes. Version pins and validation counts in this closure record describe their dated checkpoints; current consumers pin exact 0.8.3. All five original plans are closed; remaining canonical list work is in the [fresh follow-up](./2026-09-30-canonical-list-migration-follow-up.md).
+> **Retrospective ownership review (2026-09-30):** See the [library offload review](../../archive/library-offload-review.md) for measured code changes, responsibilities delegated to the library, and remaining consumer/native routes. Version pins and validation counts in this closure record describe their dated checkpoints; current consumers pin exact 0.8.3. All five original plans are closed; remaining canonical list work is in the [fresh follow-up](./2026-09-30-canonical-list-migration-follow-up.md).
 
 **Date:** 2026-09-23  
 **Updated:** 2026-09-30
 
-**Status:** **Complete.** WP0–WP6 are implemented and verified on exact v0.8.2. Actual Office.js transport passed on 2026-09-30 during reliability WP1. PDF export is optional; measured large-document performance is accepted by the user. See the [v0.8.2 report](../../validation-reports/2026-09-30-docx-redline-js-v0.8.2.md) and [host closure evidence](../../validation-reports/2026-09-30-reliability-and-quality-gates.md).
+**Status:** **Complete.** WP0–WP6 are implemented and verified on exact v0.8.2. Actual Office.js transport passed on 2026-09-30 during reliability WP1. PDF export is optional; measured large-document performance is accepted by the user. See the [v0.8.2 report](../../archive/validation-reports/2026-09-30-docx-redline-js-v0.8.2.md) and [host closure evidence](../../archive/validation-reports/2026-09-30-reliability-and-quality-gates.md).
 
 **Target:** Upgrade both root add-in and `mcp/docx-server` directly to exact version `0.8.2`.
 

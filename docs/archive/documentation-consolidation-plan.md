@@ -26,7 +26,7 @@ This plan records the one-time transition to the GSD documentation structure, co
 
 For the current split between library-owned DOCX behavior and consumer-owned
 mapping, host bridges, reliability and UI/session code, see the
-[library offload review](../library-offload-review.md).
+[library offload review](library-offload-review.md).
 
 ## Completed Planning Record: [2026-02-13]
 

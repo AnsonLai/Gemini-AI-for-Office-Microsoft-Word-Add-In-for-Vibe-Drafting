@@ -13,7 +13,7 @@ exact `@ansonlai/docx-redline-js@0.11.1`. The dated performance reports below
 measured 0.8.2; they have not been rerun on later versions as timing evidence. A slower large document does not justify
 changing its tracked-change semantics.
 
-The [library offload review](library-offload-review.md) separates delegated
+The [package boundaries](package-boundaries.md) separate delegated
 execution from local optimization. Atomic library batches replace iterative
 Word redline execution; extracting portable preparation remains local code.
 Loading editing modules on first use reduces initial transfer, while retaining

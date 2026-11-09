@@ -1,6 +1,6 @@
 # Agentic Tools and List Reliability Plan
 
-> **Retrospective ownership review (2026-09-30):** See the [library offload review](../../library-offload-review.md) for measured code changes, responsibilities delegated to the library, and remaining consumer/native routes. Version pins and validation counts in this closure record describe their dated checkpoints; current consumers pin exact 0.8.3. All five original plans are closed; remaining canonical list work is in the [fresh follow-up](./2026-09-30-canonical-list-migration-follow-up.md).
+> **Retrospective ownership review (2026-09-30):** See the [library offload review](../../archive/library-offload-review.md) for measured code changes, responsibilities delegated to the library, and remaining consumer/native routes. Version pins and validation counts in this closure record describe their dated checkpoints; current consumers pin exact 0.8.3. All five original plans are closed; remaining canonical list work is in the [fresh follow-up](./2026-09-30-canonical-list-migration-follow-up.md).
 
 **Date:** 2026-08-29
 
@@ -68,7 +68,7 @@ inspection and both original paragraph-boundary cases; the existing consumer
 standalone/merge output passes 12 independent Word checks. Focused regression
 tests pass. Full canonical conversion/remapping remains a proposed library
 plan, and review found an all-empty-range rejection defect plus pre-existing
-public-facade numbering corruption. See the [review and resume gates](../../validation-reports/2026-09-30-unpublished-library-list-review.md).
+public-facade numbering corruption. See the [review and resume gates](../../archive/validation-reports/2026-09-30-unpublished-library-list-review.md).
 No package pin or production route changed. At that checkpoint this plan remained open pending
 released fixes, capability implementation and downstream host verification.
 

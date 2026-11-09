@@ -126,11 +126,11 @@ and registrations removed.
 ## WP3 library ownership
 
 No new library performance regression was established. Existing list fidelity
-defects stay in the separate [agentic list plan](../plans/completed/2026-08-29-agentic-tools-and-list-reliability.md).
+defects stay in the separate [agentic list plan](../../plans/completed/2026-08-29-agentic-tools-and-list-reliability.md).
 No library internals or consumer fidelity workaround were changed. No diff
 cache, alternate document index or arbitrary timing budget was introduced.
 
-Reproduction and profiling instructions: [OOXML performance](../ooxml-performance.md).
+Reproduction and profiling instructions: [OOXML performance](../../ooxml-performance.md).
 
 The plan is complete and archived in `docs/plans/completed/`. The workload/host
 checkpoint is `6b44f51`; startup optimization and plan closure follow it.

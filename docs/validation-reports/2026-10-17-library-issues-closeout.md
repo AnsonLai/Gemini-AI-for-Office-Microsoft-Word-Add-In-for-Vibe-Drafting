@@ -21,9 +21,9 @@ The other reproducers target fixed defects and are not part of any gate.
 ## Resolved reports
 
 Release evidence is in the validation reports for
-[0.8.2](2026-09-30-docx-redline-js-v0.8.2.md), [0.8.3](2026-09-30-docx-redline-v083.md),
-[0.8.4](2026-10-02-docx-redline-v084.md), [0.9.0](2026-10-12-docx-redline-v090.md)
-and [0.10.0](2026-10-17-docx-redline-v0100.md).
+[0.8.2](../archive/validation-reports/2026-09-30-docx-redline-js-v0.8.2.md), [0.8.3](2026-09-30-docx-redline-v083.md),
+[0.8.4](../archive/validation-reports/2026-10-02-docx-redline-v084.md), [0.9.0](2026-10-12-docx-redline-v090.md)
+and [0.10.0](../archive/validation-reports/2026-10-17-docx-redline-v0100.md).
 
 | Report (file in `completed/`) | Fixed in |
 | --- | --- |

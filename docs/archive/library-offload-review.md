@@ -1,20 +1,20 @@
 # Library offload review — August plans and September upgrade
 
 **Historical review:** 2026-09-30
-**Installed library:** Exact `@ansonlai/docx-redline-js@0.9.0` in root and MCP at the time of the review (upgraded from 0.8.4 on 2026-10-12; see the [0.9.0 validation](validation-reports/2026-10-12-docx-redline-v090.md)). The repository now has one `package.json`, pinned to 0.11.1; the browser demo and MCP server this review tabulates were removed on 2026-10-18, so their rows are historical.
+**Installed library:** Exact `@ansonlai/docx-redline-js@0.9.0` in root and MCP at the time of the review (upgraded from 0.8.4 on 2026-10-12; see the [0.9.0 validation](../validation-reports/2026-10-12-docx-redline-v090.md)). The repository now has one `package.json`, pinned to 0.11.1; the browser demo and MCP server this review tabulates were removed on 2026-10-18, so their rows are historical.
 **Purpose:** Internal ownership and maintenance review, separate from release notes.
 
 ## Current scope update — 2026-10-02
 
-The [lightweight-harness plan](plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md)
+The [lightweight-harness plan](../plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md)
 retires native editing commands and nested AI interpretation, replaces eleven
 tools with two, and thins orphan compatibility/planning code. Its WP4/WP5 reports
 measure the whole affected production surface against the frozen WP0 baseline.
 These deletions simplify local consumer responsibilities; no new upstream code
 or complete-DOCX Word facade was adopted. The retained bridge still extracts
 and assembles Word body Flat OPC around public library operations. Current
-contracts are in [architecture](ARCHITECTURE.md) and
-[package boundaries](package-boundaries.md).
+contracts are in [architecture](../ARCHITECTURE.md) and
+[package boundaries](../package-boundaries.md).
 
 The following inventory and counts describe the earlier September state.
 References to retained native paths, old planner exports or deferred binary
@@ -35,11 +35,11 @@ count, not part of the 1,471-line net reduction measured below.
 
 | Completed plan | Additional delegation to the library | Work retained in this repository |
 | --- | --- | --- |
-| [September 9 upgrade](plans/completed/2026-09-09-docx-redline-js-v0.5.4-upgrade.md) | Atomic redline execution, localized replacements, structured list/table output, document inspection and MCP open/edit/comment/serialize lifecycle. Library helpers supply comment sibling reconciliation and part specifications; the add-in still applies the resulting parts and relationships to Word's Flat OPC package. Removed iterative Word redline execution, manual table recovery, an unused structured-list module and four MCP services. | AI proposal validation and operation mapping; Word scope reads, Flat OPC preparation/transport, tracking and host outcome reporting; MCP file/session/tool contracts and blank template. |
-| [Reliability and quality gates](plans/completed/2026-08-29-reliability-and-quality-gates.md) | No additional document engine extraction. Library errors and receipts propagate through consistent consumer outcomes. | Shared Gemini client, bounded provider retries, mutation outcome handling, offline gates and actual Office.js/Word verification. |
-| [Agentic tools and list reliability](plans/completed/2026-08-29-agentic-tools-and-list-reliability.md) | Supported active bullet/decimal insertion with redlining enabled uses one canonical library body batch at source/resolved levels 0–1. Canonical root outdent requires a following same-list root sibling. | Validation, capability selection and supplied source-baseline guards. Native insertion covers plain anchors, deeper levels, other formats, tracking off and unsupported outdent contexts. General list editing retains a range helper; header conversion remains native. |
-| [Package boundaries and integrations](plans/completed/2026-08-29-package-boundaries-and-integrations.md) | Browser editing adopts `openDocx` / inspect / atomic apply / serialize instead of rebuilding edited ZIP/XML packages. | `consumer-core.js` is a local portable extraction, not a new library module. Browser prompt projection, marker seeding, preview, upload/download and UI remain local. Preview still uses JSZip. |
-| [OOXML engine and performance](plans/completed/2026-08-29-oxml-engine-and-performance.md) | No additional library implementation was moved during this plan. It profiled the settled library boundary. | Benchmarking, real Word instrumentation and loading editing modules on first use. Deferred code is still shipped. |
+| [September 9 upgrade](../plans/completed/2026-09-09-docx-redline-js-v0.5.4-upgrade.md) | Atomic redline execution, localized replacements, structured list/table output, document inspection and MCP open/edit/comment/serialize lifecycle. Library helpers supply comment sibling reconciliation and part specifications; the add-in still applies the resulting parts and relationships to Word's Flat OPC package. Removed iterative Word redline execution, manual table recovery, an unused structured-list module and four MCP services. | AI proposal validation and operation mapping; Word scope reads, Flat OPC preparation/transport, tracking and host outcome reporting; MCP file/session/tool contracts and blank template. |
+| [Reliability and quality gates](../plans/completed/2026-08-29-reliability-and-quality-gates.md) | No additional document engine extraction. Library errors and receipts propagate through consistent consumer outcomes. | Shared Gemini client, bounded provider retries, mutation outcome handling, offline gates and actual Office.js/Word verification. |
+| [Agentic tools and list reliability](../plans/completed/2026-08-29-agentic-tools-and-list-reliability.md) | Supported active bullet/decimal insertion with redlining enabled uses one canonical library body batch at source/resolved levels 0–1. Canonical root outdent requires a following same-list root sibling. | Validation, capability selection and supplied source-baseline guards. Native insertion covers plain anchors, deeper levels, other formats, tracking off and unsupported outdent contexts. General list editing retains a range helper; header conversion remains native. |
+| [Package boundaries and integrations](../plans/completed/2026-08-29-package-boundaries-and-integrations.md) | Browser editing adopts `openDocx` / inspect / atomic apply / serialize instead of rebuilding edited ZIP/XML packages. | `consumer-core.js` is a local portable extraction, not a new library module. Browser prompt projection, marker seeding, preview, upload/download and UI remain local. Preview still uses JSZip. |
+| [OOXML engine and performance](../plans/completed/2026-08-29-oxml-engine-and-performance.md) | No additional library implementation was moved during this plan. It profiled the settled library boundary. | Benchmarking, real Word instrumentation and loading editing modules on first use. Deferred code is still shipped. |
 
 ## How much local code became smaller
 
@@ -100,14 +100,14 @@ fixed reported list rejection/inspection/numbering defects; 0.8.4 fixed the
 soft-break, bullet-numbering, format-occurrence and table-append formatting reports. Those fixes belong
 to the shared engine; the add-in carries regression evidence rather than
 parallel fixes. Remaining canonical plain-to-list/header conversion and list
-format changes belong to the [fresh migration follow-up](plans/completed/2026-09-30-canonical-list-migration-follow-up.md).
+format changes belong to the [fresh migration follow-up](../plans/completed/2026-09-30-canonical-list-migration-follow-up.md).
 The original agentic plan is closed with deferred scope, not full migration.
 Once all issues are resolved, that follow-up requires retaining necessary
-validation evidence, deleting `docs/library-issues/` and updating incoming links (done 2026-10-17; see the [closeout](validation-reports/2026-10-17-library-issues-closeout.md)).
+validation evidence, deleting `docs/library-issues/` and updating incoming links (done 2026-10-17; see the [closeout](../validation-reports/2026-10-17-library-issues-closeout.md)).
 
 ## Evidence and testing ownership
 
-The [published 0.8.3 validation record](validation-reports/2026-09-30-docx-redline-v083.md)
+The [published 0.8.3 validation record](../validation-reports/2026-09-30-docx-redline-v083.md)
 (the [0.8.4 validation](validation-reports/2026-10-02-docx-redline-v084.md) report records the later upgrade)
 records 51 passing offline suites, four excluded entrypoints, 68 actual Office.js
 checks, 92 independent Word checks on exported list/native cases and 12 separate
@@ -120,6 +120,6 @@ package preservation, browser/MCP parity and uncertain host outcomes. Atomic
 engine success cannot prove rollback after Word attempts a write. Actual
 Office.js and independent Word save/reopen/Accept All/Reject All checks cover
 that host boundary. Native routes require their own verification.
-See the [testing overview](TESTING.md), [verification commands](../scripts/README.md),
-[architecture](ARCHITECTURE.md), [package boundaries](package-boundaries.md),
-and [tool contracts](agentic-tool-contracts.md).
+See the [testing overview](../TESTING.md), [verification commands](../../scripts/README.md),
+[architecture](../ARCHITECTURE.md), [package boundaries](../package-boundaries.md),
+and [tool contracts](../agentic-tool-contracts.md).

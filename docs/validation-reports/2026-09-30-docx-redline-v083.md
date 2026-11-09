@@ -10,10 +10,10 @@ API/schema and CLI contract remain unchanged (contract version 8).
 | --- | --- | --- |
 | Offline aggregate | 51 suites passed, zero failed; four excluded entrypoints | `npm test` |
 | Supported list matrix | 12 cases pass exact accepted/rejected text, numbering identities and untouched bold formatting | `tests/agentic_list_fidelity_tests.mjs` |
-| Actual Office.js list matrix | 48 checks passed | [Collector](2026-09-30-v083-list-officejs.json) |
-| Actual Office.js native matrix | 20 checks passed across five cases | [Native collector](2026-09-30-v083-native-officejs.json) |
-| Combined Office.js exports, independent Word | 92 checks passed, zero failed; five engine-reference entries not applicable | [Word oracle](2026-09-30-v083-officejs-word.json) |
-| Complete DOCX facade, original diagnostic cases | 12 independent Word checks passed | [Facade oracle](2026-09-30-v083-facade-word.json) |
+| Actual Office.js list matrix | 48 checks passed | [Collector](../archive/validation-reports/2026-09-30-v083-list-officejs.json) |
+| Actual Office.js native matrix | 20 checks passed across five cases | [Native collector](../archive/validation-reports/2026-09-30-v083-native-officejs.json) |
+| Combined Office.js exports, independent Word | 92 checks passed, zero failed; five engine-reference entries not applicable | [Word oracle](../archive/validation-reports/2026-09-30-v083-officejs-word.json) |
+| Complete DOCX facade, original diagnostic cases | 12 independent Word checks passed | [Facade oracle](../archive/validation-reports/2026-09-30-v083-facade-word.json) |
 | Build | Development validation entry and ordinary production build pass | webpack |
 
 Office.js host: Word `16.0.20430.20092` (PC). COM oracle reports build

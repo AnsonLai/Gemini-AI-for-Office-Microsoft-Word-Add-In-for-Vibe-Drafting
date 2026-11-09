@@ -30,7 +30,7 @@ tracking-on active bullet/decimal `insert_list_item` subset at levels 0–1;
 mapping/preparation, Word transport, provider recovery, and lazy startup remain
 consumer-side.
 See [package boundaries](../package-boundaries.md) and the
-[library offload review](../library-offload-review.md) for the current split.
+[library offload review](library-offload-review.md) for the current split.
 
 ## Editing and safety contracts
 
@@ -57,7 +57,7 @@ and live validation evidence must be described separately.
 
 The broader canonical list migration remains open. The v0.8.2 reports recorded
 Reject All paragraph-boundary failures and historical-numbering inspection;
-the v0.8.3 release notes report fixes for those behaviors. The 0.8.4 upgrade is recorded in the [0.8.4 validation](../validation-reports/2026-10-02-docx-redline-v084.md) report. The 0.8.4 upgrade is recorded in the [0.8.4 validation](../validation-reports/2026-10-02-docx-redline-v084.md) report. Those historical
+the v0.8.3 release notes report fixes for those behaviors. The 0.8.4 upgrade is recorded in the [0.8.4 validation](validation-reports/2026-10-02-docx-redline-v084.md) report. The 0.8.4 upgrade is recorded in the [0.8.4 validation](validation-reports/2026-10-02-docx-redline-v084.md) report. Those historical
 reports preserve the earlier evidence and do not add current host-validation
 results. Plain or text-changing header-to-list conversion and list-format
 changes still lack supported canonical operations. A marker-prefixed

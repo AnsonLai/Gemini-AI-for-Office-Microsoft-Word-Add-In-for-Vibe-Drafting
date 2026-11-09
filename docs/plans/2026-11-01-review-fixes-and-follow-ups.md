@@ -153,12 +153,13 @@ Ordered by impact. Each item says where, why, what to do, and when it's done.
 - **Library rule:** if the library drops these parts, report it upstream with a reproducer; don't patch it in the add-in (see KNOWN_BUGS.md).
 - **Done when:** the host lane passes, and a lost image or field fails verification.
 
-### C5. Settings save inconsistently
+### C5. Settings save inconsistently (done 2026-11-09)
 
 - **Where:** `showSettingsView` and `saveApiKey` in [`taskpane.js:387`](../../src/taskpane/taskpane.js) and [`:473`](../../src/taskpane/taskpane.js).
 - **Why:** "Back" throws away unsaved model and system-prompt changes, while Glance and redline settings save on every change. No setting can be saved without an API key.
 - **Do:** pick one model, either save-on-change everywhere or one Save button for all fields with an unsaved-changes notice on Back. Let model and prompt settings save without a key.
 - **Done when:** every field behaves the same way, and a test or manual check covers Back with unsaved changes.
+- **Done 2026-11-09:** every field saves on change, an empty API key removes the stored key, and the Save button is gone. Covered by `tests/settings_save_tests.mjs` and manual checks M13 and M14 in [the state machine fixes plan](2026-11-07-state-machine-fixes.md#manual-checks-in-word), which have not been run.
 
 ### C6. Drop IE11 support, production source maps and the double CSS load
 
@@ -200,6 +201,7 @@ Ordered by impact. Each item says where, why, what to do, and when it's done.
 - **Root docs (done 2026-11-09):** the root now holds `README.md`, `ROADMAP.md` and `STATE.md`; the historical docs are in `docs/archive/`, and `ARCHITECTURE.md` is at `docs/ARCHITECTURE.md`. Original note: seven markdown files sat at the root (`ARCHITECTURE.md`, `PLAN.md`, `README.md`, `ROADMAP.md`, `SPEC.md`, `STATE.md`, `SUMMARY.md`). `PLAN.md` and `SUMMARY.md` are historical and unmaintained. Move them to `docs/` or an archive.
 - **Tests named after history:** suites such as `phase2_dead_code_static_tests` and `docx_redline_v040_compat_tests` guard past phases or old library versions rather than behaviour. Rename the ones that still test behaviour, delete the rest.
 - **Proportion:** about 17,600 lines of tests and scripts for about 4,500 lines of product code. Look for overlapping suites as part of the renaming.
+- **2026-11-09:** a suite-by-suite audit is in [the library test hand-off](2026-11-09-library-test-handoff.md): about 2,100 lines test only the library and are to move upstream or be deleted once covered there, and it lists the renames. The broken `tests/word-desktop` list lane and `tests/verify_thought_parsing.js` were deleted.
 - **Editing guide:** it has grown one model quirk at a time into a dense list of rules. Regroup it by task (reading, editing, formatting, search) and re-run the golden scenarios after.
 - **Done when:** the root holds README plus at most two current docs, no suite is named after a phase or version, and the golden lanes pass on the regrouped guide.
 

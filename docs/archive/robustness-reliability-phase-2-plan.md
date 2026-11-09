@@ -24,7 +24,7 @@
 > [STATE.md](../../STATE.md) for the current posture.
 > For the current file-level ownership split, including the local Flat OPC
 > bridge and consumer-owned reliability/startup work, see the
-> [library offload review](../library-offload-review.md).
+> [library offload review](library-offload-review.md).
 
 > **Audience note:** this plan is written to be executed by a smaller/cheaper model,
 > one work package at a time. It is deliberately prescriptive: exact file paths,

@@ -69,6 +69,11 @@ Add to Part B of the 2026-11-01 plan once the matching fix is in.
 - **M7:** hard to trigger on demand; covered by unit tests.
 - **M8:** click Revert on a large document and press refresh at once. Refresh is refused until the revert finishes. Then start a request that edits, and press refresh while "Validating the document edit batch..." shows: the refresh button greys out, the request stops, and only then does the chat clear.
 - **M9:** get the "Revert anyway" prompt, start a new request, press "Revert anyway". Expect the refusal message, and the prompt is still there afterwards.
+- **M10:** hard to trigger on demand (needs a reply with no content after an inspect, for example in a dev build). After a failure that follows only reading, the bubble goes, a red error appears, and where Retry is offered it resends the question with no duplicate. After a failure that follows an applied edit, the bubble keeps its receipt and Revert, there is no Retry, and the message ends "I no longer have the earlier conversation in memory…".
+- **M11:** needs a request that does not settle (a dev build, or a low `REFRESH_SETTLE_TIMEOUT_MS`). Press refresh during an edit. After 15 seconds the refresh button comes back with "Word is still finishing the last request…", the chat is not cleared and the input stays locked. Refresh again once the request settles: the chat clears.
+- **M12:** send a request that edits and press refresh as the write lands. The fresh chat shows "Chat history cleared…" and then "An edit from the cancelled request was applied to the document. Use Revert to undo it." with a Revert button that restores the document. A refresh with no landed edit shows only the first message.
+- **M13:** Settings has no Save button. Change the Fast model, Slow model, system prompt and API key, tabbing out of each: each shows "Saved." and survives Back and reopening. A custom model id of `../x` shows the error and is not saved. Clearing the key shows "API key removed."; after Back, Glance says to add a key and sending a message asks for one. Re-enter the key and the pane works again.
+- **M14:** with Glance auto-run on, change a question or a model and press Back: Glance runs once. Open Settings and press Back with no changes: results are kept and nothing re-runs.
 
 ## Progress
 
@@ -106,3 +111,12 @@ Add to Part B of the 2026-11-01 plan once the matching fix is in.
     - **(c) T12 can wait forever.** If a `Word.run` never returns, refresh waits with it. A timeout on the wait (for example 15 seconds, then a message) would restore a way out.
     - **(d) T12 loses the receipt.** When the cancelled request's edit lands, refresh still clears the chat, so the receipt and Revert button are lost. Either skip the clear or leave a note in the fresh chat.
     - **(e) Untracked "Also changed" behaviour.** The cancel-after-a-tool behaviour listed under "Also changed" has no row in the tables and no manual check.
+- **2026-11-09: owner decisions applied** (not yet run in Word; checks M10 to M14 added):
+  - **(a) and Tier 3 2b:** only a write attempted or confirmed ends a failure as `provider_error`. After only reads or refused edits, the error is thrown with the history as it was when the request started, so the taskpane removes the bubble, drops the prompt and may offer Retry. This covers both a failed `requestModel` and an unusable reply. Every stop that clears memory now ends "I no longer have the earlier conversation in memory, so restate anything I need."
+  - **(b):** `completedWork` no longer says tool results remain available when the history is cleared.
+  - **(c):** refresh waits at most 15 seconds (`TIMEOUT_LIMITS.REFRESH_SETTLE_TIMEOUT_MS`), then says Word is still finishing and leaves the chat and the lock as they are.
+  - **(d):** the request settles with `{ wrote, checkpointIndex }`. After a refresh that cancelled a request whose edit landed, the fresh chat carries a note with that edit's Revert button.
+  - **6a, 6d (C5):** every Settings field saves on change. An empty API key removes the stored key. The Save button is gone; Back returns to the chat and runs Glance once if a relevant setting changed and auto-run is on.
+  - **4b:** left as is. The owner expects to replace Revert with Word's Undo now that edits are applied step by step.
+  - **(e):** still open: the cancel-after-a-tool behaviour has no manual check.
+  - **New code:** `modules/chat/request-outcome.js` and `modules/config/settings-save.js`, with `tests/request_outcome_tests.mjs` and `tests/settings_save_tests.mjs`.

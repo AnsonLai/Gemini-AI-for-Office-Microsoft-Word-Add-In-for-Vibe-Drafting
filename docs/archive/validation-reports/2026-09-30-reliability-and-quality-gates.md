@@ -52,7 +52,7 @@ The resulting DOCX bytes are independently reopened without repair and resolved
 with Word Accept All/Reject All. The oracle also checks engine-resolved reference
 packages separately, so expected text is not derived from Word's own result.
 
-Commands and lane selection are documented in [scripts/README.md](../../scripts/README.md).
+Commands and lane selection are documented in [scripts/README.md](../../../scripts/README.md).
 Raw collector artifacts live under `.cache/reliability/officejs/`; independent
 oracle evidence lives under `.cache/reliability/officejs-oracle/`.
 

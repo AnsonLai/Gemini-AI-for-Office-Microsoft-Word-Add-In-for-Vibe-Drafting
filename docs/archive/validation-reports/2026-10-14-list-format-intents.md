@@ -3,7 +3,7 @@
 **Date:** 2026-10-14
 **Library:** exact `@ansonlai/docx-redline-js@0.9.0`
 **Host:** desktop Word 16.0.20430
-**Plans:** [phase-2 WP5](../plans/completed/2026-10-12-library-first-simplification-phase-2.md), [list migration follow-up](../plans/completed/2026-09-30-canonical-list-migration-follow-up.md) WP1–WP2, [KNOWN_BUGS KB-4](../plans/KNOWN_BUGS.md)
+**Plans:** [phase-2 WP5](../../plans/completed/2026-10-12-library-first-simplification-phase-2.md), [list migration follow-up](../../plans/completed/2026-09-30-canonical-list-migration-follow-up.md) WP1–WP2, [KNOWN_BUGS KB-4](../../plans/KNOWN_BUGS.md)
 
 ## What changed
 
@@ -36,7 +36,7 @@
 
 ### New host cases
 
-All sources were authored in Word through COM ([`create-agentic-list-action-fixtures.ps1`](../../scripts/create-agentic-list-action-fixtures.ps1)). Expectations are independent of the engine.
+All sources were authored in Word through COM ([`create-agentic-list-action-fixtures.ps1`](../../../scripts/create-agentic-list-action-fixtures.ps1)). Expectations are independent of the engine.
 
 - **L1 `list-convert-noncontiguous-typed-headers`:** three typed headers with body paragraphs between them. Accept All gives 1./2./3.; Reject All restores the original typed text with no numbering.
 - **L2 `list-convert-letter-headers-start-at-c`:** labels C./D.

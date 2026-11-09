@@ -1,6 +1,6 @@
 # OOXML Engine and Performance Plan
 
-> **Retrospective ownership review (2026-09-30):** See the [library offload review](../../library-offload-review.md) for measured code changes, responsibilities delegated to the library, and remaining consumer/native routes. Version pins and validation counts in this closure record describe their dated checkpoints; current consumers pin exact 0.8.3. All five original plans are closed; remaining canonical list work is in the [fresh follow-up](./2026-09-30-canonical-list-migration-follow-up.md).
+> **Retrospective ownership review (2026-09-30):** See the [library offload review](../../archive/library-offload-review.md) for measured code changes, responsibilities delegated to the library, and remaining consumer/native routes. Version pins and validation counts in this closure record describe their dated checkpoints; current consumers pin exact 0.8.3. All five original plans are closed; remaining canonical list work is in the [fresh follow-up](./2026-09-30-canonical-list-migration-follow-up.md).
 
 **Date:** 2026-08-29
 
@@ -50,7 +50,7 @@ The pre-extraction taskpane entry was approximately 795 KiB. Optional tool/engin
 - Profiling ownership is split across workload/core/package measurements, production bundle/startup analysis, and real Word transport instrumentation.
 - No new timing gate is imposed. Consumer changes require measured benefit and preserved fidelity; library internals and defects remain separate work items.
 - No model/provider calls are required for these measurements.
-- WP1 current-version profiles are recorded for six supported workloads with ten samples/two warmups, including 100/1,000 paragraph runs. Ten-edit core medians are 28.094/228.094 ms; raw reports and phase definitions are in the [execution record](../../validation-reports/2026-09-30-ooxml-engine-and-performance.md).
+- WP1 current-version profiles are recorded for six supported workloads with ten samples/two warmups, including 100/1,000 paragraph runs. Ten-edit core medians are 28.094/228.094 ms; raw reports and phase definitions are in the [execution record](../../archive/validation-reports/2026-09-30-ooxml-engine-and-performance.md).
 - Workload/host profiling checkpoint committed as `6b44f51`.
 - Actual Word timing instrumentation passes 8 Office.js and 12 independent Word checks. Baseline and final startup profiles pass in Word, with all three deferred content-hashed chunks fetched and initialized.
 - Final profiled initial scripts fall from 1,041,664 to 430,950 bytes (58.6%). Usable UI observations were 217.4 ms baseline and 172.2 ms final; final deferred load was 46.1 ms. These are local observations, not startup percentiles.

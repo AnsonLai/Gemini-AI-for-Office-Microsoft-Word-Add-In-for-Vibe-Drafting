@@ -13,9 +13,9 @@
 
 ## Canonical list migration and live testing
 
-The actual Office.js context lane passed **8 checks** on Word `16.0.20326.20158` (PC), including `STALE_DOCUMENT_CONTEXT` refusal with `written: false`, `writeAttempted: false` and zero insertions after an intervening host edit. [Collector evidence](2026-09-30-agentic-officejs-context.json).
+The actual Office.js context lane passed **8 checks** on Word `16.0.20326.20158` (PC), including `STALE_DOCUMENT_CONTEXT` refusal with `written: false`, `writeAttempted: false` and zero insertions after an intervening host edit. [Collector evidence](../archive/validation-reports/2026-09-30-agentic-officejs-context.json).
 
-Independent Word source/export/engine-reference reopening passed **12 checks**, including exact accepted/rejected text and comment-thread persistence. [Word oracle evidence](2026-09-30-agentic-officejs-context-word-oracle.json). The first oracle invocation exposed rooted-path handling in external manifests; after correcting the harness, all checks passed.
+Independent Word source/export/engine-reference reopening passed **12 checks**, including exact accepted/rejected text and comment-thread persistence. [Word oracle evidence](../archive/validation-reports/2026-09-30-agentic-officejs-context-word-oracle.json). The first oracle invocation exposed rooted-path handling in external manifests; after correcting the harness, all checks passed.
 
 The verified `insert_list_item` subset is wired into production: redlining enabled, active bullet/decimal source and resolved levels 0–1, with a same-list root sibling when needed for outdent. It uses one body source read and one confirmed insertion. Other shapes retain native behavior; a failed engine/host batch never replays through native insertion. General list replacement and header conversion remain on established paths.
 
@@ -25,9 +25,9 @@ The frozen source fixture was authored in Word and verified after save/reopen. I
 
 The Word oracle checks list/plain state, levels, labels, values and logical continuation/restart identity. The Office.js collector supports external manifests and separate artifact directories; the passing live evidence is recorded below.
 
-Seven supported cases pass **42 independent Word checks**. The candidate Office.js lane passes **28 checks**, and its exports pass **42 Word checks**. The subsequent production lane invokes the actual `executeInsertListItem` function for its five insertion cases and also passes **28 checks**, followed by **42 Word checks**. Word host is `16.0.20430.20092` (PC). [Production Office.js evidence](2026-09-30-agentic-list-production-officejs.json), [export oracle](2026-09-30-agentic-list-production-word-oracle.json), [static-package oracle](2026-09-30-agentic-list-word.json).
+Seven supported cases pass **42 independent Word checks**. The candidate Office.js lane passes **28 checks**, and its exports pass **42 Word checks**. The subsequent production lane invokes the actual `executeInsertListItem` function for its five insertion cases and also passes **28 checks**, followed by **42 Word checks**. Word host is `16.0.20430.20092` (PC). [Production Office.js evidence](../archive/validation-reports/2026-09-30-agentic-list-production-officejs.json), [export oracle](../archive/validation-reports/2026-09-30-agentic-list-production-word-oracle.json), [static-package oracle](../archive/validation-reports/2026-09-30-agentic-list-word.json).
 
-Two fidelity defects are independently confirmed in Word: plain insertion leaves an extra empty paragraph after Reject All, and list-range replacement merges the original paragraphs after Reject All. The diagnostic lane has **8 passing checks and 4 expected fidelity failures**; these failures remain open and are excluded from the supported matrix. [Diagnostic evidence](2026-09-30-agentic-list-known-defects-word.json), [plain insertion issue](2026-10-17-library-issues-closeout.md), [range issue](2026-10-17-library-issues-closeout.md). No library-side fix or consumer OOXML workaround was added.
+Two fidelity defects are independently confirmed in Word: plain insertion leaves an extra empty paragraph after Reject All, and list-range replacement merges the original paragraphs after Reject All. The diagnostic lane has **8 passing checks and 4 expected fidelity failures**; these failures remain open and are excluded from the supported matrix. [Diagnostic evidence](../archive/validation-reports/2026-09-30-agentic-list-known-defects-word.json), [plain insertion issue](2026-10-17-library-issues-closeout.md), [range issue](2026-10-17-library-issues-closeout.md). No library-side fix or consumer OOXML workaround was added.
 
 Unmarked/text-changing header conversion can produce a literal marker rather than native list numbering; its separate capability report includes a runnable reproducer. Existing native header conversion remains active. The verified unchanged manual-marker candidate passes Word, but prints internal XML-provider diagnostics and is not routed into production.
 
@@ -47,9 +47,9 @@ The expanded supported matrix now contains **ten cases**. Three new cases exerci
 
 | Lane | Result | Durable evidence |
 | --- | --- | --- |
-| Static packages, independent Word | 60 checks passed | [Word report](2026-09-30-agentic-wp3-list-word.json) |
-| Actual Office.js: eight production insertions and two candidate routes | 40 checks passed | [Collector report](2026-09-30-agentic-wp3-list-officejs.json) |
-| Office.js exports, independent Word | 60 checks passed | [Export Word report](2026-09-30-agentic-wp3-list-officejs-word.json) |
+| Static packages, independent Word | 60 checks passed | [Word report](../archive/validation-reports/2026-09-30-agentic-wp3-list-word.json) |
+| Actual Office.js: eight production insertions and two candidate routes | 40 checks passed | [Collector report](../archive/validation-reports/2026-09-30-agentic-wp3-list-officejs.json) |
+| Office.js exports, independent Word | 60 checks passed | [Export Word report](../archive/validation-reports/2026-09-30-agentic-wp3-list-officejs-word.json) |
 | Offline aggregate | 44 suites passed, zero failed; four exclusions | `npm test` |
 
 Host remains Word `16.0.20430.20092` (PC). Canonical insertions have one execution source read and one confirmed body insertion; prompt-baseline capture is separate. Checks cover exact accepted/rejected text, numbering identity/labels/levels, untouched bold formatting, no-op, invalid-target refusal and mixed-batch zero-write behavior. These results supersede the earlier seven-case counts for the supported matrix. The existing separately confirmed library defects remain open; their diagnostic failures were not reclassified or counted as passing cases.
@@ -74,8 +74,8 @@ Five additional production `insert_list_item` cases pass **20 actual Office.js
 checks** and **20 independent Word checks**: a deeper resolved bullet level,
 outdent from a deeper source, upper Roman numbering, lower Roman numbering,
 and tracking disabled with the prior TrackAll mode restored. Host is Word
-`16.0.20430.20092` (PC). [Office.js report](2026-09-30-agentic-native-list-officejs.json),
-[independent Word report](2026-09-30-agentic-native-list-word.json).
+`16.0.20430.20092` (PC). [Office.js report](../archive/validation-reports/2026-09-30-agentic-native-list-officejs.json),
+[independent Word report](../archive/validation-reports/2026-09-30-agentic-native-list-word.json).
 
 The collector forwards calls to genuine Word proxies and records exactly one
 native paragraph insertion and zero body OOXML insertions for each case.

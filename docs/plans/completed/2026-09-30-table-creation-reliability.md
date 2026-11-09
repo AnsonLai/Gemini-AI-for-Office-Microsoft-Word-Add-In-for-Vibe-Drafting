@@ -33,7 +33,7 @@ The fingerprint guard remains unchanged. A bounded COM probe found stable
 captures across repeated reads, tracking toggles and Reject All. Captured
 paragraph IDs were absent; restart and Ctrl+Z were not exercised. This does
 not establish Office.js `body.getOoxml()` behavior or the cause of the user's log.
-See the [baseline probe report](../../validation-reports/2026-10-01-word-com-baseline-stability.md).
+See the [baseline probe report](../../archive/validation-reports/2026-10-01-word-com-baseline-stability.md).
 
 The consumer recovery is implemented in `54dd082`: after a proven no-write
 stale refusal, take one fresh document snapshot and baseline per request, then
@@ -94,7 +94,7 @@ incident did not include a full live chat/model reproduction. The consumer
 regressions explain reproduced failure modes but do not prove every cause in
 the user's document. The separate 0.8.3 library issue concerned tracked inline
 formatting preservation; it was not repaired by the consumer changes and is
-fixed in 0.8.4 (see the [0.8.4 validation](../../validation-reports/2026-10-02-docx-redline-v084.md)).
+fixed in 0.8.4 (see the [0.8.4 validation](../../archive/validation-reports/2026-10-02-docx-redline-v084.md)).
 Word Reject All still leaves one extra empty paragraph after a final table
 append (open library report).
 
@@ -131,4 +131,4 @@ not. Stale-refusal recovery passes deterministic regressions; the specific
 cause of the user's P4 refusal remains unconfirmed.
 No full live chat/model reproduction or provider call is claimed here.
 
-Undo probe (2026-10-01): a bounded Word COM run (tracked `Range.Text` edit and untracked `InsertXML` edit, each reverted with `Document.Undo()`) restored the original text and fingerprints on the five-paragraph fixture; COM output carried no `w14:paraId`, so paragraph-ID behavior after Undo is still untested and restart remains unrun. See `docs/validation-reports/2026-10-01-word-com-undo-probe.md`.
+Undo probe (2026-10-01): a bounded Word COM run (tracked `Range.Text` edit and untracked `InsertXML` edit, each reverted with `Document.Undo()`) restored the original text and fingerprints on the five-paragraph fixture; COM output carried no `w14:paraId`, so paragraph-ID behavior after Undo is still untested and restart remains unrun. See `docs/archive/validation-reports/2026-10-01-word-com-undo-probe.md`.

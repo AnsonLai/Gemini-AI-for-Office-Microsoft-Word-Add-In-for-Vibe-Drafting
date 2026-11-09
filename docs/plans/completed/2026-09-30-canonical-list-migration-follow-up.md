@@ -27,7 +27,7 @@ on their exports, and 12 additional facade Word checks. These are the starting
 evidence, not validation of the future capabilities below.
 
 **2026-10-02 note:** 0.8.4 adds `textOccurrence` and `applyRedlineToOxml`
-`numberingXml` (see the [0.8.4 validation](../../validation-reports/2026-10-02-docx-redline-v084.md)),
+`numberingXml` (see the [0.8.4 validation](../../archive/validation-reports/2026-10-02-docx-redline-v084.md)),
 but still lacks plain-to-list conversion and list-format changes. It also
 introduced a numbering-continuity regression ([separate list operations restart
 numbering](../../validation-reports/2026-10-17-library-issues-closeout.md))
@@ -55,7 +55,7 @@ unchanged.
 
 ## Current consumer behavior
 
-The [library offload review](../../library-offload-review.md) records the completed
+The [library offload review](../../archive/library-offload-review.md) records the completed
 execution and packaging migration across the five original plans. The remaining
 native/legacy list routes below are the next offload opportunity, subject to the
 upstream prerequisites and independent host checks in this plan.
@@ -164,7 +164,7 @@ not an existing API to code against yet.
 - [x] Current/native fallback boundaries and tracking semantics are documented
       (no native fallback; [tool contract](../../agentic-tool-contracts.md)).
 - [x] Offline, actual Office.js and independent Word accepted/rejected gates pass
-      ([2026-10-14 list-format validation](../../validation-reports/2026-10-14-list-format-intents.md)).
+      ([2026-10-14 list-format validation](../../archive/validation-reports/2026-10-14-list-format-intents.md)).
 - [x] ~~Browser/MCP facade fidelity and atomic batch behavior pass.~~ Dropped 2026-10-17: the owner removed the browser demo and MCP server as obsolete spikes. Parity of the Word Flat OPC path with the library's DOCX facade, including atomic refusal, is still checked by `tests/docx_cross_host_parity_tests.mjs`.
 - [x] Retired helpers have no active callers; docs and durable reports are updated (2026-10-17: the retired list modules `list-operation-plan.js`, `list-level-utils.js`, `word-structured-list.js` and `redline-operation-converter.js` are absent, which `tests/no_legacy_shared_operation_bridge_tests.mjs` asserts, and no unused list helper remains in `src/`).
 - [x] All recorded library issues are resolved, `docs/library-issues/` is deleted,

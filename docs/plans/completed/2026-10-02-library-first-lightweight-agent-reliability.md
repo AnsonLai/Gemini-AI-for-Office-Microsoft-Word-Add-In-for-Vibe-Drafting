@@ -15,10 +15,10 @@
 
 | Package | Status | Current work / evidence |
 | --- | --- | --- |
-| WP0 | Complete | [Scope matrix, route inventory, and fresh baseline](../../validation-reports/2026-10-02-lightweight-harness-wp0-baseline.md): 57 offline suites pass; 16/16 desktop replay steps complete, 29/29 content checks pass; three existing native-route author failures reproduced. Frozen bundle at `.cache/reliability/wp0-baseline/dist`. Office.js read/write counters unavailable. |
-| WP1 | Complete | [Extraction, verification, and net-size report](../../validation-reports/2026-10-02-lightweight-harness-wp1.md): 61 offline suites pass; development/production builds pass; completed desktop replay preserves 29/29 content checks, 43 local model requests, and the same three author failures. Request/controller/history races fixed; all executor algorithm bodies/signatures and 11 declarations preserved. Net production size: 8,632 → 8,633 lines (+1), across 24 → 27 files. |
-| WP2 | Complete | [Canonical source and handle validation](../../validation-reports/2026-10-02-lightweight-harness-wp2.md): 63 milestone offline suites pass; fresh desktop replay preserves 29/29 content checks, the same three author failures and 43 requests. Duplicate Word metadata/context walk removed. |
-| WP3 | Complete locally | [Direct typed batch report](../../validation-reports/2026-10-02-lightweight-harness-wp3.md): 66 milestone offline suites; full direct Word replay 16/16 prompts, 48/48 checks, zero regressions. Ten verified batches: nine writes + one no-op; 36 mocked chat calls, zero nested calls. Word export-only metadata stabilized without changing source/payload or meaningful revision IDs. Live models remain a shipping gate. |
+| WP0 | Complete | [Scope matrix, route inventory, and fresh baseline](../../archive/validation-reports/2026-10-02-lightweight-harness-wp0-baseline.md): 57 offline suites pass; 16/16 desktop replay steps complete, 29/29 content checks pass; three existing native-route author failures reproduced. Frozen bundle at `.cache/reliability/wp0-baseline/dist`. Office.js read/write counters unavailable. |
+| WP1 | Complete | [Extraction, verification, and net-size report](../../archive/validation-reports/2026-10-02-lightweight-harness-wp1.md): 61 offline suites pass; development/production builds pass; completed desktop replay preserves 29/29 content checks, 43 local model requests, and the same three author failures. Request/controller/history races fixed; all executor algorithm bodies/signatures and 11 declarations preserved. Net production size: 8,632 → 8,633 lines (+1), across 24 → 27 files. |
+| WP2 | Complete | [Canonical source and handle validation](../../archive/validation-reports/2026-10-02-lightweight-harness-wp2.md): 63 milestone offline suites pass; fresh desktop replay preserves 29/29 content checks, the same three author failures and 43 requests. Duplicate Word metadata/context walk removed. |
+| WP3 | Complete locally | [Direct typed batch report](../../archive/validation-reports/2026-10-02-lightweight-harness-wp3.md): 66 milestone offline suites; full direct Word replay 16/16 prompts, 48/48 checks, zero regressions. Ten verified batches: nine writes + one no-op; 36 mocked chat calls, zero nested calls. Word export-only metadata stabilized without changing source/payload or meaningful revision IDs. Live models remain a shipping gate. |
 | WP4 | Complete locally | [Native-route retirement and fidelity report](../../validation-reports/2026-10-02-lightweight-harness-wp4.md): 11/11 actual Office.js cases, 44/44 independent Word checks, 49/49 NDA replay checks. Documented complete list-change preserves existing numbering. Net fixed production surface 7,004 lines, 1,628 fewer than WP0. |
 | WP5 | Complete (2026-10-12) | Resolved by 0.9.0: untracked surgical insertion no longer creates own markup, and the unchanged default 14-case Office.js manifest passes (20/20 host checks, 3 checkpoint restores; independent Word oracle 68 PASS, 0 FAIL; 16-prompt replay 49/49). See the [0.9.0 validation](../../validation-reports/2026-10-12-docx-redline-v090.md). Earlier correction evidence: the [correction report](../../validation-reports/2026-10-02-lightweight-harness-wp5-correction.md) and the original [WP5 report](../../validation-reports/2026-10-02-lightweight-harness-wp5.md) (historical). |
 
@@ -152,7 +152,7 @@ The target is fewer ways to produce an incorrect document, not merely fewer func
 
 ## What the planning baseline documentation and code established
 
-Reviewed all six Markdown files at the `docs/` root: [tool contracts](../../agentic-tool-contracts.md), [library offload review](../../library-offload-review.md), [package boundaries](../../package-boundaries.md), [performance notes](../../ooxml-performance.md), [testing](../../TESTING.md), and [historical PLAN](../../archive/robustness-reliability-phase-2-plan.md). Also reviewed [v2.2.0.0](../../release/v2.2.0.0.md), [architecture](../../ARCHITECTURE.md), current state/roadmap, the active list/table plans, the [0.8.4 validation](../../validation-reports/2026-10-02-docx-redline-v084.md), library follow-ups, and the relevant taskpane/tool/context/adapter implementations.
+Reviewed all six Markdown files at the `docs/` root: [tool contracts](../../agentic-tool-contracts.md), [library offload review](../../archive/library-offload-review.md), [package boundaries](../../package-boundaries.md), [performance notes](../../ooxml-performance.md), [testing](../../TESTING.md), and [historical PLAN](../../archive/robustness-reliability-phase-2-plan.md). Also reviewed [v2.2.0.0](../../release/v2.2.0.0.md), [architecture](../../ARCHITECTURE.md), current state/roadmap, the active list/table plans, the [0.8.4 validation](../../archive/validation-reports/2026-10-02-docx-redline-v084.md), library follow-ups, and the relevant taskpane/tool/context/adapter implementations.
 
 The root `docs/PLAN.md` is a historical July draft with later migration notices. Its old counts, proposed modules, and execution instructions are not the current queue. This plan carries forward the relevant intent without reopening already completed reliability work.
 
@@ -376,7 +376,7 @@ The owner has approved the design choices and authorized completing all packages
 
 ### WP0 — Freeze the everyday scope and baseline
 
-**Completed 2026-10-02:** [Scope matrix, native-route inventory, and fresh baseline](../../validation-reports/2026-10-02-lightweight-harness-wp0-baseline.md).
+**Completed 2026-10-02:** [Scope matrix, native-route inventory, and fresh baseline](../../archive/validation-reports/2026-10-02-lightweight-harness-wp0-baseline.md).
 
 - Translate the approved scope into an explicit retained/unsupported operation matrix. Do not reopen settled architecture choices or add native fallbacks to broaden scope.
 - Capture a fresh baseline from the current 16-step NDA replay and relevant offline/host lanes, with library version, tool calls, nested AI calls, source reads, writes, outcomes, and author attribution.
@@ -387,7 +387,7 @@ The owner has approved the design choices and authorized completing all packages
 
 ### WP1 — Extract the small loop and one registry without changing edits
 
-**Completed 2026-10-02:** [Implementation and verification report](../../validation-reports/2026-10-02-lightweight-harness-wp1.md); continuation contracts and remaining work are recorded above.
+**Completed 2026-10-02:** [Implementation and verification report](../../archive/validation-reports/2026-10-02-lightweight-harness-wp1.md); continuation contracts and remaining work are recorded above.
 
 - Extract provider/context/tool-exchange/stop decisions from `sendChatMessage` into Node-importable logic with injected host/provider/UI dependencies.
 - Use one registry for declaration, validation, mutability, execution, and progress text; remove repeated tool-name lists and dispatch branches. Reuse the shared Gemini client, history helpers, mutation guard, and lazy-loading boundary.
@@ -398,7 +398,7 @@ The owner has approved the design choices and authorized completing all packages
 
 ### WP2 — Canonical inspection and source-bound handles
 
-**Completed 2026-10-02:** [Canonical inspection and handle report](../../validation-reports/2026-10-02-lightweight-harness-wp2.md).
+**Completed 2026-10-02:** [Canonical inspection and handle report](../../archive/validation-reports/2026-10-02-lightweight-harness-wp2.md).
 
 - Implement focused inspection over the current Word source using supported library inspection APIs. Retain strong descriptors privately and provide compact target handles and human locations.
 - Bind target/range/end handles to document instance, snapshot, revision view, and structural dependencies. Expire them after actual writes, Undo/external changes, and reopening; freshness checks remain authoritative if change events are unavailable.
@@ -409,7 +409,7 @@ The owner has approved the design choices and authorized completing all packages
 
 ### WP3 — Direct typed batches; remove nested AI interpretation
 
-**Completed locally 2026-10-02:** [Direct typed batch and real Word report](../../validation-reports/2026-10-02-lightweight-harness-wp3.md). Release still requires live fast/slow model checks.
+**Completed locally 2026-10-02:** [Direct typed batch and real Word report](../../archive/validation-reports/2026-10-02-lightweight-harness-wp3.md). Release still requires live fast/slow model checks.
 
 - Introduce `apply_document_edits` for the retained core actions. Map intents to public canonical operations and the existing atomic Word adapter.
 - Move comment suggestions into the same source-bound batch. Validate every requested intent before writing and account for every result.

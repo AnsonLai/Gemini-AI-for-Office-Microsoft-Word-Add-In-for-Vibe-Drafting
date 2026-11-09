@@ -1,6 +1,6 @@
 # Package Boundaries, Integrations, and Web Portability Plan
 
-> **Retrospective ownership review (2026-09-30):** See the [library offload review](../../library-offload-review.md) for measured code changes, responsibilities delegated to the library, and remaining consumer/native routes. Version pins and validation counts in this closure record describe their dated checkpoints; current consumers pin exact 0.8.3. All five original plans are closed; remaining canonical list work is in the [fresh follow-up](./2026-09-30-canonical-list-migration-follow-up.md).
+> **Retrospective ownership review (2026-09-30):** See the [library offload review](../../archive/library-offload-review.md) for measured code changes, responsibilities delegated to the library, and remaining consumer/native routes. Version pins and validation counts in this closure record describe their dated checkpoints; current consumers pin exact 0.8.3. All five original plans are closed; remaining canonical list work is in the [fresh follow-up](./2026-09-30-canonical-list-migration-follow-up.md).
 
 **Date:** 2026-08-29
 
@@ -38,7 +38,7 @@ The previous plan incorrectly placed `executePureOoxmlBatch` in a zero-Office.js
 - Browser baseline failed at startup on an unresolved XML dependency; the import map now targets the published browser bundle.
 - WP2 routes browser open, inspect, editing, and serialization through the document-session facade. JSZip remains for docx-preview only. Browser UI opened, edited, downloaded, and reopened a DOCX: reupload exposed 42 prompt paragraphs, inspection found 44 paragraphs including two empty revision-view paragraphs, and all 24 source texts were retained exactly. The downloaded packages had matching SHA-256 hashes; unchanged XML parts matched exactly, with lists, table, and comment content retained.
 - WP3 parity checks exercise shared fixtures through the portable core, Word batch adapter, MCP, and browser facade. Accepted and rejected text, comments, style/numbering/hyperlink relationships, and preserved foreign revisions matched semantically; atomic failures left the source unchanged. The tests compare package semantics and unchanged part bytes, not whole ZIP byte identity.
-- Final verification: 47 offline suites passed with 0 failures (4 excluded); development and production builds passed; provider calls were false. The actual Office.js adapter run passed 8 checks and the independent Word oracle passed 12; browser document validation passed 7 checks. See the [validation record](../../validation-reports/2026-09-30-package-boundaries-and-integrations.md) and [consumer package boundaries](../../package-boundaries.md).
+- Final verification: 47 offline suites passed with 0 failures (4 excluded); development and production builds passed; provider calls were false. The actual Office.js adapter run passed 8 checks and the independent Word oracle passed 12; browser document validation passed 7 checks. See the [validation record](../../archive/validation-reports/2026-09-30-package-boundaries-and-integrations.md) and [consumer package boundaries](../../package-boundaries.md).
 
 ### WP1 — Separate portable consumer logic from Word adapters
 

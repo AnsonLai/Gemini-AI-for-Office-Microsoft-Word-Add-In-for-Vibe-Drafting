@@ -3,7 +3,7 @@
 The add-in and MCP server now pin exact `@ansonlai/docx-redline-js@0.8.4`.
 This report records the verification of the upgrade, the consumer changes it
 enabled, and the remaining open library items. Earlier dated reports (for
-example [v0.8.3](2026-09-30-docx-redline-v083.md)) remain historical records.
+example [v0.8.3](../../validation-reports/2026-09-30-docx-redline-v083.md)) remain historical records.
 
 ## Library issue verification
 
@@ -22,7 +22,7 @@ that do not rely on the changelog.
 | 2026-09-30 historical reports (7) | Still fixed on 0.8.4 (fidelity reproducer, offline re-runs; public-facade numbering relies on the dated v0.8.3 Word evidence). |
 | Canonical list capabilities | **Open** (`reproduce-plain-header-conversion.mjs` still exits 0). |
 
-New findings, documented in `docs/library-issues/` (since removed; see the [closeout](2026-10-17-library-issues-closeout.md)):
+New findings, documented in `docs/library-issues/` (since removed; see the [closeout](../../validation-reports/2026-10-17-library-issues-closeout.md)):
 
 - **Regression:** separate list operations in one batch restart numbering
   (non-adjacent header conversion yields "A.", "A."; 0.8.3 gave "A.", "B.").

@@ -43,7 +43,7 @@ The final run completed **20 checks: 13 passed, seven failed**. Both native
 | Formatting fixture, Reject All | Direct DOCX and native insertion also leave the extra empty paragraph. |
 | Engine-resolved rejected exports | Both contain the original seven paragraphs and pass Word inspection; they differ from Word independently rejecting the tracked output. |
 
-The [raw Word report](2026-10-01-table-creation-word-checks.json) records each
+The [raw Word report](../archive/validation-reports/2026-10-01-table-creation-word-checks.json) records each
 check. These are fidelity failures, not failures to open or insert the packages.
 The incident plan remains open for the unresolved library requirements.
 
