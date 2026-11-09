@@ -850,6 +850,12 @@ hr {
     margin-bottom: 8px;
 }
 
+/* A brief confirmation that a field saved. */
+.settings-status.saved {
+    color: var(--text-color);
+    background-color: #ECFDF5;
+}
+
 /* --- Welcome Screen Styles --- */
 .welcome-container {
     padding: 20px;

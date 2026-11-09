@@ -431,6 +431,87 @@ for (const badReply of [{ candidates: [] }, { candidates: [{ finishReason: 'MAX_
   await assert.rejects(test.run(), /missing content\.parts/);
 }
 
+// After read-only tools or refused edits (no write attempted), an unusable reply reaches the adapter as an
+// error, as it would before any tool ran, and the history is back to what it was so Retry cannot duplicate
+// the prompt or leave an unpaired call.
+for (const badReply of [{ candidates: [] }, { candidates: [{ finishReason: 'MAX_TOKENS' }] }]) {
+  for (const [label, firstTurn, executors] of [
+    ['inspect only', model(call('inspect_document', { search: 'term' })),
+      { inspectDocument: async () => ({ status: 'ok', success: true, message: 'Inspected.' }) }],
+    ['refused edit', model(call('apply_document_edits')), { applyDocumentEdits: async () => refused('UNSUPPORTED_EDIT') }],
+  ]) {
+    const test = harness([firstTurn, badReply], executors);
+    const before = structuredClone(test.state.history);
+    await assert.rejects(test.run(), /missing content\.parts|no candidates/, label);
+    assert.equal(test.state.records.length, 1, `${label}: the tool ran`);
+    assert.equal(test.state.stopReason, null, `${label}: no provider_error stop`);
+    assert.equal(test.events.some(event => event.type === 'stop'), false, label);
+    assert.deepEqual(test.state.history, before, `${label}: history is what it was before the request`);
+    assertPairedHistory(test.state);
+    assert.equal(test.events.at(-1).type, 'run_end');
+  }
+}
+// An executor that throws while an edit was in flight may have written: end safely, no Retry.
+{
+  const test = harness([model(call('apply_document_edits'))], {
+    applyDocumentEdits: async () => { throw new Error('Word crashed'); },
+  });
+  await test.run();
+  assert.equal(test.state.stopReason, 'provider_error');
+  assert.deepEqual(test.state.history, []);
+  assert.match(test.events.find(event => event.reason === 'provider_error').message, /Word crashed/);
+}
+// A read-only tool that throws is safe to retry.
+{
+  const test = harness([model(call('inspect_document', { search: 'term' }))], {
+    inspectDocument: async () => { throw new Error('Read failed'); },
+  });
+  const before = structuredClone(test.state.history);
+  await assert.rejects(test.run(), /Read failed/);
+  assert.deepEqual(test.state.history, before);
+}
+
+// When the history is cleared, the stop message never says tool results remain available, and it ends by
+// telling the user the assistant no longer remembers the conversation.
+{
+  const memoryNote = /I no longer have the earlier conversation in memory, so restate anything I need\.$/;
+  const readOnlyThenOffline = harness([model(call('inspect_document', { search: 'term' })), new Error('Provider offline')], {
+    inspectDocument: async () => ({ status: 'ok', success: true, message: 'Inspected.' }),
+  });
+  // A provider outage after only reads is thrown to the adapter with the history as it started.
+  const historyBefore = structuredClone(readOnlyThenOffline.state.history);
+  await assert.rejects(readOnlyThenOffline.run(), /Provider offline/);
+  assert.equal(readOnlyThenOffline.state.stopReason, null);
+  assert.deepEqual(readOnlyThenOffline.state.history, historyBefore);
+
+  const writeThenOffline = harness([model(call('apply_document_edits')), new Error('Provider offline')], { applyDocumentEdits: async () => applied() });
+  await writeThenOffline.run();
+  assert.match(writeThenOffline.events.find(event => event.reason === 'provider_error').message, memoryNote);
+
+  const writeThenBadReply = harness([model(call('apply_document_edits')), { candidates: [] }], { applyDocumentEdits: async () => applied() });
+  await writeThenBadReply.run();
+  const badReplyMessage = writeThenBadReply.events.find(event => event.reason === 'provider_error').message;
+  assert.match(badReplyMessage, /no candidates/);
+  assert.match(badReplyMessage, memoryNote);
+
+  const refreshFailed = harness([model(call('apply_document_edits'))], { applyDocumentEdits: async () => applied() },
+    { refreshContext: async () => { throw new Error('Host read failed'); } });
+  await refreshFailed.run();
+  assert.match(refreshFailed.events.find(event => event.reason === 'refresh_failed').message, memoryNote);
+
+  const staleRefreshFailed = harness([model(call('apply_document_edits'))], { applyDocumentEdits: async () => refused('STALE_DOCUMENT_CONTEXT') },
+    { refreshContext: async () => { throw new Error('Host read failed'); } });
+  await staleRefreshFailed.run();
+  assert.match(staleRefreshFailed.events.find(event => event.reason === 'refresh_failed').message, memoryNote);
+
+  // Stops that keep the history do not claim the memory is gone.
+  const timedOut = harness([model(call('inspect_document', { search: 'term' }))], {
+    inspectDocument: async () => ({ status: 'ok', success: true, message: 'Inspected.' }),
+  }, { now: (() => { let n = 0; return () => (n++ < 2 ? 1 : 300001); })() });
+  await timedOut.run();
+  assert.doesNotMatch(timedOut.events.find(event => event.reason === 'timeout').message, /no longer have/);
+}
+
 // Malformed recovery only accepts complete JSON calls for the new tools.
 {
   const test = harness([

@@ -2,6 +2,7 @@ import { appendFunctionExchange, maintainHistoryWindow } from './chat-history.js
 import { advanceMutationLoopGuard, getMaxLoopStopMessage } from './mutation-loop-guard.js';
 import { appendRefreshedDocumentContext, isNoWriteStaleContextRefusal } from './refreshed-document-context.js';
 import { recoverFunctionCall } from './function-call-recovery.js';
+import { wroteOrAttempted } from './request-outcome.js';
 
 /** Gemini's function-response shape; keep one response for every requested call. */
 export function createFunctionResponse(name, text) {
@@ -137,11 +138,14 @@ function repeatedRefusal(name, description) {
     requiresInspection: false, completionText: REPEATED_REFUSAL_MESSAGE, display: { show: true } };
 }
 
+// Ends every stop that empties the history, so the user knows the chat on screen is not remembered.
+export const MEMORY_CLEARED_NOTE = 'I no longer have the earlier conversation in memory, so restate anything I need.';
+
 /** Only describe observed work; a failed tool record is not a successful edit. */
-function completedWork(records) {
+function completedWork(records, { historyCleared = false } = {}) {
   const confirmed = records.filter(record => record.written === true);
   if (confirmed.length) return 'Confirmed edits remain in the document.';
-  return records.some(record => record.success === true)
+  return !historyCleared && records.some(record => record.success === true)
     ? 'The completed tool results remain available in this conversation.'
     : 'No document edit was confirmed.';
 }
@@ -192,6 +196,10 @@ export async function runDocumentAgentLoop({
   const refusedEditArgs = new Set();
   let closingSummaryRequested = false;
   const recordsAtStart = state.records.length;
+  // What the adapter started from, restored when a failure leaves the request safe to retry.
+  const historyAtStart = [...state.history];
+  // An edit call that threw may still have reached Word, though it left no record.
+  let editInFlight = false;
   let lastTurnCompletion = null;
   emit({ type: 'run_start' });
   try {
@@ -204,10 +212,11 @@ export async function runDocumentAgentLoop({
         result = await requestModel(state.history);
       } catch (apiError) {
         if (cancelled()) { interrupt(); break; }
-        // Never restart a provider conversation by replaying document tools.
-        if (state.records.length > 0) {
+        // Never restart a provider conversation by replaying an edit. After only reads or
+        // refused edits the error is thrown, and the outer catch restores the history.
+        if (wroteOrAttempted(state.records)) {
           state.history = [];
-          stop('provider_error', `${completedWork(state.records)} The AI response failed after tool execution; inspect the document before continuing.`);
+          stop('provider_error', `${completedWork(state.records, { historyCleared: true })} The AI response failed after tool execution; inspect the document before continuing. ${MEMORY_CLEARED_NOTE}`);
           break;
         }
         throw apiError;
@@ -311,6 +320,7 @@ export async function runDocumentAgentLoop({
         const repeat = description.mutating === true && serializedArgs && refusedEditArgs.has(`${name}|${serializedArgs}`);
         try {
           // Exactly repeated edits that were already refused without a write are not sent again.
+          editInFlight = description.mutating === true && !repeat;
           execution = repeat ? repeatedRefusal(name, description) : await registry.execute(name, args);
         } catch (error) {
           if (!cancelled() && error?.name !== 'AbortError') throw error;
@@ -318,6 +328,7 @@ export async function runDocumentAgentLoop({
           responses.push(createFunctionResponse(name, 'The tool was interrupted. Inspect the document before editing again.'));
           continue;
         }
+        editInFlight = false;
         const mutation = execution.mutation;
         // After a fresh inspection the model may legitimately send the same call again.
         if (!execution.mutating && execution.success && description.refreshesTargets !== false) refusedEditArgs.clear();
@@ -374,8 +385,8 @@ export async function runDocumentAgentLoop({
         } catch {
           state.history = [];
           stop('refresh_failed', confirmed
-            ? 'A document edit was confirmed, but I could not refresh the document context. Inspect the current document before retrying; I stopped before another model turn.'
-            : 'The edit was refused because its source context was stale, and I could not refresh the document context. I stopped before another model turn; restart the request after inspecting the document.');
+            ? `A document edit was confirmed, but I could not refresh the document context. Inspect the current document before retrying; I stopped before another model turn. ${MEMORY_CLEARED_NOTE}`
+            : `The edit was refused because its source context was stale, and I could not refresh the document context. I stopped before another model turn; restart the request after inspecting the document. ${MEMORY_CLEARED_NOTE}`);
         }
       }
       if (state.stopReason === 'refresh_failed') break;
@@ -406,11 +417,16 @@ export async function runDocumentAgentLoop({
     state.history = maintainHistoryWindow(state.history, historyLimit);
     return state;
   } catch (error) {
-    // Before any tool ran, the adapter reports the error and may offer a retry.
-    // After one ran, a retry could repeat an edit: end like a failed provider turn.
-    if (state.records.length === 0 || state.stopReason || cancelled()) throw error;
+    if (state.stopReason || cancelled()) throw error;
+    // Before any write was attempted (only reads or refused edits ran), a retry cannot repeat an edit:
+    // the adapter reports the error and may offer Retry, so this request's turns must not stay in history.
+    if (!editInFlight && !wroteOrAttempted(state.records)) {
+      state.history = historyAtStart;
+      throw error;
+    }
+    // After a write, a retry could repeat an edit: end like a failed provider turn.
     state.history = [];
-    stop('provider_error', `${completedWork(state.records)} The AI response failed after tool execution; inspect the document before continuing. (${error?.message || 'Unknown error'})`);
+    stop('provider_error', `${completedWork(state.records, { historyCleared: true })} The AI response failed after tool execution; inspect the document before continuing. (${error?.message || 'Unknown error'}) ${MEMORY_CLEARED_NOTE}`);
     return state;
   } finally {
     emit({ type: 'run_end', reason: state.stopReason, turns: state.loopCount });

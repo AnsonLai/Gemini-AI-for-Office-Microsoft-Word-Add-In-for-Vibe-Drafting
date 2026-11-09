@@ -7,6 +7,7 @@ globalThis.document = dom.window.document;
 const {
   addConfirmButtons, addMessageToChat, createTypingIndicator, registerChatUiHandlers, removeCancelButton, updateSystemMessage,
 } = await import('../src/taskpane/modules/chat/chat-ui.js');
+const { landedEditMessage } = await import('../src/taskpane/modules/chat/request-outcome.js');
 
 // Cancel stays available while a request's status text changes, and goes when the request ends.
 {
@@ -63,6 +64,17 @@ const {
   [...message.querySelectorAll('button')].find(button => button.textContent === 'Keep document').click();
   assert.equal(kept, true);
   assert.equal(message.querySelector('button'), null, '"Keep document" closes the question');
+}
+
+// The note shown after a refresh cancelled a request whose edit landed carries the receipt's Revert button.
+{
+  const reverted = [];
+  registerChatUiHandlers({ onRestoreCheckpoint: index => reverted.push(index) });
+  const note = addMessageToChat('System', landedEditMessage(5), 5);
+  note.querySelector('.revert-checkpoint-btn').click();
+  assert.deepEqual(reverted, [5], 'Revert restores the checkpoint of the last edit');
+  const plain = addMessageToChat('System', landedEditMessage(-1), -1);
+  assert.equal(plain.querySelector('.revert-checkpoint-btn'), null, 'no checkpoint, no Revert button');
 }
 
 console.log('PASS: chat UI keeps Cancel through status updates and keeps refused confirmations open');

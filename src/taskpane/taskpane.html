@@ -85,6 +85,7 @@
   <div id="settings-view" class="view-container" style="display: none;">
 
     <h3>Settings</h3>
+    <p id="settings-status" class="settings-status" role="status" aria-live="polite" hidden></p>
     <label for="api-key-input">Google Gemini <a href="https://aistudio.google.com/app/api-keys" target="_blank">API
         Key</a>:</label>
     <input type="password" id="api-key-input" class="ms-TextField-field">
@@ -180,9 +181,7 @@
       </div>
     </div>
     <br />
-    <p id="settings-status" class="settings-status" role="alert" hidden></p>
-    <button id="save-api-key" class="ms-Button ms-Button--primary">Save</button>
-    <button id="back-to-main" class="ms-Button">Back</button>
+    <button id="back-to-main" class="ms-Button ms-Button--primary">Back</button>
   </div>
 
   <div id="sideload-msg" style="display:none">

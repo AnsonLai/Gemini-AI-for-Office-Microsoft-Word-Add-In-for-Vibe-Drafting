@@ -1,5 +1,6 @@
 import { requestGemini, requestGeminiJson, geminiEndpoint } from './modules/chat/gemini-client.js';
 import { populateModelSetting, readModelSetting } from './modules/config/model-settings.js';
+import { saveApiKeySetting, saveModelSettingFrom, saveSystemMessageSetting } from './modules/config/settings-save.js';
 import { createLazyModuleLoader } from './modules/utils/lazy-module-loader.js';
 import { postTaskpaneStartupProfile } from './modules/diagnostics/startup-profile-reporter.js';
 /*
@@ -32,6 +33,7 @@ import {
   sanitizeHistory
 } from './modules/chat/chat-history.js';
 import { runDocumentAgentLoop } from './modules/chat/document-agent-loop.js';
+import { landedEditMessage, summarizeRequestOutcome, waitForSettle, wroteOrAttempted } from './modules/chat/request-outcome.js';
 import { createToolRegistry, getToolDeclarations } from './modules/chat/tool-registry.js';
 import { createWordDocumentSourceReader } from './modules/chat/word-document-source.js';
 import { createWebSearch } from './modules/chat/web-search.js';
@@ -158,12 +160,14 @@ let checkpointMigrationDone = false;
 const TIMEOUT_LIMITS = {
   // Thinking models can take over a minute on one turn (KB-13).
   FETCH_TIMEOUT_MS: 120000,       // 2 min timeout per individual API call
-  TOTAL_REQUEST_TIMEOUT_MS: 300000 // 5 min total timeout for entire request (including tool loops)
+  TOTAL_REQUEST_TIMEOUT_MS: 300000, // 5 min total timeout for entire request (including tool loops)
+  REFRESH_SETTLE_TIMEOUT_MS: 15000  // How long refresh waits for a cancelled request to finish
 };
 
 // Global abort controller for cancelling requests
 let currentRequestController = null;
 // Settles when the current chat request has finished, including any Word write.
+// Its value is { wrote, checkpointIndex }: whether an edit landed and the Revert target.
 let currentRequestSettled = Promise.resolve();
 let revertInProgress = false;
 // The document URL can change when Word reopens/switches documents. Fresh part
@@ -212,8 +216,15 @@ Office.onReady((info) => {
 
     // Add event listeners for settings UI
     document.getElementById("settings-button").onclick = showSettingsView;
-    document.getElementById("save-api-key").onclick = saveApiKey;
-    document.getElementById("back-to-main").onclick = showMainView;
+    document.getElementById("back-to-main").onclick = leaveSettings;
+
+    // Every Settings field saves as soon as it changes.
+    document.getElementById("api-key-input").addEventListener("change", onApiKeyChange);
+    document.getElementById("system-message-input").addEventListener("change", onSystemMessageChange);
+    for (const type of ['fast', 'slow']) {
+      document.getElementById(`model-select-${type}`).addEventListener("change", () => onModelChange(type, true));
+      document.getElementById(`model-custom-${type}`).addEventListener("change", () => onModelChange(type, false));
+    }
 
     // Add event listener for refresh chat button
     document.getElementById("refresh-chat-button").onclick = refreshChat;
@@ -388,7 +399,15 @@ function switchView(hideId, showId) {
   }, 200); // Match CSS transition speed
 }
 
+// The settings that Glance depends on, as they were when Settings opened.
+let settingsOnOpen = null;
+const settingsSnapshot = () => JSON.stringify([
+  loadApiKey() || '', localStorage.getItem("glanceSettings"), loadGlanceAutoRun(),
+  loadModel('fast'), loadModel('slow'), loadSystemMessage()
+]);
+
 function showSettingsView() {
+  settingsOnOpen = settingsSnapshot();
   document.getElementById("settings-button").style.display = "none";
   document.getElementById("refresh-chat-button").style.display = "none";
   showSettingsStatus();
@@ -427,6 +446,17 @@ function showSettingsView() {
   document.getElementById("redline-author-input").value = redlineAuthor;
 }
 
+// Fields have already saved; leaving only returns to the main view and refreshes what depends on them.
+function leaveSettings() {
+  const changed = settingsOnOpen !== null && settingsSnapshot() !== settingsOnOpen;
+  settingsOnOpen = null;
+  showSettingsStatus();
+  showMainView();
+  // With the key removed, an empty chat goes back to the first-run welcome.
+  if (!loadApiKey() && !document.querySelector("#chat-messages .chat-message")) showWelcomeScreen();
+  if (changed && loadGlanceAutoRun()) runGlanceChecks();
+}
+
 function showMainView() {
   document.getElementById("settings-button").style.display = "block";
   document.getElementById("refresh-chat-button").style.display = "block";
@@ -445,17 +475,25 @@ async function refreshChat() {
   }
   // Cancel any ongoing request and wait until it has settled: a Word write
   // already committing can't be stopped, and nothing may start alongside it.
+  let cancelledOutcome = null;
   if (currentRequestController) {
     const settled = currentRequestSettled;
     const refreshButton = document.getElementById("refresh-chat-button");
     currentRequestController.abort();
     console.log("Active request cancelled by refresh.");
     if (refreshButton) refreshButton.disabled = true;
+    let settle;
     try {
-      await settled;
+      settle = await waitForSettle(settled, TIMEOUT_LIMITS.REFRESH_SETTLE_TIMEOUT_MS);
     } finally {
       if (refreshButton) refreshButton.disabled = false;
     }
+    if (settle.timedOut) {
+      // Word may still be writing: keep the chat and the locked inputs, and let the request finish itself.
+      addMessageToChat("System", "Word is still finishing the last request. The chat was not cleared; try again in a moment, or close and reopen the pane if this continues.");
+      return;
+    }
+    cancelledOutcome = settle.value;
   }
 
   const chatInput = document.getElementById("chat-input");
@@ -485,44 +523,43 @@ async function refreshChat() {
 
   // Add a system message confirming the refresh
   addMessageToChat("System", "Chat history cleared. Starting new conversation.");
+  // The cancelled request's receipt is gone with the old chat, so say that its edit landed.
+  if (cancelledOutcome?.wrote) {
+    addMessageToChat("System", landedEditMessage(cancelledOutcome.checkpointIndex), cancelledOutcome.checkpointIndex);
+  }
 }
 
-// Settings errors show inside Settings: the chat is hidden while it is open.
-function showSettingsStatus(message = "") {
+// Settings messages show inside Settings: the chat is hidden while it is open.
+let settingsStatusTimer = null;
+function showSettingsStatus(message = "", { saved = false } = {}) {
   const status = document.getElementById("settings-status");
   if (!status) return;
+  clearTimeout(settingsStatusTimer);
   status.textContent = message;
   status.hidden = !message;
+  status.classList.toggle("saved", saved);
+  // A confirmation fades after a moment; an error stays until the next change.
+  if (message && saved) settingsStatusTimer = setTimeout(() => showSettingsStatus(), 2000);
 }
 
-function saveApiKey() {
-  const apiKey = document.getElementById("api-key-input").value;
-  let fastModel, slowModel;
-  try {
-    fastModel = readModelSetting('fast');
-    slowModel = readModelSetting('slow');
-  } catch (error) {
-    showSettingsStatus(error.message);
-    return;
-  }
-  const systemMessage = document.getElementById("system-message-input").value;
-  const redlineEnabled = document.getElementById("redline-toggle").checked;
-  const redlineAuthor = document.getElementById("redline-author-input").value;
+// An empty API key removes the stored key, which is the no-key state.
+function onApiKeyChange(e) {
+  const { stored } = saveApiKeySetting(localStorage, e.target.value);
+  showSettingsStatus(stored ? "Saved." : "API key removed.", { saved: true });
+}
 
-  if (apiKey && apiKey.trim() !== "") {
-    localStorage.setItem("geminiApiKey", apiKey.trim());
-    localStorage.setItem("geminiModelFast", fastModel);
-    localStorage.setItem("geminiModelSlow", slowModel);
-    localStorage.setItem("geminiSystemMessage", systemMessage);
-    saveRedlineSetting(redlineEnabled);
-    saveRedlineAuthor(redlineAuthor);
-    // Glance settings are saved automatically on change
-    showMainView();
-    addMessageToChat("System", "Settings saved successfully.");
-    if (loadGlanceAutoRun()) runGlanceChecks();
-  } else {
-    showSettingsStatus("API Key cannot be empty.");
-  }
+function onSystemMessageChange(e) {
+  saveSystemMessageSetting(localStorage, e.target.value);
+  showSettingsStatus("Saved.", { saved: true });
+}
+
+function onModelChange(type, fromSelect) {
+  // Choosing "Custom model ID..." waits for the id to be typed.
+  if (fromSelect && document.getElementById(`model-select-${type}`).value === 'custom'
+    && !document.getElementById(`model-custom-${type}`).value.trim()) return;
+  const result = saveModelSettingFrom(localStorage, type, readModelSetting);
+  if (result.ok) showSettingsStatus("Saved.", { saved: true });
+  else showSettingsStatus(result.error);
 }
 
 function loadApiKey() {
@@ -1309,8 +1346,10 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
       }
       addMessageToChat("System", requestRecords.length === 0 ? "Request cancelled." : "Request cancelled. Inspect the document before retrying.");
     } else {
-      // Only remove loadingMsg if no tools were executed (meaning it's still a "Thinking" message)
-      if (requestRecords.length === 0) {
+      // Once an edit was attempted the bubble keeps its receipt (the loop ends those failures itself).
+      // Before that, even after read-only tools, the loop has restored the history, so drop this
+      // request's prompt and a Retry resends the message cleanly.
+      if (!wroteOrAttempted(requestRecords)) {
         removeMessage(loadingMsg);
 
         // Cleanup history for failed requests (timeout or error), never an earlier request's turn
@@ -1350,7 +1389,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
       }
     } finally {
       // Always settle, or a waiting refresh would stay disabled for good.
-      settleRequest();
+      settleRequest(summarizeRequestOutcome(requestRecords));
     }
   }
 }
