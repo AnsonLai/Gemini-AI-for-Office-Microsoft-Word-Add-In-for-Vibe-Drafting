@@ -405,6 +405,13 @@ export async function runDocumentAgentLoop({
     }
     state.history = maintainHistoryWindow(state.history, historyLimit);
     return state;
+  } catch (error) {
+    // Before any tool ran, the adapter reports the error and may offer a retry.
+    // After one ran, a retry could repeat an edit: end like a failed provider turn.
+    if (state.records.length === 0 || state.stopReason || cancelled()) throw error;
+    state.history = [];
+    stop('provider_error', `${completedWork(state.records)} The AI response failed after tool execution; inspect the document before continuing. (${error?.message || 'Unknown error'})`);
+    return state;
   } finally {
     emit({ type: 'run_end', reason: state.stopReason, turns: state.loopCount });
   }

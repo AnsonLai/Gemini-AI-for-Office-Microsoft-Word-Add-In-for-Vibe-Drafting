@@ -143,9 +143,12 @@ function updateSystemMessage(messageElement, newMessage, checkpointIndex = -1) {
   // Save existing button container before replacing content
   // This preserves the revert button when called with just status text
   const existingBtnContainer = messageElement.querySelector(".revert-btn-container");
+  // A running request keeps its Cancel button while its status text changes.
+  const cancelButton = messageElement.querySelector(".cancel-request-btn");
 
   // Update content (this replaces innerHTML, destroying any existing button)
   renderSystemMessageContent(messageElement, "System", newMessage);
+  if (cancelButton) messageElement.appendChild(cancelButton);
 
   // Update/Add Undo button
   if (checkpointIndex !== -1) {
@@ -234,13 +237,14 @@ function addRetryButton(messageElement, originalMessage) {
 function addConfirmButtons(messageElement, { confirmLabel, cancelLabel, onConfirm, onCancel = () => {} }) {
   const buttonContainer = document.createElement("div");
   buttonContainer.className = "revert-btn-container";
+  // A handler that returns false (for example a refused revert) keeps the question open.
   const makeButton = (label, handler) => {
     const button = document.createElement("button");
     button.className = "revert-checkpoint-btn";
     button.textContent = label;
     button.onclick = () => {
+      if (handler() === false) return;
       buttonContainer.remove();
-      handler();
     };
     buttonContainer.appendChild(button);
   };
@@ -254,6 +258,11 @@ function hideAllRetryButtons() {
   retryContainers.forEach(container => {
     container.style.display = "none";
   });
+}
+
+/** Remove a finished request's Cancel button; the message itself stays. */
+function removeCancelButton(messageElement) {
+  messageElement?.querySelector?.(".cancel-request-btn")?.remove();
 }
 
 function removeMessage(messageElement) {
@@ -272,5 +281,6 @@ export {
   addRetryButton,
   addConfirmButtons,
   hideAllRetryButtons,
+  removeCancelButton,
   removeMessage
 };

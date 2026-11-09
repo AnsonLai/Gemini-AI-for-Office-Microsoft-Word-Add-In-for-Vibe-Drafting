@@ -1127,6 +1127,13 @@ input:checked+.toggle-slider:before {
     height: auto;
 }
 
+/* Kept after the dots are replaced by status text (a tool is running). */
+.chat-message.system > .cancel-request-btn {
+    display: inline-flex;
+    vertical-align: middle;
+    margin-left: 6px;
+}
+
 .cancel-request-btn:hover {
     background-color: rgba(239, 68, 68, 0.1);
     color: var(--error-text);

@@ -411,6 +411,25 @@ for (const outcome of ['indeterminate', 'partial', 'applied_with_host_error']) {
   await assert.rejects(test.run(), /Provider offline/);
   assert.equal(test.events.at(-1).type, 'run_end');
 }
+// An unusable reply after an edit ends the same way: the edit is reported and
+// nothing invites the user to resend it.
+for (const badReply of [{ candidates: [] }, { candidates: [{ finishReason: 'MAX_TOKENS' }] }]) {
+  const test = harness([model(call('apply_document_edits')), badReply], {
+    applyDocumentEdits: async () => applied(),
+  });
+  await test.run();
+  assert.equal(test.state.stopReason, 'provider_error');
+  const message = test.events.find(event => event.reason === 'provider_error').message;
+  assert.match(message, /Confirmed edits remain/);
+  assert.match(message, /inspect the document/);
+  assert.deepEqual(test.state.history, [], 'the tool exchange is never replayed');
+  assert.equal(test.events.at(-1).type, 'run_end');
+}
+// Before any tool ran, the same reply still reaches the adapter as an error.
+{
+  const test = harness([{ candidates: [{ finishReason: 'MAX_TOKENS' }] }]);
+  await assert.rejects(test.run(), /missing content\.parts/);
+}
 
 // Malformed recovery only accepts complete JSON calls for the new tools.
 {

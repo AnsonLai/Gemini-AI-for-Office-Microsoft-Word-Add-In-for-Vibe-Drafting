@@ -24,6 +24,7 @@ import {
   addRetryButton,
   addConfirmButtons,
   hideAllRetryButtons,
+  removeCancelButton,
   removeMessage
 } from './modules/chat/chat-ui.js';
 import {
@@ -162,6 +163,9 @@ const TIMEOUT_LIMITS = {
 
 // Global abort controller for cancelling requests
 let currentRequestController = null;
+// Settles when the current chat request has finished, including any Word write.
+let currentRequestSettled = Promise.resolve();
+let revertInProgress = false;
 // The document URL can change when Word reopens/switches documents. Fresh part
 // tokens remain authoritative for edits/Undo within this taskpane instance.
 const documentInstanceId = `${Date.now()}-${Math.random()}`;
@@ -433,15 +437,27 @@ function showMainView() {
 }
 
 
-function refreshChat() {
-  // Cancel any ongoing request
+async function refreshChat() {
+  // A revert can't be stopped once Word is writing, and its outcome must be shown.
+  if (revertInProgress) {
+    addMessageToChat("System", "Wait for the revert to finish before clearing the chat.");
+    return;
+  }
+  // Cancel any ongoing request and wait until it has settled: a Word write
+  // already committing can't be stopped, and nothing may start alongside it.
   if (currentRequestController) {
+    const settled = currentRequestSettled;
+    const refreshButton = document.getElementById("refresh-chat-button");
     currentRequestController.abort();
-    currentRequestController = null;
     console.log("Active request cancelled by refresh.");
+    if (refreshButton) refreshButton.disabled = true;
+    try {
+      await settled;
+    } finally {
+      if (refreshButton) refreshButton.disabled = false;
+    }
   }
 
-  // Immediately unlock UI (in case it was locked by an active request)
   const chatInput = document.getElementById("chat-input");
   const sendButton = document.getElementById("send-button");
   const thinkButton = document.getElementById("think-button");
@@ -1003,6 +1019,7 @@ async function restoreCheckpoint(id, { confirmedToken } = {}) {
   }
   const restoreController = new AbortController();
   currentRequestController = restoreController;
+  revertInProgress = true;
   const controls = ['chat-input', 'send-button', 'think-button'].map(id => document.getElementById(id)).filter(Boolean);
   controls.forEach(control => { control.disabled = true; });
   let msgElement;
@@ -1027,7 +1044,14 @@ async function restoreCheckpoint(id, { confirmedToken } = {}) {
         addConfirmButtons(msgElement, {
           confirmLabel: 'Revert anyway',
           cancelLabel: 'Keep document',
-          onConfirm: () => restoreCheckpoint(id, { confirmedToken: result.currentToken }),
+          onConfirm: () => {
+            // Refused now, so keep the question open to answer once the request ends.
+            if (currentRequestController) {
+              addMessageToChat('System', 'Wait for the current request to finish, or cancel it, before reverting.');
+              return false;
+            }
+            restoreCheckpoint(id, { confirmedToken: result.currentToken });
+          },
           onCancel: () => updateSystemMessage(msgElement, 'Revert cancelled. The document was not changed.'),
         });
       } else if (result?.success === true && result?.verified === true) {
@@ -1046,6 +1070,7 @@ async function restoreCheckpoint(id, { confirmedToken } = {}) {
       else addMessageToChat('Error', 'Could not load the checkpoint.');
     }
   } finally {
+    revertInProgress = false;
     if (currentRequestController === restoreController) {
       currentRequestController = null;
       controls.forEach(control => { control.disabled = false; });
@@ -1116,6 +1141,9 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
   // Settings changed while a request runs apply from the next request.
   const redlineAuthor = loadRedlineAuthor();
   const generateRedlines = loadRedlineSetting();
+  // Refresh waits on this so it never clears the chat while Word may still be writing.
+  let settleRequest;
+  currentRequestSettled = new Promise(resolve => { settleRequest = resolve; });
 
   try {
     // --- Get Document Context ---
@@ -1310,13 +1338,19 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
       }
     }
   } finally {
-    // A refreshed/superseded request cannot overwrite the next request's UI.
-    if (currentRequestController === requestController) {
-      currentRequestController = null;
-      chatInput.disabled = false;
-      sendButton.disabled = false;
-      if (thinkButton) thinkButton.disabled = false;
-      chatInput.focus();
+    try {
+      removeCancelButton(loadingMsg);
+      // A refreshed/superseded request cannot overwrite the next request's UI.
+      if (currentRequestController === requestController) {
+        currentRequestController = null;
+        chatInput.disabled = false;
+        sendButton.disabled = false;
+        if (thinkButton) thinkButton.disabled = false;
+        chatInput.focus();
+      }
+    } finally {
+      // Always settle, or a waiting refresh would stay disabled for good.
+      settleRequest();
     }
   }
 }
