@@ -23,6 +23,8 @@ flowchart LR
 | --- | --- |
 | `taskpane.js` | UI, settings, request cancellation, host identity, lazy module loading and IndexedDB checkpoints. |
 | `document-agent-loop.js` | Complete provider/tool exchanges, six-turn budget, two failed mutation cycles, one proven no-write stale refresh, terminal outcomes and UI events. |
+| `request-outcome.js` | What a finished or cancelled request left behind (an edit written or attempted), the landed-edit note and the bounded wait before a refresh clears the chat. |
+| `settings-save.js` | Save-on-change for the API key, models and system prompt, with validation; an empty key removes it. |
 | `tool-registry.js` | The three declarations (`inspect_document`, `apply_document_edits`, `search_web`), dispatch, validation, progress and completion evidence. |
 | `web-search.js` | The `search_web` executor: a separate grounded Gemini request that returns a short answer with sources, labelled as reference material rather than instructions. |
 | `document-editing-guide.js` | One compact versioned workflow; owner persona affects drafting, never execution guarantees. |
@@ -31,7 +33,7 @@ flowchart LR
 | `document-tools.js` | Fresh source capture, compilation, preparation accounting, checkpoint persistence, final freshness guard, one host insertion and fresh verification. |
 | `consumer-core.js` | Local Flat OPC inspection/preparation and package assembly around supported library operations and comment/numbering helpers. No host or provider globals. |
 | `word-operation-runner.js`, `word-ooxml.js` | Body OOXML read/insert/sync, tracking-state restoration and truthful write observations. |
-| `word-source-identity.js` | Derived source tokens ignore certified Word export-only session metadata. Real IDs, source/payload and meaningful revisions remain intact. |
+| `word-source-identity.js` | Derived source tokens ignore certified Word export-only session metadata, including the paragraph and table-row ids Word regenerates on re-insert. Real IDs, source/payload and meaningful revisions remain intact. |
 | `checkpoint-restoration.js` | One body checkpoint replacement and verification, preserving tracking state even on errors. |
 
 A mutation resolves every handle against one fresh immutable source. Truncated
@@ -65,6 +67,8 @@ the Word add-in is the only product surface.
 
 The [dated implementation plan](plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md)
 and linked reports distinguish offline checks, real Office.js, independent Word
-Accept All/Reject All, and taskpane replay. Live fast/slow provider checks remain
+Accept All/Reject All, and taskpane replay. The lanes and their commands are in
+[scripts/README.md](../scripts/README.md), including the scripted taskpane
+checks for the request, refresh, Revert and Settings state machines. Live fast/slow provider checks remain
 a shipping gate. Desktop evidence does not certify Word Online. Checkpoints
 cover the transported body Flat OPC, rather than a complete-document backup.

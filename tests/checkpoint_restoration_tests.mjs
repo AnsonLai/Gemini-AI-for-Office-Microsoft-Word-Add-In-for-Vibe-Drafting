@@ -105,6 +105,13 @@ const tableGuard = async xml => (await computeWordRevertGuardToken(inspectWordSo
 assert.equal(await tableGuard(tableCheckpoint.replace('4C32C4F9', '5F1D733B')), await tableGuard(tableCheckpoint),
   'the Revert guard ignores a regenerated table-row id');
 
+// The same for a table inside a comment.
+const commentTable = rowId => threadedCheckpoint.replace('<w:p w14:paraId="BBBB0002">',
+  `<w:tbl><w:tr w14:paraId="${rowId}"><w:tc><w:p><w:r><w:t>Cell.</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p w14:paraId="BBBB0002">`);
+assert.equal((await computeWordRestorationToken(inspectWordSource(commentTable('5F1D733B')).parts)).value,
+  (await computeWordRestorationToken(inspectWordSource(commentTable('4C32C4F9')).parts)).value,
+  'a regenerated table-row id inside a comment keeps the restoration token');
+
 const reparentedCheckpoint = threadedCheckpoint.replace(
   'w15:paraIdParent="AAAA0001"', 'w15:paraIdParent="BBBB0002"'
 );

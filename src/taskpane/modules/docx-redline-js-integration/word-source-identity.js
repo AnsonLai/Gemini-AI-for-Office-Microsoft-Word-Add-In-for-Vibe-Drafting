@@ -120,7 +120,8 @@ function normalizeNotesXml(xml) {
   if (typeof xml !== 'string') return xml;
   const document = parseXml(normalizeDocumentXml(xml, null));
   for (const element of elementsIncludingRoot(document)) {
-    if (element.namespaceURI === NS_W && localName(element) === 'p') {
+    // Table rows inside a note carry the same ids as paragraphs.
+    if (element.namespaceURI === NS_W && ['p', 'tr'].includes(localName(element))) {
       element.removeAttributeNS(NS_W14, 'paraId');
       element.removeAttributeNS(NS_W14, 'textId');
     }
@@ -258,7 +259,7 @@ function normalizeRestoredCommentPart(xml, name, knownParagraphIds) {
   if (typeof xml !== 'string') return xml;
   const document = parseXml(xml);
   for (const element of elementsIncludingRoot(document)) {
-    if (name === 'commentsXml' && element.namespaceURI === NS_W && localName(element) === 'p') {
+    if (name === 'commentsXml' && element.namespaceURI === NS_W && ['p', 'tr'].includes(localName(element))) {
       element.removeAttributeNS(NS_W14, 'paraId');
       element.removeAttributeNS(NS_W14, 'textId');
     } else if (name === 'commentsExtendedXml' && element.namespaceURI === NS_W15 && localName(element) === 'commentEx') {

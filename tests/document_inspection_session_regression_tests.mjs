@@ -283,6 +283,14 @@ const texts = ['Alpha clause', 'Second paragraph', 'Beta clause', 'Fourth paragr
   assert.equal(reexported.value, first.value, 'a re-export that only renumbers note paragraph IDs and rsids keeps the token');
   const edited = await computeWordSourceRevisionToken(withNotes('141AECF0', 'Service providers are not bound.'));
   assert.notEqual(edited.value, first.value, 'changed footnote text changes the token');
+
+  // A table inside a note: its row carries the same ids as a paragraph.
+  const noteTable = (rowId, text = 'Cell.') => ({ ...documentParts(texts), additionalParts: { '/word/footnotes.xml':
+    `<w:footnotes xmlns:w="${W}" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"><w:footnote w:id="1"><w:tbl>`
+    + `<w:tr w14:paraId="${rowId}" w14:textId="77777777"><w:tc><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:footnote></w:footnotes>` } });
+  const rowFirst = await computeWordSourceRevisionToken(noteTable('4C32C4F9'));
+  assert.equal((await computeWordSourceRevisionToken(noteTable('5F1D733B'))).value, rowFirst.value, 'a renumbered note table-row id keeps the token');
+  assert.notEqual((await computeWordSourceRevisionToken(noteTable('4C32C4F9', 'Other.'))).value, rowFirst.value, 'changed note cell text changes the token');
 }
 
 console.log('PASS: inspection session rsid-stable handles, content-change expiry, cursor continuation, document end, store limits and opaque IDs');

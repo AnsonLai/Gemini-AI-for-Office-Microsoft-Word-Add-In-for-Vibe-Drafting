@@ -40,7 +40,7 @@ Source: [2026-11-07-state-machine-fixes.md](plans/2026-11-07-state-machine-fixes
 | 3b | By design |
 | Errors after a confirmed edit | Fixed (T11) |
 | 4a | Fixed (T13) |
-| 4b | Left as is (owner expects to replace Revert with Word's Undo) |
+| 4b | Left as is (owner expects to replace Revert with Word's Undo); tracked as KB-20 in [KNOWN_BUGS.md](plans/KNOWN_BUGS.md) |
 | 5a, 5b | Fixed (T8) |
 | 5c | Fixed (T7) |
 | 6a, 6d | Fixed 2026-11-09 (all settings save on change; an empty key removes it) |

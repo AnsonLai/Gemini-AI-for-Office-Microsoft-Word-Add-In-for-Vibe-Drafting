@@ -18,10 +18,9 @@ node scripts/run-all-tests.mjs --list
 
 The runner discovers tests recursively and runs each in a separate Node process.
 `DOCX_TEST_CONCURRENCY` defaults to 4; `DOCX_TEST_TIMEOUT` defaults to 180000 ms.
-Manual performance, desktop fixture generation and XML setup entrypoints are
-excluded. Historical package-version skips are printed separately. The former
-paid redline-schema eval is retired; the direct taskpane live lane below replaces
-it. Resolved engine issue reproducers are in git history (see the [closeout](../docs/validation-reports/2026-10-17-library-issues-closeout.md)); the KB-1 Word table-append exporter is `word-desktop/export-table-append-reject-all.mjs`.
+Only `tests/setup-xml-provider.mjs` is excluded (a setup module the suites
+import); `--list` shows what runs. Tests that exercise only the library live in
+the docx-redline-js repository since 2026-11-09. Resolved engine issue reproducers are in git history (see the [closeout](../docs/validation-reports/2026-10-17-library-issues-closeout.md)); the KB-1 Word table-append exporter is `word-desktop/export-table-append-reject-all.mjs`.
 
 ## Genuine Office.js and independent Word
 

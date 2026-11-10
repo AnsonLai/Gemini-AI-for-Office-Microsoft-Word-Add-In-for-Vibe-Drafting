@@ -1,6 +1,6 @@
 # Known bugs and host-boundary exceptions
 
-**Updated:** 2026-10-30, after v2.3.0.0 shipped on `@ansonlai/docx-redline-js` 0.11.1 (exact pin). Closed entries KB-2 to KB-16 are archived, unchanged, in [closed entries through v2.3.0.0](completed/2026-10-30-known-bugs-closed-v2.3.0.0.md).
+**Updated:** 2026-11-09 (KB-20 added, KB-17 status). Baseline 2026-10-30, after v2.3.0.0 shipped on `@ansonlai/docx-redline-js` 0.11.1 (exact pin). Closed entries KB-2 to KB-16 are archived, unchanged, in [closed entries through v2.3.0.0](completed/2026-10-30-known-bugs-closed-v2.3.0.0.md).
 
 This file tracks three things:
 
@@ -49,6 +49,17 @@ Seen with gemini-2.5-pro on guide v9 (`live-slow-5`). None involves the library,
 - **Clarifying question:** the model asked which date to highlight when the NDA has no calendar date (also a release-notes known issue).
 
 **Next step, if pursued:** compare the receipt's count with the request in the model's closing turn, or have the loop's summary quote the receipt. Re-check with the next live runs.
+
+**Status 2026-11-09:** still open and not re-checked. No live run has been made since 2026-10-30; every Word lane run on 2026-11-09 used replay or a scripted model, which cannot show these.
+
+### KB-20: "Revert anyway" discards later changes with no way back in the add-in
+
+When the document changed after an edit, Revert asks first ("The document changed after this edit. Reverting will also undo those later changes, including any of your own typing."). Choosing "Revert anyway" replaces the body with the checkpoint taken before the edit, so everything done since, including the user's own typing, is gone. The add-in saves no checkpoint of the state it discards and offers no redo. Finding 4b in [taskpane state machines](../taskpane-state-machines.md).
+
+- **Impact:** a user who confirms the prompt loses later work unless Word's own Undo brings it back. Whether Undo restores it after the body replacement has not been checked in Word.
+- **What works:** the warning is shown, the revert is refused while a request runs and the prompt is kept (check M9 in the taskpane lane, 2026-11-09).
+- **Owner direction (2026-11-09):** leaning towards replacing the Revert system with Word Undo now that edits are applied step by step, so this was left as is.
+- **Exit condition:** either Revert is replaced by Undo, or the add-in saves a checkpoint of the current body before a "Revert anyway" write (or it is confirmed in Word that Undo restores the discarded changes, and the prompt says so).
 
 ### KB-8: The `jsdom` XML lane is a diagnostic only
 
