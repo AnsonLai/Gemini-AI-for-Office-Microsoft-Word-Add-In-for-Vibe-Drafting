@@ -28,9 +28,8 @@ The old native fallback route and its five-case generator were retired on
 2026-10-02 when the direct typed list subset replaced that production route.
 The September 30 Word and Office.js native-fallback reports are historical
 evidence only; they do not gate the current direct tool path. The old general
-list planner matrix was also retired. The separate public-library regression
-in `tests/agentic_list_generation_tests.mjs` continues to test package list
-generation independent of the add-in route.
+list planner matrix was also retired. Package list generation independent of the add-in route is tested in the
+library repo (`tests/same_text_list_conversion_tests.mjs`).
 
 To recreate the Word-authored source fixture on Windows with Word installed:
 
