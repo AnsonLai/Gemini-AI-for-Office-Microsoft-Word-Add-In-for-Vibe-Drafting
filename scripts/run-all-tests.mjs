@@ -5,8 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const exclusions = new Map([
-  ['tests/setup-xml-provider.mjs', 'XML provider setup module; exercised by suites'],
-  ['tests/phase4/perf-harness.mjs', 'Observational performance lane; use npm run benchmark:ooxml']
+  ['tests/setup-xml-provider.mjs', 'XML provider setup module; exercised by suites']
 ]);
 
 function discover(directory) {
@@ -37,7 +36,7 @@ if (process.argv.includes('--list')) {
       const index = next++;
       const file = suites[index];
       results[index] = await new Promise(done => {
-        const args = [resolve(root, file), ...(file === 'tests/phase4/golden-guardrail.mjs' ? ['--verify'] : [])];
+        const args = [resolve(root, file)];
         execFile(process.execPath, args, { cwd: root, timeout, maxBuffer: 4 * 1024 * 1024, windowsHide: true }, (error, stdout = '', stderr = '') => {
           const failureMarker = /(?:❌\s*(?:FAIL|FAILED|FAILURE)|\bTEST FAILED\b|\bINTEGRATION TEST FAILURE\b|^FAIL:)/im.test(`${stdout}\n${stderr}`);
           const skips = `${stdout}\n${stderr}`.split(/\r?\n/).filter(line => /\bSKIP(?:PED)?\b/.test(line));
