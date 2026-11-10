@@ -127,6 +127,19 @@ the run; `--skip-build --dist-dir PATH` uses a previously frozen driver build.
 Artifacts include per-step DOCX/JSON, transcript, model log and report.
 `--source-diagnostics` is restricted to replay of the repository NDA fixture.
 
+## Taskpane checks (manual checks M1 to M14)
+
+`run-taskpane-checks.mjs` automates the Word checks in `docs/plans/2026-11-07-state-machine-fixes.md`
+in the real taskpane in desktop Word. A scripted responder inside the page (`golden/checks-driver.js`)
+answers every Gemini request, so there are no provider calls and only a dummy key is used. It shares
+port 3001 with the golden scenario (do not run both at once), starts and closes only its own `/x` Word,
+and exits non-zero on any FAIL. M3 and M7 are skipped (obsolete / unit tested). R1 and R2 are extra
+Revert controls. `--only M2,M5` runs a subset; `--fixture`/`--phrase` swap the document.
+
+```powershell
+node scripts/run-taskpane-checks.mjs --launch --artifacts-dir .cache/golden/checks
+```
+
 Live drafting validation requires `GEMINI_API_KEY` in the environment and incurs
 provider usage. Run the complete scenario for both configured profiles before
 shipping the changed tool prompt:

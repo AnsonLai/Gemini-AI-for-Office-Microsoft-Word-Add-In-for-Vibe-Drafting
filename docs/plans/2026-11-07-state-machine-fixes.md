@@ -1,7 +1,7 @@
 # State machine fixes
 
 **Created:** 2026-11-07. **Source:** [taskpane state machines](../taskpane-state-machines.md), which describes each finding referenced here by its number (1a, 2a, …).
-**Status:** Tiers 1 and 2 done (unit-tested where possible; manual Word checks M1 to M9 not yet run). Tier 1 is committed as `3408704`; Tier 2 is committed as `788b442`. Tier 3 waits on the owner. Builds on Part A of [the 2026-11-01 review plan](2026-11-01-review-fixes-and-follow-ups.md), committed as `110070a`.
+**Status:** Tiers 1 and 2 done (unit-tested where possible; Word checks M1 to M14 run as a scripted lane on 2026-11-09, see the end). Tier 1 is committed as `3408704`; Tier 2 is committed as `788b442`. Tier 3 waits on the owner. Builds on Part A of [the 2026-11-01 review plan](2026-11-01-review-fixes-and-follow-ups.md), committed as `110070a`.
 
 ## How each finding is triaged
 
@@ -59,6 +59,14 @@ Not fixed here. Each needs a choice about behaviour.
 ## Manual checks in Word
 
 Add to Part B of the 2026-11-01 plan once the matching fix is in.
+
+**Run on 2026-11-09 as a scripted lane in desktop Word:** `node scripts/run-taskpane-checks.mjs --launch` drives the real taskpane with a scripted model (no provider calls, dummy key). Result: M1, M2, M4 to M6 and M8 to M14 pass; M3 is obsolete (replaced by M13) and M7 stays unit-tested only. What the lane does not do by hand:
+
+- M1 uses synthetic drag events, not a real mouse drag.
+- M11 holds a `Word.run` call in the driver to stand in for a request that never settles.
+- M10: Retry pastes the question back into the input for the user to send; it does not resend by itself. The request then carries the question once.
+
+The lane found one defect, fixed the same day: Revert on a document with a table restored the text but reported "could not be verified", because Word gives table rows a new `w14:paraId` on re-insert and the verification token only ignored regenerated ids on paragraphs (`word-source-identity.js`; unit test in `tests/checkpoint_restoration_tests.mjs`; lane controls R1 and R2).
 
 - **M1:** in Settings, select text in one Glance question and drag it onto another card. The question order doesn't change.
 - **M2:** send a request on a long document and press Cancel at once. Expect the grey "Request cancelled." message, not a red error.

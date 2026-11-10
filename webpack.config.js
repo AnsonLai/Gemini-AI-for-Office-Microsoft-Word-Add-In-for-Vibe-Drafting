@@ -77,7 +77,8 @@ module.exports = async (env, options) => {
         template: "./src/taskpane/taskpane.html",
         // The golden scenario driver loads ahead of the taskpane only in its
         // dedicated development build (scripts/run-golden-scenario.mjs).
-        chunks: env.GOLDEN_SCENARIO ? ["polyfill", "golden-driver", "taskpane"] : ["polyfill", "taskpane"],
+        chunks: env.GOLDEN_SCENARIO ? ["polyfill", "golden-driver", "taskpane"]
+          : env.TASKPANE_CHECKS ? ["polyfill", "checks-driver", "taskpane"] : ["polyfill", "taskpane"],
         chunksSortMode: "manual",
       }),
       new CopyWebpackPlugin({
@@ -132,6 +133,9 @@ module.exports = async (env, options) => {
   }
   if (env.GOLDEN_SCENARIO) {
     config.entry['golden-driver'] = './scripts/golden/golden-driver.js';
+  }
+  if (env.TASKPANE_CHECKS) {
+    config.entry['checks-driver'] = './scripts/golden/checks-driver.js';
   }
 
   return config;
