@@ -194,7 +194,7 @@ function normalizeForRevertGuard(xml) {
     if (REVERT_GUARD_NOISE.has(name)
       || ((name === 'bookmarkStart' || name === 'bookmarkEnd') && goBackIds.has(element.getAttributeNS(NS_W, 'id')))) {
       element.parentNode?.removeChild(element);
-    } else if (name === 'p') {
+    } else if (name === 'p' || name === 'tr') {
       element.removeAttributeNS(NS_W14, 'paraId');
       element.removeAttributeNS(NS_W14, 'textId');
     } else if (name === 't' || name === 'delText') {
@@ -283,9 +283,11 @@ export async function computeWordRestorationToken(parts, options = {}) {
   const commentIdentity = (inspection.comments || []).map(({ paraId, parentParaId, ...comment }) => comment);
   const derived = tokenParts(parts, detectExportTailIndex(parts, options));
   const document = parseXml(derived.documentXml);
-  for (const paragraph of bodyParagraphNodes(document)) {
-    paragraph.removeAttributeNS(NS_W14, 'paraId');
-    paragraph.removeAttributeNS(NS_W14, 'textId');
+  // Table rows carry the same ids, and Word regenerates those on Replace too.
+  const rows = Array.from(wordBody(document)?.getElementsByTagNameNS?.(NS_W, 'tr') || []);
+  for (const element of [...bodyParagraphNodes(document), ...rows]) {
+    element.removeAttributeNS(NS_W14, 'paraId');
+    element.removeAttributeNS(NS_W14, 'textId');
   }
   derived.documentXml = serializeXml(document);
   const commentParts = { 'word/comments.xml': 'commentsXml', 'word/commentsExtended.xml': 'commentsExtendedXml', 'word/commentsIds.xml': 'commentsIdsXml' };

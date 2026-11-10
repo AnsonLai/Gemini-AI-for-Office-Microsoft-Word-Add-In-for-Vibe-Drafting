@@ -91,6 +91,20 @@ receipt = await host.restore();
 assert.equal(receipt.verified, true, 'Word-regenerated comment paragraph IDs verify when canonical reply/anchor identity is unchanged');
 assert.equal(host.state().writes, 1);
 
+// Word also regenerates the w14:paraId on table rows when a checkpoint is re-inserted (seen in Word, 2026-11-09).
+const tableCheckpoint = buildDocumentFragmentPackage(
+  `<w:tbl xmlns:w14="${W14}"><w:tr w14:paraId="4C32C4F9" w14:textId="77777777"><w:tc><w:p w14:paraId="20000001"><w:r><w:t>Cell text.</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p><w:r><w:t>After the table.</w:t></w:r></w:p>`,
+  { appendTrailingParagraph: false });
+host = harness({ checkpoint: tableCheckpoint, transform: xml => xml.replace('4C32C4F9', '5F1D733B').replace('20000001', '20000011') });
+receipt = await host.restore();
+assert.equal(receipt.verified, true, 'a regenerated table-row id does not fail restore verification');
+host = harness({ checkpoint: tableCheckpoint, transform: xml => xml.replace('Cell text.', 'Other text.') });
+receipt = await host.restore();
+assert.equal(receipt.verified, false, 'changed cell text still fails restore verification');
+const tableGuard = async xml => (await computeWordRevertGuardToken(inspectWordSource(xml).parts)).value;
+assert.equal(await tableGuard(tableCheckpoint.replace('4C32C4F9', '5F1D733B')), await tableGuard(tableCheckpoint),
+  'the Revert guard ignores a regenerated table-row id');
+
 const reparentedCheckpoint = threadedCheckpoint.replace(
   'w15:paraIdParent="AAAA0001"', 'w15:paraIdParent="BBBB0002"'
 );
