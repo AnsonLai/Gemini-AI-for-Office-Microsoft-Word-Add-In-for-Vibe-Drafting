@@ -50,11 +50,23 @@ Seen with gemini-2.5-pro on guide v9 (`live-slow-5`). None involves the library,
 
 **Next step, if pursued:** compare the receipt's count with the request in the model's closing turn, or have the loop's summary quote the receipt. Re-check with the next live runs.
 
-**Status 2026-11-11 (live spot checks in Word, NDA scenario):** still open.
+**Status 2026-11-11 (live runs in Word, NDA scenario):** still open. Every edit that landed was verified.
 
-- `gemini-flash-latest`, all 16 prompts: 51 of 52 checks. Step 11 (`11-required-disclosure-rewrite`) showed staged substitution: one edit call was refused, then the model rewrote Section 5 another way and reported it as done. The edit that landed was verified.
-- `gemini-2.5-pro` and `gemini-3.8-flash`, first 5 prompts each: 17 of 17.
-- `gemini-4-carbon`, first 5 prompts: 16 of 17. At step 3 it declined correctly and changed nothing, but worded it "I could not convert…", which the scorer's refusal pattern in `scripts/golden/golden-checks.mjs` does not recognise; a scorer wording gap, not a model or add-in fault. The run also recorded one model problem that was not looked into, and step 5 took 188 s.
+| Model | Prompts | Checks | Miss |
+| --- | --- | --- | --- |
+| `gemini-flash-latest` | 16 | 51 of 52 | step 11 |
+| `gemini-flash-latest` (second run) | first 11 | 33 of 34 | step 11 |
+| `gemini-4-carbon` | first 11 | 33 of 34 | step 11 |
+| `gemini-4-carbon` | first 5 | 16 of 17 | step 3 (scorer wording only) |
+| `gemini-2.5-pro`, `gemini-3.8-flash` | first 5 each | 17 of 17 | none |
+
+Step 11 (`11-required-disclosure-rewrite`) asks for a rewritten provision plus a few bullets; the scenario expects the whole request to be refused.
+
+- **Flash, both runs: split request.** It rewrote the paragraph (one call, verified), added no bullets and said so in its reply. It did not substitute plain paragraphs and did not overclaim, but the guide says not to split an unsupported mixed request.
+- **Carbon: staged attempt, left half done.** (1) A rewrite plus an insertion on one paragraph was refused (`CONFLICTING_DOCUMENT_EDITS`). (2) It inserted the new opening and three points as plain paragraphs after the original (verified). (3) It then sent `delete_paragraph` for the original with `convert_to_list` (bullet) for the new points; the library refused the delete with `REVISION_FIDELITY_VIOLATION` (`REJECT_PARAGRAPH_TEXT`: Reject All would give "" for the deleted paragraph) and the batch rolled back. (4) The next model call hit the loop's 5-minute total limit, so the request ended with "Confirmed edits remain in the document…" and Revert. The document was left with the old provision followed by the new plain paragraphs.
+- **Open questions:** whether step 11 should still be "unsupported" now that staged edits and `convert_to_list` with bullets exist; and whether the delete refusal in (3) is a library defect (deleting a plain paragraph that sits directly before pending inserted paragraphs). No portable reproducer has been written yet.
+
+Other observations: carbon was slow and unreliable on the day (requests of 60 to 250 s, two 120 s client timeouts and one 503 "high demand", all retried by the add-in). At step 3 in the 5-prompt run carbon declined correctly with "I could not convert…", which the refusal pattern in `scripts/golden/golden-checks.mjs` does not recognise.
 
 ### KB-20: "Revert anyway" discards later changes with no way back in the add-in
 
