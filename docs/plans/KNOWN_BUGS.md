@@ -50,7 +50,11 @@ Seen with gemini-2.5-pro on guide v9 (`live-slow-5`). None involves the library,
 
 **Next step, if pursued:** compare the receipt's count with the request in the model's closing turn, or have the loop's summary quote the receipt. Re-check with the next live runs.
 
-**Status 2026-11-09:** still open and not re-checked. No live run has been made since 2026-10-30; every Word lane run on 2026-11-09 used replay or a scripted model, which cannot show these.
+**Status 2026-11-11 (live spot checks in Word, NDA scenario):** still open.
+
+- `gemini-flash-latest`, all 16 prompts: 51 of 52 checks. Step 11 (`11-required-disclosure-rewrite`) showed staged substitution: one edit call was refused, then the model rewrote Section 5 another way and reported it as done. The edit that landed was verified.
+- `gemini-2.5-pro` and `gemini-3.8-flash`, first 5 prompts each: 17 of 17.
+- `gemini-4-carbon`, first 5 prompts: 16 of 17. At step 3 it declined correctly and changed nothing, but worded it "I could not convert…", which the scorer's refusal pattern in `scripts/golden/golden-checks.mjs` does not recognise; a scorer wording gap, not a model or add-in fault. The run also recorded one model problem that was not looked into, and step 5 took 188 s.
 
 ### KB-20: "Revert anyway" discards later changes with no way back in the add-in
 
