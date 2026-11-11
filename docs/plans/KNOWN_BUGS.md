@@ -1,6 +1,6 @@
 # Known bugs and host-boundary exceptions
 
-**Updated:** 2026-11-09 (KB-20 added, KB-17 status). Baseline 2026-10-30, after v2.3.0.0 shipped on `@ansonlai/docx-redline-js` 0.11.1 (exact pin). Closed entries KB-2 to KB-16 are archived, unchanged, in [closed entries through v2.3.0.0](completed/2026-10-30-known-bugs-closed-v2.3.0.0.md).
+**Updated:** 2026-11-09 (KB-20 and KB-21 added, KB-17 status). Baseline 2026-10-30, after v2.3.0.0 shipped on `@ansonlai/docx-redline-js` 0.11.1 (exact pin). Closed entries KB-2 to KB-16 are archived, unchanged, in [closed entries through v2.3.0.0](completed/2026-10-30-known-bugs-closed-v2.3.0.0.md).
 
 This file tracks three things:
 
@@ -27,6 +27,21 @@ The goal is to use the library wherever possible. Each Word API use must say why
 - **Exit condition:** an Office.js run of a body-final table append through the production adapter. Its saved export must give 7 paragraphs and 0 revisions under `Revisions.RejectAll()`, checked by the independent oracle. Any fix must stay in the transport (for example, how the replace range ends). No OOXML rewriting of library output.
 - **Not yet established:** whether Office.js `body.insertOoxml` behaves like COM `InsertXML` here. COM evidence does not certify Office.js.
 
+
+### KB-21: Deleting a paragraph is refused when the same author's pending inserted paragraphs follow it (library, 0.11.1)
+
+Found 2026-11-11 in a live `gemini-4-carbon` run (see KB-17) and reproduced with the library alone. With track changes on, insert new paragraphs after a paragraph, then delete that paragraph as the same author: the delete is refused with `REVISION_FIDELITY_VIOLATION` ("Reject All of this operation's output would not restore the source (REJECT_PARAGRAPH_TEXT … expected \"Old provision.\", got \"\")") and the atomic batch rolls back. Nothing is written.
+
+- **Cause, as far as seen:** the insertion marks the *original* paragraph's paragraph mark as a pending insertion (`<w:pPr><w:rPr><w:ins/></w:rPr></w:pPr>`), which is how Word itself records paragraphs added after one. A delete of a paragraph whose mark is a pending same-author insertion then produces output that fails the library's own Reject All check.
+- **Controls that work:** the same delete on the untouched source; the delete after the insertions are accepted; deleting a paragraph elsewhere in the document; and inserting the new paragraphs *before* the paragraph, then deleting it. As a different author the delete is refused with `EXISTING_REVISIONS`, which is the expected policy refusal.
+- **Impact:** replacing one paragraph with several in two stages (insert the new ones after it, then delete the old one) cannot be finished in the same review session. The model is left with the old paragraph and the new ones both in the document, and the user has to revert.
+- **Add-in:** no workaround (library defect or missing case). The refusal reaches the model as `BATCH_OPERATION_FAILED` with the failed operation's message.
+- **Library ask:** let a same-author delete go through when the target's paragraph mark is a pending insertion, or refuse it with a specific code and a recovery hint (for example, insert before the paragraph instead).
+- **Reproducer** (public API, `@ansonlai/docx-redline-js/standalone-runner`): body `Before.` / `Old provision.` / `After.`; options `{ atomic: true, structuredContent: true, pairReplacements: true, generateRedlines: true, strictTargets: true }`; author `A`. Stage 1: `{ type: 'redline', target: { exactText: 'Old provision.', index: 2 }, modified: 'Old provision.
+New opening:
+Point one.
+Point two.
+Point three.', structuredContent: false }` returns `ok`. Stage 2 on that output: `{ type: 'delete', target: { exactText: 'Old provision.', index: 2 } }` returns `BATCH_OPERATION_FAILED`.
 
 ### KB-19: A replacement drops a pending same-author bold in the same paragraph (library, 0.11.1)
 
@@ -64,7 +79,7 @@ Step 11 (`11-required-disclosure-rewrite`) asks for a rewritten provision plus a
 
 - **Flash, both runs: split request.** It rewrote the paragraph (one call, verified), added no bullets and said so in its reply. It did not substitute plain paragraphs and did not overclaim, but the guide says not to split an unsupported mixed request.
 - **Carbon: staged attempt, left half done.** (1) A rewrite plus an insertion on one paragraph was refused (`CONFLICTING_DOCUMENT_EDITS`). (2) It inserted the new opening and three points as plain paragraphs after the original (verified). (3) It then sent `delete_paragraph` for the original with `convert_to_list` (bullet) for the new points; the library refused the delete with `REVISION_FIDELITY_VIOLATION` (`REJECT_PARAGRAPH_TEXT`: Reject All would give "" for the deleted paragraph) and the batch rolled back. (4) The next model call hit the loop's 5-minute total limit, so the request ended with "Confirmed edits remain in the document…" and Revert. The document was left with the old provision followed by the new plain paragraphs.
-- **Open questions:** whether step 11 should still be "unsupported" now that staged edits and `convert_to_list` with bullets exist; and whether the delete refusal in (3) is a library defect (deleting a plain paragraph that sits directly before pending inserted paragraphs). No portable reproducer has been written yet.
+- **Open question:** whether step 11 should still be "unsupported" now that staged edits and `convert_to_list` with bullets exist. The delete refusal in (3) is reproduced with the library alone and tracked as KB-21.
 
 Other observations: carbon was slow and unreliable on the day (steps of 60 to 250 s; in the 5-prompt run one 120 s client timeout and one 503 "high demand", both retried by the add-in; in the 11-prompt run one more failed provider response at step 1 that was not looked into). At step 3 in the 5-prompt run carbon declined correctly with "I could not convert…", which the refusal pattern in `scripts/golden/golden-checks.mjs` does not recognise.
 
