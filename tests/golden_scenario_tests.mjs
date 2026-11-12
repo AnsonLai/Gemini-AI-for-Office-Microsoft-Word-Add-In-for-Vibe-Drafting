@@ -37,7 +37,7 @@ assert.equal(directScenario.steps.length, scenario.steps.length, 'the direct sce
 assert.deepEqual(directScenario.steps.map(step => step.prompt), scenario.steps.map(step => step.prompt), 'direct prompts are byte-for-byte preserved');
 const unsupportedDirectStepIds = [
   '03-recitals-list', '04-parties-table', '06-signature-date-row',
-  '09-archival-subbullet', '11-required-disclosure-rewrite'
+  '09-archival-subbullet'
 ];
 for (const [index, directStep] of directScenario.steps.entries()) {
   const legacyStep = scenario.steps[index];

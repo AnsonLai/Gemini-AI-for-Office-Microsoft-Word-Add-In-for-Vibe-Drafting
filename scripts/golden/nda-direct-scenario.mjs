@@ -109,12 +109,20 @@ const plans = [
     ]
   },
   {
-    scopeDisposition: {
-      status: 'unsupported',
-      reason: 'Restructuring one provision into a paragraph and bullets is outside the retained direct-edit scope.',
-      refusalPattern: '(?:cannot|can’t|can\'t|unsupported|outside).*(?:bullets|restructure|structure|paragraph)'
-    },
-    refusal: 'I can’t restructure that provision into an introductory paragraph and bullets in this editing workflow. Structural reformatting is unsupported, so I left the document unchanged.'
+    // Three dependent stages: rewrite the provision as the introduction, insert the items after it,
+    // then convert the new plain paragraphs into one bulleted list.
+    replay: [
+      inspect('If the Receiving Party is required by law'),
+      apply([{ type: 'rewrite_paragraph', target: handle({ startsWith: 'If the Receiving Party is required by law' }),
+        text: 'If the Receiving Party is required by law, regulation, or court order to disclose any Confidential Information, the Receiving Party shall first resist that requirement and may disclose only as follows:' }]),
+      inspect('shall first resist that requirement'),
+      apply([{ type: 'insert_paragraph', target: handle({ includes: 'shall first resist that requirement' }), position: 'after',
+        text: 'The Receiving Party shall use all reasonable legal means to contest, narrow, or quash the order or requirement.\nWhere legally permitted, the Receiving Party shall promptly notify the Disclosing Party in writing and involve it in seeking a protective order or other appropriate remedy.\nOnly after these avenues are exhausted may the Receiving Party disclose, and then only the portion of Confidential Information it is legally required to disclose.' }]),
+      inspect('promptly notify the Disclosing Party in writing and involve it', { around: 1 }),
+      apply([{ type: 'convert_to_list', target: handle({ startsWith: 'The Receiving Party shall use all reasonable legal means' }),
+        through: handle({ startsWith: 'Only after these avenues are exhausted' }), markers: 'none', format: 'bullet' }]),
+      done
+    ]
   },
   {
     // One parallel inspection turn finds all nine headers, then one convert_to_list per header in one batch.

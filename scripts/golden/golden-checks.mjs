@@ -284,7 +284,7 @@ export function semanticDocumentSnapshot(model) {
 }
 
 // Plain no-change wording that counts as an explicit refusal alongside each step's own pattern.
-const NO_CHANGE_REFUSAL = /\b(?:no changes (?:were )?made|unable to|not able to|isn['’]t supported|is not supported|not supported|do(?:es)? not (?:include|support)|outside (?:the )?(?:supported )?scope|(?:must|needs? to) be (?:in )?(?:its|their) own (?:separate |distinct )?paragraph|split (?:the|them|it|this|these) [^.]*into)/i;
+const NO_CHANGE_REFUSAL = /\b(?:no changes (?:were )?made|unable to|not able to|could not|couldn['’]t|isn['’]t supported|is not supported|not supported|do(?:es)? not (?:include|support)|outside (?:the )?(?:supported )?scope|(?:must|needs? to) be (?:in )?(?:its|their) own (?:separate |distinct )?paragraph|split (?:the|them|it|this|these) [^.]*into)/i;
 
 /**
  * Verify a refused request is said explicitly, writes nothing, and leaves the full document
