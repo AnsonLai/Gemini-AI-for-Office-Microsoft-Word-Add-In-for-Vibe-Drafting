@@ -577,7 +577,7 @@ function loadModel(type = 'fast') {
     return storedModel;
   }
   // Defaults
-  return type === 'slow' ? "gemini-2.5-pro" : "gemini-flash-latest";
+  return type === 'slow' ? "gemini-4-carbon" : "gemini-flash-latest";
 }
 
 function loadSystemMessage() {

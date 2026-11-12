@@ -38,6 +38,8 @@ function testPreviewThrottleFlag() {
   assert.strictEqual(getModelProfile('gemini-3.8-flash').previewThrottleWarning, true);
   assert.strictEqual(getModelProfile('gemini-3.1-pro-preview').previewThrottleWarning, true);
   assert.strictEqual(getModelProfile('gemini-2.5-pro').previewThrottleWarning, false);
+  assert.strictEqual(getModelProfile('gemini-4-carbon'), MODEL_PROFILES['gemini-4-carbon']);
+  assert.strictEqual(getModelProfile('gemini-4-carbon').previewThrottleWarning, false);
   assert.strictEqual(getModelProfile('gemini-2.5-flash').previewThrottleWarning, false);
 }
 

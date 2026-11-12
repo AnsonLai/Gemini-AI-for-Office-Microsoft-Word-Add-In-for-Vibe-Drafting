@@ -317,7 +317,7 @@ refusals, turns and host commits through the production two-tool harness.
 Running it requires an environment API key and incurs provider usage. Both
 supported configured fast/slow profiles must pass before shipping the changed
 prompt; offline replay is separate evidence.
-The add-in uses Google Gemini models. Users pick the **fast** and **think** (slow) models in Settings; the selection is saved per type. When nothing is selected, [`taskpane.js`](src/taskpane/taskpane.js) falls back to `gemini-flash-latest` (fast) and `gemini-2.5-pro` (slow):
+The add-in uses Google Gemini models. Users pick the **fast** and **think** (slow) models in Settings; the selection is saved per type. When nothing is selected, [`taskpane.js`](src/taskpane/taskpane.js) falls back to `gemini-flash-latest` (fast) and `gemini-4-carbon` (slow):
 
 ```javascript
 // In taskpane.js, loadModel returns the user's saved choice or a default:
@@ -327,7 +327,7 @@ function loadModel(type = 'fast') {
   if (storedModel && storedModel.trim() !== "") {
     return storedModel;
   }
-  return type === 'slow' ? "gemini-2.5-pro" : "gemini-flash-latest";
+  return type === 'slow' ? "gemini-4-carbon" : "gemini-flash-latest";
 }
 ```
 
