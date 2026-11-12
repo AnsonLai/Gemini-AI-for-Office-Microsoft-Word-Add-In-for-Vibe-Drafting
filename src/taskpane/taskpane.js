@@ -61,7 +61,7 @@ marked.setOptions({
 
 // ==================== CONFIGURATION CONSTANTS ====================
 
-const RELEASE_MARKER = "v2.3.0.1";
+const RELEASE_MARKER = "v2.4.0.0";
 const DEFAULT_AUTHOR = "Gemini AI";
 const GLANCE_COLLAPSED_STORAGE_KEY = "glanceCollapsed";
 // Off by default: an automatic check sends the whole document to Gemini unasked.
