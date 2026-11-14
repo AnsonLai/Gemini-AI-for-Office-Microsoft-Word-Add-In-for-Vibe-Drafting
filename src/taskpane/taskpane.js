@@ -577,7 +577,7 @@ function loadModel(type = 'fast') {
     return storedModel;
   }
   // Defaults
-  return type === 'slow' ? "gemini-4-carbon" : "gemini-flash-latest";
+  return type === 'slow' ? "gemini-4-argon" : "gemini-4-hydrogen";
 }
 
 function loadSystemMessage() {
@@ -1366,7 +1366,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
       if (error.message && (error.message.includes("timed out") || error.message.includes("timeout"))) {
         errorMessage = modelProfile.previewThrottleWarning
           ? "This model is in preview and has likely been throttled. Please go into settings and revert to Gemini 2.5."
-          : "The request timed out. The AI is taking longer than usual. Please try again.";
+          : "The request timed out. The AI is taking longer than usual. Please try again, or choose a faster model in Settings.";
       }
 
       const errorMsgEl = addMessageToChat("Error", errorMessage);

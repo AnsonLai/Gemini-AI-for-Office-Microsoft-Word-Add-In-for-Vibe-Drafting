@@ -12,8 +12,8 @@ export function classifyRequest(payload) {
     return 'other';
 }
 
-const DEFAULT_FAST_MODEL = 'gemini-flash-latest';
-const DEFAULT_SLOW_MODEL = 'gemini-2.5-pro';
+const DEFAULT_FAST_MODEL = 'gemini-4-hydrogen';
+const DEFAULT_SLOW_MODEL = 'gemini-4-argon';
 
 /** Resolve the existing fast/slow taskpane settings without introducing model IDs. */
 export function resolveGoldenModelSettings({ profile = 'configured', fastModel = null, slowModel = null } = {}) {

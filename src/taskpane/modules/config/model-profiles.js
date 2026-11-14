@@ -15,6 +15,7 @@ const MODEL_PROFILES = {
   // to revert to 2.5 only makes sense for these models.
   "gemini-3.8-flash": { ...COMMON, previewThrottleWarning: true },
   "gemini-3.1-pro-preview": { ...COMMON, previewThrottleWarning: true },
+  "gemini-4-hydrogen": { ...COMMON },
   "gemini-4-carbon": { ...COMMON },
   "gemini-4-argon": { ...COMMON },
 };

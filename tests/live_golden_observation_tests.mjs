@@ -99,18 +99,18 @@ assert.equal(evaluateScopeDisposition(unchanged, unchanged, ['Assistant: I canno
   'nested auxiliary model requests are visible to the live refusal gate');
 
 assert.deepEqual(resolveGoldenModelSettings(), {
-  profile: 'configured', fast: 'gemini-flash-latest', slow: 'gemini-2.5-pro'
+  profile: 'configured', fast: 'gemini-4-hydrogen', slow: 'gemini-4-argon'
 });
-assert.deepEqual(resolveGoldenModelSettings({ profile: 'configured', fastModel: 'gemini-flash-latest', slowModel: 'gemini-2.5-pro' }), {
-  profile: 'configured', fast: 'gemini-flash-latest', slow: 'gemini-2.5-pro'
+assert.deepEqual(resolveGoldenModelSettings({ profile: 'configured', fastModel: 'gemini-4-hydrogen', slowModel: 'gemini-4-argon' }), {
+  profile: 'configured', fast: 'gemini-4-hydrogen', slow: 'gemini-4-argon'
 });
 assert.deepEqual(resolveGoldenModelSettings({ profile: 'fast' }), {
-  profile: 'fast', fast: 'gemini-flash-latest', slow: 'gemini-flash-latest'
+  profile: 'fast', fast: 'gemini-4-hydrogen', slow: 'gemini-4-hydrogen'
 });
 assert.deepEqual(resolveGoldenModelSettings({ profile: 'slow' }), {
-  profile: 'slow', fast: 'gemini-2.5-pro', slow: 'gemini-2.5-pro'
+  profile: 'slow', fast: 'gemini-4-argon', slow: 'gemini-4-argon'
 });
-assert.throws(() => resolveGoldenModelSettings({ profile: 'fast', slowModel: 'gemini-2.5-pro' }), /cannot be combined/);
+assert.throws(() => resolveGoldenModelSettings({ profile: 'fast', slowModel: 'gemini-4-argon' }), /cannot be combined/);
 assert.throws(() => resolveGoldenModelSettings({ profile: 'unknown' }), /must be configured/);
 
 // Keep the user-facing runner defaults and lifecycle/logging guarantees visible

@@ -40,6 +40,10 @@ function testPreviewThrottleFlag() {
   assert.strictEqual(getModelProfile('gemini-2.5-pro').previewThrottleWarning, false);
   assert.strictEqual(getModelProfile('gemini-4-carbon'), MODEL_PROFILES['gemini-4-carbon']);
   assert.strictEqual(getModelProfile('gemini-4-carbon').previewThrottleWarning, false);
+  for (const name of ['gemini-4-hydrogen', 'gemini-4-argon']) {
+    assert.strictEqual(getModelProfile(name), MODEL_PROFILES[name]);
+    assert.strictEqual(getModelProfile(name).previewThrottleWarning, false);
+  }
   assert.strictEqual(getModelProfile('gemini-2.5-flash').previewThrottleWarning, false);
 }
 
