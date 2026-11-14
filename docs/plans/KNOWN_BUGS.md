@@ -1,6 +1,6 @@
 # Known bugs and host-boundary exceptions
 
-**Updated:** 2026-11-09 (KB-20 and KB-21 added, KB-17 status). Baseline 2026-10-30, after v2.3.0.0 shipped on `@ansonlai/docx-redline-js` 0.11.1 (exact pin). Closed entries KB-2 to KB-16 are archived, unchanged, in [closed entries through v2.3.0.0](completed/2026-10-30-known-bugs-closed-v2.3.0.0.md).
+**Updated:** 2026-11-14 (KB-18, KB-19 and KB-21 closed by library 0.11.3). Baseline 2026-10-30, now on `@ansonlai/docx-redline-js` 0.11.3 (exact pin). Closed entries KB-2 to KB-16 are archived, unchanged, in [closed entries through v2.3.0.0](completed/2026-10-30-known-bugs-closed-v2.3.0.0.md); KB-18, KB-19 and KB-21 are in [closed entries in v2.4.0.0](completed/2026-11-14-known-bugs-closed-v2.4.0.0.md).
 
 This file tracks three things:
 
@@ -28,33 +28,6 @@ The goal is to use the library wherever possible. Each Word API use must say why
 - **Not yet established:** whether Office.js `body.insertOoxml` behaves like COM `InsertXML` here. COM evidence does not certify Office.js.
 
 
-### KB-21: Deleting a paragraph is refused when the same author's pending inserted paragraphs follow it (library, 0.11.1)
-
-Found 2026-11-11 in a live `gemini-4-carbon` run (see KB-17) and reproduced with the library alone. With track changes on, insert new paragraphs after a paragraph, then delete that paragraph as the same author: the delete is refused with `REVISION_FIDELITY_VIOLATION` ("Reject All of this operation's output would not restore the source (REJECT_PARAGRAPH_TEXT … expected \"Old provision.\", got \"\")") and the atomic batch rolls back. Nothing is written.
-
-- **Cause, as far as seen:** the insertion marks the *original* paragraph's paragraph mark as a pending insertion (`<w:pPr><w:rPr><w:ins/></w:rPr></w:pPr>`), which is how Word itself records paragraphs added after one. A delete of a paragraph whose mark is a pending same-author insertion then produces output that fails the library's own Reject All check.
-- **Controls that work:** the same delete on the untouched source; the delete after the insertions are accepted; deleting a paragraph elsewhere in the document; and inserting the new paragraphs *before* the paragraph, then deleting it. As a different author the delete is refused with `EXISTING_REVISIONS`, which is the expected policy refusal.
-- **Impact:** replacing one paragraph with several in two stages (insert the new ones after it, then delete the old one) cannot be finished in the same review session. The model is left with the old paragraph and the new ones both in the document, and the user has to revert.
-- **Add-in:** no workaround (library defect or missing case). The refusal reaches the model as `BATCH_OPERATION_FAILED` with the failed operation's message.
-- **Library ask:** let a same-author delete go through when the target's paragraph mark is a pending insertion, or refuse it with a specific code and a recovery hint (for example, insert before the paragraph instead).
-- **Reproducer** (public API, `@ansonlai/docx-redline-js/standalone-runner`): body `Before.` / `Old provision.` / `After.`; options `{ atomic: true, structuredContent: true, pairReplacements: true, generateRedlines: true, strictTargets: true }`; author `A`. Stage 1: `{ type: 'redline', target: { exactText: 'Old provision.', index: 2 }, modified: 'Old provision.
-New opening:
-Point one.
-Point two.
-Point three.', structuredContent: false }` returns `ok`. Stage 2 on that output: `{ type: 'delete', target: { exactText: 'Old provision.', index: 2 } }` returns `BATCH_OPERATION_FAILED`.
-
-### KB-19: A replacement drops a pending same-author bold in the same paragraph (library, 0.11.1)
-
-Found 2026-10-31 by the privacy replay in real Word. With track changes on, bold a phrase (a pending `rPrChange` by the add-in's author), then change other wording in the same paragraph with `replace_text`: the bold is gone after Accept All. Nothing reports it, because the prepared package itself has no bold, so the add-in's after-write check matches. It happens with one replacement as well as several. Settled (accepted) bold is kept, and with a different author the library refuses the replacement instead.
-
-**Impact:** a user who bolds words and then edits that paragraph's wording in the same review session silently loses the bold. **Add-in:** no workaround (library defect). `tests/document_edit_intents_tests.mjs` prints a `KNOWN_LIBRARY_DEFECT: KB-19` line while it reproduces. **Library ask:** keep pending same-author run formatting through a localized replacement. Reproducer: paragraph runs `This notice explains how ` + `Maple Clinic` (`<w:b/>` with `<w:rPrChange w:author="A"><w:rPr/></w:rPrChange>`) + ` collects your information.`; operation `{ type: 'replace', replacements: [{ find: 'collects', replace: 'gathers' }] }` with author `A`; Accept All has no bold.
-
-### KB-18: Overlapping format operations fail with an internal receipt error (library, 0.11.1)
-
-Two `format` operations on one paragraph whose text overlaps (for example `WHEREAS` and `WHEREAS, Provider`, or bold on and bold off for the same word) are refused safely, but with `RECEIPT_RECONCILIATION_FAILED` ("Committed revision id '1000' (kind: rPrChange) was not found in word/document.xml"). Nothing is written. Separate, non-overlapping format operations on one paragraph work and pass Accept All and Reject All.
-
-**Add-in today:** the intent compiler refuses overlapping `format_text` spans in one paragraph with a clear message before the library runs (2026-10-31). That check stays as a validation rule either way. **Library ask:** refuse overlapping format spans with a specific code and message. Reproducer: one paragraph `RECITALS: WHEREAS, Provider owns it.`, operations `{ type: 'format', textToFormat: 'WHEREAS', properties: { bold: true } }` and `{ type: 'format', textToFormat: 'WHEREAS, Provider', properties: { bold: true } }` in one batch.
-
 ### KB-17: Live-model judgement gaps (live runs, 2026-10-30)
 
 Seen with gemini-2.5-pro on guide v9 (`live-slow-5`). None involves the library, and every edit was verified, so nothing was written incorrectly:
@@ -79,11 +52,13 @@ Step 11 (`11-required-disclosure-rewrite`) asks for a rewritten provision plus a
 
 - **Flash, both runs: split request.** It rewrote the paragraph (one call, verified), added no bullets and said so in its reply. It did not substitute plain paragraphs and did not overclaim, but the guide says not to split an unsupported mixed request.
 - **Carbon: staged attempt, left half done.** (1) A rewrite plus an insertion on one paragraph was refused (`CONFLICTING_DOCUMENT_EDITS`). (2) It inserted the new opening and three points as plain paragraphs after the original (verified). (3) It then sent `delete_paragraph` for the original with `convert_to_list` (bullet) for the new points; the library refused the delete with `REVISION_FIDELITY_VIOLATION` (`REJECT_PARAGRAPH_TEXT`: Reject All would give "" for the deleted paragraph) and the batch rolled back. (4) The next model call hit the loop's 5-minute total limit, so the request ended with "Confirmed edits remain in the document…" and Revert. The document was left with the old provision followed by the new plain paragraphs.
-- **Open question:** whether step 11 should still be "unsupported" now that staged edits and `convert_to_list` with bullets exist. The delete refusal in (3) is reproduced with the library alone and tracked as KB-21.
+- **Open question:** whether step 11 should still be "unsupported" now that staged edits and `convert_to_list` with bullets exist. The delete refusal in (3) is reproduced with the library alone and was fixed in library 0.11.3 (formerly KB-21).
 
 Other observations: carbon was slow and unreliable on the day (steps of 60 to 250 s; in the 5-prompt run one 120 s client timeout and one 503 "high demand", both retried by the add-in; in the 11-prompt run one more failed provider response at step 1 that was not looked into). At step 3 in the 5-prompt run carbon declined correctly with "I could not convert…", which the refusal pattern in `scripts/golden/golden-checks.mjs` does not recognise.
 
 **Guide v12 (2026-11-11), step 11 now a supported edit.** Three guide changes: the "never split an unsupported mixed request" phrase is gone (it contradicted "do only the supported part and say what you left out"); a new list from new text is described as two stages (insert plain paragraphs, inspect, `convert_to_list` with markers "none" and a format); replacing one paragraph with several is described as rewrite first, then insert the rest (no delete, so KB-21 is not on the path). The scenario's step 11 is now a three-stage replay scored on "intro paragraph then bullets", and the refusal pattern accepts "could not". Results in Word the same day: replay 16/16 (53 checks); live first 11 prompts 35 of 35 on both `gemini-flash-latest` (step 11 in 38 s) and `gemini-4-carbon` (step 11 in 133 s). A later run the same day with `gemini-flash-latest` on v12 passed all 16 NDA prompts (53 of 53) and the privacy scenario (16/16, 65 of 65). One run each; the slow profile and Carbon were not run past prompt 11 on v12. The overclaiming and clarifying-question items above were not re-tested.
+
+**Status 2026-11-14 (library 0.11.3, defaults `gemini-4-hydrogen` fast and `gemini-4-argon` slow).** On guide v12, Argon passed NDA 53 of 53 and privacy 65 of 65, and Hydrogen passed privacy 65 of 65 and NDA 50 of 53. Hydrogen's misses: at step 3 it split the line-break recitals paragraph itself (rewrite, insert the rest, strip the typed markers, `convert_to_list` with markers "none") and produced a correct A, B, C list where the scenario expected a refusal; at step 13 it asked which text to highlight because the NDA has no calendar date (the clarifying-question item above). Changes: NDA step 3 now passes on a clean refusal or on a verified completion that meets the step's original checks; guide v13 adds one sentence telling the model to act on the one plausible match and say what it chose. On v13 both models passed both scenarios with every check (NDA 53, privacy 65), one run each. Hydrogen used more model requests than the others on the NDA (76 and 82, against 60 to 69), mostly extra inspections. The overclaiming item was not re-tested. No live run exercised `search_web`.
 
 ### KB-20: "Revert anyway" discards later changes with no way back in the add-in
 

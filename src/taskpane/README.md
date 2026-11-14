@@ -6,7 +6,7 @@ inspect/apply harness and Office.js body transport. The add-in pins exact
 
 `taskpane.js` keeps UI and host concerns. Portable `document-agent-loop.js`
 coordinates bounded provider/tool exchanges; `tool-registry.js` declares exactly
-two tools. `document-inspection-session.js` issues source-bound opaque handles;
+three tools. `document-inspection-session.js` issues source-bound opaque handles;
 `document-edit-intents.js` maps fully validated typed batches to library
 operations. `document-tools.js` requires a persisted exact-source checkpoint,
 checks freshness, commits once and verifies the host result. The compact

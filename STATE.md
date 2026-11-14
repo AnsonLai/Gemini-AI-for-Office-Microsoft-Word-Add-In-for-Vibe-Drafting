@@ -17,9 +17,9 @@ The add-in gives Gemini three tools: `inspect_document`, which returns focused t
 - bold, italic, underline, strikethrough and yellow highlight, on several separate pieces of one paragraph;
 - table-cell text.
 
-Anything else is refused with no change. A batch with an unsupported edit is refused as a whole; when only part of a request is supported, the assistant either refuses or does that part and says what it left out. The [tool contract](docs/agentic-tool-contracts.md) and the editing guide (v12) give the exact rules.
+Anything else is refused with no change. A batch with an unsupported edit is refused as a whole; when only part of a request is supported, the assistant either refuses or does that part and says what it left out. The [tool contract](docs/agentic-tool-contracts.md) and the editing guide (v13) give the exact rules.
 
-`@ansonlai/docx-redline-js` 0.11.1 (exact pin) does every document transformation. Office.js only does the following:
+`@ansonlai/docx-redline-js` 0.11.3 (exact pin) does every document transformation. Office.js only does the following:
 
 - reads the body as Flat OPC;
 - writes one prepared package with `insertOoxml('Replace')`, with tracking turned off during the write;
@@ -36,17 +36,19 @@ Anything else is refused with no change. A batch with an unsupported edit is ref
   - a 120-second limit per model call and 300 seconds per request;
   - after a failure that follows an edit or an attempted edit, the request stops with the edit reported and no Retry.
 
-## Evidence for v2.4.0.0 (2026-11-11, on the 0.11.1 pin)
+## Evidence for v2.4.0.0 (2026-11-14, on the 0.11.3 pin)
 
-Run on the release tree (release marker v2.4.0.0) unless a line says otherwise.
+Run on the release tree (release marker v2.4.0.0, library 0.11.3, defaults `gemini-4-hydrogen` fast and `gemini-4-argon` slow) unless a line says otherwise.
 
 - Offline suite: 41/41. The count is lower than 48 because library-only tests moved to the docx-redline-js repository on 2026-11-09.
 - Real-Word replays: NDA 16/16 steps (53 checks; step 11 is now a supported three-stage edit); privacy notice 16/16 (65 checks).
 - Taskpane checks lane (Revert, Cancel, Retry, Refresh, Settings, scripted model): 14 pass, 2 skipped by design.
 - Office.js validation: 20 cases passed. Independent desktop Word Accept All/Reject All oracle on its exports: 88/0 (22 not applicable). `npm run test:word` passed.
-- Live runs on guide v12, before the release marker changed, one run each: `gemini-flash-latest` NDA 16/16 (53 of 53) and privacy notice 16/16 (65 of 65); `gemini-4-carbon` first 11 NDA requests 35 of 35.
-- Not run: a full 16-request live run on the default slow model (`gemini-4-carbon`), and any live run on `gemini-4-argon`.
-- Open defects recorded in this cycle: KB-20 ("Revert anyway" discards later changes) and KB-21 (library: delete refused after same-author pending insertions). KB-17 (model judgement) stays open.
+- The replays and the three lanes above ran before the guide's one-sentence v13 change and the scorer change for NDA step 3; neither affects scripted runs. The offline suite was re-run after them.
+- Live runs on guide v13 with both default models, one run each: `gemini-4-hydrogen` (fast profile) NDA 16/16 (53 of 53) and privacy notice 16/16 (65 of 65); `gemini-4-argon` (slow profile) NDA 16/16 (53 of 53) and privacy notice 16/16 (65 of 65).
+- Earlier live runs in this cycle are recorded under KB-17: guide v12 on `gemini-flash-latest` (NDA and privacy, all checks) and `gemini-4-carbon` (first 11 NDA requests); guide v12 on 0.11.3 with `gemini-4-argon` (all checks) and `gemini-4-hydrogen` (NDA 50 of 53, which led to the v13 sentence and the step 3 scorer change).
+- Not run: a full live run on `gemini-4-carbon`, and no live run exercised `search_web`.
+- Library defects KB-18, KB-19 and KB-21 are closed by 0.11.3. Open: KB-17 (model judgement), KB-20 ("Revert anyway" discards later changes), KB-1 and KB-8.
 
 ## Evidence for v2.3.0.1 (2026-10-31, on the 0.11.1 pin)
 

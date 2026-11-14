@@ -223,7 +223,7 @@ AIWordPlugin/
 └── README.md
 ```
 
-> The add-in pins [`@ansonlai/docx-redline-js@0.11.1`](https://www.npmjs.com/package/@ansonlai/docx-redline-js). The library owns supported DOCX operations and package lifecycle; local consumers retain tool-to-operation mapping, host I/O, and their UI/session contracts. The add-in also retains its Flat OPC bridge and Office.js adapter. See [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the system map and [`package-boundaries.md`](docs/package-boundaries.md) for the ownership split.
+> The add-in pins [`@ansonlai/docx-redline-js@0.11.3`](https://www.npmjs.com/package/@ansonlai/docx-redline-js). The library owns supported DOCX operations and package lifecycle; local consumers retain tool-to-operation mapping, host I/O, and their UI/session contracts. The add-in also retains its Flat OPC bridge and Office.js adapter. See [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the system map and [`package-boundaries.md`](docs/package-boundaries.md) for the ownership split.
 
 ## Development
 
@@ -285,7 +285,7 @@ node tests/checkpoint_restoration_tests.mjs
 node tests/direct_document_fidelity_manifest_tests.mjs
 ```
 
-The [tool contract](docs/agentic-tool-contracts.md) defines the two tools and
+The [tool contract](docs/agentic-tool-contracts.md) defines the three tools and
 retained/refused actions. The [implementation plan](docs/plans/completed/2026-10-02-library-first-lightweight-agent-reliability.md)
 links each milestone's evidence. Actual Office.js exports and independent Word
 save/reopen/Accept All/Reject All checks remain separate from offline mocks;
@@ -317,7 +317,7 @@ refusals, turns and host commits through the production two-tool harness.
 Running it requires an environment API key and incurs provider usage. Both
 supported configured fast/slow profiles must pass before shipping the changed
 prompt; offline replay is separate evidence.
-The add-in uses Google Gemini models. Users pick the **fast** and **think** (slow) models in Settings; the selection is saved per type. When nothing is selected, [`taskpane.js`](src/taskpane/taskpane.js) falls back to `gemini-flash-latest` (fast) and `gemini-4-carbon` (slow):
+The add-in uses Google Gemini models. Users pick the **fast** and **think** (slow) models in Settings; the selection is saved per type. When nothing is selected, [`taskpane.js`](src/taskpane/taskpane.js) falls back to `gemini-4-hydrogen` (fast) and `gemini-4-argon` (slow). `gemini-4-carbon` is offered for long tasks and is very slow:
 
 ```javascript
 // In taskpane.js, loadModel returns the user's saved choice or a default:
@@ -327,7 +327,7 @@ function loadModel(type = 'fast') {
   if (storedModel && storedModel.trim() !== "") {
     return storedModel;
   }
-  return type === 'slow' ? "gemini-4-carbon" : "gemini-flash-latest";
+  return type === 'slow' ? "gemini-4-argon" : "gemini-4-hydrogen";
 }
 ```
 
@@ -382,6 +382,7 @@ After deploying the web assets, upload the generated `dist/manifest.xml`:
 1. **API keys in localStorage** - Keys are stored in browser storage (not encrypted). They are sent to Gemini only in the `x-goog-api-key` header, never in the request URL.
 2. **Production deployment** - Use environment variables or secure key management
 3. **HTTPS required** - Office Add-ins require HTTPS in production
+4. **Web search** - When the assistant searches the web, a short model-written question goes to Google Search through your Gemini key. The assistant is told not to paste document passages into it, but nothing enforces that.
 
 ## Troubleshooting
 

@@ -47,6 +47,9 @@ const plans = [
       reason: 'Conversion of existing list structure is outside the retained direct-edit scope.',
       refusalPattern: '(?:cannot|can’t|can\'t|unsupported|outside).*(?:convert|list|numbering)'
     },
+    // The recitals are one paragraph with line breaks. convert_to_list refuses that, but a model may
+    // split it itself (rewrite, insert the rest, convert), which is a supported route since guide v12.
+    orCompleted: true,
     refusal: 'I can’t convert existing list structure in this editing workflow. List conversion is unsupported, so I left the document unchanged.'
   },
   {
@@ -180,7 +183,9 @@ export const scenario = {
         scopeDisposition: plan.scopeDisposition,
         persist: false,
         replay: [{ chat: { text: plan.refusal } }],
-        checks: [{ type: 'scopeDisposition', label: 'unsupported operation explicitly refused without changing the document' }],
+        checks: [plan.orCompleted
+          ? { type: 'scopeDisposition', label: 'refused without changing the document, or carried out and verified', orCompleted: legacyStep.checks }
+          : { type: 'scopeDisposition', label: 'unsupported operation explicitly refused without changing the document' }],
         deferredChecks: legacyStep.checks
       };
     }

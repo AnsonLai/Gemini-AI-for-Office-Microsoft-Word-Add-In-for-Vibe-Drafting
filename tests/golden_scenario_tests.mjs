@@ -385,6 +385,22 @@ assert.equal(regressed.length, 0, 'never-passed earlier checks are not repeated'
     functionResponseHistory: { apply_document_edits: [{ ...refusedReceipt, written: true }, commitReceipt] }
   }).ok, false, 'a partially written failed batch still fails');
 }
+// A refusal step that also accepts a verified completion (NDA step 3): either outcome passes,
+// a half-done or unverified change does not.
+{
+  const recitalsStep = directScenario.steps.find(step => step.id === '03-recitals-list');
+  assert.ok(recitalsStep.checks[0].orCompleted?.length > 0, 'step 3 names its completion checks');
+  const check = { type: 'scopeDisposition', orCompleted: [{ type: 'text', text: { includes: 'Rewritten clause' } }] };
+  const done = structuredClone(beforeScope);
+  done.paragraphs[0].text = 'Rewritten clause';
+  done.paragraphs[0].runs[0].text = 'Rewritten clause';
+  const context = replay => ({ own: true, previousModel: beforeScope, transcript: ['Gemini: Done.'], replay, disposition: refusalCheck });
+  assert.equal(evaluateCheck(done, check, context(directEvidence)).ok, true, 'a verified completion passes');
+  assert.equal(evaluateCheck(done, check, context({ ...directEvidence,
+    functionResponseHistory: { apply_document_edits: [{ ...commitReceipt, verified: false }] } })).ok, false, 'an unverified write does not');
+  assert.equal(evaluateCheck(beforeScope, check, context(directEvidence)).ok, false, 'a write that misses the completion checks does not');
+  assert.equal(evaluateCheck(done, { type: 'scopeDisposition' }, context(directEvidence)).ok, false, 'other refusal steps still require a refusal');
+}
 // Word's background proofing splits runs and duplicates a run's tracked formatting change;
 // counting logical revisions keeps that from looking like a document change.
 {

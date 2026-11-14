@@ -320,7 +320,7 @@ export function evaluateScopeDisposition(previousModel, model, transcript, repla
     const ok = explicitRefusal && noWriteCall && noNestedCalls && unchanged;
     return {
         ok,
-        detail: `explicit refusal=${explicitRefusal}; nothing written=${noWriteCall} (${writeCalls.length} refused edit call(s)); no nested model calls=${noNestedCalls}; semantic document unchanged=${unchanged}`
+        detail: `explicit refusal=${explicitRefusal}; nothing written=${noWriteCall} (${writeCalls.length} edit call(s)); no nested model calls=${noNestedCalls}; semantic document unchanged=${unchanged}`
             + (assistantText ? `; response=${JSON.stringify(assistantText.replace(/^Gemini:\s*/i, '').trim().slice(0, 180))}` : '; assistant response missing')
     };
 }
@@ -419,8 +419,17 @@ function occurrenceFormats(paragraph, text) {
 
 const CHECKS = {
     /** A gated operation must be explicitly refused without a write or any accepted-view change. */
-    scopeDisposition(model, _check, context = {}) {
-        return evaluateScopeDisposition(context.previousModel, model, context.transcript, context.replay, context.disposition);
+    scopeDisposition(model, check, context = {}) {
+        const refusal = evaluateScopeDisposition(context.previousModel, model, context.transcript, context.replay, context.disposition);
+        if (refusal.ok || !Array.isArray(check.orCompleted) || check.orCompleted.length === 0) return refusal;
+        // A step may also be satisfied by carrying the request out: every completion check passes
+        // and each edit batch is a verified commit. Anything in between still fails.
+        const completed = check.orCompleted.map(item => evaluateCheck(model, item, context));
+        const evidence = evaluateDirectToolEvidence(context.replay);
+        if (completed.every(item => item.ok) && evidence.ok) {
+            return { ok: true, detail: `carried out and verified instead of refused: ${completed.map(item => item.detail).join('; ')}; ${evidence.detail}` };
+        }
+        return { ok: false, detail: `${refusal.detail}; not a verified completion either (completion checks passed=${completed.filter(item => item.ok).length}/${completed.length}; edit evidence ok=${evidence.ok})` };
     },
     directToolEvidence(_model, _check, context = {}) {
         return evaluateDirectToolEvidence(context.replay);
