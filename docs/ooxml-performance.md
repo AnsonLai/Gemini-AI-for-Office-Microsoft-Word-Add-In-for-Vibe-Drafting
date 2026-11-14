@@ -9,7 +9,7 @@
 > for the final measured source reduction. No universal latency gate is added.
 
 Performance observations are separate from fidelity gates. The add-in pins
-exact `@ansonlai/docx-redline-js@0.11.1`. The dated performance reports below
+exact `@ansonlai/docx-redline-js@0.11.3`. The dated performance reports below
 measured 0.8.2; they have not been rerun on later versions as timing evidence. A slower large document does not justify
 changing its tracked-change semantics.
 

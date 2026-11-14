@@ -869,9 +869,8 @@ const paragraphMarkTracked = paragraph => /<w:ins\b/.test(paragraph.match(/<w:pP
     await assert.rejects(() => compileFor(pkg, edits), error => error.code === 'CONFLICTING_DOCUMENT_EDITS' && pattern.test(error.message), String(pattern));
   }
 }
-// KB-19 (library 0.11.1): a replacement in a paragraph whose bold is still a pending
-// same-author format change drops that bold. Reported, not worked around; this prints a
-// KNOWN_LIBRARY_DEFECT line while the library still drops it.
+// Regression: KB-19, a replacement in a paragraph whose bold is still a pending same-author
+// format change used to drop that bold. Fixed in library 0.11.3.
 {
   const AUTHOR = 'Intent Compiler Test';
   const pending = makePackage(`<w:p><w:r><w:t xml:space="preserve">This notice explains how </w:t></w:r><w:r><w:rPr><w:b/><w:rPrChange w:id="900" w:author="${AUTHOR}" w:date="2026-10-31T00:00:00Z"><w:rPr/></w:rPrChange></w:rPr><w:t>Maple Clinic</w:t></w:r><w:r><w:t xml:space="preserve"> collects your information.</w:t></w:r></w:p>`);
@@ -881,6 +880,6 @@ const paragraphMarkTracked = paragraph => /<w:ins\b/.test(paragraph.match(/<w:pP
   const accepted = acceptTrackedChangesInOoxml(prepared.insertionPayload, { allAuthors: true }).oxml;
   const boldKept = [...accepted.slice(accepted.indexOf('<w:body>')).matchAll(/<w:r\b[^>]*>([\s\S]*?)<\/w:r>/g)]
     .some(match => /<w:b\b(?![^>]*w:val="(?:0|false)")/.test(match[1]) && /Maple Clinic/.test(match[1]));
-  if (!boldKept) console.log('KNOWN_LIBRARY_DEFECT: KB-19 a replacement drops a pending same-author bold in the same paragraph (docx-redline-js 0.11.1)');
+  assert.ok(boldKept, 'pending same-author bold must survive a replacement in the same paragraph (KB-19)');
 }
 console.log('PASS: typed document edit intent compiler tests');

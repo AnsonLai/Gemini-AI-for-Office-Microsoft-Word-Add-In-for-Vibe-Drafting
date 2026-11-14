@@ -3,7 +3,7 @@
 The Word plugin uses two document tools, `inspect_document` and
 `apply_document_edits`, plus `search_web` for facts the document does not
 contain. A small serial harness lets Gemini propose concrete source-bound
-edits. `@ansonlai/docx-redline-js@0.11.1` (exact pin in the single root
+edits. `@ansonlai/docx-redline-js@0.11.3` (exact pin in the single root
 `package.json`) owns the transformations; Office.js transports the current Word
 body and preserves host state.
 

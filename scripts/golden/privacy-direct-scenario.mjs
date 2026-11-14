@@ -214,8 +214,8 @@ const steps = [
     ]
   },
   {
-    // Two separate wording changes in one paragraph go in one batch. (Not the opening paragraph:
-    // its pending same-author bold from step 02 is lost by any later replacement, KB-19.)
+    // Two separate wording changes in one paragraph go in one batch. (The step was written to avoid the
+    // opening paragraph while library 0.11.1 lost its pending bold on a later replacement; fixed in 0.11.3.)
     id: '15-two-word-changes',
     prompt: 'In the contact details bullet, change "name" to "full name" and "email" to "email address".',
     replay: [
