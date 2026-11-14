@@ -97,4 +97,22 @@ const grounded = (text, chunks = []) => ({ candidates: [{
   assert.equal(state.records[0].readOnly, true);
 }
 
+// The executor caps the searches of one user request; over the limit nothing is sent.
+{
+  let sent = 0;
+  const reply = { candidates: [{ content: { parts: [{ text: 'An answer.' }] } }] };
+  const searchWeb = createWebSearch({ request: async () => { sent += 1; return reply; }, maxSearches: 2 });
+  assert.equal((await searchWeb({ query: 'one?' })).status, 'ok');
+  assert.equal((await searchWeb({ query: '' })).error.code, 'INVALID_SEARCH_QUERY', 'an invalid query is not counted');
+  assert.equal((await searchWeb({ query: 'two?' })).status, 'ok');
+  const over = await searchWeb({ query: 'three?' });
+  assert.equal(over.error.code, 'WEB_SEARCH_LIMIT');
+  assert.match(over.error.message, /all 2 of its web searches/);
+  assert.equal(sent, 2, 'no request is sent over the limit');
+  let defaultSent = 0;
+  const byDefault = createWebSearch({ request: async () => { defaultSent += 1; return reply; }, maxSearches: 'many' });
+  for (let i = 0; i < 7; i += 1) await byDefault({ query: `q${i}?` });
+  assert.equal(defaultSent, 5, 'the default limit is five, also for an invalid setting');
+}
+
 console.log('PASS: search_web grounds one separate request, labels results, and cannot unlock refused edits');

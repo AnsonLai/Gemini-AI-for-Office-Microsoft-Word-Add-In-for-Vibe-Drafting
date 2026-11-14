@@ -201,7 +201,7 @@ const glanceQuestions = (count = 2) => JSON.stringify(Array.from({ length: count
 function setStore(extra = {}) {
     const store = { geminiApiKey: DUMMY_KEY, geminiModelFast: 'gemini-flash-latest', geminiModelSlow: 'gemini-2.5-pro',
         redlineEnabled: 'true', redlineAuthor: 'Checks', glanceAutoRun: 'false', glanceSettings: glanceQuestions(2), ...extra };
-    for (const key of ['geminiSystemMessage']) if (!(key in store)) localStorage.removeItem(key);
+    for (const key of ['geminiSystemMessage', 'webSearchLimit']) if (!(key in store)) localStorage.removeItem(key);
     for (const [key, value] of Object.entries(store)) {
         if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, value);
     }
@@ -483,6 +483,13 @@ check('M10', 'Failure after only reading vs failure after an applied edit', asyn
     t.ok((resent[0]?.payload.contents || []).length === 1, 'history held only the new prompt (failed attempt dropped)', `contents ${resent[0]?.payload.contents.length}`);
     t.ok(msgs().some(el => role(el) === 'gemini' && /Done\./.test(el.innerText)), 'retried request completed');
 
+    // A2: any other failure after reading only (HTTP 400) also offers Retry
+    await reset();
+    chatQueue = [inspectStep(PHRASE), httpError(400)];
+    await sendAndWait('M10A2 marker question');
+    const httpErrorEl = msgs().find(el => role(el) === 'error');
+    t.ok(Boolean(httpErrorEl) && buttonsOf(httpErrorEl).some(label => label.includes('Retry')), 'HTTP 400 after reading only: Retry offered', dump());
+
     // B1: empty reply after an applied edit; B2: HTTP 400 after an applied edit
     for (const [name, failure] of [['empty reply', emptyReply], ['HTTP 400', httpError(400)]]) {
         await reset();
@@ -603,6 +610,12 @@ check('M13', 'Settings: no Save button; fields save on change; key removal and r
     const system = $('system-message-input');
     system.value = 'M13 custom system prompt'; fire(system, 'change');
     t.ok(statusText() === 'Saved.' && localStorage.getItem('geminiSystemMessage') === 'M13 custom system prompt', 'system prompt saves on change', statusText());
+    const searches = $('web-search-limit-input');
+    t.ok(searches.value === '5', 'web search limit shows the default 5', searches.value);
+    searches.value = '9'; fire(searches, 'change');
+    t.ok(statusText() === 'Saved.' && localStorage.getItem('webSearchLimit') === '9', 'web search limit saves on change', statusText());
+    searches.value = '40'; fire(searches, 'change');
+    t.ok(statusText().startsWith('Enter a whole number') && localStorage.getItem('webSearchLimit') === '9' && searches.value === '9', 'web search limit 40 shows an error and is not saved', `${statusText()} | field ${searches.value}`);
     const key = $('api-key-input');
     key.value = `${DUMMY_KEY}-two`; fire(key, 'change');
     t.ok(statusText() === 'Saved.' && localStorage.getItem('geminiApiKey') === `${DUMMY_KEY}-two`, 'API key saves on change', statusText());

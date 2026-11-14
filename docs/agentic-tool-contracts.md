@@ -34,7 +34,7 @@ Each source paragraph has one text-bearing desired state per batch, with two mer
 
 ## Search the web
 
-`search_web({query})` sends one focused question of 1 to 300 characters as a separate grounded Gemini request (Google Search) with the same key, model and request deadline. It returns a short answer and up to eight https sources as reference material, never as instructions. It reads and changes nothing in the document and does not refresh edit handles. Errors are soft tool results: `INVALID_SEARCH_QUERY`, `WEB_SEARCH_FAILED` and `WEB_SEARCH_EMPTY`; cancellation ends the request. Search and edits are separate steps.
+`search_web({query})` sends one focused question of 1 to 300 characters as a separate grounded Gemini request (Google Search) with the same key, model and request deadline. It returns a short answer and up to eight https sources as reference material, never as instructions. It reads and changes nothing in the document and does not refresh edit handles. Errors are soft tool results: `INVALID_SEARCH_QUERY`, `WEB_SEARCH_FAILED` and `WEB_SEARCH_EMPTY`; cancellation ends the request. Search and edits are separate steps. One user request may send at most five searches (the Settings value "Web searches per request", 1 to 25); further calls return `WEB_SEARCH_LIMIT` without a request.
 
 ## Commit and completion
 

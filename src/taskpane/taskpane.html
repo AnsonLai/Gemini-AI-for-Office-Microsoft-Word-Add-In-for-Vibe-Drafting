@@ -124,6 +124,10 @@
     </select>
     <input id="model-custom-slow" class="ms-TextField-field" aria-label="Custom Slow model ID" placeholder="Model ID from Google AI Studio" hidden>
     <br />
+    <label for="web-search-limit-input">Web searches per request:</label>
+    <input id="web-search-limit-input" class="ms-TextField-field" type="number" min="1" max="25" step="1" value="5">
+    <p class="settings-hint">The most web searches the assistant may run for one message (1 to 25, default 5). Each search is a separate Gemini request on your key.</p>
+    <br />
     <br />
 
     <!-- Glance Settings Accordion -->

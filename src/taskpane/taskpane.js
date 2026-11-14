@@ -1,6 +1,6 @@
 import { requestGemini, requestGeminiJson, geminiEndpoint } from './modules/chat/gemini-client.js';
 import { populateModelSetting, readModelSetting } from './modules/config/model-settings.js';
-import { saveApiKeySetting, saveModelSettingFrom, saveSystemMessageSetting } from './modules/config/settings-save.js';
+import { loadWebSearchLimit, saveApiKeySetting, saveModelSettingFrom, saveSystemMessageSetting, saveWebSearchLimitSetting } from './modules/config/settings-save.js';
 import { createLazyModuleLoader } from './modules/utils/lazy-module-loader.js';
 import { postTaskpaneStartupProfile } from './modules/diagnostics/startup-profile-reporter.js';
 /*
@@ -251,6 +251,14 @@ Office.onReady((info) => {
       renderGlanceSettings();
     };
 
+    document.getElementById("web-search-limit-input").onchange = (e) => {
+      const result = saveWebSearchLimitSetting(localStorage, e.target.value);
+      if (result.ok) showSettingsStatus("Saved.", { saved: true });
+      else {
+        e.target.value = loadWebSearchLimit(localStorage);
+        showSettingsStatus(result.error);
+      }
+    };
     document.getElementById("glance-autorun-toggle").onchange = (e) => {
       saveGlanceAutoRun(e.target.checked);
     };
@@ -436,6 +444,7 @@ function showSettingsView() {
   // Render Glance settings
   renderGlanceSettings();
   document.getElementById("glance-autorun-toggle").checked = loadGlanceAutoRun();
+  document.getElementById("web-search-limit-input").value = loadWebSearchLimit(localStorage);
 
   // Load redline setting
   const redlineEnabled = loadRedlineSetting();
@@ -1259,6 +1268,7 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
     const searchWeb = createWebSearch({
       request: payload => callGeminiWithRetry(apiUrl, payload, modelProfile.retries, 1000, requestController.signal, requestDeadline, geminiApiKey),
       safetySettings: SAFETY_SETTINGS_BLOCK_NONE,
+      maxSearches: loadWebSearchLimit(localStorage),
     });
     try {
       await runDocumentAgentLoop({
@@ -1371,8 +1381,8 @@ async function sendChatMessage(modelType = 'fast', messageOverride = null) {
 
       const errorMsgEl = addMessageToChat("Error", errorMessage);
 
-      // Add retry button if it's the specific missing content error
-      if (error.message && error.message.includes("Gemini response was missing content.parts")) {
+      // Nothing was written or attempted, so offering the question again cannot repeat an edit.
+      if (!wroteOrAttempted(requestRecords)) {
         addRetryButton(errorMsgEl, userMessage);
       }
     }

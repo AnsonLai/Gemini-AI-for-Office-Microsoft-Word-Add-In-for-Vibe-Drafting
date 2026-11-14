@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
-import { saveApiKeySetting, saveModelSettingFrom, saveSystemMessageSetting } from '../src/taskpane/modules/config/settings-save.js';
+import { loadWebSearchLimit, saveApiKeySetting, saveModelSettingFrom, saveSystemMessageSetting, saveWebSearchLimitSetting } from '../src/taskpane/modules/config/settings-save.js';
 import { populateModelSetting, readModelSetting } from '../src/taskpane/modules/config/model-settings.js';
 
 const html = readFileSync(new URL('../src/taskpane/taskpane.html', import.meta.url), 'utf8');
@@ -58,6 +58,20 @@ const makeStorage = (initial = {}) => {
   const storage = makeStorage();
   saveSystemMessageSetting(storage, 'Be brief.');
   assert.equal(storage.getItem('geminiSystemMessage'), 'Be brief.');
+}
+
+// Web searches per request: default 5, whole numbers 1 to 25 only, invalid input is not saved.
+{
+  const storage = makeStorage();
+  assert.equal(loadWebSearchLimit(storage), 5);
+  assert.deepEqual(saveWebSearchLimitSetting(storage, ' 12 '), { ok: true, value: 12 });
+  assert.equal(loadWebSearchLimit(storage), 12);
+  for (const bad of ['0', '26', '2.5', '-1', 'ten', '']) {
+    assert.equal(saveWebSearchLimitSetting(storage, bad).ok, false, `${JSON.stringify(bad)} is refused`);
+  }
+  assert.equal(loadWebSearchLimit(storage), 12, 'a refused value leaves the saved one');
+  storage.setItem('webSearchLimit', '999');
+  assert.equal(loadWebSearchLimit(storage), 5, 'an out-of-range stored value falls back to the default');
 }
 
 // Settings has no Save button any more: every field saves on change, and Back only leaves.

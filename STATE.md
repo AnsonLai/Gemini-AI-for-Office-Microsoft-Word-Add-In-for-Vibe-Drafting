@@ -34,7 +34,8 @@ Anything else is refused with no change. A batch with an unsupported edit is ref
   - two failed edit cycles before a stop that says why;
   - one request for a closing summary if the model ends silently after an edit;
   - a 120-second limit per model call and 300 seconds per request;
-  - after a failure that follows an edit or an attempted edit, the request stops with the edit reported and no Retry.
+  - after a failure that follows an edit or an attempted edit, the request stops with the edit reported and no Retry; after any other failure Retry puts the question back in the input;
+  - at most five web searches per request (Settings, 1 to 25).
 
 ## Evidence for v2.4.0.0 (2026-11-14, on the 0.11.3 pin)
 
@@ -44,7 +45,8 @@ Run on the release tree (release marker v2.4.0.0, library 0.11.3, defaults `gemi
 - Real-Word replays: NDA 16/16 steps (53 checks; step 11 is now a supported three-stage edit); privacy notice 16/16 (65 checks).
 - Taskpane checks lane (Revert, Cancel, Retry, Refresh, Settings, scripted model): 14 pass, 2 skipped by design.
 - Office.js validation: 20 cases passed. Independent desktop Word Accept All/Reject All oracle on its exports: 88/0 (22 not applicable). `npm run test:word` passed.
-- The replays and the three lanes above ran before the guide's one-sentence v13 change and the scorer change for NDA step 3; neither affects scripted runs. The offline suite was re-run after them.
+- The offline suite, both replays and the taskpane checks lane were re-run on the final tree, after guide v13, the Retry change and the web search limit (the lane now checks Retry after an HTTP error and the search-limit setting). The Office.js validation, the oracle and `npm run test:word` ran on 0.11.3 before those three changes, which do not touch the edit path they exercise.
+- The live runs below were made before the Retry change and the web search limit, which do not change the prompt or the edit path.
 - Live runs on guide v13 with both default models, one run each: `gemini-4-hydrogen` (fast profile) NDA 16/16 (53 of 53) and privacy notice 16/16 (65 of 65); `gemini-4-argon` (slow profile) NDA 16/16 (53 of 53) and privacy notice 16/16 (65 of 65).
 - Earlier live runs in this cycle are recorded under KB-17: guide v12 on `gemini-flash-latest` (NDA and privacy, all checks) and `gemini-4-carbon` (first 11 NDA requests); guide v12 on 0.11.3 with `gemini-4-argon` (all checks) and `gemini-4-hydrogen` (NDA 50 of 53, which led to the v13 sentence and the step 3 scorer change).
 - Not run: a full live run on `gemini-4-carbon`, and no live run exercised `search_web`.
