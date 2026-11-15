@@ -1,4 +1,4 @@
-# Known bugs: closed entries in v2.4.0.0
+# Known bugs: closed entries in v2.4.0.1
 
 Closed on 2026-11-14 by `@ansonlai/docx-redline-js` 0.11.3 (0.11.2 was never published; 0.11.3 is the same code). The entries are moved here from [KNOWN_BUGS](../KNOWN_BUGS.md), with the original text unchanged except for the added closing note.
 

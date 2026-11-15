@@ -1,6 +1,6 @@
 # Known bugs and host-boundary exceptions
 
-**Updated:** 2026-11-14 (KB-18, KB-19 and KB-21 closed by library 0.11.3). Baseline 2026-10-30, now on `@ansonlai/docx-redline-js` 0.11.3 (exact pin). Closed entries KB-2 to KB-16 are archived, unchanged, in [closed entries through v2.3.0.0](completed/2026-10-30-known-bugs-closed-v2.3.0.0.md); KB-18, KB-19 and KB-21 are in [closed entries in v2.4.0.0](completed/2026-11-14-known-bugs-closed-v2.4.0.0.md).
+**Updated:** 2026-11-14 (KB-18, KB-19 and KB-21 closed by library 0.11.3). Baseline 2026-10-30, now on `@ansonlai/docx-redline-js` 0.11.3 (exact pin). Closed entries KB-2 to KB-16 are archived, unchanged, in [closed entries through v2.3.0.0](completed/2026-10-30-known-bugs-closed-v2.3.0.0.md); KB-18, KB-19 and KB-21 are in [closed entries in v2.4.0.1](completed/2026-11-14-known-bugs-closed-v2.4.0.1.md).
 
 This file tracks three things:
 

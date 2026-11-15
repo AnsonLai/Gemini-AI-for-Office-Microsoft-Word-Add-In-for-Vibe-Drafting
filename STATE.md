@@ -1,10 +1,10 @@
 # Project state: Gemini Word add-in
 
-**Updated:** 2026-11-11, at release v2.4.0.0 ([release notes](docs/release/v2.4.0.0.md); previous: [v2.3.0.1](docs/release/v2.3.0.1.md), [v2.3.0.0](docs/release/v2.3.0.0.md)). Open bugs, deferred work and the Word JS API inventory are in [KNOWN_BUGS.md](docs/plans/KNOWN_BUGS.md).
+**Updated:** 2026-11-14, at release v2.4.0.1 ([release notes](docs/release/v2.4.0.1.md); v2.4.0.0 was scrapped for bugs and replaced by this release; previous: [v2.3.0.1](docs/release/v2.3.0.1.md), [v2.3.0.0](docs/release/v2.3.0.0.md)). Open bugs, deferred work and the Word JS API inventory are in [KNOWN_BUGS.md](docs/plans/KNOWN_BUGS.md).
 
 ## What the add-in does
 
-The add-in gives Gemini three tools: `inspect_document`, which returns focused text and opaque edit handles; `apply_document_edits`, which applies one typed batch; and `search_web` (since v2.4.0.0), a separate grounded Gemini search for facts the document does not contain.
+The add-in gives Gemini three tools: `inspect_document`, which returns focused text and opaque edit handles; `apply_document_edits`, which applies one typed batch; and `search_web` (since v2.4.0.1), a separate grounded Gemini search for facts the document does not contain.
 
 **Supported edits:**
 
@@ -12,7 +12,7 @@ The add-in gives Gemini three tools: `inspect_document`, which returns focused t
 - paragraph insertion, appending and deletion, where each line of inserted text becomes its own paragraph (since 2026-10-31);
 - list item insertion at the first two levels, one or more items at once;
 - turning paragraphs into a list, changing list numbering, and continuing an earlier list;
-- new bulleted or numbered lists from new text, in two stages (insert plain paragraphs, then convert them; since v2.4.0.0);
+- new bulleted or numbered lists from new text, in two stages (insert plain paragraphs, then convert them; since v2.4.0.1);
 - comments, several per paragraph;
 - bold, italic, underline, strikethrough and yellow highlight, on several separate pieces of one paragraph;
 - table-cell text.
@@ -37,9 +37,9 @@ Anything else is refused with no change. A batch with an unsupported edit is ref
   - after a failure that follows an edit or an attempted edit, the request stops with the edit reported and no Retry; after any other failure Retry puts the question back in the input;
   - at most five web searches per request (Settings, 1 to 25).
 
-## Evidence for v2.4.0.0 (2026-11-14, on the 0.11.3 pin)
+## Evidence for v2.4.0.1 (2026-11-14, on the 0.11.3 pin)
 
-Run on the release tree (release marker v2.4.0.0, library 0.11.3, defaults `gemini-4-hydrogen` fast and `gemini-4-argon` slow) unless a line says otherwise.
+Run on the release tree (release marker v2.4.0.1, library 0.11.3, defaults `gemini-4-hydrogen` fast and `gemini-4-argon` slow) unless a line says otherwise.
 
 - Offline suite: 41/41. The count is lower than 48 because library-only tests moved to the docx-redline-js repository on 2026-11-09.
 - Real-Word replays: NDA 16/16 steps (53 checks; step 11 is now a supported three-stage edit); privacy notice 16/16 (65 checks).
@@ -50,6 +50,7 @@ Run on the release tree (release marker v2.4.0.0, library 0.11.3, defaults `gemi
 - Live runs on guide v13 with both default models, one run each: `gemini-4-hydrogen` (fast profile) NDA 16/16 (53 of 53) and privacy notice 16/16 (65 of 65); `gemini-4-argon` (slow profile) NDA 16/16 (53 of 53) and privacy notice 16/16 (65 of 65).
 - Earlier live runs in this cycle are recorded under KB-17: guide v12 on `gemini-flash-latest` (NDA and privacy, all checks) and `gemini-4-carbon` (first 11 NDA requests); guide v12 on 0.11.3 with `gemini-4-argon` (all checks) and `gemini-4-hydrogen` (NDA 50 of 53, which led to the v13 sentence and the step 3 scorer change).
 - Not run: a full live run on `gemini-4-carbon`, and no live run exercised `search_web`.
+- The lanes above ran on the tree with release marker v2.4.0.0. The only change since is the marker and the docs, after which `npm test` (41 suites passed, 0 failed) and the production build (webpack compiled, `dist/taskpane.html` carries v2.4.0.1) were re-run. No Word lane was re-run.
 - Library defects KB-18, KB-19 and KB-21 are closed by 0.11.3. Open: KB-17 (model judgement), KB-20 ("Revert anyway" discards later changes), KB-1 and KB-8.
 
 ## Evidence for v2.3.0.1 (2026-10-31, on the 0.11.1 pin)
